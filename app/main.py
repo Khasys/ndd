@@ -38,7 +38,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 log = logging.getLogger("domain-watch")
 
 STATIC = Path(__file__).parent / "static"
-PUBLIC_PATHS = {"/login", "/health", "/favicon.svg", "/logo"}
+PWA_PATHS = {"/manifest.webmanifest", "/sw.js", "/offline"}
+PUBLIC_PATHS = {"/login", "/health", "/favicon.svg", "/logo", *PWA_PATHS}
 SETUP_PATHS = {"/setup", "/health", "/favicon.svg", "/logo"}
 BCRYPT_HASH = re.compile(r"\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}")
 
@@ -89,13 +90,14 @@ async def lifespan(app: FastAPI):
         await signals.update_due(conn, limit=20)
 
     now = datetime.now(timezone.utc)
-    scheduler.add_job(refresh_latest, "interval", hours=24, next_run_time=now, max_instances=1)
+    scheduler.add_job(refresh_latest, "interval", hours=24, next_run_time=now, max_instances=1, id="latest")
     scheduler.add_job(send_digest, "interval", minutes=15, max_instances=1)
     scheduler.add_job(refresh_signals, "interval", hours=1, next_run_time=now + timedelta(minutes=2), max_instances=1)
     scheduler.start()
     telegram.start()
 
     app.state.refresh_latest = refresh_latest
+    app.state.scheduler = scheduler
     app.state.store = store
     app.state.telegram = telegram
     app.state.settings = settings
@@ -265,6 +267,11 @@ async def login(request: Request, username: str = Form(""), password: str = Form
         return _page("login.html", ERROR="Identifiant ou mot de passe incorrect.")
     state.guard.success(client)
     response = RedirectResponse("/", status_code=303)
+    _set_session(response, state)
+    return response
+
+
+def _set_session(response: Response, state) -> None:
     response.set_cookie(
         COOKIE_NAME,
         state.sessions.create(state.settings.username),
@@ -273,7 +280,6 @@ async def login(request: Request, username: str = Form(""), password: str = Form
         samesite="strict",
         secure=state.settings.cookie_secure,
     )
-    return response
 
 
 @app.post("/logout")
@@ -284,8 +290,48 @@ async def logout():
 
 
 @app.get("/", response_class=HTMLResponse)
-async def index():
-    return _page("index.html")
+async def index(request: Request):
+    response = _page("index.html")
+    # Session glissante : l'appli installée sur le téléphone ne redemande pas le mot de passe
+    # tant qu'elle est ouverte au moins une fois par période SESSION_MAX_AGE.
+    _set_session(response, request.app.state)
+    return response
+
+
+@app.get("/manifest.webmanifest")
+async def manifest():
+    store = app.state.store
+    name = store.get("app_name") or DEFAULT_NAME
+    icons = [
+        {"src": f"/static/icons/icon-{size}.png?v={VERSION}", "sizes": f"{size}x{size}", "type": "image/png", "purpose": "any"}
+        for size in (192, 512)
+    ] + [{"src": f"/static/icons/maskable-512.png?v={VERSION}", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}]
+    body = {
+        "name": name,
+        "short_name": name[:12],
+        "description": "Surveillance de noms de domaine",
+        "lang": "fr",
+        "id": "/",
+        "start_url": "/",
+        "scope": "/",
+        "display": "standalone",
+        "background_color": "#14171c",
+        "theme_color": "#1d5c66",
+        "icons": icons,
+    }
+    return JSONResponse(body, media_type="application/manifest+json", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/sw.js")
+async def service_worker():
+    content = (STATIC / "sw.js").read_text().replace("{{VERSION}}", VERSION)
+    # Servi depuis la racine pour couvrir toute l'appli.
+    return Response(content, media_type="text/javascript", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/offline", response_class=HTMLResponse)
+async def offline():
+    return _page("offline.html")
 
 
 def _serialize(row: sqlite3.Row, checker: Checker) -> dict:
@@ -342,7 +388,15 @@ async def meta(request: Request):
         "update_available": updates.newer(VERSION, request.app.state.latest_version),
         "latest_version": request.app.state.latest_version,
         "version_checked_at": request.app.state.version_checked_at,
+        "version_next_check": _next_version_check(request.app),
     }
+
+
+def _next_version_check(app_: FastAPI) -> str | None:
+    job = app_.state.scheduler.get_job("latest") if hasattr(app_.state, "scheduler") else None
+    if job is None or job.next_run_time is None:
+        return None
+    return iso(job.next_run_time.astimezone(timezone.utc))
 
 
 @app.get("/api/domains")
@@ -409,6 +463,10 @@ async def check_all(request: Request):
 @app.post("/api/version/check")
 async def check_version(request: Request):
     await request.app.state.refresh_latest()
+    # Vérification manuelle : la prochaine automatique repart pour 24 h.
+    job = request.app.state.scheduler.get_job("latest")
+    if job is not None:
+        job.modify(next_run_time=utcnow() + timedelta(hours=24))
     return await meta(request)
 
 

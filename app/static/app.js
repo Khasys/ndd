@@ -57,6 +57,7 @@ const DAY = 86400000;
 const dateFmt = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
 const longFmt = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long", year: "numeric" });
 const timeFmt = new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit" });
+const stampFmt = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 const exactFmt = new Intl.DateTimeFormat("fr-FR", { dateStyle: "full", timeStyle: "short" });
 
 function frequency(seconds) {
@@ -108,8 +109,41 @@ document.addEventListener("alpine:init", () => {
         this.$watch(key, () => this.saveFilters());
       }
       this.load();
+      // Sur téléphone, le focus automatique ouvrirait le clavier à chaque lancement.
+      if (!this.mobile) this.$nextTick(() => this.$refs.input.focus());
       setInterval(() => (this.now = Date.now()), 30000);
       setInterval(() => this.load(true), 60000);
+      // Appli installée : retour au premier plan après une pause, données à rafraîchir.
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") { this.now = Date.now(); this.load(true); }
+      });
+      this.$watch("legendOpen", () => this.lockScroll());
+      this.$watch("settingsOpen", () => this.lockScroll());
+      if ("serviceWorker" in navigator && window.isSecureContext) {
+        navigator.serviceWorker.register("/sw.js").catch(() => {});
+      }
+    },
+
+    get mobile() { return window.matchMedia("(max-width: 640px)").matches; },
+
+    lockScroll() {
+      document.body.classList.toggle("sheet-open", this.mobile && (this.legendOpen || this.settingsOpen));
+    },
+
+    showList() {
+      this.legendOpen = false;
+      this.settingsOpen = false;
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    },
+
+    async openSheet(name) {
+      if (name === "legend") {
+        this.settingsOpen = false;
+        this.legendOpen = !this.legendOpen;
+      } else {
+        this.legendOpen = false;
+        await this.toggleSettings();
+      }
     },
 
     async api(method, url, body) {
@@ -306,9 +340,11 @@ document.addEventListener("alpine:init", () => {
 
     get versionStatus() {
       if (!this.meta) return "";
-      if (!this.meta.version_checked_at) return "Dernière version publiée inconnue.";
-      const when = this.relative(this.meta.version_checked_at);
-      return this.versionState === "ok" ? `À jour, vérifié ${when}.` : `Vérifié ${when}.`;
+      return { ok: "À jour.", outdated: "Mise à jour disponible.", unknown: "Dernière version publiée inconnue." }[this.versionState];
+    },
+
+    stamp(v) {
+      return v ? `${this.relative(v)} (${stampFmt.format(new Date(v))})` : "jamais";
     },
 
     async checkVersion() {

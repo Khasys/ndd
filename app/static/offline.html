@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="fr"{{THEME_ATTR}}>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="{{COLOR_SCHEME}}">
+<title>Hors ligne · {{APP_NAME}}</title>
+<link rel="stylesheet" href="/static/style.css?v={{VERSION}}">
+</head>
+<body>
+<main class="login-page">
+  <div class="login">
+    {{BRAND}}
+    <p>Le NAS ne répond pas.</p>
+    <p class="muted small">Vérifier la connexion du téléphone, ou que le NAS est joignable depuis ce réseau.</p>
+    <button type="button" class="btn" onclick="location.replace('/')">Réessayer</button>
+  </div>
+</main>
+</body>
+</html>

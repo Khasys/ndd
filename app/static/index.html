@@ -2,10 +2,18 @@
 <html lang="fr"{{THEME_ATTR}}>
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="{{COLOR_SCHEME}}">
 <title>{{APP_NAME}}</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="{{APP_NAME}}">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#f7f8fa" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#14171c" media="(prefers-color-scheme: dark)">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
@@ -34,12 +42,16 @@
   <form class="add" @submit.prevent="add()">
     <label class="visually-hidden" for="new-domain">Domaine à surveiller</label>
     <input id="new-domain" x-ref="input" x-model="newName" type="text" inputmode="url" autocomplete="off"
-           autocapitalize="off" spellcheck="false" placeholder="nomdedomaine.fr" :disabled="adding" autofocus>
+           autocapitalize="off" spellcheck="false" placeholder="nomdedomaine.fr" :disabled="adding">
     <button type="submit" class="btn" :disabled="adding || !newName.trim()" x-text="adding ? 'Vérification' : 'Ajouter'"></button>
   </form>
-  <p class="notice" :class="notice && notice.kind" role="status" aria-live="polite" x-text="notice ? notice.text : ''"></p>
+  <p class="notice" :class="[notice && notice.kind, notice ? 'shown' : '']" role="status" aria-live="polite" @click="notice = null" x-text="notice ? notice.text : ''"></p>
 
-  <section class="legend" x-show="legendOpen" x-transition.opacity.duration.150ms x-cloak aria-label="Légende">
+  <section class="legend sheet" x-show="legendOpen" x-transition.opacity.duration.150ms x-cloak aria-label="Légende">
+    <div class="sheet-head">
+      <h2>Légende</h2>
+      <button type="button" class="btn-ghost" @click="legendOpen = false">Fermer</button>
+    </div>
     <table>
       <thead>
         <tr><th>État</th><th>Définition</th><th>Check</th><th>Action conseillée</th></tr>
@@ -63,7 +75,11 @@
   </section>
 
 
-  <section class="panel settings" x-show="settingsOpen" x-transition.opacity.duration.150ms x-cloak aria-label="Paramètres">
+  <section class="panel settings sheet" x-show="settingsOpen" x-transition.opacity.duration.150ms x-cloak aria-label="Paramètres">
+    <div class="sheet-head">
+      <h2>Paramètres</h2>
+      <button type="button" class="btn-ghost" @click="settingsOpen = false">Fermer</button>
+    </div>
     <div class="version-block">
       <h2>Version</h2>
       <div class="version-line">
@@ -80,7 +96,10 @@
         <span class="muted small" x-text="versionStatus"></span>
         <button type="button" class="btn-ghost sm" @click="checkVersion()" :disabled="checkingVersion" x-text="checkingVersion ? 'Vérification' : 'Vérifier les mises à jour'"></button>
       </div>
-      <p class="muted small" x-show="versionState === 'outdated'">Pour installer : Container Manager, Projet, domain-watch, Action, Construire.</p>
+      <dl class="version-times small" x-show="meta">
+        <dt>Dernière vérification</dt><dd x-text="meta && stamp(meta.version_checked_at)"></dd>
+        <dt>Prochaine</dt><dd x-text="meta && meta.version_next_check ? stamp(meta.version_next_check) : 'non planifiée'"></dd>
+      </dl>
     </div>
     <div class="settings-grid">
       <div>
@@ -194,6 +213,11 @@
             <p class="muted small" x-show="cfg.calendar_url">L'adresse donne accès à la liste sans mot de passe : ne pas la partager. La changer coupe l'ancienne.</p>
           </div>
         </template>
+      </div>
+
+      <div class="mobile-only">
+        <h2>Session</h2>
+        <form method="post" action="/logout"><button type="submit" class="btn-ghost danger">Déconnexion</button></form>
       </div>
     </div>
   </section>
@@ -377,6 +401,28 @@
   </main>
 
   <datalist id="tag-list"><template x-for="t in allTags" :key="t"><option :value="t"></option></template></datalist>
+
+  <nav class="tabbar" aria-label="Navigation">
+    <button type="button" :class="{ on: !legendOpen && !settingsOpen }" @click="showList()">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <span>Domaines</span>
+    </button>
+    <button type="button" @click="checkAll()" :disabled="bulkRunning || !domains.length">
+      <svg viewBox="0 0 24 24" aria-hidden="true" :class="{ spin: bulkRunning }"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v4h-4"/></svg>
+      <span x-text="bulkRunning ? 'En cours' : 'Tout vérifier'"></span>
+    </button>
+    <button type="button" :class="{ on: legendOpen }" @click="openSheet('legend')">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 7.5v.5"/></svg>
+      <span>Légende</span>
+    </button>
+    <button type="button" class="has-badge" :class="{ on: settingsOpen }" @click="openSheet('settings')">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>
+      <span>Paramètres</span>
+      <span class="update-badge" x-show="meta && meta.update_available" x-cloak aria-label="Mise à jour disponible">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 12V4M4.5 7.5 8 4l3.5 3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
+    </button>
+  </nav>
 
   <footer class="foot">
     <span title="Version installée">{{VERSION}}</span>

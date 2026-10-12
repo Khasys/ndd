@@ -71,6 +71,33 @@ Paramètres, Calendrier, « Créer l'adresse » : une URL secrète au format ICS
 calendrier par URL dans l'agenda du téléphone. Elle contient les expirations et les libérations
 estimées, avec un rappel la veille. Elle s'ouvre sans mot de passe : la changer si elle a fuité.
 
+### Appli sur le téléphone
+
+L'interface est une PWA : sur téléphone, navigation en bas, panneaux plein écran, boutons larges.
+La session se prolonge à chaque ouverture : pas de mot de passe à retaper tant que l'appli est
+ouverte au moins une fois par période `SESSION_MAX_AGE` (7 jours par défaut).
+
+L'installation complète demande HTTPS. Sur `http://ip-du-nas:8111`, Android se contente d'un
+raccourci vers le navigateur, et l'iPhone installe l'appli sans le mode hors ligne.
+
+Pour passer en HTTPS sur le Synology, sans SSH :
+
+1. Panneau de configuration, Accès externe, DDNS : créer une adresse (par exemple `xxx.synology.me`).
+2. Panneau de configuration, Sécurité, Certificat : Ajouter, Let's Encrypt, pour
+   `domaines.xxx.synology.me`.
+3. Panneau de configuration, Portail de connexion, Avancé, Proxy inversé, Créer : source HTTPS,
+   `domaines.xxx.synology.me`, port 443 ; destination HTTP, `localhost`, port `8111`.
+4. Certificat, Paramètres : associer le certificat à `domaines.xxx.synology.me`.
+5. Dans le compose, passer `COOKIE_SECURE=true`, puis reconstruire le projet. La connexion par
+   `http://ip-du-nas:8111` ne marche alors plus : le navigateur ne renvoie pas un cookie sécurisé en HTTP.
+
+Ouvrir ensuite `https://domaines.xxx.synology.me` sur le téléphone. Android (Chrome) : menu,
+Installer l'application. iPhone (Safari) : Partager, Sur l'écran d'accueil.
+
+Accessible depuis Internet, l'appli n'est protégée que par son mot de passe (verrouillage après
+5 échecs). Pour la garder en réseau local, ne pas ouvrir le port 443 sur la box, ou passer par le
+VPN du NAS.
+
 ## Variables d'environnement
 
 Les durées acceptent `30s`, `5m`, `6h`, `7d`, ou un nombre de secondes.
@@ -160,7 +187,9 @@ retélécharge `latest`.
 
 L'appli vérifie aussi Docker Hub une fois par jour. Paramètres, Version, affiche la version installée,
 encadrée en vert si elle est à jour, en rouge avec la dernière version publiée sinon. Une pastille
-rouge apparaît alors sur le bouton Paramètres. « Vérifier les mises à jour » relance la vérification.
+rouge apparaît alors sur le bouton Paramètres. La date de la dernière vérification et celle de la
+prochaine sont affichées. « Vérifier les mises à jour » relance la vérification et repousse la
+suivante de 24 h.
 
 Pour figer une version, remplacer `latest` par un tag précis (`v0.2.0`).
 

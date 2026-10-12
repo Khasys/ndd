@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 import bcrypt
 import pytest
 from fastapi.testclient import TestClient
@@ -152,6 +154,29 @@ def test_version_check_is_separate_from_check_all(logged, monkeypatch):
     data = client.post("/api/version/check").json()
     assert calls == [1]
     assert data["update_available"] == "v9.9.9" and data["latest_version"] == "v9.9.9"
+    # La vérification manuelle repousse la prochaine automatique à 24 h.
+    next_check = datetime.fromisoformat(data["version_next_check"])
+    assert timedelta(hours=23, minutes=59) < next_check - datetime.now(timezone.utc) <= timedelta(hours=24)
+    client.__exit__(None, None, None)
+
+
+def test_pwa_files_are_public(client_factory):
+    hashed = bcrypt.hashpw(PASSWORD.encode(), bcrypt.gensalt(4)).decode()
+    with client_factory(AUTH_USERNAME="moi", AUTH_PASSWORD_HASH=hashed) as client:
+        manifest = client.get("/manifest.webmanifest")
+        assert manifest.status_code == 200
+        assert manifest.json()["display"] == "standalone" and manifest.json()["name"] == "domain-watch"
+        worker = client.get("/sw.js")
+        assert worker.status_code == 200 and "{{VERSION}}" not in worker.text
+        assert client.get("/offline").status_code == 200
+        assert client.get("/static/icons/icon-192.png").status_code == 200
+        assert client.get("/api/domains").status_code == 401
+
+
+def test_session_is_renewed_on_each_visit(logged):
+    client = logged()
+    response = client.get("/")
+    assert response.status_code == 200 and "dw_session" in response.headers.get("set-cookie", "")
     client.__exit__(None, None, None)
 
 
