@@ -52,3 +52,22 @@ def test_clean_domain(raw, expected):
 def test_clean_domain_rejects(raw):
     with pytest.raises(InvalidDomain):
         clean_domain(raw)
+
+
+@pytest.mark.parametrize(
+    "raw, hint",
+    [
+        ("blog.exemple.com", "exemple.com"),
+        ("https://www2.exemple.fr/", "exemple.fr"),
+        ("a.b.exemple.co.uk", "exemple.co.uk"),
+        ("monsite.github.io", "github.io"),
+    ],
+)
+def test_clean_domain_rejects_subdomains(raw, hint):
+    with pytest.raises(InvalidDomain, match=f"sous-domaine. Surveiller {hint}"):
+        clean_domain(raw)
+
+
+def test_clean_domain_rejects_bare_suffix():
+    with pytest.raises(InvalidDomain, match="extension"):
+        clean_domain("co.uk")

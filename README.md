@@ -93,6 +93,8 @@ Les durées acceptent `30s`, `5m`, `6h`, `7d`, ou un nombre de secondes.
 
 ## Fonctionnement
 
+- Seuls les noms enregistrables sont acceptés. Un sous-domaine (`blog.exemple.com`) est refusé avec
+  le nom à surveiller à la place, d'après la section ICANN de la Public Suffix List.
 - Le serveur RDAP de chaque TLD vient du bootstrap IANA, mis en cache 24 h dans `/data`.
 - Une réponse 404 du registre donne l'état « disponible ». Une erreur réseau, un 429 ou un 5xx ne
   le donnent jamais : le domaine passe en « erreur de check » et garde son dernier état connu.

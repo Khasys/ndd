@@ -10,12 +10,15 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import httpx
+from publicsuffixlist import PublicSuffixList
 
 log = logging.getLogger(__name__)
 
 BOOTSTRAP_URL = "https://data.iana.org/rdap/dns.json"
 BOOTSTRAP_TTL = 24 * 3600
 
+# Section ICANN seule : les suffixes privés (github.io...) n'ont pas de registre RDAP.
+_PSL = PublicSuffixList(only_icann=True)
 _LABEL = re.compile(r"^(?!-)[a-z0-9-]{1,63}(?<!-)$")
 
 
@@ -42,6 +45,11 @@ def clean_domain(raw: str) -> str:
         raise InvalidDomain(f"Nom de domaine invalide : {raw.strip()}")
     if labels[-1].isdigit():
         raise InvalidDomain(f"Nom de domaine invalide : {raw.strip()}")
+    registrable = _PSL.privatesuffix(value)
+    if registrable is None:
+        raise InvalidDomain(f"{value} est une extension, pas un nom de domaine.")
+    if registrable != value:
+        raise InvalidDomain(f"{value} est un sous-domaine. Surveiller {registrable} à la place.")
     return value
 
 
