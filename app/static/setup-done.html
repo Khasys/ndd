@@ -15,7 +15,7 @@
 <main class="login-page">
   <div class="login setup">
     <span class="appname">domain-watch</span>
-    <p>Valeur de <span class="mono">AUTH_PASSWORD_HASH</span>, à coller entre guillemets dans le docker-compose.yml. Les <span class="mono">$</span> sont déjà doublés.</p>
+    <p>Valeur de <span class="mono">AUTH_PASSWORD_HASH</span>, à coller entre guillemets dans le docker-compose.yml. Les <span class="mono">$</span> sont doublés pour <span class="mono">docker compose</span> en ligne de commande. Container Manager ne les dédouble pas : l'appli accepte les deux formes.</p>
     <pre class="hash">{{HASH}}</pre>
     <p class="muted">Renseigner aussi <span class="mono">AUTH_USERNAME</span>, puis relancer le projet. La page de connexion remplace alors celle-ci.</p>
   </div>

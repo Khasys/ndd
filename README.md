@@ -30,8 +30,9 @@ Container Manager, Projet, Créer : chemin `/volume1/docker/domain-watch`, conte
 `docker-compose.yml` collé dans l'éditeur. `AUTH_USERNAME` et `AUTH_PASSWORD_HASH` restent vides.
 
 Ouvrir `http://IP-DU-NAS:8080`. Sans identifiants configurés, l'appli n'affiche que la page de
-configuration : saisir le mot de passe voulu, elle renvoie son hash bcrypt avec chaque `$` doublé
-(Compose interprète `$` comme une variable). Rien n'est enregistré côté appli.
+configuration : saisir le mot de passe voulu, elle renvoie son hash bcrypt avec chaque `$` doublé,
+forme attendue par `docker compose` en ligne de commande. Container Manager ne dédouble pas les `$` :
+l'appli accepte le hash sous les deux formes. Rien n'est enregistré côté appli.
 
 ### 4. Identifiants
 
