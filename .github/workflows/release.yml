@@ -44,7 +44,7 @@ jobs:
         run: |
           {
             echo "tags<<EOF"
-            hub_user="$(printf '%s' "$DOCKERHUB_USERNAME" | tr -d '[:space:]')"
+            hub_user="$(printf '%s' "$DOCKERHUB_USERNAME" | LC_ALL=C tr -cd 'A-Za-z0-9_.-')"
             for image in "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/domain-watch" ${hub_user:+"docker.io/${hub_user,,}/domain-watch"}; do
               echo "$image:$VERSION"
               echo "$image:latest"
@@ -61,12 +61,16 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Connexion Docker Hub
         if: env.DOCKERHUB_USERNAME != ''
-        # Un espace ou un retour à la ligne collé avec le secret casse l'en-tête d'authentification.
+        # Un caractère invisible collé avec un secret casse l'en-tête d'authentification : on ne garde
+        # que les caractères possibles d'un identifiant et d'un jeton Docker Hub.
         env:
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
-          printf '%s' "$DOCKERHUB_TOKEN" | tr -d '[:space:]' \
-            | docker login docker.io -u "$(printf '%s' "$DOCKERHUB_USERNAME" | tr -d '[:space:]')" --password-stdin
+          user="$(printf '%s' "$DOCKERHUB_USERNAME" | LC_ALL=C tr -cd 'A-Za-z0-9_.-' | tr 'A-Z' 'a-z')"
+          token="$(printf '%s' "$DOCKERHUB_TOKEN" | LC_ALL=C tr -cd 'A-Za-z0-9_-')"
+          echo "identifiant : ${#DOCKERHUB_USERNAME} caractères bruts, ${#user} gardés"
+          echo "jeton : ${#DOCKERHUB_TOKEN} caractères bruts, ${#token} gardés, préfixe dckr_pat_ : $([[ $token == dckr_pat_* ]] && echo oui || echo non)"
+          printf '%s' "$token" | docker login docker.io -u "$user" --password-stdin
       - uses: docker/build-push-action@v6
         with:
           context: .
