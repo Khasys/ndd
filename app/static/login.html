@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Connexion · domain-watch</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/static/style.css?v={{VERSION}}">
+</head>
+<body>
+<main class="login-page">
+  <form class="login" method="post" action="/login">
+    <span class="appname">domain-watch</span>
+    <label for="username">Identifiant</label>
+    <input id="username" name="username" type="text" autocomplete="username" autocapitalize="off" spellcheck="false" required autofocus>
+    <label for="password">Mot de passe</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required>
+    <button type="submit" class="btn">Connexion</button>
+    <p class="error" role="alert">{{ERROR}}</p>
+  </form>
+</main>
+</body>
+</html>

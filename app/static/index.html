@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>domain-watch</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/static/style.css?v={{VERSION}}">
+<script defer src="/static/app.js?v={{VERSION}}"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+</head>
+<body>
+<div class="page" x-data="app" x-init="init()">
+
+  <header class="top">
+    <span class="appname">domain-watch</span>
+    <nav class="tools">
+      <button type="button" class="btn-text" @click="legendOpen = !legendOpen" :aria-expanded="legendOpen">Légende</button>
+      <button type="button" class="btn-text" @click="checkAll()" :disabled="bulkRunning || !domains.length" x-text="bulkRunning ? 'Vérification en cours' : 'Tout vérifier'"></button>
+      <button type="button" class="btn-text" @click="testAlert()" :disabled="sendingTest">Envoyer une alerte test</button>
+      <form method="post" action="/logout"><button type="submit" class="btn-text">Déconnexion</button></form>
+    </nav>
+  </header>
+
+  <form class="add" @submit.prevent="add()">
+    <label class="visually-hidden" for="new-domain">Domaine à surveiller</label>
+    <input id="new-domain" x-ref="input" x-model="newName" type="text" inputmode="url" autocomplete="off"
+           autocapitalize="off" spellcheck="false" placeholder="nomdedomaine.fr" :disabled="adding" autofocus>
+    <button type="submit" class="btn" :disabled="adding || !newName.trim()" x-text="adding ? 'Vérification' : 'Ajouter'"></button>
+  </form>
+  <p class="notice" :class="notice && notice.kind" role="status" aria-live="polite" x-text="notice ? notice.text : ''"></p>
+
+  <section class="legend" x-show="legendOpen" x-transition.opacity.duration.150ms x-cloak aria-label="Légende">
+    <table>
+      <thead>
+        <tr><th>État</th><th>Définition</th><th>Check</th><th>Action conseillée</th></tr>
+      </thead>
+      <tbody>
+        <template x-for="item in legend" :key="item.key">
+          <tr>
+            <td><span class="badge" :class="'s-' + item.key" x-text="item.label"></span></td>
+            <td x-text="item.definition"></td>
+            <td class="nowrap" x-text="item.frequency"></td>
+            <td x-text="item.action"></td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+    <p class="legend-note">
+      Les dates de libération précédées de « ~ » sont des estimations, calculées depuis le statut du domaine et
+      les délais publiés par le registre. Avant la rédemption, c'est une date au plus tard : le registrar peut
+      supprimer le nom plus tôt. Aucune estimation n'est affichée pour un TLD dont les délais ne sont pas sourcés.
+    </p>
+  </section>
+
+  <div class="counters" x-show="domains.length" x-cloak>
+    <button type="button" class="counter" :class="{ on: filter === null }" @click="filter = null">
+      Tous <span class="num" x-text="domains.length"></span>
+    </button>
+    <template x-for="c in counters" :key="c.key">
+      <button type="button" class="counter" :class="{ on: filter === c.key }" @click="filter = filter === c.key ? null : c.key">
+        <span class="dot" :class="'s-' + c.key" aria-hidden="true"></span>
+        <span x-text="c.label"></span> <span class="num" x-text="c.count"></span>
+      </button>
+    </template>
+  </div>
+
+  <main>
+    <template x-if="loadError">
+      <div class="empty">
+        <p x-text="'Chargement impossible : ' + loadError"></p>
+        <button type="button" class="btn-text" @click="load()">Réessayer</button>
+      </div>
+    </template>
+
+    <template x-if="loaded && !loadError && !domains.length">
+      <div class="empty">
+        <p>Aucun domaine surveillé.</p>
+        <p class="muted">Saisir un nom dans le champ ci-dessus, puis Entrée. Le premier check part immédiatement.</p>
+      </div>
+    </template>
+
+    <template x-if="loaded && domains.length && !rows.length">
+      <div class="empty"><p>Aucun domaine dans cet état.</p></div>
+    </template>
+
+    <table class="domains" x-show="rows.length" x-cloak>
+      <thead>
+        <tr>
+          <th><button type="button" class="sort" @click="sortBy('name')" x-text="'Domaine' + arrow('name')"></button></th>
+          <th><button type="button" class="sort" @click="sortBy('urgency')" x-text="'État' + arrow('urgency')"></button></th>
+          <th class="num"><button type="button" class="sort" @click="sortBy('days')" x-text="'Jours restants' + arrow('days')"></button></th>
+          <th><button type="button" class="sort" @click="sortBy('release')" x-text="'Libération' + arrow('release')"></button></th>
+          <th class="col-registrar">Registrar</th>
+          <th class="col-check">Dernier check</th>
+          <th class="col-check"><button type="button" class="sort" @click="sortBy('next')" x-text="'Prochain' + arrow('next')"></button></th>
+          <th class="col-actions"><span class="visually-hidden">Actions</span></th>
+        </tr>
+      </thead>
+      <template x-for="d in rows" :key="d.id">
+        <tbody :class="{ open: openId === d.id }">
+          <tr class="row" @click="toggle(d)">
+            <td class="domain">
+              <button type="button" class="expander" :aria-expanded="openId === d.id" @click.stop="toggle(d)">
+                <span class="mono" x-text="d.unicode_name"></span>
+              </button>
+              <span class="mono muted punycode" x-show="d.unicode_name !== d.name" x-text="d.name"></span>
+            </td>
+            <td class="state">
+              <span class="badge" :class="'s-' + displayState(d)" :title="stateTitle(d)" x-text="stateLabel(d)"></span>
+              <span class="last-known" x-show="d.check_error && d.state" x-text="'Dernier état : ' + labels[d.state]"></span>
+            </td>
+            <td class="num" data-label="Jours restants" :class="{ blank: daysLeft(d) === null }">
+              <span x-show="daysLeft(d) !== null" :title="d.effective_expires_at ? 'Expiration le ' + exact(d.effective_expires_at) : ''" x-text="daysLeft(d)"></span>
+            </td>
+            <td data-label="Libération estimée" :class="{ blank: !d.release_at }">
+              <span class="estimate" x-show="d.release_at" :title="releaseTitle(d)" x-text="'~' + shortDate(d.release_at)"></span>
+            </td>
+            <td class="col-registrar"><span class="ellipsis" :title="d.registrar || ''" x-text="d.registrar || ''"></span></td>
+            <td class="col-check" data-label="Dernier check" :class="{ blank: !d.last_checked_at }">
+              <span x-show="d.last_checked_at" :title="exact(d.last_checked_at)" x-text="relative(d.last_checked_at)"></span>
+            </td>
+            <td class="col-check" data-label="Prochain check" :class="{ blank: !d.next_check_at }">
+              <span x-show="d.next_check_at" :title="exact(d.next_check_at)" x-text="relative(d.next_check_at)"></span>
+            </td>
+            <td class="col-actions" @click.stop>
+              <button type="button" class="btn-text" @click="check(d)" :disabled="!!busy[d.id]" x-text="busy[d.id] ? 'En cours' : 'Vérifier'"></button>
+              <button type="button" class="btn-text danger" @click="remove(d)" :disabled="!!busy[d.id]">Supprimer</button>
+            </td>
+          </tr>
+          <tr class="details" x-show="openId === d.id">
+            <td colspan="8">
+              <div class="details-grid">
+                <dl>
+                  <dt>Création</dt><dd><span :title="exact(d.registered_at)" x-text="longDate(d.registered_at)"></span></dd>
+                  <dt>Mise à jour</dt><dd><span :title="exact(d.updated_at)" x-text="longDate(d.updated_at)"></span></dd>
+                  <dt>Expiration</dt><dd><span :title="exact(d.expires_at)" x-text="longDate(d.expires_at)"></span></dd>
+                  <dt>Libération</dt>
+                  <dd>
+                    <span x-show="d.release_at" :title="releaseTitle(d)" x-text="'~' + longDate(d.release_at) + (d.release_is_upper_bound ? ' au plus tard' : '')"></span>
+                    <span class="muted" x-show="!d.release_at" x-text="noReleaseReason(d)"></span>
+                  </dd>
+                  <dt>Registrar</dt><dd x-text="d.registrar || 'Aucun'"></dd>
+                  <dt>Serveurs DNS</dt>
+                  <dd>
+                    <template x-for="ns in d.nameservers" :key="ns"><div class="mono" x-text="ns"></div></template>
+                    <span class="muted" x-show="!d.nameservers.length">Aucun</span>
+                  </dd>
+                  <dt>Statuts EPP</dt>
+                  <dd class="statuses">
+                    <template x-for="s in d.epp_statuses" :key="s">
+                      <span class="epp mono" :title="eppExplain(s)" x-text="s"></span>
+                    </template>
+                    <span class="muted" x-show="!d.epp_statuses.length">Aucun</span>
+                  </dd>
+                  <dt>Dernier check</dt>
+                  <dd><span :title="exact(d.last_checked_at)" x-text="d.last_checked_at ? relative(d.last_checked_at) : 'Jamais'"></span></dd>
+                  <dt>Prochain check</dt>
+                  <dd><span :title="exact(d.next_check_at)" x-text="d.next_check_at ? relative(d.next_check_at) : 'Au prochain passage'"></span></dd>
+                  <template x-if="d.check_error">
+                    <div class="dl-row error-row">
+                      <dt>Erreur</dt>
+                      <dd x-text="d.check_error + (d.last_success_at ? '. Dernier check réussi ' + relative(d.last_success_at) + '.' : '.')"></dd>
+                    </div>
+                  </template>
+                </dl>
+                <div class="history">
+                  <h3>Historique</h3>
+                  <p class="muted" x-show="!history[d.id]">Chargement</p>
+                  <p class="muted" x-show="history[d.id] && !history[d.id].length">Aucun changement enregistré.</p>
+                  <ol x-show="history[d.id] && history[d.id].length">
+                    <template x-for="(h, i) in history[d.id] || []" :key="i">
+                      <li>
+                        <span class="when" :title="exact(h.at)" x-text="shortDate(h.at)"></span>
+                        <span class="what" x-text="describe(h)"></span>
+                      </li>
+                    </template>
+                  </ol>
+                </div>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </template>
+    </table>
+  </main>
+
+  <footer class="foot">domain-watch {{VERSION}}</footer>
+</div>
+</body>
+</html>
