@@ -1,6 +1,7 @@
 import html
 import json
 import logging
+import re
 import sqlite3
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -34,6 +35,7 @@ log = logging.getLogger("domain-watch")
 STATIC = Path(__file__).parent / "static"
 PUBLIC_PATHS = {"/login", "/health", "/favicon.svg"}
 SETUP_PATHS = {"/setup", "/health", "/favicon.svg"}
+BCRYPT_HASH = re.compile(r"\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}")
 
 
 @asynccontextmanager
@@ -68,6 +70,14 @@ async def lifespan(app: FastAPI):
     log.info("domain-watch %s démarré", VERSION)
     if settings.setup_mode:
         log.warning("AUTH_USERNAME ou AUTH_PASSWORD_HASH absent : seule la page /setup est accessible")
+    elif not BCRYPT_HASH.fullmatch(settings.password_hash):
+        log.error(
+            "AUTH_PASSWORD_HASH n'est pas un hash bcrypt valide (%d caractères, début %r) : aucune connexion possible",
+            len(settings.password_hash),
+            settings.password_hash[:7],
+        )
+    else:
+        log.info("Connexion attendue pour l'identifiant %r", settings.username)
     try:
         yield
     finally:
@@ -162,6 +172,13 @@ async def login(request: Request, username: str = Form(""), password: str = Form
     )
     if not ok:
         state.guard.fail(client)
+        # Le journal n'est lisible que par l'admin du NAS : y dire quelle partie échoue aide au diagnostic.
+        user_ok = username.strip().casefold() == state.settings.username.casefold()
+        log.info(
+            "Échec de connexion depuis %s : %s",
+            client,
+            "mot de passe incorrect" if user_ok else f"identifiant {username.strip()!r} inconnu",
+        )
         if state.guard.locked_for(client):
             minutes = (state.settings.login_lock_seconds + 59) // 60
             return _page("login.html", ERROR=f"Trop d'échecs. Nouvel essai possible dans {minutes} min.")

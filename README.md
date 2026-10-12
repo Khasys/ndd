@@ -17,7 +17,7 @@ Container Manager ne sait pas s'authentifier de façon fiable sur GHCR. Sans SSH
 Le dépôt reste privé. L'image ne contient aucun secret, seulement le code de l'appli.
 
 Avec SSH, l'image peut rester privée : `sudo docker login ghcr.io` avec un jeton classic limité à
-`read:packages`, puis `sudo docker pull ghcr.io/khasys/domain-watch:v0.1.0` avant l'étape 3.
+`read:packages`, puis `sudo docker pull ghcr.io/khasys/domain-watch:v0.1.1` avant l'étape 3.
 
 ### 2. Dossiers
 
@@ -107,7 +107,7 @@ publier une nouvelle version.
 
 ## Mises à jour
 
-Changer le tag dans `docker-compose.yml` (`v0.1.0` vers la nouvelle version), puis arrêter et
+Changer le tag dans `docker-compose.yml` (`v0.1.1` vers la nouvelle version), puis arrêter et
 reconstruire le projet dans Container Manager pour tirer la nouvelle image. Le compose ne référence jamais `latest`, une mise à jour est
 toujours volontaire.
 

@@ -61,12 +61,21 @@ class Settings:
         return not self.username or not self.password_hash
 
 
+def _clean_secret(value: str) -> str:
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+        value = value[1:-1].strip()
+    # Un hash bcrypt ne contient jamais « $$ » : s'il en contient, Compose ne les a pas
+    # dédoublés (selon l'outil qui lance le projet). On le fait ici.
+    return value.replace("$$", "$")
+
+
 def load_settings() -> Settings:
     return Settings(
         data_dir=Path(_env("DATA_DIR", "/data")),
         app_url=_env("APP_URL", "").rstrip("/"),
-        username=_env("AUTH_USERNAME", "").strip(),
-        password_hash=_env("AUTH_PASSWORD_HASH", "").strip(),
+        username=_env("AUTH_USERNAME", "").strip().strip("'\"").strip(),
+        password_hash=_clean_secret(_env("AUTH_PASSWORD_HASH", "")),
         secret_key=_env("SECRET_KEY", ""),
         session_max_age=_duration("SESSION_MAX_AGE", "7d"),
         cookie_secure=_env("COOKIE_SECURE", "false").lower() in ("1", "true", "yes"),

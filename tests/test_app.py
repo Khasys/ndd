@@ -52,3 +52,28 @@ def test_login_flow_with_generated_secret(client_factory, tmp_path):
         assert client.get("/api/domains").json() == []
     secret = (tmp_path / "secret_key").read_text()
     assert len(secret) > 40
+
+
+@pytest.mark.parametrize("wrap", [lambda h: h, lambda h: h.replace("$", "$$"), lambda h: f"'{h}'", lambda h: f' "{h}" '])
+def test_login_tolerates_compose_escaping_and_quotes(client_factory, wrap):
+    hashed = bcrypt.hashpw(PASSWORD.encode(), bcrypt.gensalt(4)).decode()
+    with client_factory(AUTH_USERNAME=" Moi ", AUTH_PASSWORD_HASH=wrap(hashed)) as client:
+        response = client.post("/login", data={"username": "moi ", "password": PASSWORD})
+        assert response.status_code == 303
+
+
+def test_login_failure_is_logged_with_reason(client_factory, caplog):
+    hashed = bcrypt.hashpw(PASSWORD.encode(), bcrypt.gensalt(4)).decode()
+    with client_factory(AUTH_USERNAME="moi", AUTH_PASSWORD_HASH=hashed) as client:
+        caplog.set_level("INFO", logger="domain-watch")
+        client.post("/login", data={"username": "admin", "password": PASSWORD})
+        client.post("/login", data={"username": "moi", "password": "faux"})
+    assert "identifiant 'admin' inconnu" in caplog.text
+    assert "mot de passe incorrect" in caplog.text
+
+
+def test_invalid_hash_is_reported_at_startup(client_factory, caplog):
+    caplog.set_level("INFO", logger="domain-watch")
+    with client_factory(AUTH_USERNAME="moi", AUTH_PASSWORD_HASH="pas-un-hash"):
+        pass
+    assert "n'est pas un hash bcrypt valide" in caplog.text

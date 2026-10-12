@@ -64,7 +64,8 @@ def verify_credentials(username: str, password: str, expected_user: str, passwor
         password_ok = bcrypt.checkpw(password.encode(), password_hash.encode())
     except ValueError:
         password_ok = False
-    user_ok = hmac.compare_digest(username.encode(), expected_user.encode())
+    # Espace final ou majuscule ajoutés par un clavier de téléphone : sans enjeu de sécurité ici.
+    user_ok = hmac.compare_digest(username.strip().casefold().encode(), expected_user.casefold().encode())
     return password_ok and user_ok
 
 
