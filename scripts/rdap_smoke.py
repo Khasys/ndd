@@ -2,6 +2,7 @@
 
 Hors des tests unitaires : dépend du réseau et de l'humeur des registres.
     python -m scripts.rdap_smoke
+    python -m scripts.rdap_smoke exemple.so exemple.co   # domaines précis, sans contrôle des champs
 """
 
 import asyncio
@@ -17,7 +18,29 @@ from app.rdap import RdapClient
 REGISTERED = ["google.com", "wikipedia.org", "verisign.net", "afnic.fr", "lemonde.fr"]
 
 
+async def inspect(names: list[str]) -> int:
+    with tempfile.TemporaryDirectory() as tmp:
+        client = RdapClient(Path(tmp) / "bootstrap.json", 2, 20, 1, 2, 30)
+        try:
+            for name in names:
+                print(f"{name} : serveur {await client.server_for(name)}")
+                url = f"{(await client.server_for(name) or '').rstrip('/')}/domain/{name}"
+                if url.startswith("http"):
+                    response = await client.http.get(url)
+                    print(f"  HTTP {response.status_code} {response.headers.get('content-type')}")
+                    print(f"  {response.text[:600]}")
+                result = await client.lookup(name)
+                print(f"  lookup : found={result.found} available={result.available} error={result.error}")
+                if result.info:
+                    print(f"  {result.info}")
+        finally:
+            await client.close()
+    return 0
+
+
 async def main() -> int:
+    if len(sys.argv) > 1:
+        return await inspect(sys.argv[1:])
     failures = 0
     now = datetime.now(timezone.utc)
     with tempfile.TemporaryDirectory() as tmp:

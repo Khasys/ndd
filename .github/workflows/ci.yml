@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      domains:
+        description: "Domaines à inspecter en RDAP (séparés par des espaces)"
+        required: false
 
 jobs:
   test:
@@ -24,7 +28,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
-      - run: python -m scripts.rdap_smoke
+      - run: python -m scripts.rdap_smoke ${{ inputs.domains }}
 
   docker:
     runs-on: ubuntu-latest
