@@ -98,6 +98,7 @@ document.addEventListener("alpine:init", () => {
     editingToken: false,
     savingToken: false,
     pairing: null,
+    themes: [{ key: "system", label: "Système" }, { key: "light", label: "Clair" }, { key: "dark", label: "Sombre" }],
     days: ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"],
 
     init() {
@@ -291,6 +292,48 @@ document.addEventListener("alpine:init", () => {
       } catch (e) {
         this.say(`Résumé non envoyé : ${e.message}`, "error");
       }
+    },
+
+    async saveAppearance() {
+      try {
+        const { app_name, theme } = this.cfg.appearance;
+        this.cfg = await this.api("PUT", "/api/settings/appearance", { app_name, theme });
+        this.applyAppearance();
+      } catch (e) {
+        this.say(e.message, "error");
+      }
+    },
+
+    applyAppearance() {
+      const { app_name, theme } = this.cfg.appearance;
+      const root = document.documentElement;
+      if (theme === "system") delete root.dataset.theme;
+      else root.dataset.theme = theme;
+      document.querySelector('meta[name="color-scheme"]').content = theme === "system" ? "light dark" : theme;
+      document.querySelectorAll(".appname").forEach((el) => { el.textContent = app_name; });
+      document.title = app_name;
+    },
+
+    async uploadLogo(event) {
+      const file = event.target.files[0];
+      event.target.value = "";
+      if (!file) return;
+      const body = new FormData();
+      body.append("file", file);
+      const res = await fetch("/api/settings/logo", { method: "POST", body, credentials: "same-origin" });
+      if (!res.ok) {
+        let detail = `erreur ${res.status}`;
+        try { detail = (await res.json()).detail || detail; } catch (_) {}
+        this.say(`Logo refusé : ${detail}`, "error");
+        return;
+      }
+      // Le logo est rendu côté serveur dans l'en-tête : un rechargement l'affiche.
+      window.location.reload();
+    },
+
+    async removeLogo() {
+      await this.api("DELETE", "/api/settings/logo");
+      window.location.reload();
     },
 
     async regenerateCalendar() {

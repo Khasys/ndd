@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="fr">
+<html lang="fr"{{THEME_ATTR}}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light dark">
-<title>domain-watch</title>
+<meta name="color-scheme" content="{{COLOR_SCHEME}}">
+<title>{{APP_NAME}}</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -17,7 +17,7 @@
 <div class="page" x-data="app" x-init="init()">
 
   <header class="top">
-    <span class="appname">domain-watch</span>
+    {{BRAND}}
     <nav class="tools">
       <button type="button" class="btn-ghost" :class="{ on: legendOpen }" @click="legendOpen = !legendOpen" :aria-expanded="legendOpen">Légende</button>
       <button type="button" class="btn-ghost" @click="checkAll()" :disabled="bulkRunning || !domains.length" x-text="bulkRunning ? 'Vérification en cours' : 'Tout vérifier'"></button>
@@ -122,6 +122,34 @@
               <button type="button" class="btn-ghost" @click="sendDigest()" :disabled="!cfg.telegram.chat_set">Envoyer maintenant</button>
               <span class="muted small" x-show="cfg.digest.last_sent" x-text="'Dernier envoi : ' + cfg.digest.last_sent"></span>
             </p>
+          </div>
+        </template>
+      </div>
+
+
+      <div>
+        <h2>Apparence</h2>
+        <template x-if="cfg">
+          <div class="setting-lines">
+            <form class="inline-form" @submit.prevent="saveAppearance()">
+              <input type="text" x-model="cfg.appearance.app_name" maxlength="40" aria-label="Nom affiché">
+              <button type="submit" class="btn-ghost">Enregistrer</button>
+            </form>
+            <div class="segmented" role="radiogroup" aria-label="Thème">
+              <template x-for="t in themes" :key="t.key">
+                <button type="button" class="btn-ghost sm" :class="{ on: cfg.appearance.theme === t.key }"
+                        role="radio" :aria-checked="cfg.appearance.theme === t.key"
+                        @click="cfg.appearance.theme = t.key; saveAppearance()" x-text="t.label"></button>
+              </template>
+            </div>
+            <p class="setting-actions">
+              <label class="btn-ghost sm file">
+                <span x-text="cfg.appearance.logo ? 'Changer le logo' : 'Ajouter un logo'"></span>
+                <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" @change="uploadLogo($event)" hidden>
+              </label>
+              <button type="button" class="btn-ghost sm danger" x-show="cfg.appearance.logo" @click="removeLogo()">Retirer le logo</button>
+            </p>
+            <p class="muted small">PNG, JPEG, WebP ou SVG, 300 Ko maximum. Affiché à gauche du nom, sur 32 px de haut.</p>
           </div>
         </template>
       </div>

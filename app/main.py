@@ -12,7 +12,7 @@ from pathlib import Path
 
 import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -39,8 +39,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 log = logging.getLogger("domain-watch")
 
 STATIC = Path(__file__).parent / "static"
-PUBLIC_PATHS = {"/login", "/health", "/favicon.svg"}
-SETUP_PATHS = {"/setup", "/health", "/favicon.svg"}
+PUBLIC_PATHS = {"/login", "/health", "/favicon.svg", "/logo"}
+SETUP_PATHS = {"/setup", "/health", "/favicon.svg", "/logo"}
 BCRYPT_HASH = re.compile(r"\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}")
 
 
@@ -148,9 +148,36 @@ async def require_session(request: Request, call_next):
     return RedirectResponse("/login", status_code=303)
 
 
+THEMES = {"system": ("", "light dark"), "light": (' data-theme="light"', "light"), "dark": (' data-theme="dark"', "dark")}
+LOGO_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/svg+xml": "svg"}
+LOGO_MAX_BYTES = 300 * 1024
+DEFAULT_NAME = "domain-watch"
+
+
+def _logo_path() -> Path | None:
+    for ext in LOGO_TYPES.values():
+        path = app.state.settings.data_dir / f"logo.{ext}"
+        if path.exists():
+            return path
+    return None
+
+
+def _brand(name: str) -> str:
+    logo = _logo_path()
+    img = f'<img class="logo" src="/logo?v={int(logo.stat().st_mtime)}" alt="">' if logo else ""
+    return f'<span class="brand">{img}<span class="appname">{html.escape(name)}</span></span>'
+
+
 def _page(name: str, **values: str) -> HTMLResponse:
+    store = app.state.store
+    app_name = store.get("app_name") or DEFAULT_NAME
+    theme_attr, color_scheme = THEMES.get(store.get("theme", "system"), THEMES["system"])
     content = (STATIC / name).read_text()
-    for key, value in {"VERSION": VERSION, **values}.items():
+    # Fragments HTML construits ici, insérés tels quels.
+    raw = {"THEME_ATTR": theme_attr, "BRAND": _brand(app_name)}
+    for key, value in raw.items():
+        content = content.replace("{{" + key + "}}", value)
+    for key, value in {"VERSION": VERSION, "APP_NAME": app_name, "COLOR_SCHEME": color_scheme, **values}.items():
         content = content.replace("{{" + key + "}}", html.escape(value))
     return HTMLResponse(content, headers={"Cache-Control": "no-store"})
 
@@ -159,6 +186,20 @@ def _page(name: str, **values: str) -> HTMLResponse:
 async def health(request: Request):
     request.app.state.conn.execute("SELECT 1").fetchone()
     return {"status": "ok", "version": VERSION}
+
+
+@app.get("/logo")
+async def logo():
+    path = _logo_path()
+    if path is None:
+        raise HTTPException(404)
+    media = next(t for t, ext in LOGO_TYPES.items() if path.suffix == f".{ext}")
+    # Un SVG ouvert directement pourrait exécuter du script : la CSP l'en empêche.
+    return Response(
+        path.read_bytes(),
+        media_type=media,
+        headers={"Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'", "X-Content-Type-Options": "nosniff"},
+    )
 
 
 @app.get("/favicon.svg")
@@ -439,6 +480,11 @@ async def get_settings(request: Request):
             "last_sent": store.get("digest_last_sent") or None,
         },
         "calendar_url": _calendar_url(request),
+        "appearance": {
+            "app_name": store.get("app_name") or DEFAULT_NAME,
+            "theme": store.get("theme", "system"),
+            "logo": _logo_path() is not None,
+        },
     }
 
 
@@ -528,3 +574,42 @@ async def calendar(request: Request, token: str):
         raise HTTPException(404)
     body = calendar_ics.build(request.app.state.checker, utcnow(), request.app.state.settings.app_url)
     return Response(body, media_type="text/calendar; charset=utf-8")
+
+
+class Appearance(BaseModel):
+    app_name: str
+    theme: str
+
+
+@app.put("/api/settings/appearance")
+async def set_appearance(request: Request, payload: Appearance):
+    if payload.theme not in THEMES:
+        raise HTTPException(422, "Thème inconnu.")
+    name = " ".join(payload.app_name.split())[:40]
+    store = request.app.state.store
+    store.set("app_name", name or DEFAULT_NAME)
+    store.set("theme", payload.theme)
+    return await get_settings(request)
+
+
+@app.post("/api/settings/logo")
+async def upload_logo(request: Request, file: UploadFile):
+    ext = LOGO_TYPES.get(file.content_type or "")
+    if not ext:
+        raise HTTPException(422, "Format accepté : PNG, JPEG, WebP ou SVG.")
+    data = await file.read(LOGO_MAX_BYTES + 1)
+    if len(data) > LOGO_MAX_BYTES:
+        raise HTTPException(422, "Logo trop lourd : 300 Ko maximum.")
+    old = _logo_path()
+    if old:
+        old.unlink()
+    (request.app.state.settings.data_dir / f"logo.{ext}").write_bytes(data)
+    return await get_settings(request)
+
+
+@app.delete("/api/settings/logo")
+async def delete_logo(request: Request):
+    old = _logo_path()
+    if old:
+        old.unlink()
+    return await get_settings(request)

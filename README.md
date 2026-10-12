@@ -59,6 +59,12 @@ Commandes du bot : `/liste`, `/urgent`, `/ajouter nom.fr`, `/supprimer nom.fr`, 
 Le résumé hebdomadaire (changements de la semaine, expirations et libérations des 30 jours à venir,
 domaines en erreur) se règle au même endroit : jour, heure, activation. L'heure suit la variable `TZ`.
 
+### Apparence
+
+Réglages, Apparence : nom affiché en haut à gauche, logo (PNG, JPEG, WebP ou SVG, 300 Ko maximum,
+rangé dans `data/`) et thème clair, sombre ou selon le système. Le réglage vaut pour tous les
+appareils.
+
 ### Calendrier
 
 Réglages, Calendrier, « Créer l'adresse » : une URL secrète au format ICS, à ajouter comme

@@ -149,3 +149,34 @@ def test_check_all_also_refreshes_version(logged, monkeypatch):
     client.get("/health")
     assert calls == [1]
     client.__exit__(None, None, None)
+
+
+def test_appearance_is_rendered_server_side(logged):
+    client = logged()
+    page = client.get("/").text
+    assert '<html lang="fr">' in page and '<span class="appname">domain-watch</span>' in page
+    cfg = client.put("/api/settings/appearance", json={"app_name": "  Mes   domaines ", "theme": "dark"}).json()
+    assert cfg["appearance"] == {"app_name": "Mes domaines", "theme": "dark", "logo": False}
+    page = client.get("/").text
+    assert '<html lang="fr" data-theme="dark">' in page
+    assert '<meta name="color-scheme" content="dark">' in page
+    assert "<title>Mes domaines</title>" in page
+    assert client.put("/api/settings/appearance", json={"app_name": "x", "theme": "rose"}).status_code == 422
+    client.cookies.clear()
+    assert 'data-theme="dark"' in client.get("/login").text
+    client.__exit__(None, None, None)
+
+
+def test_logo_upload_limits_and_csp(logged):
+    client = logged()
+    svg = b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
+    assert client.post("/api/settings/logo", files={"file": ("l.gif", b"GIF89a", "image/gif")}).status_code == 422
+    assert client.post("/api/settings/logo", files={"file": ("l.png", b"x" * (300 * 1024 + 1), "image/png")}).status_code == 422
+    assert client.post("/api/settings/logo", files={"file": ("l.svg", svg, "image/svg+xml")}).json()["appearance"]["logo"]
+    response = client.get("/logo")
+    assert response.headers["content-type"].startswith("image/svg+xml")
+    assert "default-src 'none'" in response.headers["content-security-policy"]
+    assert '<img class="logo" src="/logo?v=' in client.get("/").text
+    assert client.delete("/api/settings/logo").json()["appearance"]["logo"] is False
+    assert client.get("/logo").status_code == 404
+    client.__exit__(None, None, None)
