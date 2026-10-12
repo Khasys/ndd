@@ -6,6 +6,7 @@ Hors des tests unitaires : dépend du réseau et de l'humeur des registres.
 """
 
 import asyncio
+import os
 import secrets
 import sys
 import tempfile
@@ -39,7 +40,7 @@ async def probe(target: str) -> None:
     try:
         async with httpx.AsyncClient(timeout=15, follow_redirects=True) as http:
             response = await http.get(target, headers={"Accept": "application/rdap+json"})
-        print(f"{target} : HTTP {response.status_code}\n  {response.text[:400]}")
+        print(f"{target} : HTTP {response.status_code}\n  {response.text[:int(os.environ.get('PROBE_CHARS', '400'))]}")
     except Exception as exc:
         print(f"{target} : {exc.__class__.__name__} {exc}")
 
