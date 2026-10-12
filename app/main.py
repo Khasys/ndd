@@ -14,7 +14,16 @@ from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from . import alerts, db, states
-from .auth import COOKIE_NAME, LoginGuard, Sessions, verify_credentials
+from .auth import (
+    COOKIE_NAME,
+    MIN_PASSWORD_LENGTH,
+    LoginGuard,
+    Sessions,
+    compose_escape,
+    hash_password,
+    load_or_create_secret,
+    verify_credentials,
+)
 from .checker import Checker, iso, parse_iso, utcnow
 from .config import VERSION, load_settings
 from .rdap import InvalidDomain, RdapClient, clean_domain
@@ -24,6 +33,7 @@ log = logging.getLogger("domain-watch")
 
 STATIC = Path(__file__).parent / "static"
 PUBLIC_PATHS = {"/login", "/health", "/favicon.svg"}
+SETUP_PATHS = {"/setup", "/health", "/favicon.svg"}
 
 
 @asynccontextmanager
@@ -52,9 +62,12 @@ async def lifespan(app: FastAPI):
     app.state.conn = conn
     app.state.checker = checker
     app.state.http = http
-    app.state.sessions = Sessions(settings.secret_key, settings.session_max_age)
+    secret = settings.secret_key or load_or_create_secret(settings.data_dir / "secret_key")
+    app.state.sessions = Sessions(secret, settings.session_max_age)
     app.state.guard = LoginGuard(settings.login_max_failures, settings.login_lock_seconds)
     log.info("domain-watch %s démarré", VERSION)
+    if settings.setup_mode:
+        log.warning("AUTH_USERNAME ou AUTH_PASSWORD_HASH absent : seule la page /setup est accessible")
     try:
         yield
     finally:
@@ -71,9 +84,15 @@ app.mount("/static", StaticFiles(directory=STATIC), name="static")
 @app.middleware("http")
 async def require_session(request: Request, call_next):
     path = request.url.path
+    state = request.app.state
+    if state.settings.setup_mode:
+        if path in SETUP_PATHS or path.startswith("/static/"):
+            return await call_next(request)
+        if path.startswith("/api/"):
+            return JSONResponse({"detail": "Configuration initiale à terminer."}, status_code=503)
+        return RedirectResponse("/setup", status_code=303)
     if path in PUBLIC_PATHS or path.startswith("/static/"):
         return await call_next(request)
-    state = request.app.state
     if state.sessions.valid(request.cookies.get(COOKIE_NAME), state.settings.username):
         return await call_next(request)
     if path.startswith("/api/"):
@@ -97,6 +116,32 @@ async def health(request: Request):
 @app.get("/favicon.svg")
 async def favicon():
     return Response((STATIC / "favicon.svg").read_bytes(), media_type="image/svg+xml")
+
+
+def _missing(settings) -> str:
+    names = [n for n, v in (("AUTH_USERNAME", settings.username), ("AUTH_PASSWORD_HASH", settings.password_hash)) if not v]
+    return " et ".join(names)
+
+
+@app.get("/setup", response_class=HTMLResponse)
+async def setup_page(request: Request):
+    settings = request.app.state.settings
+    if not settings.setup_mode:
+        return RedirectResponse("/", status_code=303)
+    return _page("setup.html", MISSING=_missing(settings), ERROR="")
+
+
+@app.post("/setup", response_class=HTMLResponse)
+async def setup_hash(request: Request, password: str = Form(""), confirm: str = Form("")):
+    settings = request.app.state.settings
+    if not settings.setup_mode:
+        return RedirectResponse("/", status_code=303)
+    if len(password) < MIN_PASSWORD_LENGTH:
+        return _page("setup.html", MISSING=_missing(settings), ERROR=f"{MIN_PASSWORD_LENGTH} caractères minimum.")
+    if password != confirm:
+        return _page("setup.html", MISSING=_missing(settings), ERROR="Les deux saisies diffèrent.")
+    hashed = await run_in_threadpool(hash_password, password)
+    return _page("setup-done.html", HASH=compose_escape(hashed))
 
 
 @app.get("/login", response_class=HTMLResponse)

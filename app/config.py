@@ -56,14 +56,18 @@ class Settings:
     def backup_dir(self) -> Path:
         return self.data_dir / "backups"
 
+    @property
+    def setup_mode(self) -> bool:
+        return not self.username or not self.password_hash
+
 
 def load_settings() -> Settings:
     return Settings(
         data_dir=Path(_env("DATA_DIR", "/data")),
         app_url=_env("APP_URL", "").rstrip("/"),
-        username=_env("AUTH_USERNAME"),
-        password_hash=_env("AUTH_PASSWORD_HASH"),
-        secret_key=_env("SECRET_KEY"),
+        username=_env("AUTH_USERNAME", "").strip(),
+        password_hash=_env("AUTH_PASSWORD_HASH", "").strip(),
+        secret_key=_env("SECRET_KEY", ""),
         session_max_age=_duration("SESSION_MAX_AGE", "7d"),
         cookie_secure=_env("COOKIE_SECURE", "false").lower() in ("1", "true", "yes"),
         login_max_failures=int(_env("LOGIN_MAX_FAILURES", "5")),

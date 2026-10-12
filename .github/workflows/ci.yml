@@ -1,0 +1,42 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - run: pytest -q
+
+  rdap-live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: python -m scripts.rdap_smoke
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build --build-arg APP_VERSION=ci -t domain-watch:ci .
+      - name: Démarrage du conteneur
+        run: |
+          mkdir data
+          docker run -d --name dw -p 8080:8080 -v "$PWD/data:/data" domain-watch:ci
+          for i in $(seq 1 20); do curl -fs localhost:8080/health && break; sleep 1; done
+          curl -fs localhost:8080/health
+          curl -fs -o /dev/null -w "%{http_code} %{redirect_url}\n" localhost:8080/
+          ls -ln data
+          docker logs dw

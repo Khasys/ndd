@@ -271,3 +271,11 @@ button:disabled { cursor: default; opacity: .55; }
   .details td { display: block; padding: 4px 12px 16px; }
   .details-grid { grid-template-columns: 1fr; gap: 16px; padding: 0; }
 }
+
+.login.setup { max-width: 440px; }
+.login.setup p { margin: 0 0 12px; font-size: 13px; }
+.hash {
+  margin: 0 0 12px; padding: 10px 12px;
+  background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius);
+  font: 13px/1.4 var(--mono); white-space: pre-wrap; word-break: break-all; user-select: all;
+}

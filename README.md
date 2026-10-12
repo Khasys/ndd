@@ -8,50 +8,40 @@ Un seul conteneur : FastAPI, SQLite, planificateur intégré. Les données viven
 
 ## Installation sur un NAS Synology
 
-Prérequis : DSM 7.2 ou plus, paquet Container Manager installé, accès SSH pour deux commandes.
+Prérequis : DSM 7.2 ou plus, paquet Container Manager installé. Pas besoin de SSH.
 
 ### 1. Accès à l'image
 
-Le dépôt est privé, l'image sur GHCR l'est aussi. Créer sur GitHub un jeton *classic* avec le seul
-droit `read:packages`, puis sur le NAS, en SSH :
+Container Manager ne sait pas s'authentifier de façon fiable sur GHCR. Sans SSH, l'image doit
+être publique : sur GitHub, Packages, `domain-watch`, Package settings, Change visibility, Public.
+Le dépôt reste privé. L'image ne contient aucun secret, seulement le code de l'appli.
 
-```sh
-sudo docker login ghcr.io -u <utilisateur-github>
-```
+Avec SSH, l'image peut rester privée : `sudo docker login ghcr.io` avec un jeton classic limité à
+`read:packages`, puis `sudo docker pull ghcr.io/khasys/domain-watch:v0.1.0` avant l'étape 3.
 
-### 2. Dossier du projet
+### 2. Dossiers
 
-```sh
-mkdir -p /volume1/docker/domain-watch/data
-id   # noter uid et gid de l'utilisateur DSM
-```
+Dans File Station, créer `docker/domain-watch/data`. Le conteneur adopte le propriétaire de ce
+dossier : aucun uid à renseigner.
 
-Dans `docker-compose.yml`, la ligne `user: "1026:100"` doit correspondre à cet uid:gid, sinon le
-conteneur ne pourra pas écrire dans `data/`. 1026:100 est la valeur du premier compte créé sur DSM.
+### 3. Premier lancement
 
-### 3. Mot de passe et clé de session
+Container Manager, Projet, Créer : chemin `/volume1/docker/domain-watch`, contenu de
+`docker-compose.yml` collé dans l'éditeur. `AUTH_USERNAME` et `AUTH_PASSWORD_HASH` restent vides.
 
-```sh
-sudo docker run --rm -it ghcr.io/khasys/domain-watch:v0.1.0 python -m app.hashpw
-```
+Ouvrir `http://IP-DU-NAS:8080`. Sans identifiants configurés, l'appli n'affiche que la page de
+configuration : saisir le mot de passe voulu, elle renvoie son hash bcrypt avec chaque `$` doublé
+(Compose interprète `$` comme une variable). Rien n'est enregistré côté appli.
 
-La commande affiche le hash bcrypt avec chaque `$` doublé, prêt à coller dans
-`docker-compose.yml` (Compose interprète `$` comme une variable).
+### 4. Identifiants
 
-Pour `SECRET_KEY`, une chaîne aléatoire longue :
+Dans le projet, modifier le compose : `AUTH_USERNAME` et `AUTH_PASSWORD_HASH` (le hash entre
+guillemets), puis relancer le projet. La page de connexion remplace la page de configuration.
 
-```sh
-python3 -c "import secrets; print(secrets.token_urlsafe(48))"
-```
+La clé de signature des sessions est générée au premier démarrage dans `data/secret_key`. La
+supprimer déconnecte toutes les sessions. `SECRET_KEY` permet de l'imposer.
 
-Changer cette clé déconnecte toutes les sessions.
-
-### 4. Lancement
-
-Copier `docker-compose.yml` dans `/volume1/docker/domain-watch/` et remplir les variables. Dans
-Container Manager, créer un projet sur ce dossier en reprenant le `docker-compose.yml` existant.
-
-L'appli répond sur le port 8080. `/health` renvoie l'état et la version sans authentification.
+`/health` renvoie l'état et la version sans authentification.
 
 ### Telegram
 
@@ -66,9 +56,9 @@ Les durées acceptent `30s`, `5m`, `6h`, `7d`, ou un nombre de secondes.
 
 | Variable | Défaut | Rôle |
 |---|---|---|
-| `AUTH_USERNAME` | obligatoire | Identifiant de connexion |
-| `AUTH_PASSWORD_HASH` | obligatoire | Hash bcrypt du mot de passe |
-| `SECRET_KEY` | obligatoire | Clé de signature du cookie de session |
+| `AUTH_USERNAME` | vide | Identifiant de connexion. Vide : page de configuration |
+| `AUTH_PASSWORD_HASH` | vide | Hash bcrypt du mot de passe. Vide : page de configuration |
+| `SECRET_KEY` | générée | Clé de signature du cookie, sinon lue dans `data/secret_key` |
 | `APP_URL` | vide | URL de l'appli, ajoutée aux alertes |
 | `SESSION_MAX_AGE` | `7d` | Durée de validité de la session |
 | `COOKIE_SECURE` | `false` | `true` si l'appli est servie en HTTPS |
@@ -133,6 +123,10 @@ voulue, remettre l'ancien tag, relancer.
 git tag v0.2.0
 git push origin v0.2.0
 ```
+
+Chaque push sur `main` lance le workflow `ci` : tests, build de l'image avec démarrage du
+conteneur, et `scripts/rdap_smoke.py` qui interroge les vrais serveurs RDAP de .com, .net, .org et
+.fr.
 
 Le workflow `release` lance les tests puis pousse `ghcr.io/<owner>/domain-watch:v0.2.0` et `:latest`
 (amd64 et arm64). La version est affichée en pied de page et renvoyée par `/health`.

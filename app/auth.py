@@ -1,5 +1,7 @@
 import hmac
+import secrets
 import time
+from pathlib import Path
 
 import bcrypt
 from itsdangerous import BadSignature, URLSafeTimedSerializer
@@ -32,6 +34,28 @@ class LoginGuard:
     def success(self, client: str) -> None:
         self._failures.pop(client, None)
         self._locked_until.pop(client, None)
+
+
+MIN_PASSWORD_LENGTH = 12
+
+
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=12)).decode()
+
+
+def compose_escape(value: str) -> str:
+    # Compose interprète « $ » dans docker-compose.yml : il faut le doubler.
+    return value.replace("$", "$$")
+
+
+def load_or_create_secret(path: Path) -> str:
+    """Clé de session générée au premier démarrage, pour ne pas avoir à la fournir."""
+    if path.exists():
+        return path.read_text().strip()
+    secret = secrets.token_urlsafe(48)
+    path.write_text(secret)
+    path.chmod(0o600)
+    return secret
 
 
 def verify_credentials(username: str, password: str, expected_user: str, password_hash: str) -> bool:
