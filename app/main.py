@@ -120,7 +120,7 @@ async def favicon():
 
 def _missing(settings) -> str:
     names = [n for n, v in (("AUTH_USERNAME", settings.username), ("AUTH_PASSWORD_HASH", settings.password_hash)) if not v]
-    return " et ".join(names)
+    return " et ".join(names) + (" non définis" if len(names) > 1 else " non défini")
 
 
 @app.get("/setup", response_class=HTMLResponse)

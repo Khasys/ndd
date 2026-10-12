@@ -36,6 +36,8 @@ const EPP = {
   serverrenewprohibited: "Renouvellement bloqué par le registre.",
   servertransferprohibited: "Transfert bloqué par le registre.",
   serverupdateprohibited: "Modifications bloquées par le registre.",
+  serverrecoverprohibited: "Restauration bloquée par le registre (statut propre à l'Afnic).",
+  clientrecoverprohibited: "Restauration bloquée par le registrar (statut propre à l'Afnic).",
   deleteprohibited: "Suppression bloquée.",
   renewprohibited: "Renouvellement bloqué.",
   transferprohibited: "Transfert bloqué.",
