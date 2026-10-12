@@ -28,7 +28,9 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
-      - run: python -m scripts.rdap_smoke ${{ inputs.domains }}
+      - run: python -m scripts.rdap_smoke $DOMAINS
+        env:
+          DOMAINS: ${{ inputs.domains }}
 
   docker:
     runs-on: ubuntu-latest
