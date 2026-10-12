@@ -76,6 +76,10 @@ jobs:
           context: .
           push: true
           platforms: linux/amd64,linux/arm64
+          # Sans attestations : un manifeste multi-plateforme simple, comme les images Docker Hub
+          # classiques, que Container Manager sait comparer pour signaler une mise à jour.
+          provenance: false
+          sbom: false
           build-args: APP_VERSION=${{ env.VERSION }}
           tags: ${{ steps.name.outputs.tags }}
       - name: Tag git
