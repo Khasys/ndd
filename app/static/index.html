@@ -25,7 +25,7 @@
 <div class="page" x-data="app" x-init="init()">
 
   <header class="top">
-    {{BRAND}}
+    <a href="/" class="home" @click.prevent="home()" aria-label="Accueil">{{BRAND}}</a>
     <nav class="tools">
       <button type="button" class="btn-ghost" :class="{ on: legendOpen }" @click="legendOpen = !legendOpen" :aria-expanded="legendOpen">Légende</button>
       <button type="button" class="btn-ghost" @click="checkAll()" :disabled="bulkRunning || !domains.length" x-text="bulkRunning ? 'Vérification en cours' : 'Tout vérifier'"></button>
@@ -403,7 +403,7 @@
   <datalist id="tag-list"><template x-for="t in allTags" :key="t"><option :value="t"></option></template></datalist>
 
   <nav class="tabbar" aria-label="Navigation">
-    <button type="button" :class="{ on: !legendOpen && !settingsOpen }" @click="showList()">
+    <button type="button" :class="{ on: !legendOpen && !settingsOpen }" @click="home()">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
       <span>Domaines</span>
     </button>
@@ -424,9 +424,6 @@
     </button>
   </nav>
 
-  <footer class="foot">
-    <span title="Version installée">{{VERSION}}</span>
-  </footer>
 </div>
 </body>
 </html>

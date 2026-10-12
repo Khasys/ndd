@@ -136,6 +136,11 @@ document.addEventListener("alpine:init", () => {
       window.scrollTo({ top: 0, behavior: "smooth" });
     },
 
+    home() {
+      this.openId = null;
+      this.showList();
+    },
+
     async openSheet(name) {
       if (name === "legend") {
         this.settingsOpen = false;
