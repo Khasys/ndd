@@ -91,11 +91,13 @@ async def main() -> int:
                 print(f"  expiration : {info.expires_at}")
                 print(f"  registrar  : {info.registrar}")
                 print(f"  DNS        : {info.nameservers}")
-                # Le WHOIS de certains registres (.it) ne publie ni registrar ni DNS.
-                required = ("expires_at",) if result.source == "whois" else ("expires_at", "registrar", "nameservers")
-                missing = [k for k in required if not getattr(info, k)]
+                # Certains registres ne publient pas tout (.ch : pas d'expiration, .it : pas de DNS).
+                # Échec seulement si rien ne prouve l'enregistrement.
+                missing = [k for k in ("expires_at", "registrar", "nameservers") if not getattr(info, k)]
                 if missing:
-                    print(f"  ÉCHEC champs vides : {missing}")
+                    print(f"  non publié : {missing}")
+                if len(missing) == 3:
+                    print("  ÉCHEC aucune donnée d'enregistrement")
                     failures += 1
 
             for tld in ("com", "fr", "so", "co", "ch", "io", "it", "de"):
