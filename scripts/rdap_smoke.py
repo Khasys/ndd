@@ -12,7 +12,9 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app import states
+import httpx
+
+from app import states, updates
 from app.rdap import RdapClient
 
 REGISTERED = ["google.com", "wikipedia.org", "verisign.net", "afnic.fr", "lemonde.fr", "notion.so", "google.co", "google.ch", "google.io", "google.it"]
@@ -110,6 +112,12 @@ async def main() -> int:
                     failures += 1
         finally:
             await client.close()
+    async with httpx.AsyncClient(timeout=15) as http:
+        latest = await updates.latest_version(http, "khasys/domain-watch")
+    print(f"dernière version sur Docker Hub : {latest}")
+    if latest is None:
+        print("  ÉCHEC version publiée illisible")
+        failures += 1
     print(f"\n{failures} échec(s)")
     return 1 if failures else 0
 

@@ -81,6 +81,7 @@ Les durées acceptent `30s`, `5m`, `6h`, `7d`, ou un nombre de secondes.
 | `WHOIS_MIN_DELAY` | `5` | Secondes minimum entre deux requêtes vers un même serveur WHOIS |
 | `TELEGRAM_BOT_TOKEN` | vide | Jeton du bot |
 | `TELEGRAM_CHAT_ID` | vide | Destinataire des alertes |
+| `UPDATE_REPOSITORY` | `khasys/domain-watch` | Dépôt Docker Hub consulté chaque jour pour signaler une nouvelle version. Vide : pas de vérification |
 | `TZ` | UTC | Fuseau des journaux |
 
 ## Fonctionnement

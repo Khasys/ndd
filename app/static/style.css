@@ -224,7 +224,9 @@ button:disabled { cursor: default; opacity: .55; }
   padding: 2px 8px; background: var(--bg);
   border: 1px solid var(--line); border-radius: var(--radius);
   font-size: 12px; color: var(--muted); font-family: var(--mono);
+  display: flex; gap: 10px;
 }
+.foot .update { color: var(--danger); font-weight: 500; }
 
 /* Login */
 .login-page { min-height: 100vh; display: flex; align-items: flex-start; padding: 18vh 28px 0; }

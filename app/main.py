@@ -4,6 +4,7 @@ import logging
 import re
 import sqlite3
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
@@ -14,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import alerts, db, states
+from . import alerts, db, states, updates
 from .auth import (
     COOKIE_NAME,
     MIN_PASSWORD_LENGTH,
@@ -59,6 +60,18 @@ async def lifespan(app: FastAPI):
 
     scheduler = AsyncIOScheduler(timezone="UTC")
     scheduler.add_job(checker.run_due, "interval", seconds=30, max_instances=1, coalesce=True)
+
+    app.state.latest_version = None
+    if settings.update_repository:
+
+        async def refresh_latest() -> None:
+            found = await updates.latest_version(http, settings.update_repository)
+            if found:
+                app.state.latest_version = found
+
+        scheduler.add_job(
+            refresh_latest, "interval", hours=24, next_run_time=datetime.now(timezone.utc), max_instances=1
+        )
     scheduler.start()
 
     app.state.settings = settings
@@ -253,6 +266,7 @@ async def meta(request: Request):
         "expiring_days": settings.expiring_days,
         "telegram_configured": bool(settings.telegram_token and settings.telegram_chat_id),
         "bulk_running": request.app.state.checker.bulk_running,
+        "update_available": updates.newer(VERSION, request.app.state.latest_version),
     }
 
 

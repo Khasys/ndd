@@ -190,7 +190,12 @@
     </table>
   </main>
 
-  <footer class="foot" title="Version installée">{{VERSION}}</footer>
+  <footer class="foot">
+    <span title="Version installée">{{VERSION}}</span>
+    <span class="update" x-show="meta && meta.update_available" x-cloak
+          :title="'Nouvelle version publiée. Mettre à jour depuis Container Manager.'"
+          x-text="meta && meta.update_available ? meta.update_available + ' disponible' : ''"></span>
+  </footer>
 </div>
 </body>
 </html>

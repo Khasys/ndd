@@ -48,6 +48,7 @@ class Settings:
     whois_min_delay: float
     telegram_token: str
     telegram_chat_id: str
+    update_repository: str = ""
 
     @property
     def db_path(self) -> Path:
@@ -100,4 +101,5 @@ def load_settings() -> Settings:
         whois_min_delay=float(_env("WHOIS_MIN_DELAY", "5")),
         telegram_token=_env("TELEGRAM_BOT_TOKEN", ""),
         telegram_chat_id=_env("TELEGRAM_CHAT_ID", ""),
+        update_repository=_env("UPDATE_REPOSITORY", "khasys/domain-watch").strip(),
     )

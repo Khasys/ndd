@@ -11,6 +11,7 @@ PASSWORD = "motdepasse-de-test"
 def client_factory(tmp_path, monkeypatch):
     def make(**env):
         monkeypatch.setenv("DATA_DIR", str(tmp_path))
+        monkeypatch.setenv("UPDATE_REPOSITORY", "")
         for key in ("AUTH_USERNAME", "AUTH_PASSWORD_HASH", "SECRET_KEY"):
             monkeypatch.delenv(key, raising=False)
         for key, value in env.items():
@@ -77,3 +78,15 @@ def test_invalid_hash_is_reported_at_startup(client_factory, caplog):
     with client_factory(AUTH_USERNAME="moi", AUTH_PASSWORD_HASH="pas-un-hash"):
         pass
     assert "n'est pas un hash bcrypt valide" in caplog.text
+
+
+def test_meta_reports_newer_published_version(client_factory, monkeypatch):
+    hashed = bcrypt.hashpw(PASSWORD.encode(), bcrypt.gensalt(4)).decode()
+    monkeypatch.setattr("app.main.VERSION", "v0.2.2")
+    with client_factory(AUTH_USERNAME="moi", AUTH_PASSWORD_HASH=hashed) as client:
+        client.post("/login", data={"username": "moi", "password": PASSWORD})
+        assert client.get("/api/meta").json()["update_available"] is None
+        client.app.state.latest_version = "v0.3.0"
+        assert client.get("/api/meta").json()["update_available"] == "v0.3.0"
+        client.app.state.latest_version = "v0.2.2"
+        assert client.get("/api/meta").json()["update_available"] is None
