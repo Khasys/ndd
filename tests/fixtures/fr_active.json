@@ -1,0 +1,24 @@
+{
+  "objectClassName": "domain",
+  "handle": "DOM000000000001-FRNIC",
+  "ldhName": "exemple-test.fr",
+  "status": ["active"],
+  "events": [
+    {"eventAction": "registration", "eventDate": "2004-03-01T10:00:00.000000Z"},
+    {"eventAction": "expiration", "eventDate": "2026-10-30T10:00:00.000000Z"},
+    {"eventAction": "last changed", "eventDate": "2025-10-30T10:05:00.123456Z"}
+  ],
+  "entities": [
+    {
+      "objectClassName": "entity",
+      "handle": "9999",
+      "roles": ["registrar"],
+      "vcardArray": ["vcard", [["version", {}, "text", "4.0"], ["fn", {}, "text", "REGISTRAR EXEMPLE"]]]
+    },
+    {"objectClassName": "entity", "handle": "ANO00-FRNIC", "roles": ["registrant"]}
+  ],
+  "nameservers": [
+    {"objectClassName": "nameserver", "ldhName": "ns1.exemple-dns.fr."},
+    {"objectClassName": "nameserver", "ldhName": "ns2.exemple-dns.fr."}
+  ]
+}

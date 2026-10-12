@@ -1,0 +1,117 @@
+{
+  "objectClassName": "domain",
+  "handle": "2336799_DOMAIN_COM-VRSN",
+  "ldhName": "EXEMPLE-TEST.COM",
+  "links": [
+    {
+      "value": "https://rdap.verisign.com/com/v1/domain/EXEMPLE-TEST.COM",
+      "rel": "self",
+      "href": "https://rdap.verisign.com/com/v1/domain/EXEMPLE-TEST.COM",
+      "type": "application/rdap+json"
+    }
+  ],
+  "status": [
+    "redemption period"
+  ],
+  "entities": [
+    {
+      "objectClassName": "entity",
+      "handle": "1234",
+      "roles": [
+        "registrar"
+      ],
+      "publicIds": [
+        {
+          "type": "IANA Registrar ID",
+          "identifier": "1234"
+        }
+      ],
+      "vcardArray": [
+        "vcard",
+        [
+          [
+            "version",
+            {},
+            "text",
+            "4.0"
+          ],
+          [
+            "fn",
+            {},
+            "text",
+            "Exemple Registrar SAS"
+          ]
+        ]
+      ],
+      "entities": [
+        {
+          "objectClassName": "entity",
+          "roles": [
+            "abuse"
+          ],
+          "vcardArray": [
+            "vcard",
+            [
+              [
+                "version",
+                {},
+                "text",
+                "4.0"
+              ],
+              [
+                "fn",
+                {},
+                "text",
+                ""
+              ],
+              [
+                "tel",
+                {
+                  "type": "voice"
+                },
+                "uri",
+                "tel:+33.100000000"
+              ]
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "events": [
+    {
+      "eventAction": "registration",
+      "eventDate": "1997-09-15T04:00:00Z"
+    },
+    {
+      "eventAction": "expiration",
+      "eventDate": "2027-09-14T04:00:00Z"
+    },
+    {
+      "eventAction": "last changed",
+      "eventDate": "2026-10-01T12:00:00Z"
+    },
+    {
+      "eventAction": "last update of RDAP database",
+      "eventDate": "2026-10-12T08:00:00Z"
+    }
+  ],
+  "secureDNS": {
+    "delegationSigned": false
+  },
+  "nameservers": [
+    {
+      "objectClassName": "nameserver",
+      "ldhName": "NS2.EXEMPLE-DNS.NET"
+    },
+    {
+      "objectClassName": "nameserver",
+      "ldhName": "NS1.EXEMPLE-DNS.NET"
+    }
+  ],
+  "rdapConformance": [
+    "rdap_level_0",
+    "icann_rdap_technical_implementation_guide_0",
+    "icann_rdap_response_profile_0"
+  ]
+}

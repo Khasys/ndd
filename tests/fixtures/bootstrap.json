@@ -1,0 +1,8 @@
+{
+  "version": "1.0",
+  "publication": "2026-10-01T00:00:00Z",
+  "services": [
+    [["com", "net"], ["https://rdap.verisign.com/com/v1/"]],
+    [["fr"], ["http://rdap.nic.fr/", "https://rdap.nic.fr/"]]
+  ]
+}
