@@ -19,9 +19,9 @@
   <header class="top">
     <span class="appname">domain-watch</span>
     <nav class="tools">
-      <button type="button" class="btn-text" @click="legendOpen = !legendOpen" :aria-expanded="legendOpen">Légende</button>
-      <button type="button" class="btn-text" @click="checkAll()" :disabled="bulkRunning || !domains.length" x-text="bulkRunning ? 'Vérification en cours' : 'Tout vérifier'"></button>
-      <button type="button" class="btn-text" @click="toggleSettings()" :aria-expanded="settingsOpen">Réglages</button>
+      <button type="button" class="btn-ghost" :class="{ on: legendOpen }" @click="legendOpen = !legendOpen" :aria-expanded="legendOpen">Légende</button>
+      <button type="button" class="btn-ghost" @click="checkAll()" :disabled="bulkRunning || !domains.length" x-text="bulkRunning ? 'Vérification en cours' : 'Tout vérifier'"></button>
+      <button type="button" class="btn-ghost" :class="{ on: settingsOpen }" @click="toggleSettings()" :aria-expanded="settingsOpen">Réglages</button>
       <form method="post" action="/logout"><button type="submit" class="btn-text">Déconnexion</button></form>
     </nav>
   </header>
@@ -76,13 +76,14 @@
         <template x-if="cfg && cfg.telegram.token_set">
           <div class="setting-lines">
             <p>
-              Bot <span class="mono" x-text="cfg.telegram.bot_name ? '@' + cfg.telegram.bot_name : ''"></span>
-              <span class="muted" x-text="'jeton enregistré, fin ' + cfg.telegram.token_hint"></span>
-              <button type="button" class="btn-text" @click="editingToken = !editingToken" x-text="editingToken ? 'Annuler' : 'Changer'"></button>
+              <span x-show="cfg.telegram.bot_name">Bot <span class="mono" x-text="'@' + cfg.telegram.bot_name"></span> connecté.</span>
+              <span x-show="!cfg.telegram.bot_name">Jeton enregistré, Telegram injoignable pour le moment.</span>
+              <button type="button" class="btn-ghost sm" @click="editingToken = !editingToken" x-text="editingToken ? 'Annuler' : 'Changer de bot'"></button>
             </p>
             <p x-show="cfg.telegram.chat_set">Chat associé. Les alertes et le résumé y sont envoyés.</p>
             <template x-if="!cfg.telegram.chat_set && !pairing">
-              <p>Aucun chat associé. <button type="button" class="btn-text accent" @click="startPairing()">Associer mon compte</button></p>
+              <p>Aucun chat associé.</p>
+              <p><button type="button" class="btn-ghost primary" @click="startPairing()">Associer mon compte</button></p>
             </template>
             <template x-if="pairing">
               <div class="pairing">
@@ -92,9 +93,9 @@
               </div>
             </template>
             <p class="setting-actions">
-              <button type="button" class="btn-text" @click="testAlert()" :disabled="sendingTest || !cfg.telegram.chat_set">Envoyer une alerte test</button>
-              <button type="button" class="btn-text" x-show="cfg.telegram.chat_set" @click="startPairing()">Associer un autre chat</button>
-              <button type="button" class="btn-text danger" @click="removeTelegram()">Retirer le bot</button>
+              <button type="button" class="btn-ghost" @click="testAlert()" :disabled="sendingTest || !cfg.telegram.chat_set">Envoyer une alerte test</button>
+              <button type="button" class="btn-ghost" x-show="cfg.telegram.chat_set" @click="startPairing()">Associer un autre chat</button>
+              <button type="button" class="btn-ghost danger" @click="removeTelegram()">Retirer le bot</button>
             </p>
             <p class="muted small" x-show="cfg.telegram.chat_set">
               Commandes : /liste, /urgent, /ajouter nom.fr, /supprimer nom.fr, /verifier nom.fr, /statut, /aide.
@@ -118,7 +119,7 @@
             </p>
             <p class="muted small">Changements de la semaine, expirations et libérations des 30 prochains jours, domaines en erreur.</p>
             <p class="setting-actions">
-              <button type="button" class="btn-text" @click="sendDigest()" :disabled="!cfg.telegram.chat_set">Envoyer maintenant</button>
+              <button type="button" class="btn-ghost" @click="sendDigest()" :disabled="!cfg.telegram.chat_set">Envoyer maintenant</button>
               <span class="muted small" x-show="cfg.digest.last_sent" x-text="'Dernier envoi : ' + cfg.digest.last_sent"></span>
             </p>
           </div>
@@ -133,11 +134,11 @@
             <template x-if="cfg.calendar_url">
               <p class="inline-form">
                 <input type="text" readonly :value="cfg.calendar_url" class="mono" @focus="$event.target.select()" aria-label="Adresse du calendrier">
-                <button type="button" class="btn-text" @click="copy(cfg.calendar_url)">Copier</button>
+                <button type="button" class="btn-ghost" @click="copy(cfg.calendar_url)">Copier</button>
               </p>
             </template>
             <p class="setting-actions">
-              <button type="button" class="btn-text" @click="regenerateCalendar()" x-text="cfg.calendar_url ? 'Changer l\'adresse' : 'Créer l\'adresse'"></button>
+              <button type="button" class="btn-ghost" @click="regenerateCalendar()" x-text="cfg.calendar_url ? 'Changer l\'adresse' : 'Créer l\'adresse'"></button>
             </p>
             <p class="muted small" x-show="cfg.calendar_url">L'adresse donne accès à la liste sans mot de passe : ne pas la partager. La changer coupe l'ancienne.</p>
           </div>
@@ -172,14 +173,14 @@
         <span x-text="f.label"></span><span aria-hidden="true">×</span>
       </button>
     </template>
-    <button type="button" class="btn-text" x-show="activeFilters.length > 1" @click="clearFilters()">Tout effacer</button>
+    <button type="button" class="btn-ghost" x-show="activeFilters.length > 1" @click="clearFilters()">Tout effacer</button>
   </div>
 
   <main>
     <template x-if="loadError">
       <div class="empty">
         <p x-text="'Chargement impossible : ' + loadError"></p>
-        <button type="button" class="btn-text" @click="load()">Réessayer</button>
+        <button type="button" class="btn-ghost" @click="load()">Réessayer</button>
       </div>
     </template>
 
@@ -238,8 +239,8 @@
               <span x-show="d.next_check_at" :title="exact(d.next_check_at)" x-text="relative(d.next_check_at)"></span>
             </td>
             <td class="col-actions" @click.stop>
-              <button type="button" class="btn-text" @click="check(d)" :disabled="!!busy[d.id]" x-text="busy[d.id] ? 'En cours' : 'Vérifier'"></button>
-              <button type="button" class="btn-text danger" @click="remove(d)" :disabled="!!busy[d.id]">Supprimer</button>
+              <button type="button" class="btn-ghost sm" @click="check(d)" :disabled="!!busy[d.id]" x-text="busy[d.id] ? 'En cours' : 'Vérifier'"></button>
+              <button type="button" class="btn-ghost sm danger" @click="remove(d)" :disabled="!!busy[d.id]">Supprimer</button>
             </td>
           </tr>
           <tr class="details" x-show="openId === d.id">
@@ -287,7 +288,7 @@
                           <template x-for="s in d.signals" :key="s.key"><li x-text="s.label"></li></template>
                         </ul>
                         <span class="muted small" x-show="d.signals_checked_at" x-text="'Analysé ' + relative(d.signals_checked_at)" :title="exact(d.signals_checked_at)"></span>
-                        <button type="button" class="btn-text" @click="refreshSignals(d)" :disabled="!!busySignals[d.id]" x-text="busySignals[d.id] ? 'Analyse en cours' : 'Analyser'"></button>
+                        <button type="button" class="btn-ghost sm" @click="refreshSignals(d)" :disabled="!!busySignals[d.id]" x-text="busySignals[d.id] ? 'Analyse en cours' : 'Analyser'"></button>
                       </div>
                     </template>
                   </dd>

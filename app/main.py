@@ -402,7 +402,8 @@ async def refresh_domain_signals(request: Request, domain_id: int):
         timeout=10, follow_redirects=True, max_redirects=5,
         headers={"User-Agent": "Mozilla/5.0 (compatible; domain-watch)"},
     ) as http:
-        await signals.update_one(request.app.state.conn, row, http)
+        if await signals.update_one(request.app.state.conn, row, http) is None:
+            raise HTTPException(503, "Résolveur DNS du NAS injoignable, analyse impossible pour l'instant.")
     return _serialize(_get_row(request, domain_id), request.app.state.checker)
 
 
@@ -419,10 +420,14 @@ async def get_settings(request: Request):
     state = request.app.state
     store, telegram = state.store, state.telegram
     token = telegram.token
+    if token and not telegram.bot_name:
+        try:
+            await telegram.check_token()
+        except (TelegramError, httpx.HTTPError):
+            pass
     return {
         "telegram": {
             "token_set": bool(token),
-            "token_hint": token[-4:] if token else "",
             "bot_name": telegram.bot_name,
             "chat_set": bool(telegram.chat_id),
             "pairing": telegram.pairing_active,

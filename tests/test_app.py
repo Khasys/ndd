@@ -129,7 +129,7 @@ def test_calendar_needs_secret_link_but_no_session(logged):
 def test_settings_without_telegram(logged):
     client = logged()
     cfg = client.get("/api/settings").json()
-    assert cfg["telegram"] == {"token_set": False, "token_hint": "", "bot_name": None, "chat_set": False, "pairing": False}
+    assert cfg["telegram"] == {"token_set": False, "bot_name": None, "chat_set": False, "pairing": False}
     assert cfg["digest"]["enabled"] is True and cfg["digest"]["day"] == 0
     assert client.post("/api/settings/telegram/pair").status_code == 409
     assert client.put("/api/settings/digest", json={"enabled": True, "day": 9, "hour": 9}).status_code == 422

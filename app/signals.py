@@ -31,13 +31,20 @@ LABELS = {
 }
 
 
+class ResolverUnavailable(Exception):
+    pass
+
+
 async def _resolve(name: str, rdtype: str, timeout: float) -> list[str]:
     resolver = dns.asyncresolver.Resolver()
     resolver.lifetime = timeout
     try:
         answer = await resolver.resolve(name, rdtype)
-    except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.NoNameservers, dns.exception.Timeout):
+    except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
         return []
+    except (dns.resolver.NoNameservers, dns.exception.Timeout, dns.resolver.NoResolverConfiguration) as exc:
+        # Panne du résolveur, pas une réponse sur le domaine : ne rien en conclure.
+        raise ResolverUnavailable(exc.__class__.__name__) from None
     return [r.to_text() for r in answer]
 
 
@@ -100,8 +107,12 @@ def suspicious(result: dict | None) -> bool:
 REGISTERED = ("active", "expiring", "expired", "redemption", "pending_delete")
 
 
-async def update_one(conn, row, http: httpx.AsyncClient) -> dict:
-    result = await collect(row["name"], json.loads(row["nameservers"] or "[]"), http)
+async def update_one(conn, row, http: httpx.AsyncClient) -> dict | None:
+    """None si le résolveur DNS est en panne : les signaux précédents sont gardés."""
+    try:
+        result = await collect(row["name"], json.loads(row["nameservers"] or "[]"), http)
+    except ResolverUnavailable:
+        return None
     conn.execute(
         "UPDATE domains SET signals = ?, signals_checked_at = ? WHERE id = ?",
         (json.dumps(result), datetime.now(timezone.utc).replace(microsecond=0).isoformat(), row["id"]),
@@ -126,5 +137,7 @@ async def update_due(conn, limit: int = 20, max_age_hours: int = 24) -> int:
         headers={"User-Agent": "Mozilla/5.0 (compatible; domain-watch)"},
     ) as http:
         for row in rows:
-            await update_one(conn, row, http)
+            if await update_one(conn, row, http) is None:
+                # Inutile d'enchaîner les autres domaines tant que le DNS ne répond pas.
+                break
     return len(rows)

@@ -181,3 +181,17 @@ def test_release_estimate_uses_registry_drop_time(env):
     release = checker.release_estimate(r)
     assert (release.hour, release.minute) == (12, 0)
     assert states.drop_time("fr", checker.delays) is None
+
+
+def test_resolver_outage_is_not_an_abandon_signal(env, monkeypatch):
+    _, conn, _, _ = env
+
+    async def broken(name, rdtype, timeout):
+        raise signals.ResolverUnavailable("Timeout")
+
+    monkeypatch.setattr(signals, "_resolve", broken)
+    domain_id = add(conn, "exemple-test.com")
+    conn.execute("UPDATE domains SET state = 'active', signals = ? WHERE id = ?", (json.dumps({"signals": []}), domain_id))
+    r = row(conn, domain_id)
+    assert run(signals.update_one(conn, r, httpx.AsyncClient())) is None
+    assert json.loads(row(conn, domain_id)["signals"]) == {"signals": []}
