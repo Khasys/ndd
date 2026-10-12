@@ -268,7 +268,6 @@ button:disabled { cursor: default; opacity: .55; }
   font-size: 12px; color: var(--muted); font-family: var(--mono);
   display: flex; gap: 10px;
 }
-.foot .update { color: var(--danger); font-weight: 500; }
 
 
 .panel {
@@ -339,6 +338,28 @@ button:disabled { cursor: default; opacity: .55; }
   .filter-input { width: 100%; }
   .panel { padding: 10px 12px; }
 }
+
+.version-block { padding: 0 0 14px; margin: 0 0 14px; border-bottom: 1px solid var(--line); }
+.version-block h2 { margin: 0 0 8px; font-size: 13px; font-weight: 600; }
+.version-block p { margin: 8px 0 0; }
+.version-line { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.version-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px; border: 1.5px solid var(--line-strong); border-radius: var(--radius);
+  font-size: 14px;
+}
+.version-pill svg { width: 14px; height: 14px; }
+.version-pill.v-ok { border-color: var(--s-available-dot); color: var(--s-available-fg); background: var(--s-available-bg); }
+.version-pill.v-outdated { border-color: var(--danger); color: var(--danger); background: var(--s-redemption-bg); }
+.has-badge { position: relative; }
+.update-badge {
+  position: absolute; top: -7px; right: -7px;
+  width: 18px; height: 18px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--danger); color: var(--surface);
+  border: 2px solid var(--bg);
+}
+.update-badge svg { width: 11px; height: 11px; }
 
 /* Login */
 .login-page { min-height: 100vh; display: flex; align-items: flex-start; padding: 18vh 28px 0; }

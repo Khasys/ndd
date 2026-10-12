@@ -1,4 +1,3 @@
-import asyncio
 import hmac
 import html
 import secrets
@@ -70,6 +69,7 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(checker.run_due, "interval", seconds=30, max_instances=1, coalesce=True)
 
     app.state.latest_version = None
+    app.state.version_checked_at = None
 
     async def refresh_latest() -> None:
         if not settings.update_repository:
@@ -77,6 +77,7 @@ async def lifespan(app: FastAPI):
         found = await updates.latest_version(http, settings.update_repository)
         if found:
             app.state.latest_version = found
+            app.state.version_checked_at = iso(utcnow())
 
     async def send_digest() -> None:
         now_local = datetime.now(digest.local_zone())
@@ -339,6 +340,8 @@ async def meta(request: Request):
         "telegram_configured": request.app.state.telegram.configured,
         "bulk_running": request.app.state.checker.bulk_running,
         "update_available": updates.newer(VERSION, request.app.state.latest_version),
+        "latest_version": request.app.state.latest_version,
+        "version_checked_at": request.app.state.version_checked_at,
     }
 
 
@@ -400,9 +403,13 @@ async def domain_history(request: Request, domain_id: int):
 @app.post("/api/check-all", status_code=202)
 async def check_all(request: Request):
     started = request.app.state.checker.check_all()
-    # Vérifier tout, c'est aussi vérifier s'il existe une version plus récente de l'appli.
-    asyncio.create_task(request.app.state.refresh_latest())
     return {"started": started}
+
+
+@app.post("/api/version/check")
+async def check_version(request: Request):
+    await request.app.state.refresh_latest()
+    return await meta(request)
 
 
 @app.post("/api/alerts/test")

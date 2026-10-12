@@ -21,7 +21,12 @@
     <nav class="tools">
       <button type="button" class="btn-ghost" :class="{ on: legendOpen }" @click="legendOpen = !legendOpen" :aria-expanded="legendOpen">Légende</button>
       <button type="button" class="btn-ghost" @click="checkAll()" :disabled="bulkRunning || !domains.length" x-text="bulkRunning ? 'Vérification en cours' : 'Tout vérifier'"></button>
-      <button type="button" class="btn-ghost" :class="{ on: settingsOpen }" @click="toggleSettings()" :aria-expanded="settingsOpen">Réglages</button>
+      <button type="button" class="btn-ghost has-badge" :class="{ on: settingsOpen }" @click="toggleSettings()" :aria-expanded="settingsOpen">
+        Paramètres
+        <span class="update-badge" x-show="meta && meta.update_available" x-cloak title="Mise à jour disponible" aria-label="Mise à jour disponible">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 12V4M4.5 7.5 8 4l3.5 3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+      </button>
       <form method="post" action="/logout"><button type="submit" class="btn-text">Déconnexion</button></form>
     </nav>
   </header>
@@ -58,7 +63,25 @@
   </section>
 
 
-  <section class="panel settings" x-show="settingsOpen" x-transition.opacity.duration.150ms x-cloak aria-label="Réglages">
+  <section class="panel settings" x-show="settingsOpen" x-transition.opacity.duration.150ms x-cloak aria-label="Paramètres">
+    <div class="version-block">
+      <h2>Version</h2>
+      <div class="version-line">
+        <span class="version-pill" :class="'v-' + versionState" :title="versionTitle">
+          <svg x-show="versionState === 'ok'" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5 6.5 11.5 12.5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span class="mono">{{VERSION}}</span>
+        </span>
+        <template x-if="versionState === 'outdated'">
+          <span class="version-pill v-outdated">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 12V4M4.5 7.5 8 4l3.5 3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span class="mono" x-text="meta.update_available"></span> disponible
+          </span>
+        </template>
+        <span class="muted small" x-text="versionStatus"></span>
+        <button type="button" class="btn-ghost sm" @click="checkVersion()" :disabled="checkingVersion" x-text="checkingVersion ? 'Vérification' : 'Vérifier les mises à jour'"></button>
+      </div>
+      <p class="muted small" x-show="versionState === 'outdated'">Pour installer : Container Manager, Projet, domain-watch, Action, Construire.</p>
+    </div>
     <div class="settings-grid">
       <div>
         <h2>Telegram</h2>
@@ -357,9 +380,6 @@
 
   <footer class="foot">
     <span title="Version installée">{{VERSION}}</span>
-    <span class="update" x-show="meta && meta.update_available" x-cloak
-          :title="'Nouvelle version publiée. Mettre à jour depuis Container Manager.'"
-          x-text="meta && meta.update_available ? meta.update_available + ' disponible' : ''"></span>
   </footer>
 </div>
 </body>

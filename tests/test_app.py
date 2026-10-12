@@ -137,17 +137,21 @@ def test_settings_without_telegram(logged):
     client.__exit__(None, None, None)
 
 
-def test_check_all_also_refreshes_version(logged, monkeypatch):
+def test_version_check_is_separate_from_check_all(logged, monkeypatch):
     client = logged()
     calls = []
 
     async def fake():
         calls.append(1)
+        client.app.state.latest_version = "v9.9.9"
 
     client.app.state.refresh_latest = fake
+    monkeypatch.setattr("app.main.VERSION", "v1.0.0")
     assert client.post("/api/check-all").status_code == 202
-    client.get("/health")
+    assert calls == []
+    data = client.post("/api/version/check").json()
     assert calls == [1]
+    assert data["update_available"] == "v9.9.9" and data["latest_version"] == "v9.9.9"
     client.__exit__(None, None, None)
 
 

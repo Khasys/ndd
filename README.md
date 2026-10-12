@@ -46,10 +46,10 @@ supprimer déconnecte toutes les sessions. `SECRET_KEY` permet de l'imposer.
 
 ### Telegram
 
-Tout se règle dans l'appli, menu Réglages, sans redémarrage :
+Tout se règle dans l'appli, menu Paramètres, sans redémarrage :
 
 1. Dans Telegram, ouvrir @BotFather, envoyer `/newbot`, choisir un nom et un identifiant.
-2. Coller le jeton donné par BotFather dans Réglages, Telegram, puis Enregistrer.
+2. Coller le jeton donné par BotFather dans Paramètres, Telegram, puis Enregistrer.
 3. Cliquer « Associer mon compte » : l'appli affiche un code. L'envoyer au bot sous la forme
    `/start 123456`. Seul ce chat recevra les alertes et pourra piloter le bot.
 
@@ -61,13 +61,13 @@ domaines en erreur) se règle au même endroit : jour, heure, activation. L'heur
 
 ### Apparence
 
-Réglages, Apparence : nom affiché en haut à gauche, logo (PNG, JPEG, WebP ou SVG, 300 Ko maximum,
+Paramètres, Apparence : nom affiché en haut à gauche, logo (PNG, JPEG, WebP ou SVG, 300 Ko maximum,
 rangé dans `data/`) et thème clair, sombre ou selon le système. Le réglage vaut pour tous les
 appareils.
 
 ### Calendrier
 
-Réglages, Calendrier, « Créer l'adresse » : une URL secrète au format ICS, à ajouter comme
+Paramètres, Calendrier, « Créer l'adresse » : une URL secrète au format ICS, à ajouter comme
 calendrier par URL dans l'agenda du téléphone. Elle contient les expirations et les libérations
 estimées, avec un rappel la veille. Elle s'ouvre sans mot de passe : la changer si elle a fuité.
 
@@ -157,6 +157,10 @@ l'image à jour.
 
 Sans Docker Hub : arrêter le projet, supprimer l'image dans Image, puis Construire le projet, qui
 retélécharge `latest`.
+
+L'appli vérifie aussi Docker Hub une fois par jour. Paramètres, Version, affiche la version installée,
+encadrée en vert si elle est à jour, en rouge avec la dernière version publiée sinon. Une pastille
+rouge apparaît alors sur le bouton Paramètres. « Vérifier les mises à jour » relance la vérification.
 
 Pour figer une version, remplacer `latest` par un tag précis (`v0.2.0`).
 

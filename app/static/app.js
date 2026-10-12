@@ -87,6 +87,7 @@ document.addEventListener("alpine:init", () => {
     sendingTest: false,
     legendOpen: false,
     settingsOpen: false,
+    checkingVersion: false,
     now: Date.now(),
     labels: LABELS,
     query: "",
@@ -230,7 +231,7 @@ document.addEventListener("alpine:init", () => {
       try {
         this.cfg = await this.api("GET", "/api/settings");
       } catch (e) {
-        this.say(`Réglages indisponibles : ${e.message}`, "error");
+        this.say(`Paramètres indisponibles : ${e.message}`, "error");
       }
     },
 
@@ -292,6 +293,33 @@ document.addEventListener("alpine:init", () => {
       } catch (e) {
         this.say(`Résumé non envoyé : ${e.message}`, "error");
       }
+    },
+
+    get versionState() {
+      if (!this.meta || !this.meta.latest_version) return "unknown";
+      return this.meta.update_available ? "outdated" : "ok";
+    },
+
+    get versionTitle() {
+      return { ok: "À jour", outdated: "Mise à jour disponible", unknown: "Dernière version publiée inconnue" }[this.versionState];
+    },
+
+    get versionStatus() {
+      if (!this.meta) return "";
+      if (!this.meta.version_checked_at) return "Dernière version publiée inconnue.";
+      const when = this.relative(this.meta.version_checked_at);
+      return this.versionState === "ok" ? `À jour, vérifié ${when}.` : `Vérifié ${when}.`;
+    },
+
+    async checkVersion() {
+      this.checkingVersion = true;
+      try {
+        this.meta = await this.api("POST", "/api/version/check");
+        if (!this.meta.latest_version) this.say("Docker Hub injoignable, version publiée inconnue.", "error");
+      } catch (e) {
+        this.say(e.message, "error");
+      }
+      this.checkingVersion = false;
     },
 
     async saveAppearance() {
