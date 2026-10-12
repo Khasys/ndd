@@ -122,7 +122,7 @@ les images Docker Hub au tag `latest`. Les images `ghcr.io` ne sont jamais véri
 
 Le workflow `release` publie donc aussi sur Docker Hub si les secrets `DOCKERHUB_USERNAME` et
 `DOCKERHUB_TOKEN` sont définis dans le dépôt (Settings, Secrets and variables, Actions). Le compose
-pointe alors sur `<utilisateur-docker-hub>/domain-watch:latest`, et le lien de Container Manager met
+pointe alors sur `khasys/domain-watch:latest`, et le lien de Container Manager met
 l'image à jour.
 
 Sans Docker Hub : arrêter le projet, supprimer l'image dans Image, puis Construire le projet, qui
