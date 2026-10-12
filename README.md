@@ -117,11 +117,18 @@ publier une nouvelle version.
 
 ## Mises à jour
 
-Le compose suit le tag `latest`. À chaque nouvelle version, Container Manager affiche « Mise à jour
-disponible » dans Image : cliquer le lien met l'image à jour et relance le conteneur.
+Container Manager ne signale les nouvelles versions (« Mise à jour disponible » dans Image) que pour
+les images Docker Hub au tag `latest`. Les images `ghcr.io` ne sont jamais vérifiées.
 
-Pour figer une version, remplacer `latest` par un tag précis (`v0.2.0`). Le lien n'apparaît plus,
-la mise à jour se fait alors en changeant le tag.
+Le workflow `release` publie donc aussi sur Docker Hub si les secrets `DOCKERHUB_USERNAME` et
+`DOCKERHUB_TOKEN` sont définis dans le dépôt (Settings, Secrets and variables, Actions). Le compose
+pointe alors sur `<utilisateur-docker-hub>/domain-watch:latest`, et le lien de Container Manager met
+l'image à jour.
+
+Sans Docker Hub : arrêter le projet, supprimer l'image dans Image, puis Construire le projet, qui
+retélécharge `latest`.
+
+Pour figer une version, remplacer `latest` par un tag précis (`v0.2.0`).
 
 Au démarrage, les migrations SQLite en attente sont appliquées. Juste avant, la base est copiée dans
 `/data/backups/domain-watch-AAAAMMJJ-HHMMSS.db`. Les 10 dernières copies sont conservées.
