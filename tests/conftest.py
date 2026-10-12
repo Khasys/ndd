@@ -15,3 +15,8 @@ def fixture():
         return json.loads((FIXTURES / name).read_text())
 
     return load
+
+
+@pytest.fixture
+def fixture_text():
+    return lambda name: (FIXTURES / name).read_text()

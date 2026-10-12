@@ -15,7 +15,7 @@ from pathlib import Path
 from app import states
 from app.rdap import RdapClient
 
-REGISTERED = ["google.com", "wikipedia.org", "verisign.net", "afnic.fr", "lemonde.fr", "notion.so"]
+REGISTERED = ["google.com", "wikipedia.org", "verisign.net", "afnic.fr", "lemonde.fr", "notion.so", "google.co"]
 
 
 async def probe(target: str) -> None:
@@ -58,7 +58,7 @@ async def inspect(names: list[str]) -> int:
                     print(f"  HTTP {response.status_code} {response.headers.get('content-type')}")
                     print(f"  {response.text[:600]}")
                 result = await client.lookup(name)
-                print(f"  lookup : found={result.found} available={result.available} error={result.error}")
+                print(f"  lookup ({result.source}) : found={result.found} available={result.available} error={result.error}")
                 if result.info:
                     print(f"  {result.info}")
         finally:
@@ -83,7 +83,7 @@ async def main() -> int:
                 info = result.info
                 state = states.compute_state(info.statuses, info.expires_at, now, 30)
                 print(f"{name}")
-                print(f"  serveur    : {await client.server_for(name)}")
+                print(f"  source     : {result.source} {await client.server_for(name) or ''}")
                 print(f"  état       : {state}")
                 print(f"  statuts    : {info.statuses}")
                 print(f"  création   : {info.registered_at}")
@@ -98,7 +98,7 @@ async def main() -> int:
                     print(f"  ÉCHEC champs vides : {missing}")
                     failures += 1
 
-            for tld in ("com", "fr", "so"):
+            for tld in ("com", "fr", "so", "co"):
                 name = f"dw-{secrets.token_hex(10)}.{tld}"
                 result = await client.lookup(name)
                 verdict = "disponible" if result.available else (result.error or "trouvé")

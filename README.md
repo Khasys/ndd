@@ -17,7 +17,7 @@ Container Manager ne sait pas s'authentifier de façon fiable sur GHCR. Sans SSH
 Le dépôt reste privé. L'image ne contient aucun secret, seulement le code de l'appli.
 
 Avec SSH, l'image peut rester privée : `sudo docker login ghcr.io` avec un jeton classic limité à
-`read:packages`, puis `sudo docker pull ghcr.io/khasys/domain-watch:v0.1.2` avant l'étape 3.
+`read:packages`, puis `sudo docker pull ghcr.io/khasys/domain-watch:latest` avant l'étape 3.
 
 ### 2. Dossiers
 
@@ -77,7 +77,8 @@ Les durées acceptent `30s`, `5m`, `6h`, `7d`, ou un nombre de secondes.
 | `RDAP_RETRIES` | `3` | Nouvelles tentatives sur erreur réseau, 429 ou 5xx |
 | `RDAP_BACKOFF` | `5` | Base du backoff exponentiel, en secondes |
 | `RDAP_MAX_RETRY_AFTER` | `2m` | Au-delà, un `Retry-After` du registre met fin au check |
-| `RDAP_TIMEOUT` | `20` | Timeout d'une requête RDAP, en secondes |
+| `RDAP_TIMEOUT` | `20` | Timeout d'une requête RDAP ou WHOIS, en secondes |
+| `WHOIS_MIN_DELAY` | `5` | Secondes minimum entre deux requêtes vers un même serveur WHOIS |
 | `TELEGRAM_BOT_TOKEN` | vide | Jeton du bot |
 | `TELEGRAM_CHAT_ID` | vide | Destinataire des alertes |
 | `TZ` | UTC | Fuseau des journaux |
@@ -86,9 +87,17 @@ Les durées acceptent `30s`, `5m`, `6h`, `7d`, ou un nombre de secondes.
 
 - Seuls les noms enregistrables sont acceptés. Un sous-domaine (`blog.exemple.com`) est refusé avec
   le nom à surveiller à la place, d'après la section ICANN de la Public Suffix List.
-- Le serveur RDAP de chaque TLD vient du bootstrap IANA, mis en cache 24 h dans `/data`.
+- Le serveur RDAP de chaque TLD vient du bootstrap IANA, mis en cache 24 h dans `/data`, complété
+  par les serveurs absents du bootstrap mais vérifiés à la main (`EXTRA_SERVERS` dans `app/rdap.py`,
+  .so pour l'instant).
 - Une réponse 404 du registre donne l'état « disponible ». Une erreur réseau, un 429 ou un 5xx ne
   le donnent jamais : le domaine passe en « erreur de check » et garde son dernier état connu.
+- Sans RDAP (.co par exemple), l'appli interroge le WHOIS du registre, trouvé via `whois.iana.org`.
+  Elle ne lit que des lignes « clé: valeur » connues. « Disponible » exige une formule explicite du
+  registre (« not found », « no match »...) et aucune donnée d'enregistrement dans la réponse. Toute
+  réponse non reconnue donne une erreur de check. Le détail d'un domaine indique la source utilisée.
+- Certains registres n'ont ni RDAP ni WHOIS public, ou réservent leur WHOIS à des accès
+  authentifiés : leurs domaines restent en erreur de check.
 - Toutes les requêtes vers un même registre passent par une file unique, avec le délai minimum
   entre deux appels. Le check global et les fréquences rapides ne peuvent pas la contourner.
 - La date de libération est une estimation. Elle repose sur `app/tld_delays.toml`, qui donne pour
@@ -108,26 +117,26 @@ publier une nouvelle version.
 
 ## Mises à jour
 
-Changer le tag dans `docker-compose.yml` (`v0.1.2` vers la nouvelle version), puis arrêter et
-reconstruire le projet dans Container Manager pour tirer la nouvelle image. Le compose ne référence jamais `latest`, une mise à jour est
-toujours volontaire.
+Le compose suit le tag `latest`. À chaque nouvelle version, Container Manager affiche « Mise à jour
+disponible » dans Image : cliquer le lien met l'image à jour et relance le conteneur.
+
+Pour figer une version, remplacer `latest` par un tag précis (`v0.2.0`). Le lien n'apparaît plus,
+la mise à jour se fait alors en changeant le tag.
 
 Au démarrage, les migrations SQLite en attente sont appliquées. Juste avant, la base est copiée dans
 `/data/backups/domain-watch-AAAAMMJJ-HHMMSS.db`. Les 10 dernières copies sont conservées.
 
 Pour revenir en arrière : arrêter le projet, remplacer `data/domain-watch.db` par la sauvegarde
-voulue, remettre l'ancien tag, relancer.
+voulue, mettre le tag de l'ancienne version à la place de `latest`, relancer.
 
 ## Publier une version
 
-```sh
-git tag v0.2.0
-git push origin v0.2.0
-```
+Depuis l'onglet Actions : workflow `release`, Run workflow, version `v0.2.0`. Le tag git est créé
+à la fin. Un `git push` du tag `v0.2.0` donne le même résultat.
 
 Chaque push sur `main` lance le workflow `ci` : tests, build de l'image avec démarrage du
-conteneur, et `scripts/rdap_smoke.py` qui interroge les vrais serveurs RDAP de .com, .net, .org et
-.fr.
+conteneur, et `scripts/rdap_smoke.py` qui interroge les vrais registres de .com, .net, .org, .fr,
+.so et .co. Lancé à la main avec des domaines en argument, il affiche la réponse brute de chacun.
 
 Le workflow `release` lance les tests puis pousse `ghcr.io/<owner>/domain-watch:v0.2.0` et `:latest`
 (amd64 et arm64). La version est affichée en pied de page et renvoyée par `/health`.

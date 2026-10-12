@@ -45,6 +45,7 @@ class Settings:
     rdap_retries: int
     rdap_backoff: float
     rdap_max_retry_after: int
+    whois_min_delay: float
     telegram_token: str
     telegram_chat_id: str
 
@@ -96,6 +97,7 @@ def load_settings() -> Settings:
         rdap_retries=int(_env("RDAP_RETRIES", "3")),
         rdap_backoff=float(_env("RDAP_BACKOFF", "5")),
         rdap_max_retry_after=_duration("RDAP_MAX_RETRY_AFTER", "2m"),
+        whois_min_delay=float(_env("WHOIS_MIN_DELAY", "5")),
         telegram_token=_env("TELEGRAM_BOT_TOKEN", ""),
         telegram_chat_id=_env("TELEGRAM_CHAT_ID", ""),
     )

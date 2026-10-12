@@ -129,7 +129,7 @@ class Checker:
                 """UPDATE domains SET state = ?, state_since = ?, check_error = NULL,
                    epp_statuses = ?, registered_at = ?, updated_at = ?, expires_at = ?,
                    registrar = ?, nameservers = ?, last_checked_at = ?, last_success_at = ?,
-                   next_check_at = ? WHERE id = ?""",
+                   next_check_at = ?, source = ? WHERE id = ?""",
                 (
                     new_state,
                     state_since,
@@ -142,6 +142,7 @@ class Checker:
                     iso(now),
                     iso(now),
                     iso(self._next_check(new_state, now)),
+                    result.source,
                     domain_id,
                 ),
             )

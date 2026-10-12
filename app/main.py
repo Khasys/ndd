@@ -53,6 +53,7 @@ async def lifespan(app: FastAPI):
         retries=settings.rdap_retries,
         backoff=settings.rdap_backoff,
         max_retry_after=settings.rdap_max_retry_after,
+        whois_min_delay=settings.whois_min_delay,
     )
     checker = Checker(conn, settings, rdap, http)
 
@@ -230,6 +231,7 @@ def _serialize(row: sqlite3.Row, checker: Checker) -> dict:
         "last_checked_at": row["last_checked_at"],
         "last_success_at": row["last_success_at"],
         "next_check_at": row["next_check_at"],
+        "source": row["source"],
         "release_at": iso(release),
         "release_is_upper_bound": row["state"] in (states.EXPIRING, states.EXPIRED) and release is not None,
     }

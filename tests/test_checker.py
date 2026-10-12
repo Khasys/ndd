@@ -41,6 +41,7 @@ def make_settings(tmp_path: Path) -> Settings:
         rdap_retries=2,
         rdap_backoff=0,
         rdap_max_retry_after=60,
+        whois_min_delay=0,
         telegram_token="t",
         telegram_chat_id="c",
     )
@@ -52,6 +53,16 @@ class Registry:
     def __init__(self):
         self.responses: dict[str, list] = {}
         self.calls: list[str] = []
+        self.whois_answers: dict[str, object] = {}
+
+    async def whois(self, server: str, name: str, timeout: float) -> str:
+        self.calls.append(f"whois:{server}:{name}")
+        if server == "whois.iana.org":
+            return (FIXTURES / f"whois_iana_{name}.txt").read_text() if (FIXTURES / f"whois_iana_{name}.txt").exists() else "domain: X\n"
+        answer = self.whois_answers.get(name)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer or ""
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         if request.url.host == "data.iana.org":
@@ -76,7 +87,10 @@ def env(tmp_path):
     settings = make_settings(tmp_path)
     conn = db.connect(settings.db_path)
     db.migrate(conn, settings.backup_dir)
-    rdap = RdapClient(tmp_path / "bootstrap.json", 0, 5, 2, 0, 60, transport=transport)
+    rdap = RdapClient(
+        tmp_path / "bootstrap.json", 0, 5, 2, 0, 60,
+        transport=transport, whois_min_delay=0, whois_query=registry.whois,
+    )
     sent: list[str] = []
 
     async def tg_handler(request):
@@ -217,7 +231,7 @@ def test_unknown_tld_is_an_error_not_available(env):
     run(checker.check(domain_id))
     r = row(conn, domain_id)
     assert r["state"] is None
-    assert ".zz" in r["check_error"]
+    assert r["check_error"] == "Ni RDAP ni WHOIS publié pour .zz"
 
 
 def test_tld_missing_from_bootstrap_uses_extra_server(env):
@@ -226,3 +240,29 @@ def test_tld_missing_from_bootstrap_uses_extra_server(env):
     domain_id = add(conn, "exemple-test.so")
     run(checker.check(domain_id))
     assert row(conn, domain_id)["state"] == states.ACTIVE
+
+
+def test_whois_fallback_for_tld_without_rdap(env):
+    registry, conn, checker, _ = env
+    registry.whois_answers["google.co"] = (FIXTURES / "whois_co_found.txt").read_text()
+    registry.whois_answers["libre-test.co"] = (FIXTURES / "whois_co_free.txt").read_text()
+    found = add(conn, "google.co")
+    free = add(conn, "libre-test.co")
+    run(checker.check(found))
+    run(checker.check(free))
+    r = row(conn, found)
+    assert r["state"] == states.ACTIVE
+    assert r["source"] == "whois"
+    assert r["registrar"] == "MarkMonitor, Inc."
+    assert row(conn, free)["state"] == states.AVAILABLE
+    assert "whois:whois.registry.co:google.co" in registry.calls
+
+
+def test_unreadable_whois_is_an_error(env):
+    registry, conn, checker, _ = env
+    registry.whois_answers["bizarre-test.co"] = "Bienvenue sur notre service.\n"
+    domain_id = add(conn, "bizarre-test.co")
+    run(checker.check(domain_id))
+    r = row(conn, domain_id)
+    assert r["state"] is None
+    assert r["check_error"] == "Réponse WHOIS non reconnue"

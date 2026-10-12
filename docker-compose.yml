@@ -1,6 +1,8 @@
 services:
   domain-watch:
-    image: ghcr.io/khasys/domain-watch:v0.1.2
+    # latest : Container Manager signale chaque nouvelle version (« Mise à jour disponible »).
+    # Pour figer une version, remplacer par un tag précis (v0.2.0).
+    image: ghcr.io/khasys/domain-watch:latest
     container_name: domain-watch
     restart: unless-stopped
     ports:

@@ -82,6 +82,7 @@ class LookupResult:
     available: bool = False
     info: DomainInfo | None = None
     error: str | None = None
+    source: str = "rdap"
 
 
 def _parse_date(value: str | None) -> datetime | None:
@@ -170,8 +171,12 @@ class RdapClient:
         backoff: float,
         max_retry_after: float,
         transport: httpx.AsyncBaseTransport | None = None,
+        whois_min_delay: float = 5.0,
+        whois_query=None,
     ):
         self.cache_path = cache_path
+        self.whois_min_delay = whois_min_delay
+        self.timeout = timeout
         self.min_delay = min_delay
         self.retries = retries
         self.backoff = backoff
@@ -187,6 +192,8 @@ class RdapClient:
         self._bootstrap_lock = asyncio.Lock()
         self._host_locks: dict[str, asyncio.Lock] = {}
         self._host_next: dict[str, float] = {}
+        self._whois_servers: dict[str, str | None] = {}
+        self._whois_query = whois_query
 
     async def close(self) -> None:
         await self.http.aclose()
@@ -247,7 +254,7 @@ class RdapClient:
         except (httpx.HTTPError, ValueError) as exc:
             return LookupResult(error=f"Bootstrap IANA indisponible : {exc.__class__.__name__}")
         if not base:
-            return LookupResult(error=f"Aucun serveur RDAP publié pour .{tld_of(domain)}")
+            return await self._lookup_whois(domain)
         url = f"{base.rstrip('/')}/domain/{domain}"
         host = urlsplit(url).netloc
         lock = self._host_locks.setdefault(host, asyncio.Lock())
@@ -292,3 +299,44 @@ class RdapClient:
                     continue
                 return LookupResult(error=f"Réponse RDAP inattendue ({response.status_code})")
             return LookupResult(error=last_error)
+
+    async def _whois(self, server: str, name: str) -> str:
+        from . import whois
+
+        query = self._whois_query or whois.query
+        lock = self._host_locks.setdefault(f"whois:{server}", asyncio.Lock())
+        async with lock:
+            last: Exception | None = None
+            for attempt in range(self.retries + 1):
+                await self._wait_turn(f"whois:{server}")
+                try:
+                    text = await query(server, name, self.timeout)
+                except whois.WhoisError as exc:
+                    last = exc
+                    self._push_next(f"whois:{server}", max(self.whois_min_delay, self.backoff * (2**attempt)))
+                    continue
+                self._push_next(f"whois:{server}", self.whois_min_delay)
+                return text
+            raise last
+
+    async def whois_server(self, tld: str) -> str | None:
+        from . import whois
+
+        if tld not in self._whois_servers:
+            self._whois_servers[tld] = whois.referral(await self._whois(whois.IANA_WHOIS, tld))
+        return self._whois_servers[tld]
+
+    async def _lookup_whois(self, domain: str) -> LookupResult:
+        from . import whois
+
+        tld = tld_of(domain)
+        try:
+            server = await self.whois_server(tld)
+            if not server:
+                return LookupResult(error=f"Ni RDAP ni WHOIS publié pour .{tld}", source="whois")
+            info = whois.parse_whois(await self._whois(server, domain))
+        except whois.WhoisError as exc:
+            return LookupResult(error=str(exc), source="whois")
+        if info is None:
+            return LookupResult(available=True, source="whois")
+        return LookupResult(found=True, info=info, source="whois")

@@ -157,6 +157,7 @@
                     </template>
                     <span class="muted" x-show="!d.epp_statuses.length">Aucun</span>
                   </dd>
+                  <dt>Source</dt><dd x-text="d.source ? d.source.toUpperCase() : 'Inconnue'"></dd>
                   <dt>Dernier check</dt>
                   <dd><span :title="exact(d.last_checked_at)" x-text="d.last_checked_at ? relative(d.last_checked_at) : 'Jamais'"></span></dd>
                   <dt>Prochain check</dt>
