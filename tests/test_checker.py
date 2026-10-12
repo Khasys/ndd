@@ -218,3 +218,11 @@ def test_unknown_tld_is_an_error_not_available(env):
     r = row(conn, domain_id)
     assert r["state"] is None
     assert ".zz" in r["check_error"]
+
+
+def test_tld_missing_from_bootstrap_uses_extra_server(env):
+    registry, conn, checker, _ = env
+    registry.responses["exemple-test.so"] = [rdap_json("com_active.json")]
+    domain_id = add(conn, "exemple-test.so")
+    run(checker.check(domain_id))
+    assert row(conn, domain_id)["state"] == states.ACTIVE

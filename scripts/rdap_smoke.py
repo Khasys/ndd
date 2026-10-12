@@ -15,7 +15,7 @@ from pathlib import Path
 from app import states
 from app.rdap import RdapClient
 
-REGISTERED = ["google.com", "wikipedia.org", "verisign.net", "afnic.fr", "lemonde.fr"]
+REGISTERED = ["google.com", "wikipedia.org", "verisign.net", "afnic.fr", "lemonde.fr", "notion.so"]
 
 
 async def probe(target: str) -> None:
@@ -98,7 +98,7 @@ async def main() -> int:
                     print(f"  ÉCHEC champs vides : {missing}")
                     failures += 1
 
-            for tld in ("com", "fr"):
+            for tld in ("com", "fr", "so"):
                 name = f"dw-{secrets.token_hex(10)}.{tld}"
                 result = await client.lookup(name)
                 verdict = "disponible" if result.available else (result.error or "trouvé")

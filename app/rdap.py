@@ -17,6 +17,14 @@ log = logging.getLogger(__name__)
 BOOTSTRAP_URL = "https://data.iana.org/rdap/dns.json"
 BOOTSTRAP_TTL = 24 * 3600
 
+# Registres qui ont un RDAP fonctionnel mais absent du bootstrap IANA. Le bootstrap reste
+# prioritaire. N'ajouter une entrée qu'après avoir vérifié un domaine enregistré (200) et un
+# domaine libre (404) : un serveur qui ne connaît pas le TLD répond aussi 404.
+EXTRA_SERVERS = {
+    # Vérifié le 2026-10-12 : notion.so -> 200, nom aléatoire -> 404.
+    "so": "https://rdap.nic.so/",
+}
+
 # Section ICANN seule : les suffixes privés (github.io...) n'ont pas de registre RDAP.
 _PSL = PublicSuffixList(only_icann=True)
 _LABEL = re.compile(r"^(?!-)[a-z0-9-]{1,63}(?<!-)$")
@@ -222,7 +230,8 @@ class RdapClient:
             return self._bootstrap
 
     async def server_for(self, domain: str) -> str | None:
-        return (await self._load_bootstrap()).get(tld_of(domain))
+        tld = tld_of(domain)
+        return (await self._load_bootstrap()).get(tld) or EXTRA_SERVERS.get(tld)
 
     async def _wait_turn(self, host: str) -> None:
         delay = self._host_next.get(host, 0.0) - time.monotonic()

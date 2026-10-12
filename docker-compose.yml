@@ -1,6 +1,6 @@
 services:
   domain-watch:
-    image: ghcr.io/khasys/domain-watch:v0.1.1
+    image: ghcr.io/khasys/domain-watch:v0.1.2
     container_name: domain-watch
     restart: unless-stopped
     ports:
