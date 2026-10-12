@@ -1,0 +1,47 @@
+# Durées du cycle de vie après expiration, en jours calendaires.
+#
+#   auto_renew_grace : période après l'expiration pendant laquelle le titulaire peut
+#                      encore renouveler au tarif normal. Le registrar peut supprimer
+#                      le nom avant la fin : l'estimation tirée de cette valeur est
+#                      une date au plus tard.
+#   redemption       : période de restauration payante après suppression.
+#   pending_delete   : délai entre la fin de la rédemption et la libération.
+#
+# Une clé absente signifie « valeur introuvable ou ambiguë ». Dans ce cas l'appli
+# n'affiche aucune estimation de libération pour ce TLD.
+#
+# Consultation : 2026-10-12. Les pages ont été lues au travers des extraits d'un
+# moteur de recherche, l'accès direct aux sites ICANN et Afnic étant bloqué depuis
+# l'environnement de développement. À relire sur les documents d'origine.
+
+[com]
+# https://www.icann.org/en/registry-agreements/com/com-registry-agreement-appendix-7-1-12-2012-en
+# (consulté le 2026-10-12) : « The current value of the Auto-Renew Grace Period is 45 calendar days »
+auto_renew_grace = 45
+# Même source : « The current length of this Redemption Period is 30 calendar days »
+redemption = 30
+# Même source : « The current length of this Pending Delete Period is five calendar days »
+pending_delete = 5
+
+[net]
+# https://www.icann.org/en/registry-agreements/net/net-registry-agreement-appendix-7-functional-and-performance-specifications-01-07-2011-en
+# (consulté le 2026-10-12) : Auto-Renew Grace Period de 45 jours calendaires
+auto_renew_grace = 45
+# Même source : Redemption Period de 30 jours calendaires
+redemption = 30
+# Même source : Pending Delete Period de cinq jours calendaires
+pending_delete = 5
+
+[fr]
+# auto_renew_grace : vide. L'Afnic renouvelle tacitement le nom à l'expiration ;
+# la suppression intervient ensuite à l'initiative du registrar, sans délai fixé
+# par le registre.
+# https://www.afnic.fr/wp-media/uploads/2022/10/Guide-des-procedures-Afnic-VF.pdf (consulté le 2026-10-12)
+
+# https://www.afnic.fr/wp-media/uploads/2024/07/Afnic-Guide-pratique-du-Titulaire.pdf
+# (consulté le 2026-10-12) : délai de 30 jours pendant lequel la suppression reste réversible
+redemption = 30
+
+# pending_delete : vide. Les guides Afnic indiquent que la suppression devient
+# irréversible à la fin de la rédemption, sans préciser le délai avant que le nom
+# redevienne enregistrable. Des registrars citent des délais différents.
