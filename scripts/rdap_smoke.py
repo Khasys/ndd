@@ -14,7 +14,7 @@ from pathlib import Path
 
 import httpx
 
-from app import states, updates
+from app import signals, states, updates
 from app.rdap import RdapClient
 
 REGISTERED = ["google.com", "wikipedia.org", "verisign.net", "afnic.fr", "lemonde.fr", "notion.so", "google.co", "google.ch", "google.io", "google.it"]
@@ -112,8 +112,13 @@ async def main() -> int:
                     failures += 1
         finally:
             await client.close()
-    async with httpx.AsyncClient(timeout=15) as http:
+    async with httpx.AsyncClient(timeout=15, follow_redirects=True) as http:
         latest = await updates.latest_version(http, "khasys/domain-watch")
+        found = await signals.collect("google.com", ["ns1.google.com"], http)
+    print(f"signaux google.com : {found}")
+    if found["signals"]:
+        print("  ÉCHEC google.com ne devrait présenter aucun signe d'abandon")
+        failures += 1
     print(f"dernière version sur Docker Hub : {latest}")
     if latest is None:
         print("  ÉCHEC version publiée illisible")
