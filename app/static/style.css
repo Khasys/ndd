@@ -500,11 +500,11 @@ button:disabled { cursor: default; opacity: .55; }
   .domains td.col-actions { padding-right: 0; }
 
   .details { display: block; }
-  .details td { display: block; padding: 0 14px 16px; background: none; border-top: 1px solid var(--line); }
+  .domains .details > td { display: block; padding: 0 14px 16px; background: none; border-top: 1px solid var(--line); }
   .details-grid { grid-template-columns: 1fr; gap: 18px; padding: 14px 0 0; }
   .details dl { grid-template-columns: 1fr; gap: 2px; }
   .details dt { margin-top: 10px; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; }
-  .details dt:first-child { margin-top: 0; }
+  .details dl > dt:first-child { margin-top: 0; }
   .details .dl-row { display: block; }
   .history li { flex-direction: column; gap: 0; padding: 6px 0; border-bottom: 1px solid var(--line); }
   .history ol { max-height: none; }
