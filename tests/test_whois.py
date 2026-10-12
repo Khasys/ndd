@@ -77,3 +77,39 @@ def test_terms_of_use_mentioning_limits_do_not_hide_data(fixture_text):
         "\nTERMS OF USE: excessive querying, too many requests or high volume access is prohibited.\n"
     )
     assert parse_whois(text).registrar == "MarkMonitor, Inc."
+
+
+def test_eurid_style_blocks():
+    text = """Domain: google.eu
+Script: LATIN
+
+Registrar:
+        Name: MarkMonitor Inc.
+        Website: https://www.markmonitor.com
+
+Name servers:
+        ns1.google.com
+        ns2.google.com
+"""
+    info = parse_whois(text)
+    assert info.registrar == "MarkMonitor Inc."
+    assert info.nameservers == ["ns1.google.com", "ns2.google.com"]
+
+
+def test_jprs_brackets():
+    text = """[ JPRS database provides information on network administration. ]
+Domain Information:
+[Domain Name]                   GOOGLE.JP
+[Name Server]                   ns1.google.com
+[Name Server]                   ns2.google.com
+[Created on]                    2005/05/30
+[State]                         Connected (2027/05/31)
+"""
+    info = parse_whois(text)
+    assert info.nameservers == ["ns1.google.com", "ns2.google.com"]
+    assert info.registered_at == datetime(2005, 5, 30, tzinfo=timezone.utc)
+
+
+def test_status_phrase_kept_whole():
+    info = parse_whois("Domain: google.be\nStatus: NOT AVAILABLE\nRegistered: Tue Dec 12 1999\n")
+    assert info.statuses == ["NOT AVAILABLE"]

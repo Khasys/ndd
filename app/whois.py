@@ -14,13 +14,13 @@ EXPIRY_KEYS = [
     "expire date", "expires on", "expires", "expire", "paid-till", "renewal date", "valid until",
 ]
 CREATED_KEYS = [
-    "creation date", "created on", "created", "registered on", "registration date", "registered",
+    "creation date", "created on", "created", "registered on", "registration date", "registered date", "registered",
     "domain registration date",
 ]
-UPDATED_KEYS = ["updated date", "last updated", "last-update", "last modified", "modified", "changed"]
-REGISTRAR_KEYS = ["registrar", "sponsoring registrar", "registrar name", "registrar organization"]
-NS_KEYS = ["name server", "nameserver", "nameservers", "name servers", "nserver"]
-STATUS_KEYS = ["domain status", "status", "state"]
+UPDATED_KEYS = ["updated date", "last updated", "last update", "last-update", "last modified", "modified", "changed"]
+REGISTRAR_KEYS = ["registrar", "sponsoring registrar", "registrar name", "registrar organization", "registrar organisation"]
+NS_KEYS = ["name server", "nameserver", "nameservers", "name servers", "nserver", "name servers name"]
+STATUS_KEYS = ["domain status", "status", "state", "registration status"]
 
 # Ne conclure « libre » que sur une formule explicite du registre, et seulement si la réponse
 # ne contient aucune donnée d'enregistrement.
@@ -28,9 +28,11 @@ NOT_FOUND = [
     "no match for", "not found", "no data found", "no entries found", "no object found",
     "does not exist", "no matching record", "is available for registration", "not registered",
     "has not been registered", "status: free", "status: available", "no information available",
+    "nothing found", "do not have an entry", "no match",
 ]
 RATE_LIMITED = ["limit exceeded", "quota exceeded", "too many", "try again later", "rate limit", "excessive"]
 
+_BRACKET = re.compile(r"^\s*\[([^\]]{1,60})\]\s+(.+?)\s*$")
 _LINE = re.compile(r"^\s*([A-Za-z][A-Za-z0-9 ._/-]{1,60}?)\s*:\s*(.*?)\s*$")
 _MONTHS = {m: i for i, m in enumerate(
     ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], 1)}
@@ -60,13 +62,37 @@ def parse_date(value: str) -> datetime | None:
 
 
 def _fields(text: str) -> dict[str, list[str]]:
+    """Lit trois formats : « clé: valeur », « [clé] valeur » (.jp), et les blocs
+    « Clé: » suivis de lignes indentées (.eu, .gg), où « Registrar: / Name: X »
+    devient « registrar name ».
+    """
     fields: dict[str, list[str]] = {}
+    section = None
     for line in text.splitlines():
+        if not line.strip():
+            section = None
+            continue
         if line.lstrip().startswith(("%", "#", ">>>")):
             continue
+        indented = line[:1] in (" ", "\t")
+        bracket = _BRACKET.match(line)
         match = _LINE.match(line)
-        if match and match.group(2):
-            fields.setdefault(match.group(1).strip().lower(), []).append(match.group(2))
+        if bracket:
+            key, value = bracket.group(1), bracket.group(2)
+        elif indented and section:
+            if match and match.group(2):
+                key, value = f"{section} {match.group(1).strip().lower()}", match.group(2)
+            else:
+                key, value = section, line.strip()
+        elif match:
+            key, value = match.group(1), match.group(2)
+            if not value:
+                section = key.strip().lower()
+                continue
+            section = None
+        else:
+            continue
+        fields.setdefault(key.strip().lower(), []).append(value.strip())
     return fields
 
 
@@ -107,7 +133,9 @@ def parse_whois(text: str) -> DomainInfo | None:
     statuses = []
     for key in STATUS_KEYS:
         for value in fields.get(key, []):
-            token = value.split()[0] if value.split() else ""
+            # « clientHold https://icann.org/epp#clientHold » : le code seul. Sinon la valeur entière
+            # (« NOT AVAILABLE », « REGISTERED, DELEGATED »).
+            token = value.split()[0] if "http" in value else value.strip().rstrip(",")
             if token and token not in statuses:
                 statuses.append(token)
         if statuses:
