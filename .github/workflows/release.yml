@@ -80,6 +80,9 @@ jobs:
           tags: ${{ steps.name.outputs.tags }}
       - name: Tag git
         if: github.event_name == 'workflow_dispatch'
+        # Le jeton du workflow ne peut pas créer un tag sur un commit qui modifie un workflow :
+        # simple repère dans l'historique, l'image est déjà publiée à ce stade.
+        continue-on-error: true
         run: |
           git tag "$VERSION"
           git push origin "$VERSION"
