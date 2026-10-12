@@ -1,0 +1,28 @@
+services:
+  domain-watch:
+    image: ghcr.io/khasys/domain-watch:v0.1.0
+    container_name: domain-watch
+    restart: unless-stopped
+    # Utilisateur propriétaire du dossier de données sur le NAS (voir README).
+    user: "1026:100"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/data
+    environment:
+      TZ: Europe/Paris
+      APP_URL: http://nas.local:8080
+      AUTH_USERNAME: admin
+      # Sortie de « python -m app.hashpw » : chaque $ est déjà doublé.
+      AUTH_PASSWORD_HASH: "à-remplacer"
+      SECRET_KEY: "à-remplacer"
+      SESSION_MAX_AGE: 7d
+      COOKIE_SECURE: "false"
+      TELEGRAM_BOT_TOKEN: ""
+      TELEGRAM_CHAT_ID: ""
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=4)"]
+      interval: 60s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
