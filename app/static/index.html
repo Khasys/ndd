@@ -21,7 +21,7 @@
     <nav class="tools">
       <button type="button" class="btn-text" @click="legendOpen = !legendOpen" :aria-expanded="legendOpen">Légende</button>
       <button type="button" class="btn-text" @click="checkAll()" :disabled="bulkRunning || !domains.length" x-text="bulkRunning ? 'Vérification en cours' : 'Tout vérifier'"></button>
-      <button type="button" class="btn-text" @click="testAlert()" :disabled="sendingTest">Envoyer une alerte test</button>
+      <button type="button" class="btn-text" @click="toggleSettings()" :aria-expanded="settingsOpen">Réglages</button>
       <form method="post" action="/logout"><button type="submit" class="btn-text">Déconnexion</button></form>
     </nav>
   </header>
@@ -57,6 +57,95 @@
     </p>
   </section>
 
+
+  <section class="panel settings" x-show="settingsOpen" x-transition.opacity.duration.150ms x-cloak aria-label="Réglages">
+    <div class="settings-grid">
+      <div>
+        <h2>Telegram</h2>
+        <template x-if="cfg && !cfg.telegram.token_set">
+          <ol class="steps">
+            <li>Dans Telegram, ouvrir <span class="mono">@BotFather</span> et envoyer <span class="mono">/newbot</span>.</li>
+            <li>Choisir un nom, puis un identifiant finissant par <span class="mono">bot</span>.</li>
+            <li>BotFather répond avec un jeton du type <span class="mono">123456:ABC-DEF</span>. Le coller ci-dessous.</li>
+          </ol>
+        </template>
+        <form class="inline-form" @submit.prevent="saveToken()" x-show="cfg && (!cfg.telegram.token_set || editingToken)">
+          <input type="password" x-model="tokenInput" placeholder="Jeton du bot" autocomplete="off" spellcheck="false" aria-label="Jeton du bot">
+          <button type="submit" class="btn" :disabled="!tokenInput.trim() || savingToken" x-text="savingToken ? 'Vérification' : 'Enregistrer'"></button>
+        </form>
+        <template x-if="cfg && cfg.telegram.token_set">
+          <div class="setting-lines">
+            <p>
+              Bot <span class="mono" x-text="cfg.telegram.bot_name ? '@' + cfg.telegram.bot_name : ''"></span>
+              <span class="muted" x-text="'jeton enregistré, fin ' + cfg.telegram.token_hint"></span>
+              <button type="button" class="btn-text" @click="editingToken = !editingToken" x-text="editingToken ? 'Annuler' : 'Changer'"></button>
+            </p>
+            <p x-show="cfg.telegram.chat_set">Chat associé. Les alertes et le résumé y sont envoyés.</p>
+            <template x-if="!cfg.telegram.chat_set && !pairing">
+              <p>Aucun chat associé. <button type="button" class="btn-text accent" @click="startPairing()">Associer mon compte</button></p>
+            </template>
+            <template x-if="pairing">
+              <div class="pairing">
+                <p>Dans Telegram, ouvrir <a :href="'https://t.me/' + pairing.bot_name" target="_blank" rel="noopener" class="mono" x-text="'@' + pairing.bot_name"></a> et envoyer :</p>
+                <p class="code mono" x-text="'/start ' + pairing.code"></p>
+                <p class="muted">Code valable 10 minutes. Cette page se met à jour dès que le message est reçu.</p>
+              </div>
+            </template>
+            <p class="setting-actions">
+              <button type="button" class="btn-text" @click="testAlert()" :disabled="sendingTest || !cfg.telegram.chat_set">Envoyer une alerte test</button>
+              <button type="button" class="btn-text" x-show="cfg.telegram.chat_set" @click="startPairing()">Associer un autre chat</button>
+              <button type="button" class="btn-text danger" @click="removeTelegram()">Retirer le bot</button>
+            </p>
+            <p class="muted small" x-show="cfg.telegram.chat_set">
+              Commandes : /liste, /urgent, /ajouter nom.fr, /supprimer nom.fr, /verifier nom.fr, /statut, /aide.
+            </p>
+          </div>
+        </template>
+      </div>
+
+      <div>
+        <h2>Résumé hebdomadaire</h2>
+        <template x-if="cfg">
+          <div class="setting-lines">
+            <label class="check"><input type="checkbox" x-model="cfg.digest.enabled" @change="saveDigest()"> Envoyer un résumé sur Telegram</label>
+            <p class="inline-form">
+              <select x-model.number="cfg.digest.day" @change="saveDigest()" :disabled="!cfg.digest.enabled" aria-label="Jour">
+                <template x-for="(name, i) in days" :key="i"><option :value="i" x-text="name" :selected="i === cfg.digest.day"></option></template>
+              </select>
+              <select x-model.number="cfg.digest.hour" @change="saveDigest()" :disabled="!cfg.digest.enabled" aria-label="Heure">
+                <template x-for="h in 24" :key="h"><option :value="h - 1" x-text="(h - 1) + ' h'" :selected="h - 1 === cfg.digest.hour"></option></template>
+              </select>
+            </p>
+            <p class="muted small">Changements de la semaine, expirations et libérations des 30 prochains jours, domaines en erreur.</p>
+            <p class="setting-actions">
+              <button type="button" class="btn-text" @click="sendDigest()" :disabled="!cfg.telegram.chat_set">Envoyer maintenant</button>
+              <span class="muted small" x-show="cfg.digest.last_sent" x-text="'Dernier envoi : ' + cfg.digest.last_sent"></span>
+            </p>
+          </div>
+        </template>
+      </div>
+
+      <div>
+        <h2>Calendrier</h2>
+        <template x-if="cfg">
+          <div class="setting-lines">
+            <p class="muted small">Expirations et libérations estimées, avec rappel la veille. À ajouter comme calendrier par URL dans l'agenda du téléphone.</p>
+            <template x-if="cfg.calendar_url">
+              <p class="inline-form">
+                <input type="text" readonly :value="cfg.calendar_url" class="mono" @focus="$event.target.select()" aria-label="Adresse du calendrier">
+                <button type="button" class="btn-text" @click="copy(cfg.calendar_url)">Copier</button>
+              </p>
+            </template>
+            <p class="setting-actions">
+              <button type="button" class="btn-text" @click="regenerateCalendar()" x-text="cfg.calendar_url ? 'Changer l\'adresse' : 'Créer l\'adresse'"></button>
+            </p>
+            <p class="muted small" x-show="cfg.calendar_url">L'adresse donne accès à la liste sans mot de passe : ne pas la partager. La changer coupe l'ancienne.</p>
+          </div>
+        </template>
+      </div>
+    </div>
+  </section>
+
   <div class="counters" x-show="domains.length" x-cloak>
     <button type="button" class="counter" :class="{ on: filter === null }" @click="filter = null">
       Tous <span class="num" x-text="domains.length"></span>
@@ -67,6 +156,23 @@
         <span x-text="c.label"></span> <span class="num" x-text="c.count"></span>
       </button>
     </template>
+  </div>
+
+
+  <div class="filters" x-show="domains.length" x-cloak>
+    <input type="search" class="filter-input" x-model="query" placeholder="Filtrer par nom" aria-label="Filtrer par nom" autocomplete="off" spellcheck="false">
+    <template x-for="t in allTags" :key="t">
+      <button type="button" class="tag" :class="{ on: tagFilter === t }" @click="tagFilter = tagFilter === t ? null : t" x-text="t"></button>
+    </template>
+    <button type="button" class="tag" :class="{ on: abandonedOnly }" x-show="domains.some(d => d.abandoned)" @click="abandonedOnly = !abandonedOnly">Signes d'abandon</button>
+  </div>
+  <div class="active-filters" x-show="activeFilters.length" x-cloak>
+    <template x-for="f in activeFilters" :key="f.key">
+      <button type="button" class="chip" @click="clearFilter(f.key)" :title="'Retirer ce filtre'">
+        <span x-text="f.label"></span><span aria-hidden="true">×</span>
+      </button>
+    </template>
+    <button type="button" class="btn-text" x-show="activeFilters.length > 1" @click="clearFilters()">Tout effacer</button>
   </div>
 
   <main>
@@ -85,7 +191,7 @@
     </template>
 
     <template x-if="loaded && domains.length && !rows.length">
-      <div class="empty"><p>Aucun domaine dans cet état.</p></div>
+      <div class="empty"><p>Aucun domaine ne correspond aux filtres.</p></div>
     </template>
 
     <table class="domains" x-show="rows.length" x-cloak>
@@ -109,10 +215,14 @@
                 <span class="mono" x-text="d.unicode_name"></span>
               </button>
               <span class="mono muted punycode" x-show="d.unicode_name !== d.name" x-text="d.name"></span>
+              <span class="row-tags" x-show="d.tags.length">
+                <template x-for="t in d.tags" :key="t"><button type="button" class="tag small" @click.stop="tagFilter = t" x-text="t"></button></template>
+              </span>
             </td>
             <td class="state">
               <span class="badge" :class="'s-' + displayState(d)" :title="stateTitle(d)" x-text="stateLabel(d)"></span>
               <span class="last-known" x-show="d.check_error && d.state" x-text="'Dernier état : ' + labels[d.state]"></span>
+              <span class="abandon" x-show="d.abandoned" :title="d.signals.map(s => s.label).join(', ')">Signes d'abandon</span>
             </td>
             <td class="num" data-label="Jours restants" :class="{ blank: daysLeft(d) === null }">
               <span x-show="daysLeft(d) !== null" :title="d.effective_expires_at ? 'Expiration le ' + exact(d.effective_expires_at) : ''" x-text="daysLeft(d)"></span>
@@ -141,7 +251,7 @@
                   <dt>Expiration</dt><dd><span :title="exact(d.expires_at)" x-text="longDate(d.expires_at)"></span></dd>
                   <dt>Libération</dt>
                   <dd>
-                    <span x-show="d.release_at" :title="releaseTitle(d)" x-text="'~' + longDate(d.release_at) + (d.release_is_upper_bound ? ' au plus tard' : '')"></span>
+                    <span x-show="d.release_at" :title="releaseTitle(d)" x-text="releaseLong(d)"></span>
                     <span class="muted" x-show="!d.release_at" x-text="noReleaseReason(d)"></span>
                   </dd>
                   <dt>Registrar</dt><dd x-text="d.registrar || 'Aucun'"></dd>
@@ -156,6 +266,30 @@
                       <span class="epp mono" :title="eppExplain(s)" x-text="s"></span>
                     </template>
                     <span class="muted" x-show="!d.epp_statuses.length">Aucun</span>
+                  </dd>
+                  <dt>Tags</dt>
+                  <dd class="tags-edit">
+                    <template x-for="t in d.tags" :key="t">
+                      <span class="tag"><span x-text="t"></span><button type="button" class="tag-remove" @click="removeTag(d, t)" :aria-label="'Retirer ' + t">×</button></span>
+                    </template>
+                    <input type="text" class="tag-input" placeholder="Ajouter un tag" @keydown.enter.prevent="addTag(d, $event.target)" list="tag-list" aria-label="Ajouter un tag">
+                  </dd>
+                  <dt>Signaux</dt>
+                  <dd>
+                    <template x-if="!['active','expiring','expired','redemption','pending_delete'].includes(d.state)">
+                      <span class="muted">Seulement pour un domaine enregistré.</span>
+                    </template>
+                    <template x-if="['active','expiring','expired','redemption','pending_delete'].includes(d.state)">
+                      <div>
+                        <span class="muted" x-show="!d.signals_checked_at">Pas encore analysé.</span>
+                        <span x-show="d.signals_checked_at && !d.signals.length">Aucun signe d'abandon<span class="muted" x-text="d.signals_web ? ' (site : ' + d.signals_web + ')' : ''"></span>.</span>
+                        <ul class="signals" x-show="d.signals.length">
+                          <template x-for="s in d.signals" :key="s.key"><li x-text="s.label"></li></template>
+                        </ul>
+                        <span class="muted small" x-show="d.signals_checked_at" x-text="'Analysé ' + relative(d.signals_checked_at)" :title="exact(d.signals_checked_at)"></span>
+                        <button type="button" class="btn-text" @click="refreshSignals(d)" :disabled="!!busySignals[d.id]" x-text="busySignals[d.id] ? 'Analyse en cours' : 'Analyser'"></button>
+                      </div>
+                    </template>
                   </dd>
                   <dt>Source</dt><dd x-text="d.source ? d.source.toUpperCase() : 'Inconnue'"></dd>
                   <dt>Dernier check</dt>
@@ -189,6 +323,8 @@
       </template>
     </table>
   </main>
+
+  <datalist id="tag-list"><template x-for="t in allTags" :key="t"><option :value="t"></option></template></datalist>
 
   <footer class="foot">
     <span title="Version installée">{{VERSION}}</span>

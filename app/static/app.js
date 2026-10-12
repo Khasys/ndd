@@ -56,6 +56,7 @@ const FIELDS = { state: "État", registrar: "Registrar", nameservers: "DNS", exp
 const DAY = 86400000;
 const dateFmt = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
 const longFmt = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+const timeFmt = new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit" });
 const exactFmt = new Intl.DateTimeFormat("fr-FR", { dateStyle: "full", timeStyle: "short" });
 
 function frequency(seconds) {
@@ -85,10 +86,25 @@ document.addEventListener("alpine:init", () => {
     bulkRunning: false,
     sendingTest: false,
     legendOpen: false,
+    settingsOpen: false,
     now: Date.now(),
     labels: LABELS,
+    query: "",
+    tagFilter: null,
+    abandonedOnly: false,
+    busySignals: {},
+    cfg: null,
+    tokenInput: "",
+    editingToken: false,
+    savingToken: false,
+    pairing: null,
+    days: ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"],
 
     init() {
+      this.restoreFilters();
+      for (const key of ["query", "filter", "tagFilter", "abandonedOnly", "sortKey", "sortDir"]) {
+        this.$watch(key, () => this.saveFilters());
+      }
       this.load();
       setInterval(() => (this.now = Date.now()), 30000);
       setInterval(() => this.load(true), 60000);
@@ -204,6 +220,124 @@ document.addEventListener("alpine:init", () => {
       this.busy[d.id] = false;
     },
 
+    async toggleSettings() {
+      this.settingsOpen = !this.settingsOpen;
+      if (this.settingsOpen) await this.loadSettings();
+    },
+
+    async loadSettings() {
+      try {
+        this.cfg = await this.api("GET", "/api/settings");
+      } catch (e) {
+        this.say(`Réglages indisponibles : ${e.message}`, "error");
+      }
+    },
+
+    async saveToken() {
+      this.savingToken = true;
+      try {
+        const res = await this.api("PUT", "/api/settings/telegram", { token: this.tokenInput });
+        this.tokenInput = "";
+        this.editingToken = false;
+        this.say(`Bot @${res.bot_name} enregistré. Associer maintenant ton compte.`);
+        await this.loadSettings();
+      } catch (e) {
+        this.say(e.message, "error");
+      }
+      this.savingToken = false;
+    },
+
+    async startPairing() {
+      try {
+        this.pairing = await this.api("POST", "/api/settings/telegram/pair");
+      } catch (e) {
+        this.say(e.message, "error");
+        return;
+      }
+      clearInterval(this._pairTimer);
+      // Le serveur efface le code dès que le bon message arrive, ou au bout de 10 minutes.
+      this._pairTimer = setInterval(async () => {
+        await this.loadSettings();
+        if (this.cfg && !this.cfg.telegram.pairing) {
+          clearInterval(this._pairTimer);
+          this.pairing = null;
+          if (this.cfg.telegram.chat_set) this.say("Compte Telegram associé.");
+        }
+      }, 3000);
+    },
+
+    async removeTelegram() {
+      if (!confirm("Retirer le bot Telegram ? Les alertes ne seront plus envoyées.")) return;
+      await this.api("DELETE", "/api/settings/telegram");
+      this.pairing = null;
+      await this.loadSettings();
+      this.say("Bot retiré.");
+    },
+
+    async saveDigest() {
+      try {
+        this.cfg = await this.api("PUT", "/api/settings/digest", {
+          enabled: this.cfg.digest.enabled, day: this.cfg.digest.day, hour: this.cfg.digest.hour,
+        });
+      } catch (e) {
+        this.say(e.message, "error");
+      }
+    },
+
+    async sendDigest() {
+      try {
+        await this.api("POST", "/api/digest/send");
+        this.say("Résumé envoyé sur Telegram.");
+      } catch (e) {
+        this.say(`Résumé non envoyé : ${e.message}`, "error");
+      }
+    },
+
+    async regenerateCalendar() {
+      if (this.cfg.calendar_url && !confirm("Changer l'adresse ? L'ancienne cessera de fonctionner.")) return;
+      const res = await this.api("POST", "/api/settings/calendar");
+      this.cfg.calendar_url = res.calendar_url;
+    },
+
+    async copy(text) {
+      try {
+        await navigator.clipboard.writeText(text);
+        this.say("Adresse copiée.");
+      } catch (_) {
+        this.say("Copie impossible : sélectionner l'adresse et la copier à la main.", "error");
+      }
+    },
+
+    async addTag(d, input) {
+      const tag = input.value.trim();
+      if (!tag) return;
+      input.value = "";
+      await this.saveTags(d, [...d.tags, tag]);
+    },
+
+    async removeTag(d, tag) {
+      await this.saveTags(d, d.tags.filter((t) => t !== tag));
+      if (this.tagFilter === tag && !this.domains.some((x) => x.tags.includes(tag))) this.tagFilter = null;
+    },
+
+    async saveTags(d, tags) {
+      try {
+        this.replace(await this.api("PUT", `/api/domains/${d.id}/tags`, { tags }));
+      } catch (e) {
+        this.say(`${d.name} : ${e.message}`, "error");
+      }
+    },
+
+    async refreshSignals(d) {
+      this.busySignals[d.id] = true;
+      try {
+        this.replace(await this.api("POST", `/api/domains/${d.id}/signals`));
+      } catch (e) {
+        this.say(`${d.name} : ${e.message}`, "error");
+      }
+      this.busySignals[d.id] = false;
+    },
+
     async testAlert() {
       this.sendingTest = true;
       try {
@@ -283,8 +417,60 @@ document.addEventListener("alpine:init", () => {
       }
     },
 
+    // Filtres gardés dans le navigateur d'une visite à l'autre.
+    restoreFilters() {
+      try {
+        const saved = JSON.parse(localStorage.getItem("dw.filters") || "{}");
+        this.query = saved.query || "";
+        this.filter = saved.filter || null;
+        this.tagFilter = saved.tagFilter || null;
+        this.abandonedOnly = !!saved.abandonedOnly;
+        if (saved.sortKey) { this.sortKey = saved.sortKey; this.sortDir = saved.sortDir || 1; }
+      } catch (_) {}
+    },
+
+    saveFilters() {
+      try {
+        localStorage.setItem("dw.filters", JSON.stringify({
+          query: this.query, filter: this.filter, tagFilter: this.tagFilter,
+          abandonedOnly: this.abandonedOnly, sortKey: this.sortKey, sortDir: this.sortDir,
+        }));
+      } catch (_) {}
+    },
+
+    get activeFilters() {
+      const list = [];
+      if (this.query.trim()) list.push({ key: "query", label: `Nom : ${this.query.trim()}` });
+      if (this.filter) list.push({ key: "filter", label: `État : ${LABELS[this.filter] || this.filter}` });
+      if (this.tagFilter) list.push({ key: "tagFilter", label: `Tag : ${this.tagFilter}` });
+      if (this.abandonedOnly) list.push({ key: "abandonedOnly", label: "Signes d'abandon" });
+      return list;
+    },
+
+    clearFilter(key) {
+      if (key === "query") this.query = "";
+      else if (key === "abandonedOnly") this.abandonedOnly = false;
+      else this[key] = null;
+    },
+
+    clearFilters() {
+      this.query = "";
+      this.filter = null;
+      this.tagFilter = null;
+      this.abandonedOnly = false;
+    },
+
+    get allTags() {
+      return [...new Set(this.domains.flatMap((d) => d.tags))].sort();
+    },
+
     get rows() {
-      const list = this.filter ? this.domains.filter((d) => this.displayState(d) === this.filter) : [...this.domains];
+      const q = this.query.trim().toLowerCase();
+      const list = this.domains.filter((d) =>
+        (!this.filter || this.displayState(d) === this.filter) &&
+        (!this.tagFilter || d.tags.includes(this.tagFilter)) &&
+        (!this.abandonedOnly || d.abandoned) &&
+        (!q || d.name.includes(q) || d.unicode_name.toLowerCase().includes(q)));
       const key = this.sortKey;
       const dir = this.sortDir;
       return list.sort((a, b) => {
@@ -309,10 +495,18 @@ document.addEventListener("alpine:init", () => {
       return this.sortKey === key ? (this.sortDir === 1 ? " ↑" : " ↓") : "";
     },
 
+    releaseLong(d) {
+      let text = "~" + this.longDate(d.release_at);
+      if (d.release_has_time) text += " vers " + timeFmt.format(new Date(d.release_at));
+      if (d.release_is_upper_bound) text += " au plus tard";
+      return text;
+    },
+
     releaseTitle(d) {
       const tld = d.name.split(".").pop();
       let t = `Estimation. Calculée depuis le statut du domaine et les délais publiés par le registre du .${tld}.`;
       if (d.release_is_upper_bound) t += " Date au plus tard : le registrar peut supprimer le nom plus tôt.";
+      if (d.release_has_time) t += ` Heure : début de la fenêtre quotidienne de suppression du registre, vers ${timeFmt.format(new Date(d.release_at))} heure locale (source presse, non officielle).`;
       return `${t} ${this.exact(d.release_at)}`;
     },
 

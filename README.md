@@ -46,10 +46,24 @@ supprimer déconnecte toutes les sessions. `SECRET_KEY` permet de l'imposer.
 
 ### Telegram
 
-1. Créer un bot avec @BotFather, récupérer le jeton.
-2. Envoyer un message au bot, puis ouvrir `https://api.telegram.org/bot<jeton>/getUpdates` pour lire
-   le `chat.id`.
-3. Renseigner `TELEGRAM_BOT_TOKEN` et `TELEGRAM_CHAT_ID`, redémarrer, puis « Envoyer une alerte test ».
+Tout se règle dans l'appli, menu Réglages, sans redémarrage :
+
+1. Dans Telegram, ouvrir @BotFather, envoyer `/newbot`, choisir un nom et un identifiant.
+2. Coller le jeton donné par BotFather dans Réglages, Telegram, puis Enregistrer.
+3. Cliquer « Associer mon compte » : l'appli affiche un code. L'envoyer au bot sous la forme
+   `/start 123456`. Seul ce chat recevra les alertes et pourra piloter le bot.
+
+Commandes du bot : `/liste`, `/urgent`, `/ajouter nom.fr`, `/supprimer nom.fr`, `/verifier nom.fr`,
+`/statut`, `/aide`. Le bot interroge Telegram lui-même : aucun port à ouvrir.
+
+Le résumé hebdomadaire (changements de la semaine, expirations et libérations des 30 jours à venir,
+domaines en erreur) se règle au même endroit : jour, heure, activation. L'heure suit la variable `TZ`.
+
+### Calendrier
+
+Réglages, Calendrier, « Créer l'adresse » : une URL secrète au format ICS, à ajouter comme
+calendrier par URL dans l'agenda du téléphone. Elle contient les expirations et les libérations
+estimées, avec un rappel la veille. Elle s'ouvre sans mot de passe : la changer si elle a fuité.
 
 ## Variables d'environnement
 
@@ -79,8 +93,8 @@ Les durées acceptent `30s`, `5m`, `6h`, `7d`, ou un nombre de secondes.
 | `RDAP_MAX_RETRY_AFTER` | `2m` | Au-delà, un `Retry-After` du registre met fin au check |
 | `RDAP_TIMEOUT` | `20` | Timeout d'une requête RDAP ou WHOIS, en secondes |
 | `WHOIS_MIN_DELAY` | `5` | Secondes minimum entre deux requêtes vers un même serveur WHOIS |
-| `TELEGRAM_BOT_TOKEN` | vide | Jeton du bot |
-| `TELEGRAM_CHAT_ID` | vide | Destinataire des alertes |
+| `TELEGRAM_BOT_TOKEN` | vide | Ancienne configuration, utilisée tant que rien n'est réglé dans l'appli |
+| `TELEGRAM_CHAT_ID` | vide | Idem |
 | `UPDATE_REPOSITORY` | `khasys/domain-watch` | Dépôt Docker Hub consulté chaque jour pour signaler une nouvelle version. Vide : pas de vérification |
 | `TZ` | UTC | Fuseau des journaux |
 
@@ -97,6 +111,15 @@ Les durées acceptent `30s`, `5m`, `6h`, `7d`, ou un nombre de secondes.
   Elle ne lit que des lignes « clé: valeur » connues. « Disponible » exige une formule explicite du
   registre (« not found », « no match »...) et aucune donnée d'enregistrement dans la réponse. Toute
   réponse non reconnue donne une erreur de check. Le détail d'un domaine indique la source utilisée.
+- Signaux d'abandon, une fois par jour pour chaque domaine enregistré : le nom résout-il, le site
+  répond-il, le certificat HTTPS est-il valide, y a-t-il des serveurs de mail, le domaine est-il en
+  parking ou affiché à vendre. Le badge « Signes d'abandon » apparaît avec au moins deux indices
+  (l'absence de mail seule ne compte pas) ou un parking.
+- Pour .com et .net, la date de libération estimée porte aussi une heure : le début de la fenêtre
+  quotidienne de suppression de Verisign, vers 12:00 UTC depuis le 1er octobre 2026 d'après la
+  presse spécialisée. Pas d'annonce officielle trouvée, d'où l'affichage en estimation.
+- Filtres (nom, état, tag, signes d'abandon) et tri sont gardés par le navigateur d'une visite à
+  l'autre. Tags libres par domaine, ajoutés dans le détail.
 - Certains registres n'ont ni RDAP ni WHOIS public, ou réservent leur WHOIS à des accès
   authentifiés : leurs domaines restent en erreur de check.
 - Toutes les requêtes vers un même registre passent par une file unique, avec le délai minimum

@@ -6,6 +6,7 @@
 #                      une date au plus tard.
 #   redemption       : période de restauration payante après suppression.
 #   pending_delete   : délai entre la fin de la rédemption et la libération.
+#   drop_time_utc    : heure UTC à laquelle le registre commence à supprimer les noms du jour.
 #
 # Une clé absente signifie « valeur introuvable ou ambiguë ». Dans ce cas l'appli
 # n'affiche aucune estimation de libération pour ce TLD.
@@ -22,6 +23,10 @@ auto_renew_grace = 45
 redemption = 30
 # Même source : « The current length of this Pending Delete Period is five calendar days »
 pending_delete = 5
+# Début de la fenêtre quotidienne de suppression, heure UTC. Source de presse, pas d'annonce Verisign trouvée :
+# https://domainnamewire.com/2026/09/09/verisign-changes-drop-time-for-com-and-net-domains/
+# (consulté le 2026-10-12) : à partir du 1er octobre, début des suppressions vers 12:00 UTC.
+drop_time_utc = "12:00"
 
 [net]
 # https://www.icann.org/en/registry-agreements/net/net-registry-agreement-appendix-7-functional-and-performance-specifications-01-07-2011-en
@@ -31,6 +36,10 @@ auto_renew_grace = 45
 redemption = 30
 # Même source : Pending Delete Period de cinq jours calendaires
 pending_delete = 5
+# Début de la fenêtre quotidienne de suppression, heure UTC. Source de presse, pas d'annonce Verisign trouvée :
+# https://domainnamewire.com/2026/09/09/verisign-changes-drop-time-for-com-and-net-domains/
+# (consulté le 2026-10-12) : à partir du 1er octobre, début des suppressions vers 12:00 UTC.
+drop_time_utc = "12:00"
 
 [fr]
 # auto_renew_grace : vide. L'Afnic renouvelle tacitement le nom à l'expiration ;

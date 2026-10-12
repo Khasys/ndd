@@ -1,10 +1,13 @@
+import asyncio
+import hmac
 import html
+import secrets
 import json
 import logging
 import re
 import sqlite3
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
@@ -15,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import alerts, db, states, updates
+from . import bot, calendar_ics, db, digest, signals, states, updates
 from .auth import (
     COOKIE_NAME,
     MIN_PASSWORD_LENGTH,
@@ -26,9 +29,11 @@ from .auth import (
     load_or_create_secret,
     verify_credentials,
 )
-from .checker import Checker, iso, parse_iso, utcnow
+from .checker import Checker, DuplicateDomain, iso, parse_iso, utcnow
 from .config import VERSION, load_settings
-from .rdap import InvalidDomain, RdapClient, clean_domain
+from .rdap import InvalidDomain, RdapClient, tld_of
+from .store import Store
+from .telegram import Telegram, TelegramError
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("domain-watch")
@@ -56,24 +61,42 @@ async def lifespan(app: FastAPI):
         max_retry_after=settings.rdap_max_retry_after,
         whois_min_delay=settings.whois_min_delay,
     )
-    checker = Checker(conn, settings, rdap, http)
+    store = Store(conn, {"telegram_token": settings.telegram_token, "telegram_chat_id": settings.telegram_chat_id})
+    telegram = Telegram(store, http)
+    checker = Checker(conn, settings, rdap, http, notify=telegram.send)
+    telegram.handler = bot.build_handler(checker, VERSION)
 
     scheduler = AsyncIOScheduler(timezone="UTC")
     scheduler.add_job(checker.run_due, "interval", seconds=30, max_instances=1, coalesce=True)
 
     app.state.latest_version = None
-    if settings.update_repository:
 
-        async def refresh_latest() -> None:
-            found = await updates.latest_version(http, settings.update_repository)
-            if found:
-                app.state.latest_version = found
+    async def refresh_latest() -> None:
+        if not settings.update_repository:
+            return
+        found = await updates.latest_version(http, settings.update_repository)
+        if found:
+            app.state.latest_version = found
 
-        scheduler.add_job(
-            refresh_latest, "interval", hours=24, next_run_time=datetime.now(timezone.utc), max_instances=1
-        )
+    async def send_digest() -> None:
+        now_local = datetime.now(digest.local_zone())
+        if telegram.configured and digest.due(store, now_local):
+            if await telegram.send(digest.build(checker, utcnow(), settings.app_url)) is None:
+                store.set("digest_last_sent", now_local.date().isoformat())
+
+    async def refresh_signals() -> None:
+        await signals.update_due(conn, limit=20)
+
+    now = datetime.now(timezone.utc)
+    scheduler.add_job(refresh_latest, "interval", hours=24, next_run_time=now, max_instances=1)
+    scheduler.add_job(send_digest, "interval", minutes=15, max_instances=1)
+    scheduler.add_job(refresh_signals, "interval", hours=1, next_run_time=now + timedelta(minutes=2), max_instances=1)
     scheduler.start()
+    telegram.start()
 
+    app.state.refresh_latest = refresh_latest
+    app.state.store = store
+    app.state.telegram = telegram
     app.state.settings = settings
     app.state.conn = conn
     app.state.checker = checker
@@ -96,6 +119,7 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         scheduler.shutdown(wait=False)
+        await telegram.stop()
         await rdap.close()
         await http.aclose()
         conn.close()
@@ -115,7 +139,7 @@ async def require_session(request: Request, call_next):
         if path.startswith("/api/"):
             return JSONResponse({"detail": "Configuration initiale à terminer."}, status_code=503)
         return RedirectResponse("/setup", status_code=303)
-    if path in PUBLIC_PATHS or path.startswith("/static/"):
+    if path in PUBLIC_PATHS or path.startswith(("/static/", "/calendar/")):
         return await call_next(request)
     if state.sessions.valid(request.cookies.get(COOKIE_NAME), state.settings.username):
         return await call_next(request)
@@ -226,6 +250,7 @@ def _serialize(row: sqlite3.Row, checker: Checker) -> dict:
     now = utcnow()
     release = checker.release_estimate(row, now)
     effective = states.effective_expiry(row["state"], parse_iso(row["expires_at"]), now)
+    found_signals = json.loads(row["signals"]) if row["signals"] else {}
     return {
         "id": row["id"],
         "name": row["name"],
@@ -247,6 +272,12 @@ def _serialize(row: sqlite3.Row, checker: Checker) -> dict:
         "source": row["source"],
         "release_at": iso(release),
         "release_is_upper_bound": row["state"] in (states.EXPIRING, states.EXPIRED) and release is not None,
+        "release_has_time": bool(release and states.drop_time(tld_of(row["name"]), checker.delays)),
+        "tags": json.loads(row["tags"]),
+        "signals": [{"key": k, "label": signals.LABELS[k]} for k in found_signals.get("signals", [])],
+        "signals_web": found_signals.get("web"),
+        "signals_checked_at": row["signals_checked_at"],
+        "abandoned": signals.suspicious(found_signals),
     }
 
 
@@ -264,7 +295,7 @@ async def meta(request: Request):
         "version": VERSION,
         "intervals": settings.intervals,
         "expiring_days": settings.expiring_days,
-        "telegram_configured": bool(settings.telegram_token and settings.telegram_chat_id),
+        "telegram_configured": request.app.state.telegram.configured,
         "bulk_running": request.app.state.checker.bulk_running,
         "update_available": updates.newer(VERSION, request.app.state.latest_version),
     }
@@ -283,18 +314,13 @@ class NewDomain(BaseModel):
 
 @app.post("/api/domains", status_code=201)
 async def add_domain(request: Request, payload: NewDomain):
-    conn = request.app.state.conn
     checker = request.app.state.checker
     try:
-        name = clean_domain(payload.name)
+        row = await checker.add(payload.name)
     except InvalidDomain as exc:
         raise HTTPException(422, str(exc)) from None
-    try:
-        cur = conn.execute("INSERT INTO domains (name, added_at) VALUES (?, ?)", (name, iso(utcnow())))
-    except sqlite3.IntegrityError:
-        raise HTTPException(409, f"{name} est déjà surveillé.") from None
-    await checker.check(cur.lastrowid)
-    row = conn.execute("SELECT * FROM domains WHERE id = ?", (cur.lastrowid,)).fetchone()
+    except DuplicateDomain as exc:
+        raise HTTPException(409, str(exc)) from None
     return _serialize(row, checker)
 
 
@@ -333,6 +359,8 @@ async def domain_history(request: Request, domain_id: int):
 @app.post("/api/check-all", status_code=202)
 async def check_all(request: Request):
     started = request.app.state.checker.check_all()
+    # Vérifier tout, c'est aussi vérifier s'il existe une version plus récente de l'appli.
+    asyncio.create_task(request.app.state.refresh_latest())
     return {"started": started}
 
 
@@ -343,7 +371,155 @@ async def test_alert(request: Request):
     lines = ["domain-watch : alerte test", f"Version {VERSION}"]
     if settings.app_url:
         lines.append(settings.app_url)
-    error = await alerts.send_telegram(state.http, settings.telegram_token, settings.telegram_chat_id, "\n".join(lines))
+    error = await state.telegram.send("\n".join(lines))
     if error:
         raise HTTPException(502, error)
     return {"sent": True}
+
+
+class Tags(BaseModel):
+    tags: list[str]
+
+
+@app.put("/api/domains/{domain_id}/tags")
+async def set_tags(request: Request, domain_id: int, payload: Tags):
+    _get_row(request, domain_id)
+    tags: list[str] = []
+    for tag in payload.tags:
+        tag = " ".join(tag.split()).lower()[:30]
+        if tag and tag not in tags:
+            tags.append(tag)
+    request.app.state.conn.execute("UPDATE domains SET tags = ? WHERE id = ?", (json.dumps(tags), domain_id))
+    return _serialize(_get_row(request, domain_id), request.app.state.checker)
+
+
+@app.post("/api/domains/{domain_id}/signals")
+async def refresh_domain_signals(request: Request, domain_id: int):
+    row = _get_row(request, domain_id)
+    if row["state"] not in signals.REGISTERED:
+        raise HTTPException(409, "Signaux disponibles seulement pour un domaine enregistré.")
+    async with httpx.AsyncClient(
+        timeout=10, follow_redirects=True, max_redirects=5,
+        headers={"User-Agent": "Mozilla/5.0 (compatible; domain-watch)"},
+    ) as http:
+        await signals.update_one(request.app.state.conn, row, http)
+    return _serialize(_get_row(request, domain_id), request.app.state.checker)
+
+
+def _calendar_url(request: Request) -> str | None:
+    token = request.app.state.store.get("calendar_token")
+    if not token:
+        return None
+    base = request.app.state.settings.app_url or str(request.base_url).rstrip("/")
+    return f"{base}/calendar/{token}.ics"
+
+
+@app.get("/api/settings")
+async def get_settings(request: Request):
+    state = request.app.state
+    store, telegram = state.store, state.telegram
+    token = telegram.token
+    return {
+        "telegram": {
+            "token_set": bool(token),
+            "token_hint": token[-4:] if token else "",
+            "bot_name": telegram.bot_name,
+            "chat_set": bool(telegram.chat_id),
+            "pairing": telegram.pairing_active,
+        },
+        "digest": {
+            "enabled": store.get("digest_enabled", "1") == "1",
+            "day": int(store.get("digest_day", "0")),
+            "hour": int(store.get("digest_hour", "9")),
+            "last_sent": store.get("digest_last_sent") or None,
+        },
+        "calendar_url": _calendar_url(request),
+    }
+
+
+class TelegramToken(BaseModel):
+    token: str
+
+
+@app.put("/api/settings/telegram")
+async def set_telegram_token(request: Request, payload: TelegramToken):
+    state = request.app.state
+    token = "".join(payload.token.split())
+    previous = state.telegram.token
+    state.store.set("telegram_token", token)
+    try:
+        name = await state.telegram.check_token()
+    except (TelegramError, httpx.HTTPError) as exc:
+        if previous:
+            state.store.set("telegram_token", previous)
+        else:
+            state.store.delete("telegram_token")
+        raise HTTPException(422, f"Jeton refusé par Telegram : {exc}") from None
+    if token != previous:
+        # Nouveau bot : l'ancien chat associé ne le connaît pas.
+        state.store.set("telegram_chat_id", "")
+    return {"bot_name": name}
+
+
+@app.delete("/api/settings/telegram", status_code=204)
+async def delete_telegram(request: Request):
+    store = request.app.state.store
+    store.set("telegram_token", "")
+    store.set("telegram_chat_id", "")
+    request.app.state.telegram.bot_name = None
+    return Response(status_code=204)
+
+
+@app.post("/api/settings/telegram/pair")
+async def pair_telegram(request: Request):
+    telegram = request.app.state.telegram
+    if not telegram.token:
+        raise HTTPException(409, "Enregistrer d'abord le jeton du bot.")
+    if not telegram.bot_name:
+        try:
+            await telegram.check_token()
+        except (TelegramError, httpx.HTTPError) as exc:
+            raise HTTPException(502, f"Telegram injoignable : {exc}") from None
+    return {"code": telegram.start_pairing(), "bot_name": telegram.bot_name}
+
+
+class DigestSettings(BaseModel):
+    enabled: bool
+    day: int
+    hour: int
+
+
+@app.put("/api/settings/digest")
+async def set_digest(request: Request, payload: DigestSettings):
+    if not 0 <= payload.day <= 6 or not 0 <= payload.hour <= 23:
+        raise HTTPException(422, "Jour ou heure invalide.")
+    store = request.app.state.store
+    store.set("digest_enabled", "1" if payload.enabled else "0")
+    store.set("digest_day", str(payload.day))
+    store.set("digest_hour", str(payload.hour))
+    return await get_settings(request)
+
+
+@app.post("/api/digest/send")
+async def send_digest_now(request: Request):
+    state = request.app.state
+    error = await state.telegram.send(digest.build(state.checker, utcnow(), state.settings.app_url))
+    if error:
+        raise HTTPException(502, error)
+    return {"sent": True}
+
+
+@app.post("/api/settings/calendar")
+async def regenerate_calendar(request: Request):
+    request.app.state.store.set("calendar_token", secrets.token_urlsafe(24))
+    return {"calendar_url": _calendar_url(request)}
+
+
+@app.get("/calendar/{token}.ics")
+async def calendar(request: Request, token: str):
+    expected = request.app.state.store.get("calendar_token")
+    # Lien secret, sans session : les applis de calendrier ne savent pas se connecter.
+    if not expected or not hmac.compare_digest(token.encode(), expected.encode()):
+        raise HTTPException(404)
+    body = calendar_ics.build(request.app.state.checker, utcnow(), request.app.state.settings.app_url)
+    return Response(body, media_type="text/calendar; charset=utf-8")

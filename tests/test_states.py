@@ -93,8 +93,11 @@ def test_no_release_when_tld_delays_incomplete_or_missing():
 def test_shipped_delays_file_is_consistent():
     delays = states.load_delays()
     for tld, values in delays.items():
-        assert set(values) <= set(states.DELAY_KEYS), tld
-        assert all(isinstance(v, int) and v >= 0 for v in values.values()), tld
+        days = {k: v for k, v in values.items() if k != "drop_time_utc"}
+        assert set(days) <= set(states.DELAY_KEYS), tld
+        assert all(isinstance(v, int) and v >= 0 for v in days.values()), tld
+        if "drop_time_utc" in values:
+            assert states.drop_time(tld, delays) is not None
 
 
 @pytest.mark.parametrize(

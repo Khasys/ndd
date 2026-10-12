@@ -90,3 +90,62 @@ def test_meta_reports_newer_published_version(client_factory, monkeypatch):
         assert client.get("/api/meta").json()["update_available"] == "v0.3.0"
         client.app.state.latest_version = "v0.2.2"
         assert client.get("/api/meta").json()["update_available"] is None
+
+
+@pytest.fixture
+def logged(client_factory):
+    hashed = bcrypt.hashpw(PASSWORD.encode(), bcrypt.gensalt(4)).decode()
+
+    def make():
+        client = client_factory(AUTH_USERNAME="moi", AUTH_PASSWORD_HASH=hashed)
+        client.__enter__()
+        client.post("/login", data={"username": "moi", "password": PASSWORD})
+        return client
+
+    return make
+
+
+def test_tags_are_normalized(logged):
+    client = logged()
+    conn = client.app.state.conn
+    domain_id = conn.execute("INSERT INTO domains (name, added_at) VALUES ('a-test.fr', 'x')").lastrowid
+    data = client.put(f"/api/domains/{domain_id}/tags", json={"tags": [" Projet  X ", "projet x", "", "achat"]}).json()
+    assert data["tags"] == ["projet x", "achat"]
+    client.__exit__(None, None, None)
+
+
+def test_calendar_needs_secret_link_but_no_session(logged):
+    client = logged()
+    url = client.post("/api/settings/calendar").json()["calendar_url"]
+    path = url.split("://", 1)[1].split("/", 1)[1]
+    client.cookies.clear()
+    response = client.get("/" + path)
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/calendar")
+    assert client.get("/calendar/mauvais.ics").status_code == 404
+    client.__exit__(None, None, None)
+
+
+def test_settings_without_telegram(logged):
+    client = logged()
+    cfg = client.get("/api/settings").json()
+    assert cfg["telegram"] == {"token_set": False, "token_hint": "", "bot_name": None, "chat_set": False, "pairing": False}
+    assert cfg["digest"]["enabled"] is True and cfg["digest"]["day"] == 0
+    assert client.post("/api/settings/telegram/pair").status_code == 409
+    assert client.put("/api/settings/digest", json={"enabled": True, "day": 9, "hour": 9}).status_code == 422
+    assert client.put("/api/settings/digest", json={"enabled": False, "day": 4, "hour": 18}).json()["digest"]["day"] == 4
+    client.__exit__(None, None, None)
+
+
+def test_check_all_also_refreshes_version(logged, monkeypatch):
+    client = logged()
+    calls = []
+
+    async def fake():
+        calls.append(1)
+
+    client.app.state.refresh_latest = fake
+    assert client.post("/api/check-all").status_code == 202
+    client.get("/health")
+    assert calls == [1]
+    client.__exit__(None, None, None)

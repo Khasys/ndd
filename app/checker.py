@@ -3,12 +3,13 @@ import json
 import logging
 import sqlite3
 from datetime import datetime, timedelta, timezone
+from typing import Awaitable, Callable
 
 import httpx
 
 from . import alerts, states
 from .config import Settings
-from .rdap import RdapClient, tld_of
+from .rdap import RdapClient, clean_domain, tld_of
 
 log = logging.getLogger(__name__)
 
@@ -25,18 +26,43 @@ def parse_iso(value: str | None) -> datetime | None:
     return datetime.fromisoformat(value) if value else None
 
 
+class DuplicateDomain(ValueError):
+    pass
+
+
 class Checker:
-    def __init__(self, conn: sqlite3.Connection, settings: Settings, rdap: RdapClient, http: httpx.AsyncClient):
+    def __init__(
+        self,
+        conn: sqlite3.Connection,
+        settings: Settings,
+        rdap: RdapClient,
+        http: httpx.AsyncClient,
+        notify: Callable[[str], Awaitable[str | None]] | None = None,
+    ):
         self.conn = conn
         self.settings = settings
         self.rdap = rdap
         self.http = http
+        self.notify = notify or self._notify_from_env
         self.delays = states.load_delays()
         self._running: set[int] = set()
         self._bulk: asyncio.Task | None = None
 
+    async def _notify_from_env(self, text: str) -> str | None:
+        return await alerts.send_telegram(self.http, self.settings.telegram_token, self.settings.telegram_chat_id, text)
+
+    async def add(self, raw: str) -> sqlite3.Row:
+        """Ajoute et vérifie tout de suite. Lève InvalidDomain ou DuplicateDomain."""
+        name = clean_domain(raw)
+        try:
+            cur = self.conn.execute("INSERT INTO domains (name, added_at) VALUES (?, ?)", (name, iso(utcnow())))
+        except sqlite3.IntegrityError:
+            raise DuplicateDomain(f"{name} est déjà surveillé.") from None
+        await self.check(cur.lastrowid)
+        return self.conn.execute("SELECT * FROM domains WHERE id = ?", (cur.lastrowid,)).fetchone()
+
     def release_estimate(self, row: sqlite3.Row, now: datetime | None = None) -> datetime | None:
-        return states.estimate_release(
+        release = states.estimate_release(
             row["state"],
             tld_of(row["name"]),
             parse_iso(row["expires_at"]),
@@ -44,6 +70,10 @@ class Checker:
             now or utcnow(),
             self.delays,
         )
+        drop = states.drop_time(tld_of(row["name"]), self.delays)
+        if release and drop:
+            release = release.replace(hour=drop[0], minute=drop[1], second=0, microsecond=0)
+        return release
 
     def _next_check(self, state: str | None, now: datetime) -> datetime:
         return now + timedelta(seconds=states.check_interval(state, self.settings.intervals))
@@ -164,7 +194,7 @@ class Checker:
                 self.release_estimate(updated, now),
                 self.settings.app_url,
             )
-            await alerts.send_telegram(self.http, self.settings.telegram_token, self.settings.telegram_chat_id, text)
+            await self.notify(text)
 
     async def run_due(self) -> None:
         now = iso(utcnow())

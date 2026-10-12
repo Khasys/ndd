@@ -83,5 +83,13 @@ def estimate_release(
     return None
 
 
+def drop_time(tld: str, delays: dict[str, dict]) -> tuple[int, int] | None:
+    value = str(delays.get(tld, {}).get("drop_time_utc", ""))
+    if not value:
+        return None
+    hour, minute = value.split(":")
+    return int(hour), int(minute)
+
+
 def check_interval(state: str | None, intervals: dict[str, int]) -> int:
     return intervals.get(state or "unknown", intervals["unknown"])
