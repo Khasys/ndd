@@ -70,3 +70,10 @@ def test_iana_referral(fixture_text):
 )
 def test_parse_date(raw, expected):
     assert parse_date(raw) == expected
+
+
+def test_terms_of_use_mentioning_limits_do_not_hide_data(fixture_text):
+    text = fixture_text("whois_co_found.txt") + (
+        "\nTERMS OF USE: excessive querying, too many requests or high volume access is prohibited.\n"
+    )
+    assert parse_whois(text).registrar == "MarkMonitor, Inc."

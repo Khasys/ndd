@@ -93,9 +93,6 @@ def parse_whois(text: str) -> DomainInfo | None:
     qu'un faux « disponible ».
     """
     lowered = text.lower()
-    if any(p in lowered for p in RATE_LIMITED):
-        raise WhoisError("Limite de requêtes WHOIS du registre atteinte")
-
     fields = _fields(text)
     info = DomainInfo()
     info.expires_at = _date(fields, EXPIRY_KEYS)
@@ -121,6 +118,10 @@ def parse_whois(text: str) -> DomainInfo | None:
     registered = info.expires_at or info.registered_at or info.registrar or info.nameservers or not free_status
     if registered:
         return info
+    # Les conditions d'utilisation citent souvent ces formules : on ne les prend en compte
+    # qu'en l'absence de données d'enregistrement.
+    if any(p in lowered for p in RATE_LIMITED):
+        raise WhoisError("Limite de requêtes WHOIS du registre atteinte")
     if any(p in lowered for p in NOT_FOUND):
         return None
     raise WhoisError("Réponse WHOIS non reconnue")
