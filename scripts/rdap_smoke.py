@@ -18,7 +18,35 @@ from app.rdap import RdapClient
 REGISTERED = ["google.com", "wikipedia.org", "verisign.net", "afnic.fr", "lemonde.fr"]
 
 
+async def probe(target: str) -> None:
+    """https://... : GET brut. whois:serveur:domaine : requête WHOIS port 43."""
+    if target.startswith("whois:"):
+        _, server, name = target.split(":", 2)
+        try:
+            reader, writer = await asyncio.wait_for(asyncio.open_connection(server, 43), 10)
+            writer.write(f"{name}\r\n".encode())
+            await writer.drain()
+            data = await asyncio.wait_for(reader.read(), 15)
+            writer.close()
+            print(f"{target}\n{data.decode(errors='replace')[:1500]}")
+        except Exception as exc:
+            print(f"{target} : {exc.__class__.__name__} {exc}")
+        return
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as http:
+            response = await http.get(target, headers={"Accept": "application/rdap+json"})
+        print(f"{target} : HTTP {response.status_code}\n  {response.text[:400]}")
+    except Exception as exc:
+        print(f"{target} : {exc.__class__.__name__} {exc}")
+
+
 async def inspect(names: list[str]) -> int:
+    probes = [n for n in names if n.startswith(("http", "whois:"))]
+    for target in probes:
+        await probe(target)
+    names = [n for n in names if n not in probes]
     with tempfile.TemporaryDirectory() as tmp:
         client = RdapClient(Path(tmp) / "bootstrap.json", 2, 20, 1, 2, 30)
         try:
