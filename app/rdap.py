@@ -23,6 +23,8 @@ BOOTSTRAP_TTL = 24 * 3600
 EXTRA_SERVERS = {
     # Vérifié le 2026-10-12 : notion.so -> 200, nom aléatoire -> 404.
     "so": "https://rdap.nic.so/",
+    # Vérifié le 2026-10-12 : google.ch -> 200, nom aléatoire -> 404.
+    "ch": "https://rdap.nic.ch/",
 }
 
 # Section ICANN seule : les suffixes privés (github.io...) n'ont pas de registre RDAP.

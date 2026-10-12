@@ -113,3 +113,22 @@ Domain Information:
 def test_status_phrase_kept_whole():
     info = parse_whois("Domain: google.be\nStatus: NOT AVAILABLE\nRegistered: Tue Dec 12 1999\n")
     assert info.statuses == ["NOT AVAILABLE"]
+
+
+def test_identity_digital_free_despite_throttling_terms():
+    text = (
+        "Domain not found.\n>>> Last update of WHOIS database: 2026-10-12T13:54:38Z <<<\n\n"
+        "Terms of Use: Access to WHOIS information is provided to assist persons in determining the contents "
+        "of a domain name registration record. Queries to the Whois services are throttled. If too many queries "
+        "are received from a single IP address within a specified time, the service will begin to reject further queries.\n"
+    )
+    assert parse_whois(text) is None
+
+
+def test_aligned_status_available():
+    assert parse_whois("Domain:             libre.it\nStatus:             AVAILABLE\n") is None
+
+
+def test_short_rate_limit_line_raises():
+    with pytest.raises(WhoisError, match="Limite"):
+        parse_whois("%% Too many requests, try again later\n")

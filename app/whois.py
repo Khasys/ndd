@@ -118,7 +118,9 @@ def parse_whois(text: str) -> DomainInfo | None:
     Lève WhoisError si la réponse n'est pas interprétable : mieux vaut une erreur de check
     qu'un faux « disponible ».
     """
-    lowered = text.lower()
+    # Formules cherchées ligne par ligne, espaces normalisés, et seulement dans les lignes courtes :
+    # les conditions d'utilisation, en longs paragraphes, citent « too many queries » ou « not found ».
+    short_lines = [" ".join(line.split()).lower() for line in text.splitlines() if len(line) <= 160]
     fields = _fields(text)
     info = DomainInfo()
     info.expires_at = _date(fields, EXPIRY_KEYS)
@@ -146,12 +148,10 @@ def parse_whois(text: str) -> DomainInfo | None:
     registered = info.expires_at or info.registered_at or info.registrar or info.nameservers or not free_status
     if registered:
         return info
-    # Les conditions d'utilisation citent souvent ces formules : on ne les prend en compte
-    # qu'en l'absence de données d'enregistrement.
-    if any(p in lowered for p in RATE_LIMITED):
-        raise WhoisError("Limite de requêtes WHOIS du registre atteinte")
-    if any(p in lowered for p in NOT_FOUND):
+    if any(p in line for line in short_lines for p in NOT_FOUND):
         return None
+    if any(p in line for line in short_lines for p in RATE_LIMITED):
+        raise WhoisError("Limite de requêtes WHOIS du registre atteinte")
     raise WhoisError("Réponse WHOIS non reconnue")
 
 

@@ -15,7 +15,7 @@ from pathlib import Path
 from app import states
 from app.rdap import RdapClient
 
-REGISTERED = ["google.com", "wikipedia.org", "verisign.net", "afnic.fr", "lemonde.fr", "notion.so", "google.co"]
+REGISTERED = ["google.com", "wikipedia.org", "verisign.net", "afnic.fr", "lemonde.fr", "notion.so", "google.co", "google.ch", "google.io", "google.it"]
 
 
 async def probe(target: str) -> None:
@@ -91,14 +91,14 @@ async def main() -> int:
                 print(f"  expiration : {info.expires_at}")
                 print(f"  registrar  : {info.registrar}")
                 print(f"  DNS        : {info.nameservers}")
-                missing = [k for k in ("expires_at", "registrar") if not getattr(info, k)]
-                if not info.nameservers:
-                    missing.append("nameservers")
+                # Le WHOIS de certains registres (.it) ne publie ni registrar ni DNS.
+                required = ("expires_at",) if result.source == "whois" else ("expires_at", "registrar", "nameservers")
+                missing = [k for k in required if not getattr(info, k)]
                 if missing:
                     print(f"  ÉCHEC champs vides : {missing}")
                     failures += 1
 
-            for tld in ("com", "fr", "so", "co"):
+            for tld in ("com", "fr", "so", "co", "ch", "io", "it", "de"):
                 name = f"dw-{secrets.token_hex(10)}.{tld}"
                 result = await client.lookup(name)
                 verdict = "disponible" if result.available else (result.error or "trouvé")
