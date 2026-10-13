@@ -191,17 +191,15 @@
               </label>
               <button type="button" class="btn-ghost sm danger" x-show="cfg.appearance.logo" @click="removeLogo()">Retirer le logo</button>
             </p>
-            <template x-if="cfg.appearance.logo">
-              <div class="logo-size">
-                <label for="logo-height"><span>Taille du logo</span><span class="mono" x-text="cfg.appearance.logo_height + ' px'"></span></label>
-                <input id="logo-height" type="range" min="20" max="120" step="2"
-                       x-model.number="cfg.appearance.logo_height"
-                       @input="previewLogo()" @change="saveAppearance()">
-                <div class="logo-preview" aria-hidden="true">
-                  <span class="brand"><img class="logo" :src="logoSrc" alt=""><span class="appname" x-text="cfg.appearance.app_name"></span></span>
-                </div>
+            <div class="logo-size">
+              <label for="logo-height"><span x-text="cfg.appearance.logo ? 'Taille du logo' : 'Taille du nom'"></span><span class="mono" x-text="(cfg.appearance.logo ? cfg.appearance.logo_height : Math.round(cfg.appearance.logo_height * .625)) + ' px'"></span></label>
+              <input id="logo-height" type="range" min="20" max="120" step="2"
+                     x-model.number="cfg.appearance.logo_height"
+                     @input="previewLogo()" @change="saveAppearance()">
+              <div class="logo-preview" aria-hidden="true">
+                <span class="brand"><template x-if="cfg.appearance.logo"><img class="logo" :src="logoSrc" alt=""></template><span class="appname" x-text="cfg.appearance.app_name"></span></span>
               </div>
-            </template>
+            </div>
             <p class="muted small">PNG, JPEG, WebP ou SVG, 300 Ko maximum. Affiché à gauche du nom.</p>
           </div>
         </template>
