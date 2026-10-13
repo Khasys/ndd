@@ -365,15 +365,26 @@ document.addEventListener("alpine:init", () => {
 
     async saveAppearance() {
       try {
-        const { app_name, theme } = this.cfg.appearance;
-        this.cfg = await this.api("PUT", "/api/settings/appearance", { app_name, theme });
+        const { app_name, theme, logo_height } = this.cfg.appearance;
+        this.cfg = await this.api("PUT", "/api/settings/appearance", { app_name, theme, logo_height });
         this.applyAppearance();
       } catch (e) {
         this.say(e.message, "error");
       }
     },
 
+    // Aperçu en direct : la variable CSS change l'en-tête et l'aperçu sans attendre le serveur.
+    previewLogo() {
+      document.documentElement.style.setProperty("--logo-h", `${this.cfg.appearance.logo_height}px`);
+    },
+
+    get logoSrc() {
+      const img = document.querySelector(".top .logo");
+      return img ? img.getAttribute("src") : "/logo";
+    },
+
     applyAppearance() {
+      this.previewLogo();
       const { app_name, theme } = this.cfg.appearance;
       const root = document.documentElement;
       if (theme === "system") delete root.dataset.theme;

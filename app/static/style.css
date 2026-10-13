@@ -106,7 +106,14 @@ body {
 }
 .home { color: inherit; text-decoration: none; border-radius: var(--radius); -webkit-tap-highlight-color: transparent; }
 .brand { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
-.logo { height: 32px; width: auto; max-width: 160px; object-fit: contain; }
+.logo { height: var(--logo-h, 32px); width: auto; max-width: min(70vw, 480px); object-fit: contain; }
+.logo-size { margin: 12px 0 8px; }
+.logo-size label { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.logo-size input[type="range"] { width: 100%; height: 32px; margin: 0; accent-color: var(--accent); }
+.logo-preview {
+  display: flex; align-items: center; min-height: 64px; margin-top: 6px; padding: 10px 12px; overflow: hidden;
+  background: var(--bg); border: 1px dashed var(--line-strong); border-radius: var(--radius);
+}
 .appname { font-family: var(--mono); font-weight: 600; font-size: 20px; color: var(--text); letter-spacing: -0.01em; }
 .tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .tools form { margin: 0; }
@@ -390,7 +397,6 @@ button:disabled { cursor: default; opacity: .55; }
   }
   .top { padding-bottom: 12px; }
   .top .tools { display: none; }
-  .logo { height: 36px; }
   .appname { font-size: 22px; }
   .mobile-only { display: block; }
 

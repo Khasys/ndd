@@ -62,7 +62,7 @@ domaines en erreur) se règle au même endroit : jour, heure, activation. L'heur
 ### Apparence
 
 Paramètres, Apparence : nom affiché en haut à gauche, logo (PNG, JPEG, WebP ou SVG, 300 Ko maximum,
-rangé dans `data/`) et thème clair, sombre ou selon le système. Le réglage vaut pour tous les
+rangé dans `data/`), taille du logo réglable au curseur avec aperçu en direct (20 à 120 px), et thème clair, sombre ou selon le système. Le réglage vaut pour tous les
 appareils.
 
 ### Calendrier

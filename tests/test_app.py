@@ -180,14 +180,27 @@ def test_session_is_renewed_on_each_visit(logged):
     client.__exit__(None, None, None)
 
 
+def test_logo_height_is_bounded_and_rendered(logged):
+    client = logged()
+    cfg = client.put("/api/settings/appearance", json={"app_name": "x", "theme": "system", "logo_height": 64}).json()
+    assert cfg["appearance"]["logo_height"] == 64
+    assert 'style="--logo-h: 64px"' in client.get("/").text
+    cfg = client.put("/api/settings/appearance", json={"app_name": "x", "theme": "system", "logo_height": 999}).json()
+    assert cfg["appearance"]["logo_height"] == 120
+    # Sans le champ, la taille enregistrée est gardée.
+    cfg = client.put("/api/settings/appearance", json={"app_name": "y", "theme": "system"}).json()
+    assert cfg["appearance"]["logo_height"] == 120
+    client.__exit__(None, None, None)
+
+
 def test_appearance_is_rendered_server_side(logged):
     client = logged()
     page = client.get("/").text
-    assert '<html lang="fr">' in page and '<span class="appname">domain-watch</span>' in page
+    assert '<html lang="fr" style="--logo-h: 32px">' in page and '<span class="appname">domain-watch</span>' in page
     cfg = client.put("/api/settings/appearance", json={"app_name": "  Mes   domaines ", "theme": "dark"}).json()
-    assert cfg["appearance"] == {"app_name": "Mes domaines", "theme": "dark", "logo": False}
+    assert cfg["appearance"] == {"app_name": "Mes domaines", "theme": "dark", "logo": False, "logo_height": 32}
     page = client.get("/").text
-    assert '<html lang="fr" data-theme="dark">' in page
+    assert '<html lang="fr" data-theme="dark" style="--logo-h: 32px">' in page
     assert '<meta name="color-scheme" content="dark">' in page
     assert "<title>Mes domaines</title>" in page
     assert client.put("/api/settings/appearance", json={"app_name": "x", "theme": "rose"}).status_code == 422

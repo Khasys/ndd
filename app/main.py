@@ -155,6 +155,15 @@ THEMES = {"system": ("", "light dark"), "light": (' data-theme="light"', "light"
 LOGO_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/svg+xml": "svg"}
 LOGO_MAX_BYTES = 300 * 1024
 DEFAULT_NAME = "domain-watch"
+LOGO_HEIGHT = (20, 120, 32)  # min, max, défaut, en pixels
+
+
+def _logo_height() -> int:
+    low, high, default = LOGO_HEIGHT
+    try:
+        return min(high, max(low, int(app.state.store.get("logo_height") or default)))
+    except ValueError:
+        return default
 
 
 def _logo_path() -> Path | None:
@@ -177,6 +186,8 @@ def _page(name: str, **values: str) -> HTMLResponse:
     theme_attr, color_scheme = THEMES.get(store.get("theme", "system"), THEMES["system"])
     content = (STATIC / name).read_text()
     # Fragments HTML construits ici, insérés tels quels.
+    # Taille du logo posée dès le rendu : pas de saut à l'affichage.
+    theme_attr += f' style="--logo-h: {_logo_height()}px"'
     raw = {"THEME_ATTR": theme_attr, "BRAND": _brand(app_name)}
     for key, value in raw.items():
         content = content.replace("{{" + key + "}}", value)
@@ -549,6 +560,7 @@ async def get_settings(request: Request):
             "app_name": store.get("app_name") or DEFAULT_NAME,
             "theme": store.get("theme", "system"),
             "logo": _logo_path() is not None,
+            "logo_height": _logo_height(),
         },
     }
 
@@ -644,6 +656,7 @@ async def calendar(request: Request, token: str):
 class Appearance(BaseModel):
     app_name: str
     theme: str
+    logo_height: int | None = None
 
 
 @app.put("/api/settings/appearance")
@@ -654,6 +667,9 @@ async def set_appearance(request: Request, payload: Appearance):
     store = request.app.state.store
     store.set("app_name", name or DEFAULT_NAME)
     store.set("theme", payload.theme)
+    if payload.logo_height is not None:
+        low, high, _ = LOGO_HEIGHT
+        store.set("logo_height", str(min(high, max(low, payload.logo_height))))
     return await get_settings(request)
 
 
