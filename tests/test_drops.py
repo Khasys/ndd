@@ -82,6 +82,7 @@ def watcher(tmp_path):
     db.migrate(conn, tmp_path / "backups")
     store = Store(conn, {})
     w = drops.DropWatcher(conn, store, tmp_path, rdap=None, delays=DELAYS)
+    w.workers = 1
     yield w
     conn.close()
 
@@ -292,7 +293,7 @@ def test_listed_words_are_tracked_with_their_categories(watcher):
     assert rows == {
         "navarro.com": ("long", "surname"),
         "courir.com": ("long", "word"),
-        "martin.com": ("long", "word,surname"),
+        "martin.com": ("long", "word,surname,firstname"),
         "velo.com": ("letters", "word"),
     }
 
@@ -304,4 +305,22 @@ def test_word_lists_are_loaded_and_normalised():
     assert {"maison", "courir", "coeur", "eleve"} <= lists["word"]
     assert {"martinez", "navarro", "dupont", "martin", "legall"} <= lists["surname"]
     assert all(w == w.lower() and w.isascii() and " " not in w for names in lists.values() for w in names)
-    assert len(lists["word"]) == 20000 and len(lists["surname"]) > 20000
+    assert {"jacques", "jean-pierre", "marie"} <= lists["firstname"]
+    assert len(lists["word"]) == 20000 and len(lists["surname"]) > 20000 and len(lists["firstname"]) > 4000
+
+
+def test_parallel_scan_gives_the_same_result_as_a_single_process():
+    from app import wordlists
+
+    names = [drops.decode(i) for i in range(0, drops.CELLS, 211)] + sorted(wordlists.lists()["surname"])[:3000]
+    data = zone([f"{n}.com.\t1\tin\tns\ta." for n in names] + ["UPPER.COM.\t1\tIN\tNS\ta.", "navarro.com.\t1\tin\tns\tb."])
+    chunks = [data[i:i + 4096] for i in range(0, len(data), 4096)]
+    results = []
+    for workers in (1, 3):
+        scanner = drops.ZoneScanner("com", workers=workers)
+        for chunk in chunks:
+            scanner.feed(chunk)
+        results.append(scanner.finish())
+    assert results[0][0] == results[1][0] and results[0][1] == results[1][1]
+    assert "navarro" in results[1][1] and "upper" not in results[1][1]
+    assert drops.count(results[1][0]) > 8000

@@ -1,4 +1,4 @@
-"""Listes de noms surveillés au-delà des noms courts : mots français et noms de famille.
+"""Listes de noms surveillés au-delà des noms courts : mots français, noms de famille, prénoms.
 
 Fichiers dans app/data, une entrée par ligne, déjà en minuscules et sans accents.
 Sources et licences : app/data/SOURCES.md.
@@ -8,7 +8,7 @@ from functools import lru_cache
 from pathlib import Path
 
 DATA = Path(__file__).parent / "data"
-LABELS = {"word": "Mots", "surname": "Noms de famille"}
+LABELS = {"word": "Mots", "surname": "Noms de famille", "firstname": "Prénoms"}
 
 
 def _read(name: str) -> frozenset[str]:
@@ -18,7 +18,7 @@ def _read(name: str) -> frozenset[str]:
 
 @lru_cache(maxsize=1)
 def lists() -> dict[str, frozenset[str]]:
-    return {"word": _read("mots.txt"), "surname": _read("noms.txt")}
+    return {"word": _read("mots.txt"), "surname": _read("noms.txt"), "firstname": _read("prenoms.txt")}
 
 
 @lru_cache(maxsize=1)

@@ -75,8 +75,9 @@ estimées, avec un rappel la veille. Elle s'ouvre sans mot de passe : la changer
 
 Menu Suppressions : les noms qui quittent les zones des extensions génériques, suivis jusqu'à leur
 libération. Sont suivis tous les noms de 1 à 4 caractères (lettres, chiffres, tiret), les 20 000
-mots français les plus courants (forme de base, sans accents) et les noms de famille donnés plus
-de 500 fois en France entre 1891 et 2000 (environ 21 700). Sources et licences des listes :
+mots français les plus courants (forme de base, sans accents), les noms de famille donnés plus
+de 500 fois en France entre 1891 et 2000 (environ 21 700) et les prénoms donnés plus de 500 fois
+entre 1900 et 2018 (environ 4 500). Sources et licences des listes :
 `app/data/SOURCES.md`. Deux listes : libérés ces 7 derniers jours,
 et libération à venir avec la date estimée. Un bouton Surveiller les ajoute à la liste principale.
 
@@ -100,7 +101,8 @@ sa date de libération estimée ; suspendu pour une autre raison, il est masqué
 dans la zone (renouvelé ou repris) sort de la liste.
 
 La zone .com pèse plusieurs Go compressés : compter un gros téléchargement par jour et plusieurs
-minutes de calcul sur le NAS. Le mot de passe ICANN est stocké dans la base sur le NAS, puisque
+minutes de calcul sur le NAS. La recherche est répartie sur tous les cœurs sauf un (4 au plus) ;
+la décompression reste sur un seul. Le mot de passe ICANN est stocké dans la base sur le NAS, puisque
 l'appli en a besoin chaque jour.
 
 ### Appli sur le téléphone

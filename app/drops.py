@@ -10,10 +10,15 @@ les délais sourcés.
 
 import asyncio
 import json
+import multiprocessing
+import os
 import logging
 import re
 import time
 import zlib
+from collections import deque
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -100,22 +105,74 @@ def kind_of(label: str) -> str:
     return "mixed"
 
 
-def _pattern(tld: str) -> re.Pattern:
-    # Première colonne d'un enregistrement : « abcd.com. ». La zone est mise en minuscules avant.
-    return re.compile(rb"^([a-z0-9-]{1,63})\." + re.escape(tld.lower().encode()) + rb"\.?[ \t]", re.MULTILINE)
+# --- Recherche dans les morceaux de zone ----------------------------------------------
+# Fonctions de module : elles tournent aussi dans des processus séparés, un par cœur.
+
+_UPPER = re.compile(rb"[A-Z]")
+_patterns_cache: dict[str, tuple[re.Pattern, re.Pattern]] = {}
+_worker_watched: frozenset[bytes] = frozenset()
+
+
+def _patterns(tld: str) -> tuple[re.Pattern, re.Pattern]:
+    if tld not in _patterns_cache:
+        # Première colonne d'un enregistrement, en début de ligne : « abcd.com. ».
+        suffix = rb"\." + re.escape(tld.lower().encode()) + rb"\.?[ \t]"
+        _patterns_cache[tld] = (
+            re.compile(rb"\n([a-z0-9-]{1,4})" + suffix),
+            re.compile(rb"\n([a-z0-9-]{5,63})" + suffix),
+        )
+    return _patterns_cache[tld]
+
+
+def parse_lines(lines: bytes, tld: str, watched: frozenset[bytes]) -> tuple[set[bytes], set[bytes]]:
+    """(noms courts, noms des listes) présents dans des lignes complètes de zone."""
+    text = b"\n" + lines
+    # Les registres publient en minuscules ; la conversion, coûteuse, n'a lieu qu'en cas de besoin.
+    if _UPPER.search(text):
+        text = text.lower()
+    short, long = _patterns(tld)
+    found = set(short.findall(text))
+    words = watched.intersection(long.findall(text)) if watched else set()
+    return found, set(words)
+
+
+def _init_worker(watched: frozenset[bytes]) -> None:
+    global _worker_watched
+    _worker_watched = watched
+
+
+def _parse_in_worker(lines: bytes, tld: str) -> tuple[set[bytes], set[bytes]]:
+    return parse_lines(lines, tld, _worker_watched)
+
+
+def default_workers() -> int:
+    """Cœurs pour la recherche : tous sauf un, laissé au NAS et à la décompression, 4 au plus."""
+    return max(1, min(4, (os.cpu_count() or 1) - 1))
 
 
 class ZoneScanner:
-    """Lit une zone gzip morceau par morceau : carte des noms courts, ensemble des noms des listes."""
+    """Lit une zone gzip morceau par morceau : carte des noms courts, ensemble des noms des listes.
 
-    def __init__(self, tld: str, watched: frozenset[bytes] | None = None):
-        self.pattern = _pattern(tld)
+    La décompression reste dans le thread appelant ; la recherche part dans des processus
+    séparés quand workers > 1, ce qui répartit le gros du calcul sur plusieurs cœurs.
+    """
+
+    def __init__(self, tld: str, watched: frozenset[bytes] | None = None, workers: int = 1):
+        self.tld = tld
         self.watched = wordlists.watched() if watched is None else watched
         self.bits = bytearray(BITMAP_BYTES)
         self.words: set[str] = set()
         self._inflate = zlib.decompressobj(16 + zlib.MAX_WBITS)
         self._rest = b""
         self.bytes_in = 0
+        self._pending: deque = deque()
+        self._pool = None
+        if workers > 1:
+            self._pool = ProcessPoolExecutor(
+                workers, mp_context=multiprocessing.get_context("spawn"),
+                initializer=_init_worker, initargs=(self.watched,),
+            )
+            self._limit = workers * 2
 
     def feed(self, chunk: bytes) -> None:
         self.bytes_in += len(chunk)
@@ -125,34 +182,50 @@ class ZoneScanner:
             tail = self._inflate.unused_data
             self._inflate = zlib.decompressobj(16 + zlib.MAX_WBITS)
             data += self._inflate.decompress(tail)
-        self._scan(data, final=False)
+        buffer = self._rest + data
+        cut = buffer.rfind(b"\n") + 1
+        self._rest = buffer[cut:]
+        if cut:
+            self._submit(buffer[:cut])
 
     def finish(self) -> tuple[bytearray, set[str]]:
-        data = self._inflate.flush()
-        if not self._inflate.eof:
-            # Fin de flux gzip absente : téléchargement coupé. Comparer une zone tronquée
-            # ferait passer des milliers de noms pour supprimés.
-            raise zlib.error("zone tronquée")
-        self._scan(data, final=True)
-        return self.bits, self.words
+        try:
+            data = self._inflate.flush()
+            if not self._inflate.eof:
+                # Fin de flux gzip absente : téléchargement coupé. Comparer une zone tronquée
+                # ferait passer des milliers de noms pour supprimés.
+                raise zlib.error("zone tronquée")
+            tail = self._rest + data
+            if tail:
+                self._submit(tail if tail.endswith(b"\n") else tail + b"\n")
+            while self._pending:
+                self._merge(self._pending.popleft().result())
+            return self.bits, self.words
+        finally:
+            self.close()
 
-    def _scan(self, data: bytes, final: bool) -> None:
-        buffer = self._rest + data
-        cut = len(buffer) if final else buffer.rfind(b"\n") + 1
-        complete, self._rest = buffer[:cut].lower(), buffer[cut:]
-        if final and complete and not complete.endswith(b"\n"):
-            complete += b"\n"
-        # Une seule recherche par morceau ; l'ensemble dédoublonne les lignes NS d'un même nom.
-        labels = set(self.pattern.findall(complete))
-        if self.watched:
-            # Intersection d'ensembles, faite en C : pas de boucle Python sur les millions de noms.
-            for label in labels & self.watched:
-                if len(label) > MAX_SHORT:
-                    self.words.add(label.decode())
-        for label in labels:
-            if len(label) <= MAX_SHORT and label[:1] != b"-" and label[-1:] != b"-":
+    def close(self) -> None:
+        if self._pool:
+            self._pool.shutdown(cancel_futures=True)
+            self._pool = None
+
+    def _submit(self, lines: bytes) -> None:
+        if not self._pool:
+            self._merge(parse_lines(lines, self.tld, self.watched))
+            return
+        self._pending.append(self._pool.submit(_parse_in_worker, lines, self.tld))
+        # Mémoire bornée : on n'avance pas plus de deux morceaux par processus.
+        while len(self._pending) > self._limit:
+            self._merge(self._pending.popleft().result())
+
+    def _merge(self, result: tuple[set[bytes], set[bytes]]) -> None:
+        short, words = result
+        for label in short:
+            if label[:1] != b"-" and label[-1:] != b"-":
                 index = encode(label.decode())
                 self.bits[index >> 3] |= 1 << (index & 7)
+        for label in words:
+            self.words.add(label.decode())
 
 
 def scan_bytes(chunks: Iterable[bytes], tld: str, watched: frozenset[bytes] | None = frozenset()) -> bytearray:
@@ -279,7 +352,7 @@ class DropWatcher:
             lambda: httpx.AsyncClient(timeout=httpx.Timeout(60, read=300), follow_redirects=True)
         )
         self.running = False
-        self._czds: Czds | None = None
+        self.workers = default_workers()
 
     # Réglages
 
@@ -343,19 +416,30 @@ class DropWatcher:
     async def scan_zone(self, czds: Czds, tld: str, url: str) -> ScanResult:
         result = ScanResult(tld)
         started = time.monotonic()
-        scanner = ZoneScanner(tld)
-        try:
-            async for chunk in czds.chunks(url):
-                # Décompression et recherche dans un thread : l'interface reste réactive
-                # pendant les minutes que prend une grosse zone comme .com.
-                await asyncio.to_thread(scanner.feed, chunk)
-            bits, words = await asyncio.to_thread(scanner.finish)
-        except CzdsError as exc:
-            result.error = str(exc)
-        except zlib.error:
-            result.error = "Fichier de zone corrompu ou incomplet."
-        except httpx.HTTPError as exc:
-            result.error = f"Téléchargement interrompu ({exc.__class__.__name__})."
+        while True:
+            scanner = ZoneScanner(tld, workers=self.workers)
+            try:
+                async for chunk in czds.chunks(url):
+                    # Décompression dans un thread, recherche dans des processus séparés :
+                    # l'interface reste réactive pendant les minutes que prend .com.
+                    await asyncio.to_thread(scanner.feed, chunk)
+                bits, words = await asyncio.to_thread(scanner.finish)
+            except BrokenProcessPool:
+                if self.workers == 1:
+                    raise
+                # Processus de recherche impossibles à lancer ici : on continue sur un seul cœur.
+                log.warning("Recherche parallèle indisponible, lecture de .%s sur un seul processus", tld)
+                self.workers = 1
+                continue
+            except CzdsError as exc:
+                result.error = str(exc)
+            except zlib.error:
+                result.error = "Fichier de zone corrompu ou incomplet."
+            except httpx.HTTPError as exc:
+                result.error = f"Téléchargement interrompu ({exc.__class__.__name__})."
+            finally:
+                scanner.close()
+            break
         if result.error:
             self._set_status(tld, result, started, scanner.bytes_in)
             return result
