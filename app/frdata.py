@@ -1,13 +1,14 @@
-"""Le .fr, absent de CZDS : open data mensuel de l'Afnic, puis suivi RDAP piloté par l'expiration.
+"""Le .fr, absent de CZDS : open data mensuel de l'Afnic, puis une vérification RDAP par an et par nom.
 
 1. Import du fichier mensuel de l'Afnic (liste des noms en .fr existants ou ayant existé, avec
-   leur date de suppression). Seuls les noms suivis par l'écran Suppressions sont gardés : noms
-   de 1 à 4 caractères, mots, noms de famille, prénoms.
-2. Balayage RDAP lent des noms enregistrés, pour connaître leur date d'expiration.
-3. Revérification autour de cette date : renouvelé, on attend l'année suivante ; en rédemption
-   ou libre, le nom passe dans la table drops, suivie comme les autres extensions.
+   leurs dates de création et de suppression). Seuls les noms suivis par l'écran Suppressions sont
+   gardés : noms de 1 à 4 caractères, mots, noms de famille, prénoms.
+2. Un nom .fr expire à la date anniversaire de sa création. Il est vérifié en RDAP le lendemain :
+   renouvelé, la vraie échéance lue en RDAP fixe la vérification suivante, un an plus tard ;
+   en rédemption ou libre, le nom passe dans la table drops, suivie comme les autres extensions.
 
-Le fichier ne donne pas de date d'expiration : c'est le RDAP qui la fournit.
+Pas de balayage : quelques centaines de requêtes par jour au plus, plafonnées, avec une pause de
+24 h si l'Afnic signale trop de requêtes.
 """
 
 import asyncio
@@ -31,9 +32,10 @@ log = logging.getLogger(__name__)
 
 DATASET_API = "https://www.data.gouv.fr/api/1/datasets/open-data-du-fr-1/"
 RESOURCE_HINT = "nomsdedomaine"
-# Une requête RDAP toutes les 5 s au plus vers l'Afnic, pour ce balayage.
-SWEEP_BATCH = 60
+# Plafond : 3 requêtes toutes les 5 minutes, soit 864 par jour au plus, même avec du retard.
+SWEEP_BATCH = 3
 SWEEP_EVERY_MINUTES = 5
+PAUSE_AFTER_LIMIT = timedelta(hours=24)
 RECENT_REMOVAL_DAYS = 45
 
 
@@ -75,6 +77,23 @@ def parse_date(value: str) -> date | None:
         except ValueError:
             continue
     return None
+
+
+def next_anniversary(created: date, after: date) -> date:
+    """Prochaine date anniversaire de création strictement après « after » (29 février : 28)."""
+    for year in (after.year, after.year + 1):
+        try:
+            candidate = created.replace(year=year)
+        except ValueError:
+            candidate = date(year, 2, 28)
+        if candidate > after:
+            return candidate
+    raise AssertionError("inatteignable")
+
+
+def _check_time(day: date) -> datetime:
+    # Le lendemain de l'échéance, en milieu de journée UTC : le registrar a eu le temps d'agir.
+    return datetime(day.year, day.month, day.day, 12, tzinfo=utcnow().tzinfo) + timedelta(days=1)
 
 
 def watched_label(label: str) -> bool:
@@ -140,13 +159,16 @@ class FrWatcher:
 
     def status(self) -> dict:
         info = json.loads(self.store.get("fr_status") or "{}")
+        week = iso(utcnow() + timedelta(days=7))
         counts = self.conn.execute(
             """SELECT COUNT(*) AS total,
                       SUM(removed_on IS NULL) AS registered,
-                      SUM(removed_on IS NULL AND expires_at IS NOT NULL) AS dated
-               FROM fr_names"""
+                      SUM(removed_on IS NULL AND next_check_at IS NOT NULL AND next_check_at <= ?) AS week
+               FROM fr_names""",
+            (week,),
         ).fetchone()
-        info.update(total=counts["total"], registered=counts["registered"] or 0, dated=counts["dated"] or 0)
+        info.update(total=counts["total"], registered=counts["registered"] or 0, week=counts["week"] or 0,
+                    paused_until=self.store.get("fr_paused_until") or None)
         return info
 
     async def resource_url(self, http: httpx.AsyncClient) -> tuple[str, str | None]:
@@ -206,18 +228,26 @@ class FrWatcher:
 
     def _apply(self, kept: dict, now: datetime) -> None:
         recent = (now - timedelta(days=RECENT_REMOVAL_DAYS)).date()
+        today = now.date()
         self.conn.execute("BEGIN")
         try:
             for label, (created, removed) in kept.items():
+                # Enregistré : vérification le lendemain du prochain anniversaire de création.
+                # Sans date de création, le nom n'est pas suivi : on ne sait pas quand regarder.
+                following = None
+                if not removed and created:
+                    following = iso(_check_time(next_anniversary(created, today - timedelta(days=1))))
                 self.conn.execute(
                     """INSERT INTO fr_names (label, created_on, removed_on, next_check_at)
                        VALUES (?, ?, ?, ?)
                        ON CONFLICT(label) DO UPDATE SET created_on = excluded.created_on,
                          removed_on = excluded.removed_on,
-                         next_check_at = CASE WHEN fr_names.created_on IS NOT excluded.created_on
-                           THEN excluded.next_check_at ELSE fr_names.next_check_at END""",
-                    (label, created and created.isoformat(), removed and removed.isoformat(),
-                     None if removed else iso(now)),
+                         next_check_at = CASE
+                           WHEN excluded.removed_on IS NOT NULL THEN NULL
+                           WHEN fr_names.created_on IS NOT excluded.created_on
+                             OR fr_names.next_check_at IS NULL THEN excluded.next_check_at
+                           ELSE fr_names.next_check_at END""",
+                    (label, created and created.isoformat(), removed and removed.isoformat(), following),
                 )
                 # Supprimé récemment d'après l'Afnic : vérification RDAP, libre ou repris.
                 if removed and removed >= recent:
@@ -239,41 +269,56 @@ class FrWatcher:
         if not self.enabled:
             return 0
         now = utcnow()
+        paused = self.store.get("fr_paused_until")
+        if paused and datetime.fromisoformat(paused) > now:
+            return 0
         rows = self.conn.execute(
             """SELECT * FROM fr_names WHERE removed_on IS NULL AND next_check_at IS NOT NULL
-               AND next_check_at <= ? ORDER BY expires_at IS NOT NULL, next_check_at LIMIT ?""",
+               AND next_check_at <= ? ORDER BY next_check_at LIMIT ?""",
             (iso(now), limit),
         ).fetchall()
+        done = 0
         for row in rows:
-            await self._check(row)
-        return len(rows)
+            done += 1
+            if not await self._check(row):
+                break
+        return done
 
-    async def _check(self, row) -> None:
+    async def _check(self, row) -> bool:
+        """False si l'Afnic limite les requêtes : le balayage s'arrête et se met en pause."""
         name = f"{row['label']}.fr"
         result = await self.rdap.lookup(name)
         now = utcnow()
         if result.error:
+            if "Limite" in result.error or "429" in result.error:
+                self.store.set("fr_paused_until", iso(now + PAUSE_AFTER_LIMIT))
+                log.warning("Afnic : trop de requêtes, vérifications .fr en pause 24 h")
+                return False
             self._schedule(row["label"], row["expires_at"], now + timedelta(days=1), now)
-            return
+            return True
         if result.available:
             self.drops.record("fr", [row["label"]], [], now)
-            self._schedule(row["label"], None, now + timedelta(days=30), now)
-            return
+            # Libre : le suivi passe à l'écran Suppressions. Le prochain import dira s'il est repris.
+            self._schedule(row["label"], None, None, now)
+            return True
         info = result.info
         state = states.compute_state(info.statuses, info.expires_at, now, 0)
         if state in (states.REDEMPTION, states.PENDING_DELETE, states.EXPIRED):
             self.drops.record("fr", [row["label"]], [], now)
-            self._schedule(row["label"], iso(info.expires_at), now + timedelta(days=7), now)
-            return
+            self._schedule(row["label"], iso(info.expires_at), None, now)
+            return True
         expires = info.expires_at
         if expires and expires > now:
-            # Renouvelé ou actif : prochaine vérification le lendemain de l'échéance.
-            following = expires + timedelta(days=1)
+            # Renouvelé : la vraie échéance, lue en RDAP, fixe la vérification suivante.
+            following = _check_time(expires.date())
+        elif row["created_on"]:
+            following = _check_time(next_anniversary(date.fromisoformat(row["created_on"]), now.date()))
         else:
-            following = now + timedelta(days=7)
+            following = now + timedelta(days=30)
         self._schedule(row["label"], iso(expires), following, now)
+        return True
 
-    def _schedule(self, label: str, expires: str | None, following: datetime, now: datetime) -> None:
+    def _schedule(self, label: str, expires: str | None, following: datetime | None, now: datetime) -> None:
         self.conn.execute(
             "UPDATE fr_names SET expires_at = ?, checked_at = ?, next_check_at = ? WHERE label = ?",
             (expires, iso(now), iso(following), label),

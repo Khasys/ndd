@@ -113,13 +113,15 @@ L'appli fonctionne alors en trois temps :
 1. Une fois par mois, elle importe la liste ouverte des noms en .fr publiée par l'Afnic (Licence
    Ouverte, environ 120 Mo, trouvée automatiquement sur data.gouv.fr). Elle ne garde que les noms
    suivis. Les noms supprimés depuis moins de 45 jours passent directement en vérification.
-2. Elle relève en RDAP l'échéance de chaque nom suivi enregistré, à raison d'une requête toutes les
-   5 s au plus (environ 17 000 par jour). Le premier balayage prend donc plusieurs jours ; sa
-   progression s'affiche dans Suppressions.
-3. Le lendemain de chaque échéance, elle revérifie le nom : renouvelé, il attend l'année suivante ;
-   en rédemption ou libre, il apparaît dans les listes de l'écran Suppressions.
+2. Un nom .fr expire à la date anniversaire de sa création. L'appli le vérifie en RDAP le
+   lendemain de cet anniversaire : renouvelé, la vraie échéance lue en RDAP fixe la vérification
+   suivante, un an plus tard ; en rédemption ou libre, il apparaît dans les listes de l'écran
+   Suppressions. Pas de balayage : une requête par nom et par an, soit environ 270 par jour pour
+   100 000 noms suivis. Plafond de 3 requêtes toutes les 5 minutes (864 par jour), et pause de 24 h
+   si l'Afnic répond qu'il y a trop de requêtes.
 
-Le fichier de l'Afnic ne donne pas de date d'expiration, d'où le passage par le RDAP. Ses colonnes
+Le fichier de l'Afnic ne donne pas de date d'expiration, d'où le calcul par la date de création.
+Un nom sans date de création dans le fichier n'est pas suivi. Ses colonnes
 sont repérées par leur intitulé : si l'Afnic les renomme, l'import s'arrête et affiche les colonnes
 lues. Aucune date de libération n'est estimée pour le .fr : les délais du .fr ne sont pas sourcés
 dans `app/tld_delays.toml`.

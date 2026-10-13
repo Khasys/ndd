@@ -96,7 +96,11 @@ def test_import_keeps_watched_names_and_queues_recent_removals(fr):
     status = asyncio.run(fr.import_file())
     assert status["error"] is None and status["kept"] == 3 and status["registered"] == 1
     rows = {r["label"]: r for r in fr.conn.execute("SELECT * FROM fr_names")}
-    assert rows["navarro"]["next_check_at"] and rows["velo"]["next_check_at"] is None
+    # Créé un 1er février : vérifié le 2 février suivant, à midi UTC.
+    following = datetime.fromisoformat(rows["navarro"]["next_check_at"])
+    assert (following.month, following.day, following.hour) == (2, 2, 12)
+    assert following > datetime.now(timezone.utc)
+    assert rows["velo"]["next_check_at"] is None
     tracked = [r["name"] for r in fr.conn.execute("SELECT name FROM drops")]
     assert tracked == ["velo.fr"]
     assert "opendata.afnic.fr" in calls
@@ -121,10 +125,21 @@ class FakeRdap:
         return self.results[name]
 
 
-def test_sweep_follows_expiry_and_hands_drops_over(fr):
+def test_anniversary_dates():
+    assert frdata.next_anniversary(date(2015, 3, 12), date(2026, 3, 11)) == date(2026, 3, 12)
+    assert frdata.next_anniversary(date(2015, 3, 12), date(2026, 3, 12)) == date(2027, 3, 12)
+    assert frdata.next_anniversary(date(2016, 2, 29), date(2026, 1, 1)) == date(2026, 2, 28)
+
+
+def add_due(fr, label, created="2015-03-12"):
+    past = (datetime.now(timezone.utc) - timedelta(minutes=1)).replace(microsecond=0).isoformat()
+    fr.conn.execute("INSERT INTO fr_names (label, created_on, next_check_at) VALUES (?, ?, ?)", (label, created, past))
+
+
+def test_check_follows_the_real_expiry_and_hands_drops_over(fr):
     now = datetime.now(timezone.utc).replace(microsecond=0)
     for label in ("navarro", "soleil", "velo"):
-        fr.conn.execute("INSERT INTO fr_names (label, next_check_at) VALUES (?, ?)", (label, now.isoformat()))
+        add_due(fr, label)
     expires = now + timedelta(days=200)
     fr.rdap = FakeRdap({
         "navarro.fr": LookupResult(found=True, info=DomainInfo(statuses=["active"], expires_at=expires)),
@@ -133,10 +148,32 @@ def test_sweep_follows_expiry_and_hands_drops_over(fr):
     })
     assert asyncio.run(fr.sweep()) == 3
     rows = {r["label"]: r for r in fr.conn.execute("SELECT * FROM fr_names")}
-    assert datetime.fromisoformat(rows["navarro"]["next_check_at"]) == expires + timedelta(days=1)
+    following = datetime.fromisoformat(rows["navarro"]["next_check_at"])
+    assert following.date() == (expires + timedelta(days=1)).date()
+    assert rows["soleil"]["next_check_at"] is None and rows["velo"]["next_check_at"] is None
     assert sorted(r["name"] for r in fr.conn.execute("SELECT name FROM drops")) == ["soleil.fr", "velo.fr"]
-    # Plus rien à vérifier tout de suite.
     assert asyncio.run(fr.sweep()) == 0
+
+
+def test_requests_are_capped_per_run(fr):
+    for i in range(10):
+        add_due(fr, f"nom{i}")
+    fr.rdap = FakeRdap({f"nom{i}.fr": LookupResult(available=True) for i in range(10)})
+    assert asyncio.run(fr.sweep()) == frdata.SWEEP_BATCH == 3
+
+
+def test_rate_limit_pauses_checks_for_a_day(fr):
+    add_due(fr, "navarro")
+    add_due(fr, "dupont")
+    fr.rdap = FakeRdap({
+        "dupont.fr": LookupResult(error="Limite de requêtes du registre atteinte (429)"),
+        "navarro.fr": LookupResult(error="Limite de requêtes du registre atteinte (429)"),
+    })
+    assert asyncio.run(fr.sweep()) == 1
+    assert fr.status()["paused_until"]
+    assert asyncio.run(fr.sweep()) == 0
+    # Rien n'a été reporté : les deux noms seront vérifiés à la reprise.
+    assert fr.conn.execute("SELECT COUNT(*) FROM fr_names WHERE checked_at IS NULL").fetchone()[0] == 2
 
 
 def test_disabled_fr_does_nothing(fr):

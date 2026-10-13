@@ -406,7 +406,7 @@
               <input type="checkbox" x-model="cfg.fr.enabled" @change="saveFr()">
               <span>Suivre le .fr dans Suppressions</span>
             </label>
-            <p class="muted small">Le .fr n'est pas dans CZDS. L'appli importe chaque mois la liste ouverte des noms en .fr publiée par l'Afnic (environ 120 Mo), garde les noms suivis, puis relève leur échéance en RDAP, une requête toutes les 5 s au plus. Le premier balayage prend plusieurs jours.</p>
+            <p class="muted small">Le .fr n'est pas dans CZDS. L'appli importe chaque mois la liste ouverte des noms en .fr publiée par l'Afnic (environ 120 Mo) et garde les noms suivis. Chaque nom est vérifié une fois par an, le lendemain de sa date anniversaire de création : quelques centaines de requêtes par jour, 864 au plus, et une pause de 24 h si l'Afnic signale trop de requêtes.</p>
             <details class="fr-advanced">
               <summary class="small muted">Adresse du fichier (facultatif)</summary>
               <form class="inline-form" @submit.prevent="saveFr()">

@@ -259,10 +259,10 @@ document.addEventListener("alpine:init", () => {
       if (f.error) return `erreur : ${f.error}`;
       if (!f.at) return "pas encore importé : premier import dans quelques minutes.";
       const names = (f.total || 0).toLocaleString("fr-FR");
-      const dated = (f.dated || 0).toLocaleString("fr-FR");
       const registered = (f.registered || 0).toLocaleString("fr-FR");
-      const done = f.registered ? Math.round((100 * f.dated) / f.registered) : 100;
-      return `open data Afnic${f.file_date ? " du " + this.shortDate(f.file_date) : ""}, ${names} noms suivis dont ${registered} enregistrés, échéance connue pour ${dated} (${done} %)`;
+      const pause = f.paused_until && new Date(f.paused_until) > new Date()
+        ? ` En pause jusqu'au ${this.exact(f.paused_until)} : l'Afnic a signalé trop de requêtes.` : "";
+      return `open data Afnic${f.file_date ? " du " + this.shortDate(f.file_date) : ""}, ${names} noms suivis dont ${registered} enregistrés, ${f.week || 0} à vérifier dans les 7 jours (date anniversaire).${pause}`;
     },
 
     async importFr() {
