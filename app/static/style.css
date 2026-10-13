@@ -750,3 +750,4 @@ button:disabled { cursor: default; opacity: .55; }
   .drops-table td.drop-action .btn-ghost { width: 100%; min-height: 44px; }
   .czds-form input { height: 44px; font-size: 16px; }
 }
+.fr-advanced summary { cursor: pointer; margin-bottom: 6px; }

@@ -538,9 +538,12 @@ class DropWatcher:
         rows = self.conn.execute("SELECT * FROM zone_scans ORDER BY at DESC, id DESC LIMIT 100").fetchall()
         return [dict(r) for r in rows]
 
-    def record(self, tld: str, removed: list[str], added: list[str], now: datetime) -> None:
+    def record(self, tld: str, removed: list[str], added: list[str], now: datetime, removed_on=None) -> None:
         now = now.replace(microsecond=0)
-        self.conn.execute("BEGIN")
+        removed_day = (removed_on or now.date()).isoformat()
+        own_transaction = not self.conn.in_transaction
+        if own_transaction:
+            self.conn.execute("BEGIN")
         try:
             for label in removed:
                 name = f"{label}.{tld}"
@@ -551,14 +554,16 @@ class DropWatcher:
                          state_since = NULL, release_at = NULL, available_since = NULL, error = NULL,
                          next_check_at = excluded.next_check_at, lists = excluded.lists""",
                     (name, tld, label, kind_of(label), ",".join(wordlists.categories(label)),
-                     now.date().isoformat(), iso(now)),
+                     removed_day, iso(now)),
                 )
             for label in added:
                 # Revenu dans la zone : renouvelé, restauré ou réenregistré. Plus rien à attendre.
                 self.conn.execute("DELETE FROM drops WHERE name = ?", (f"{label}.{tld}",))
-            self.conn.execute("COMMIT")
+            if own_transaction:
+                self.conn.execute("COMMIT")
         except Exception:
-            self.conn.execute("ROLLBACK")
+            if own_transaction:
+                self.conn.execute("ROLLBACK")
             raise
 
     async def run(self) -> list[ScanResult]:

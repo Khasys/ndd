@@ -108,8 +108,8 @@
 
     <template x-if="dropsData && !dropsData.configured">
       <div class="drops-card">
-        <h3>Compte ICANN nécessaire</h3>
-        <p class="muted">Les zones viennent du service CZDS d'ICANN, gratuit sur inscription. Le compte se règle dans Paramètres, carte « Zones ICANN ».</p>
+        <h3>Aucune source activée</h3>
+        <p class="muted">Deux sources, à activer dans Paramètres : les zones ICANN (CZDS, gratuit sur inscription) pour .com, .net, .org et les autres extensions génériques ; l'open data de l'Afnic pour le .fr.</p>
         <button type="button" class="btn" @click="openSheet('settings')">Ouvrir les paramètres</button>
       </div>
     </template>
@@ -124,12 +124,19 @@
                 <span class="small" x-text="zoneLine(z)"></span>
               </div>
             </template>
-            <p class="small muted" x-show="!dropsData.zones.length">Aucune zone activée. Paramètres, carte « Zones ICANN ».</p>
+            <template x-if="dropsData.fr.enabled">
+              <div class="zone-line" :class="{ error: dropsData.fr.error }">
+                <span class="mono zone-tld">.fr</span>
+                <span class="small" x-text="frLine(dropsData.fr)"></span>
+              </div>
+            </template>
+            <p class="small muted" x-show="dropsData.czds && !dropsData.zones.length">Aucune zone ICANN activée. Paramètres, carte « Zones ICANN ».</p>
             <p class="small error-text" x-show="dropsData.error" x-text="dropsData.error"></p>
             <p class="small muted" x-show="dropsData.pending_checks" x-text="dropsData.pending_checks + ' nom(s) en attente de vérification RDAP.'"></p>
           </div>
           <div class="drops-actions">
-            <button type="button" class="btn-ghost" @click="scanDrops()" :disabled="dropsData.running" x-text="dropsData.running ? 'Lecture en cours' : 'Lire les zones maintenant'"></button>
+            <button type="button" class="btn-ghost" x-show="dropsData.czds" @click="scanDrops()" :disabled="dropsData.running" x-text="dropsData.running ? 'Lecture en cours' : 'Lire les zones maintenant'"></button>
+            <button type="button" class="btn-ghost" x-show="dropsData.fr.enabled" @click="importFr()" :disabled="dropsData.fr.running" x-text="dropsData.fr.running ? 'Import .fr en cours' : 'Importer le .fr maintenant'"></button>
             <button type="button" class="btn-ghost" @click="scansOpen = !scansOpen" :aria-expanded="scansOpen" x-show="dropsData.history.length" x-text="scansOpen ? 'Masquer l\'historique' : 'Historique des lectures'"></button>
           </div>
         </div>
@@ -387,6 +394,26 @@
                 <p class="setting-actions"><button type="button" class="btn-ghost sm danger" @click="deleteCzds()">Retirer le compte</button></p>
               </div>
             </template>
+          </div>
+        </template>
+      </div>
+
+      <div>
+        <h2>Extension .fr (Afnic)</h2>
+        <template x-if="cfg">
+          <div class="setting-lines">
+            <label class="check">
+              <input type="checkbox" x-model="cfg.fr.enabled" @change="saveFr()">
+              <span>Suivre le .fr dans Suppressions</span>
+            </label>
+            <p class="muted small">Le .fr n'est pas dans CZDS. L'appli importe chaque mois la liste ouverte des noms en .fr publiée par l'Afnic (environ 120 Mo), garde les noms suivis, puis relève leur échéance en RDAP, une requête toutes les 5 s au plus. Le premier balayage prend plusieurs jours.</p>
+            <details class="fr-advanced">
+              <summary class="small muted">Adresse du fichier (facultatif)</summary>
+              <form class="inline-form" @submit.prevent="saveFr()">
+                <input type="url" x-model="cfg.fr.url" placeholder="Trouvée automatiquement sur data.gouv.fr" aria-label="Adresse du fichier Afnic">
+                <button type="submit" class="btn-ghost">Enregistrer</button>
+              </form>
+            </details>
           </div>
         </template>
       </div>

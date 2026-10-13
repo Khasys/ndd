@@ -255,6 +255,40 @@ document.addEventListener("alpine:init", () => {
       return v ? stampFmt.format(new Date(v)) : "";
     },
 
+    frLine(f) {
+      if (f.error) return `erreur : ${f.error}`;
+      if (!f.at) return "pas encore importé : premier import dans quelques minutes.";
+      const names = (f.total || 0).toLocaleString("fr-FR");
+      const dated = (f.dated || 0).toLocaleString("fr-FR");
+      const registered = (f.registered || 0).toLocaleString("fr-FR");
+      const done = f.registered ? Math.round((100 * f.dated) / f.registered) : 100;
+      return `open data Afnic${f.file_date ? " du " + this.shortDate(f.file_date) : ""}, ${names} noms suivis dont ${registered} enregistrés, échéance connue pour ${dated} (${done} %)`;
+    },
+
+    async importFr() {
+      try {
+        const res = await this.api("POST", "/api/drops/fr/import");
+        this.say(res.started ? "Import du .fr lancé. Compter quelques minutes." : "Un import est déjà en cours.");
+        this.dropsData.fr.running = true;
+        const poll = setInterval(async () => {
+          await this.loadDrops();
+          if (!this.dropsData || !this.dropsData.fr.running) clearInterval(poll);
+        }, 10000);
+      } catch (e) {
+        this.say(e.message, "error");
+      }
+    },
+
+    async saveFr() {
+      try {
+        const res = await this.api("PUT", "/api/settings/fr", { enabled: this.cfg.fr.enabled, url: this.cfg.fr.url || "" });
+        this.cfg.fr = res;
+        if (res.enabled) this.say("Suivi du .fr activé. Premier import dans quelques minutes.");
+      } catch (e) {
+        this.say(e.message, "error");
+      }
+    },
+
     async scanDrops() {
       try {
         const res = await this.api("POST", "/api/drops/scan");

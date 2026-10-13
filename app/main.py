@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import bot, calendar_ics, db, digest, drops, signals, states, updates
+from . import bot, calendar_ics, db, digest, drops, frdata, signals, states, updates
 from .auth import (
     COOKIE_NAME,
     MIN_PASSWORD_LENGTH,
@@ -99,18 +99,30 @@ async def lifespan(app: FastAPI):
     async def check_drops() -> None:
         await watcher.check_due(limit=20)
 
+    fr = frdata.FrWatcher(conn, store, settings.data_dir, rdap, watcher)
+
+    async def import_fr() -> None:
+        if fr.due(datetime.now(digest.local_zone())):
+            await fr.import_file()
+
+    async def sweep_fr() -> None:
+        await fr.sweep()
+
     now = datetime.now(timezone.utc)
     scheduler.add_job(refresh_latest, "interval", hours=24, next_run_time=now, max_instances=1, id="latest")
     scheduler.add_job(send_digest, "interval", minutes=15, max_instances=1)
     scheduler.add_job(refresh_signals, "interval", hours=1, next_run_time=now + timedelta(minutes=2), max_instances=1)
     scheduler.add_job(scan_zones, "interval", minutes=15, next_run_time=now + timedelta(minutes=1), max_instances=1)
     scheduler.add_job(check_drops, "interval", minutes=5, next_run_time=now + timedelta(minutes=3), max_instances=1)
+    scheduler.add_job(import_fr, "interval", hours=6, next_run_time=now + timedelta(minutes=4), max_instances=1)
+    scheduler.add_job(sweep_fr, "interval", minutes=frdata.SWEEP_EVERY_MINUTES, next_run_time=now + timedelta(minutes=6), max_instances=1)
     scheduler.start()
     telegram.start()
 
     app.state.refresh_latest = refresh_latest
     app.state.scheduler = scheduler
     app.state.drops = watcher
+    app.state.fr = fr
     app.state.store = store
     app.state.telegram = telegram
     app.state.settings = settings
@@ -570,6 +582,7 @@ async def get_settings(request: Request):
         },
         "calendar_url": _calendar_url(request),
         "czds": _czds_settings(state.drops),
+        "fr": {"enabled": state.fr.enabled, "url": state.store.get("fr_url")},
         "appearance": {
             "app_name": store.get("app_name") or DEFAULT_NAME,
             "theme": store.get("theme", "system"),
@@ -645,6 +658,33 @@ async def set_czds_zones(request: Request, payload: CzdsZones):
     return _czds_settings(watcher)
 
 
+class FrSettings(BaseModel):
+    enabled: bool
+    url: str = ""
+
+
+@app.put("/api/settings/fr")
+async def set_fr(request: Request, payload: FrSettings):
+    store = request.app.state.store
+    url = payload.url.strip()
+    if url and not url.startswith("https://"):
+        raise HTTPException(422, "Adresse du fichier : https:// attendu.")
+    store.set("fr_enabled", "1" if payload.enabled else "0")
+    store.set("fr_url", url)
+    return {"enabled": payload.enabled, "url": url}
+
+
+@app.post("/api/drops/fr/import", status_code=202)
+async def import_fr_now(request: Request):
+    fr = request.app.state.fr
+    if not fr.enabled:
+        raise HTTPException(409, "Suivi du .fr désactivé.")
+    if fr.running:
+        return {"started": False}
+    request.app.state.fr_task = asyncio.create_task(fr.import_file())
+    return {"started": True}
+
+
 @app.get("/api/drops")
 async def list_drops(request: Request):
     watcher = request.app.state.drops
@@ -654,12 +694,14 @@ async def list_drops(request: Request):
     pending = request.app.state.conn.execute("SELECT COUNT(*) FROM drops WHERE state IS NULL").fetchone()[0]
     watched = {r[0] for r in request.app.state.conn.execute("SELECT name FROM domains")}
     return {
-        "configured": watcher.configured,
+        "configured": watcher.configured or request.app.state.fr.enabled,
+        "czds": watcher.configured,
         "running": watcher.running,
         "last_run": watcher.last_run(),
         "error": watcher.store.get("czds_error") or None,
         "zones": [{"tld": t, **watcher.status(t)} for t in watcher.enabled()],
         "history": watcher.history(),
+        "fr": {"enabled": request.app.state.fr.enabled, "running": request.app.state.fr.running, **request.app.state.fr.status()},
         "workers": watcher.workers,
         "pending_checks": pending,
         "kinds": drops.KINDS,
