@@ -180,3 +180,34 @@ def test_disabled_fr_does_nothing(fr):
     fr.store.set("fr_enabled", "0")
     assert asyncio.run(fr.sweep()) == 0
     assert not fr.due(datetime.now())
+
+
+def test_moved_dataset_is_found_through_search(fr):
+    archive = make_zip(csv_text(["navarro.fr;FR;;;;;PP;FR;;01-02-2010;"]))
+
+    def handler(request):
+        if request.url.path.endswith("/open-data-du-fr-1/"):
+            return httpx.Response(404, json={"message": "Not Found"})
+        if request.url.host == "www.data.gouv.fr":
+            return httpx.Response(200, json={"data": [{"resources": [
+                {"title": "Indicateurs", "url": "https://x/B.zip"},
+                {"title": "Noms de domaine en .fr 2026-08", "url": "https://x/old.zip", "last_modified": "2026-08-15"},
+                {"title": "Noms de domaine en .fr 2026-09", "url": "https://x/new.zip", "last_modified": "2026-09-15"},
+            ]}]})
+        assert request.url.path == "/new.zip"
+        return httpx.Response(200, content=archive)
+
+    fr._http_factory = lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    status = asyncio.run(fr.import_file())
+    assert status["error"] is None and status["kept"] == 1
+
+
+def test_missing_file_lists_what_was_seen(fr):
+    def handler(request):
+        if "q=" in str(request.url):
+            return httpx.Response(200, json={"data": []})
+        return httpx.Response(200, json={"resources": [{"title": "Indicateurs par pays", "url": "https://x/B.zip"}]})
+
+    fr._http_factory = lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    error = asyncio.run(fr.import_file())["error"]
+    assert "Indicateurs par pays" in error and "Adresse du fichier" in error

@@ -31,7 +31,9 @@ from .store import Store
 log = logging.getLogger(__name__)
 
 DATASET_API = "https://www.data.gouv.fr/api/1/datasets/open-data-du-fr-1/"
-RESOURCE_HINT = "nomsdedomaine"
+# Si le jeu de données a été renommé ou remplacé, on le cherche par mots-clés.
+SEARCH_API = "https://www.data.gouv.fr/api/1/datasets/?q=afnic&page_size=50"
+RESOURCE_HINTS = ("nomsdedomaine", "nomdedomaine", "enpointfr")
 # Plafond : 3 requêtes toutes les 5 minutes, soit 864 par jour au plus, même avec du retard.
 SWEEP_BATCH = 3
 SWEEP_EVERY_MINUTES = 5
@@ -129,6 +131,25 @@ def read_rows(text_lines, watched=watched_label) -> tuple[dict[str, tuple[date |
     return kept, stats
 
 
+def _squash(text: str) -> str:
+    return _fold(text).replace("-", "").replace("_", "").replace(" ", "")
+
+
+def pick_resource(datasets: list[dict]) -> dict | None:
+    """Le fichier des noms en .fr le plus récent parmi les ressources des jeux de données."""
+    matches = []
+    for dataset in datasets:
+        for resource in dataset.get("resources") or []:
+            if not resource.get("url"):
+                continue
+            haystack = _squash(f"{resource.get('title', '')} {resource['url']}")
+            if any(hint in haystack for hint in RESOURCE_HINTS):
+                matches.append(resource)
+    if not matches:
+        return None
+    return max(matches, key=lambda r: r.get("last_modified") or "")
+
+
 def read_zip(path: Path, watched=watched_label):
     with zipfile.ZipFile(path) as archive:
         members = [m for m in archive.namelist() if m.lower().endswith((".csv", ".txt"))]
@@ -171,20 +192,37 @@ class FrWatcher:
                     paused_until=self.store.get("fr_paused_until") or None)
         return info
 
+    async def _get_json(self, http: httpx.AsyncClient, url: str) -> dict | None:
+        try:
+            response = await http.get(url, follow_redirects=True)
+        except httpx.HTTPError as exc:
+            raise FrDataError(f"data.gouv.fr injoignable ({exc.__class__.__name__}).") from None
+        if response.status_code != 200:
+            return None
+        try:
+            return response.json()
+        except ValueError:
+            return None
+
     async def resource_url(self, http: httpx.AsyncClient) -> tuple[str, str | None]:
         custom = self.store.get("fr_url").strip()
         if custom:
             return custom, None
-        try:
-            response = await http.get(DATASET_API)
-            data = response.json()
-        except (httpx.HTTPError, ValueError) as exc:
-            raise FrDataError(f"data.gouv.fr injoignable ({exc.__class__.__name__}).") from None
-        for resource in data.get("resources", []):
-            haystack = f"{resource.get('title', '')} {resource.get('url', '')}".lower().replace("-", "").replace("_", "")
-            if RESOURCE_HINT in haystack:
-                return resource["url"], resource.get("last_modified")
-        raise FrDataError("Fichier des noms de domaine introuvable dans le jeu de données Afnic.")
+        datasets = []
+        direct = await self._get_json(http, DATASET_API)
+        if direct and direct.get("resources"):
+            datasets.append(direct)
+        found = pick_resource(datasets)
+        if not found:
+            search = await self._get_json(http, SEARCH_API)
+            datasets += (search or {}).get("data") or []
+            found = pick_resource(datasets)
+        if found:
+            return found["url"], found.get("last_modified")
+        seen = [r.get("title") or r.get("url", "") for d in datasets for r in d.get("resources") or []]
+        detail = f" Fichiers vus : {', '.join(seen[:8])}." if seen else " Aucun fichier vu sur data.gouv.fr."
+        raise FrDataError("Fichier des noms de domaine introuvable dans le jeu de données Afnic." + detail
+                          + " Colle son adresse dans Paramètres, Extension .fr, Adresse du fichier.")
 
     async def import_file(self) -> dict:
         """Télécharge le fichier s'il a changé, l'importe, et met à jour fr_names."""
