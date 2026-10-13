@@ -457,7 +457,7 @@ button:disabled { cursor: default; opacity: .55; }
   .chip { min-height: 34px; padding: 0 12px; font-size: 13px; border-radius: 17px; }
 
   .tabbar {
-    display: grid; grid-template-columns: repeat(3, 1fr);
+    display: grid; grid-template-columns: repeat(4, 1fr);
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
     height: var(--tabbar); padding: 4px env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
     background: var(--surface); border-top: 1px solid var(--line);
@@ -676,4 +676,71 @@ button:disabled { cursor: default; opacity: .55; }
 
 @media (min-width: 1280px) {
   .domains td.state { min-width: 200px; }
+}
+
+/* Suppressions : noms de 4 caractères sortis des zones ICANN. */
+@media (min-width: 641px) and (max-width: 899px) {
+  .drops-page { margin: 0 0 20px; }
+}
+.drops-lead { margin: 0 0 14px; font-size: 13px; }
+.drops-card {
+  margin: 0 0 16px; padding: 14px 16px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+}
+.drops-card h3 { margin: 0 0 6px; font-size: 14px; }
+.drops-card p { margin: 0 0 10px; }
+.drops-status { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.drops-zones { min-width: 0; }
+.zone-line { display: flex; gap: 10px; align-items: baseline; padding: 2px 0; color: var(--muted); }
+.zone-line.error { color: var(--danger); }
+.zone-tld { min-width: 52px; color: var(--text); font-weight: 500; }
+.error-text { color: var(--danger); }
+.drops-filters { margin: 0 0 6px; }
+.drops-tld, .drops-sort { width: auto; }
+.drops-title { margin: 18px 0 8px; font-size: 15px; font-weight: 600; }
+.drops-title .num { font-weight: 400; margin-left: 4px; }
+.drops-title-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.drops-table {
+  width: 100%; border-collapse: separate; border-spacing: 0; overflow: clip;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+}
+.drops-table th {
+  text-align: left; font-weight: 500; font-size: 12px; color: var(--muted);
+  padding: 10px 14px; border-bottom: 1px solid var(--line-strong); white-space: nowrap;
+}
+.drops-table td { padding: 10px 14px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.drops-table tbody tr:last-child td { border-bottom: 0; }
+.drop-name { font-size: 15px; font-weight: 500; }
+.drop-action { text-align: right; white-space: nowrap; }
+.drops-note { margin: 12px 0 0; max-width: 80ch; }
+.czds-form { display: flex; flex-direction: column; gap: 8px; margin: 0 0 8px; }
+.czds-form input {
+  height: 32px; padding: 0 10px; min-width: 0;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--line-strong); border-radius: var(--radius); font: inherit;
+}
+.czds-form input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.czds-form .btn-ghost { align-self: flex-start; }
+.zone-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
+
+@media (max-width: 640px) {
+  .drops-status { flex-direction: column; }
+  .drops-status .btn-ghost { width: 100%; }
+  .drops-title-row { flex-direction: column; align-items: stretch; gap: 0; }
+  .drops-sort { margin-bottom: 8px; }
+  .drops-table, .drops-table tbody, .drops-table tr { display: block; background: none; border: 0; }
+  .drops-table thead { display: none; }
+  .drops-table tr {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; margin-bottom: 10px; padding: 14px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  }
+  .drops-table td { display: block; padding: 0; border: 0; }
+  .drops-table td.drop-name { grid-column: 1 / -1; font-size: 17px; }
+  .drops-table td[data-label]::before {
+    content: attr(data-label); display: block; margin-bottom: 1px;
+    font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em;
+  }
+  .drops-table td.drop-action { grid-column: 1 / -1; text-align: left; }
+  .drops-table td.drop-action .btn-ghost { width: 100%; min-height: 44px; }
+  .czds-form input { height: 44px; font-size: 16px; }
 }

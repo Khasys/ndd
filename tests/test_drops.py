@@ -1,0 +1,259 @@
+import asyncio
+import gzip
+import json
+from datetime import datetime, timedelta, timezone
+
+import httpx
+import pytest
+
+from app import db, drops, states
+from app.rdap import DomainInfo, LookupResult
+from app.store import Store
+
+DELAYS = states.load_delays()
+
+
+def zone(lines: list[str]) -> bytes:
+    return gzip.compress(("\n".join(lines) + "\n").encode())
+
+
+def bits_of(labels: list[str]) -> bytearray:
+    bits = bytearray(drops.BITMAP_BYTES)
+    for label in labels:
+        i = drops.encode(label)
+        bits[i >> 3] |= 1 << (i & 7)
+    return bits
+
+
+def test_encode_decode_round_trip():
+    for label in ("aaaa", "zz99", "a-b1", "0000", "9--9"):
+        assert drops.decode(drops.encode(label)) == label
+    assert drops.encode("----") == drops.CELLS - 1
+    assert drops.BITMAP_BYTES == 234271
+
+
+def test_kind_and_validity():
+    assert drops.kind_of("abcd") == "letters"
+    assert drops.kind_of("1234") == "digits"
+    assert drops.kind_of("ab12") == "mixed"
+    assert drops.kind_of("ab-c") == "hyphen"
+    assert drops.valid_label("ab-c") and not drops.valid_label("-abc") and not drops.valid_label("abc-")
+    assert not drops.valid_label("abcde") and not drops.valid_label("ab_c")
+
+
+def test_scan_keeps_only_four_character_names_of_the_zone():
+    data = zone([
+        "com.\t900\tin\tsoa\ta.gtld-servers.net. nstld.verisign-grs.com. 1 1800 900 604800 86400",
+        "abcd.com.\t172800\tin\tns\tns1.example.net.",
+        "abcd.com.\t172800\tin\tns\tns2.example.net.",
+        "AB12.COM.\t172800\tIN\tNS\tns1.example.net.",
+        "x-y1.com.\t172800\tin\tns\tns1.example.net.",
+        "-abc.com.\t172800\tin\tns\tns1.example.net.",
+        "abcde.com.\t172800\tin\tns\tns1.example.net.",
+        "abc.com.\t172800\tin\tns\tns1.example.net.",
+        "wxyz.net.\t172800\tin\tns\tns1.example.net.",
+        "ns1.abcd.com.\t172800\tin\ta\t192.0.2.1",
+        "qrst.com.au.\t172800\tin\tns\tns1.example.net.",
+    ])
+    # Morceaux minuscules : les coupures tombent au milieu des lignes et des membres gzip.
+    chunks = [data[i:i + 7] for i in range(0, len(data), 7)]
+    bits = drops.scan_bytes(chunks, "com")
+    found = sorted(drops.diff(bytes(drops.BITMAP_BYTES), bits)[1])
+    assert found == ["ab12", "abcd", "x-y1"]
+
+
+def test_scan_reads_concatenated_gzip_members():
+    data = zone(["abcd.com.\t1\tin\tns\ta."]) + zone(["wxyz.com.\t1\tin\tns\ta."])
+    bits = drops.scan_bytes([data], "com")
+    assert drops.count(bits) == 2
+
+
+def test_diff_reports_left_and_joined():
+    removed, added = drops.diff(bits_of(["aaaa", "bbbb", "cc11"]), bits_of(["aaaa", "dd-d"]))
+    assert sorted(removed) == ["bbbb", "cc11"] and added == ["dd-d"]
+
+
+@pytest.fixture
+def watcher(tmp_path):
+    conn = db.connect(tmp_path / "t.db")
+    db.migrate(conn, tmp_path / "backups")
+    store = Store(conn, {})
+    w = drops.DropWatcher(conn, store, tmp_path, rdap=None, delays=DELAYS)
+    yield w
+    conn.close()
+
+
+class FakeIcann:
+    def __init__(self, zones: dict[str, bytes]):
+        self.zones = zones
+        self.auth_calls = 0
+        self.expire_token_once = False
+
+    def handler(self, request: httpx.Request) -> httpx.Response:
+        if request.url.host == "account-api.icann.org":
+            self.auth_calls += 1
+            body = json.loads(request.content)
+            if body["password"] != "secret":
+                return httpx.Response(401)
+            return httpx.Response(200, json={"accessToken": f"tok{self.auth_calls}"})
+        if request.headers.get("authorization", "").startswith("Bearer tok") is False:
+            return httpx.Response(401)
+        if self.expire_token_once:
+            self.expire_token_once = False
+            return httpx.Response(401)
+        if request.url.path == "/czds/downloads/links":
+            return httpx.Response(200, json=[f"https://czds-download-api.icann.org/czds/downloads/{t}.zone" for t in self.zones])
+        tld = request.url.path.rsplit("/", 1)[-1].removesuffix(".zone")
+        return httpx.Response(200, content=self.zones[tld])
+
+
+def use(watcher, icann: FakeIcann, password="secret"):
+    watcher.store.set("czds_username", "moi@example.com")
+    watcher.store.set("czds_password", password)
+    watcher._http_factory = lambda: httpx.AsyncClient(transport=httpx.MockTransport(icann.handler))
+
+
+def test_first_scan_is_a_baseline_then_differences_are_recorded(watcher):
+    icann = FakeIcann({"com": zone(["abcd.com.\t1\tin\tns\ta.", "wxyz.com.\t1\tin\tns\ta."]), "net": zone([])})
+    use(watcher, icann)
+    first = asyncio.run(watcher.run())
+    assert [(r.tld, r.first, r.names) for r in first] == [("com", True, 2), ("net", True, 0)]
+    assert watcher.conn.execute("SELECT COUNT(*) FROM drops").fetchone()[0] == 0
+    assert watcher.approved() == ["com", "net"]
+
+    icann.zones["com"] = zone(["wxyz.com.\t1\tin\tns\ta.", "a1b2.com.\t1\tin\tns\ta."])
+    second = asyncio.run(watcher.run())
+    assert (second[0].removed, second[0].added) == (1, 1)
+    row = watcher.conn.execute("SELECT * FROM drops").fetchone()
+    assert (row["name"], row["kind"], row["state"]) == ("abcd.com", "letters", None)
+
+    # Revenu dans la zone le lendemain : renouvelé, il sort de la liste.
+    icann.zones["com"] = zone(["abcd.com.\t1\tin\tns\ta.", "wxyz.com.\t1\tin\tns\ta.", "a1b2.com.\t1\tin\tns\ta."])
+    asyncio.run(watcher.run())
+    assert watcher.conn.execute("SELECT COUNT(*) FROM drops").fetchone()[0] == 0
+
+
+def test_only_enabled_zones_are_scanned(watcher):
+    icann = FakeIcann({"com": zone([]), "net": zone([])})
+    use(watcher, icann)
+    watcher.store.set("czds_enabled", json.dumps(["net"]))
+    assert [r.tld for r in asyncio.run(watcher.run())] == ["net"]
+
+
+def test_wrong_password_is_reported_without_scanning(watcher):
+    icann = FakeIcann({"com": zone([])})
+    use(watcher, icann, password="faux")
+    assert asyncio.run(watcher.run()) == []
+    assert "refusé" in watcher.store.get("czds_error")
+
+
+def test_expired_token_is_renewed_once(watcher):
+    icann = FakeIcann({"com": zone(["abcd.com.\t1\tin\tns\ta."])})
+    icann.expire_token_once = True
+    use(watcher, icann)
+    results = asyncio.run(watcher.run())
+    assert results[0].names == 1 and icann.auth_calls == 2
+
+
+def test_corrupt_zone_keeps_the_previous_bitmap(watcher):
+    icann = FakeIcann({"com": zone(["abcd.com.\t1\tin\tns\ta."])})
+    use(watcher, icann)
+    asyncio.run(watcher.run())
+    icann.zones["com"] = b"pas du gzip"
+    result = asyncio.run(watcher.run())[0]
+    assert result.error == "Fichier de zone corrompu ou incomplet."
+    assert drops.count(watcher._load("com")) == 1
+    assert watcher.status("com")["error"] == result.error
+
+
+def test_truncated_zone_is_rejected_not_compared(watcher):
+    full = zone([f"{drops.decode(i)}.com.\t1\tin\tns\ta." for i in range(0, 300000, 97)])
+    icann = FakeIcann({"com": full})
+    use(watcher, icann)
+    asyncio.run(watcher.run())
+    icann.zones["com"] = full[: len(full) // 2]
+    result = asyncio.run(watcher.run())[0]
+    assert result.error == "Fichier de zone corrompu ou incomplet."
+    assert watcher.conn.execute("SELECT COUNT(*) FROM drops").fetchone()[0] == 0
+
+
+def test_abnormal_drop_count_is_ignored(watcher):
+    names = [f"{drops.decode(i)}.com.\t1\tin\tns\ta." for i in range(0, 300000, 97)]
+    icann = FakeIcann({"com": zone(names)})
+    use(watcher, icann)
+    baseline = asyncio.run(watcher.run())[0].names
+    icann.zones["com"] = zone(names[: len(names) // 2])
+    result = asyncio.run(watcher.run())[0]
+    assert result.error.startswith("Écart anormal")
+    assert watcher.conn.execute("SELECT COUNT(*) FROM drops").fetchone()[0] == 0
+    assert drops.count(watcher._load("com")) == baseline > 1000
+
+
+def test_network_cut_is_recorded_and_other_zones_still_read(watcher):
+    icann = FakeIcann({"com": zone([]), "net": zone(["abcd.net.\t1\tin\tns\ta."])})
+    handler = icann.handler
+
+    def cut(request):
+        if request.url.path.endswith("com.zone"):
+            raise httpx.ReadError("coupure")
+        return handler(request)
+
+    use(watcher, icann)
+    watcher._http_factory = lambda: httpx.AsyncClient(transport=httpx.MockTransport(cut))
+    results = {r.tld: r for r in asyncio.run(watcher.run())}
+    assert "interrompu" in results["com"].error or "injoignable" in results["com"].error
+    assert results["net"].names == 1
+
+
+def test_due_once_a_day_after_the_hour(watcher):
+    watcher.store.set("czds_username", "moi")
+    watcher.store.set("czds_password", "x")
+    watcher.store.set("czds_hour", "6")
+    assert not watcher.due(datetime(2026, 10, 13, 5, 59))
+    assert watcher.due(datetime(2026, 10, 13, 6, 0))
+    watcher.store.set("czds_last_run", "2026-10-13")
+    assert not watcher.due(datetime(2026, 10, 13, 23, 0))
+    assert watcher.due(datetime(2026, 10, 14, 6, 30))
+
+
+class FakeRdap:
+    def __init__(self, results: dict[str, LookupResult]):
+        self.results = results
+
+    async def lookup(self, name):
+        return self.results[name]
+
+
+def test_rdap_check_classifies_and_estimates_release(watcher):
+    now = datetime.now(timezone.utc)
+    deleted = now - timedelta(days=3)
+    watcher.record("com", ["abcd", "wxyz", "a1b2", "zz99"], [], now)
+    watcher.rdap = FakeRdap({
+        "abcd.com": LookupResult(found=True, info=DomainInfo(statuses=["redemption period"], last_changed_at=deleted)),
+        "wxyz.com": LookupResult(available=True),
+        "a1b2.com": LookupResult(found=True, info=DomainInfo(statuses=["client hold"], expires_at=now + timedelta(days=200))),
+        "zz99.com": LookupResult(error="Serveur RDAP en erreur (503)"),
+    })
+    assert asyncio.run(watcher.check_due()) == 4
+    rows = {r["name"]: r for r in watcher.conn.execute("SELECT * FROM drops")}
+
+    redemption = rows["abcd.com"]
+    assert redemption["state"] == states.REDEMPTION
+    release = datetime.fromisoformat(redemption["release_at"])
+    # 30 jours de rédemption + 5 de suppression après la date de suppression, à l'heure de drop .com.
+    assert release.date() == (deleted + timedelta(days=35)).date() and (release.hour, release.minute) == (12, 0)
+
+    assert rows["wxyz.com"]["state"] == states.AVAILABLE and rows["wxyz.com"]["available_since"]
+    assert rows["a1b2.com"]["state"] == drops.SUSPENDED
+    assert rows["zz99.com"]["state"] is None and "503" in rows["zz99.com"]["error"]
+
+
+def test_purge_forgets_old_available_and_suspended(watcher):
+    now = datetime.now(timezone.utc)
+    watcher.record("com", ["aaaa", "bbbb", "cccc"], [], now - timedelta(days=60))
+    c = watcher.conn
+    c.execute("UPDATE drops SET state = 'available', available_since = ? WHERE label = 'aaaa'", ((now - timedelta(days=8)).isoformat(),))
+    c.execute("UPDATE drops SET state = 'available', available_since = ? WHERE label = 'bbbb'", ((now - timedelta(days=2)).isoformat(),))
+    c.execute("UPDATE drops SET state = 'suspended' WHERE label = 'cccc'")
+    watcher.purge(now)
+    assert [r[0] for r in c.execute("SELECT label FROM drops")] == ["bbbb"]

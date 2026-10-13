@@ -88,6 +88,14 @@ document.addEventListener("alpine:init", () => {
     sendingTest: false,
     legendOpen: false,
     settingsOpen: false,
+    dropsOpen: false,
+    dropsData: null,
+    dropTld: "",
+    dropKinds: [],
+    dropSort: "release",
+    czdsUser: "",
+    czdsPass: "",
+    savingCzds: false,
     checkingVersion: false,
     now: Date.now(),
     labels: LABELS,
@@ -119,6 +127,7 @@ document.addEventListener("alpine:init", () => {
       });
       this.$watch("legendOpen", () => this.lockScroll());
       this.$watch("settingsOpen", () => this.lockScroll());
+      this.$watch("dropsOpen", () => this.lockScroll());
       this.$watch("openId", () => this.lockScroll());
       if ("serviceWorker" in navigator && window.isSecureContext) {
         navigator.serviceWorker.register("/sw.js").catch(() => {});
@@ -128,7 +137,7 @@ document.addEventListener("alpine:init", () => {
     get mobile() { return window.matchMedia("(max-width: 640px)").matches; },
 
     lockScroll() {
-      document.body.classList.toggle("sheet-open", this.mobile && (this.legendOpen || this.settingsOpen || this.openId !== null));
+      document.body.classList.toggle("sheet-open", this.mobile && (this.legendOpen || this.settingsOpen || this.dropsOpen || this.openId !== null));
     },
 
     get selected() {
@@ -145,12 +154,15 @@ document.addEventListener("alpine:init", () => {
 
     escape() {
       if (this.openId !== null) this.openId = null;
-      else if (this.legendOpen || this.settingsOpen) this.showList();
+      else if (this.paged) this.showList();
     },
+
+    get paged() { return this.legendOpen || this.settingsOpen || this.dropsOpen; },
 
     showList() {
       this.legendOpen = false;
       this.settingsOpen = false;
+      this.dropsOpen = false;
       window.scrollTo({ top: 0, behavior: "smooth" });
     },
 
@@ -163,11 +175,122 @@ document.addEventListener("alpine:init", () => {
       this.openId = null;
       if (name === "legend") {
         this.settingsOpen = false;
+        this.dropsOpen = false;
         this.legendOpen = !this.legendOpen;
+      } else if (name === "drops") {
+        this.settingsOpen = false;
+        this.legendOpen = false;
+        this.dropsOpen = !this.dropsOpen;
+        if (this.dropsOpen) await this.loadDrops();
       } else {
         this.legendOpen = false;
+        this.dropsOpen = false;
         await this.toggleSettings();
       }
+    },
+
+    // Suppressions : noms de 4 caractères sortis des zones ICANN.
+
+    async loadDrops() {
+      try {
+        this.dropsData = await this.api("GET", "/api/drops");
+      } catch (e) {
+        this.say(`Suppressions indisponibles : ${e.message}`, "error");
+      }
+    },
+
+    dropMatches(d) {
+      return (!this.dropTld || d.tld === this.dropTld) && (!this.dropKinds.length || this.dropKinds.includes(d.kind));
+    },
+
+    get dropsReleased() {
+      if (!this.dropsData) return [];
+      return this.dropsData.items
+        .filter((d) => d.state === "available" && this.dropMatches(d))
+        .sort((a, b) => (b.available_since || "").localeCompare(a.available_since || ""));
+    },
+
+    get dropsComing() {
+      if (!this.dropsData) return [];
+      const rank = { pending_delete: 0, redemption: 1, expired: 2 };
+      const list = this.dropsData.items.filter((d) => d.state in rank && this.dropMatches(d));
+      if (this.dropSort === "name") return list.sort((a, b) => a.name.localeCompare(b.name));
+      return list.sort((a, b) => (a.release_at || "9").localeCompare(b.release_at || "9") || rank[a.state] - rank[b.state]);
+    },
+
+    get dropsSuspended() {
+      return this.dropsData ? this.dropsData.items.filter((d) => d.state === "suspended" && this.dropMatches(d)).length : 0;
+    },
+
+    get dropTlds() {
+      return this.dropsData ? [...new Set(this.dropsData.items.map((d) => d.tld))].sort() : [];
+    },
+
+    toggleDropKind(k) {
+      this.dropKinds = this.dropKinds.includes(k) ? this.dropKinds.filter((x) => x !== k) : [...this.dropKinds, k];
+    },
+
+    zoneLine(z) {
+      if (!z.at) return "jamais lue";
+      if (z.error) return `erreur : ${z.error}`;
+      const when = this.relative(z.at);
+      const names = (z.names || 0).toLocaleString("fr-FR");
+      const took = z.seconds >= 90 ? `${Math.round(z.seconds / 60)} min` : `${z.seconds} s`;
+      if (z.first) return `${names} noms, référence posée ${when}. Premières comparaisons au prochain passage.`;
+      return `${names} noms, ${z.removed} sortis, ${z.added} entrés, lue ${when} en ${took}`;
+    },
+
+    async scanDrops() {
+      try {
+        const res = await this.api("POST", "/api/drops/scan");
+        this.say(res.started ? "Lecture des zones lancée. Compter quelques minutes pour .com." : "Une lecture est déjà en cours.");
+        this.dropsData.running = true;
+        const poll = setInterval(async () => {
+          await this.loadDrops();
+          if (!this.dropsData || !this.dropsData.running) clearInterval(poll);
+        }, 10000);
+      } catch (e) {
+        this.say(e.message, "error");
+      }
+    },
+
+    async watchDrop(d) {
+      this.newName = d.name;
+      await this.add();
+      d.watched = this.domains.some((x) => x.name === d.name);
+    },
+
+    async saveCzds() {
+      this.savingCzds = true;
+      try {
+        const res = await this.api("PUT", "/api/settings/czds", { username: this.czdsUser, password: this.czdsPass });
+        this.cfg.czds = res;
+        this.czdsPass = "";
+        this.say(res.notice || `Compte ICANN accepté : ${res.approved.length} zone(s) autorisée(s).`);
+      } catch (e) {
+        this.say(e.message, "error");
+      }
+      this.savingCzds = false;
+    },
+
+    async deleteCzds() {
+      if (!confirm("Retirer le compte ICANN ? Les lectures de zones s'arrêtent.")) return;
+      await this.api("DELETE", "/api/settings/czds");
+      await this.loadSettings();
+    },
+
+    async saveZones() {
+      try {
+        this.cfg.czds = await this.api("PUT", "/api/settings/czds/zones", { enabled: this.cfg.czds.enabled, hour: this.cfg.czds.hour });
+      } catch (e) {
+        this.say(e.message, "error");
+      }
+    },
+
+    toggleZone(t) {
+      const list = this.cfg.czds.enabled;
+      this.cfg.czds.enabled = list.includes(t) ? list.filter((x) => x !== t) : [...list, t];
+      this.saveZones();
     },
 
     async api(method, url, body) {
@@ -288,6 +411,7 @@ document.addEventListener("alpine:init", () => {
     async loadSettings() {
       try {
         this.cfg = await this.api("GET", "/api/settings");
+        this.czdsUser = this.cfg.czds.username;
       } catch (e) {
         this.say(`Paramètres indisponibles : ${e.message}`, "error");
       }

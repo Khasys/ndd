@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -221,4 +222,53 @@ def test_logo_upload_limits_and_csp(logged):
     assert '<img class="logo" src="/logo?v=' in client.get("/").text
     assert client.delete("/api/settings/logo").json()["appearance"]["logo"] is False
     assert client.get("/logo").status_code == 404
+    client.__exit__(None, None, None)
+
+
+def test_czds_settings_never_return_the_password(logged):
+    import httpx as _httpx
+
+    client = logged()
+    watcher = client.app.state.drops
+
+    def handler(request):
+        if request.url.host == "account-api.icann.org":
+            ok = json.loads(request.content)["password"] == "bon-secret"
+            return _httpx.Response(200 if ok else 401, json={"accessToken": "t"})
+        return _httpx.Response(200, json=["https://czds-download-api.icann.org/czds/downloads/com.zone",
+                                          "https://czds-download-api.icann.org/czds/downloads/net.zone"])
+
+    watcher._http_factory = lambda: _httpx.AsyncClient(transport=_httpx.MockTransport(handler))
+    refused = client.put("/api/settings/czds", json={"username": "moi@example.com", "password": "faux"})
+    assert refused.status_code == 422 and "refusé" in refused.json()["detail"]
+    assert client.get("/api/settings").json()["czds"]["password_set"] is False
+
+    cfg = client.put("/api/settings/czds", json={"username": "moi@example.com", "password": "bon-secret"}).json()
+    assert cfg["approved"] == ["com", "net"] and cfg["enabled"] == ["com", "net"] and cfg["password_set"]
+    assert "bon-secret" not in client.get("/api/settings").text
+
+    cfg = client.put("/api/settings/czds/zones", json={"enabled": ["net", "org"], "hour": 7}).json()
+    assert cfg["enabled"] == ["net"] and cfg["hour"] == 7
+
+    data = client.get("/api/drops").json()
+    assert data["configured"] and data["items"] == [] and [z["tld"] for z in data["zones"]] == ["net"]
+    assert client.delete("/api/settings/czds").status_code == 204
+    assert client.get("/api/drops").json()["configured"] is False
+    assert client.post("/api/drops/scan").status_code == 409
+    client.__exit__(None, None, None)
+
+
+def test_drops_list_marks_watched_names(logged):
+    client = logged()
+    conn = client.app.state.conn
+    conn.execute("INSERT INTO domains (name, added_at) VALUES ('abcd.com', '2026-10-01T00:00:00+00:00')")
+    conn.execute(
+        "INSERT INTO drops (name, tld, label, kind, removed_on, state, release_at) VALUES "
+        "('abcd.com', 'com', 'abcd', 'letters', '2026-10-01', 'redemption', '2026-11-05T12:00:00+00:00'),"
+        "('wx12.net', 'net', 'wx12', 'mixed', '2026-10-01', 'available', NULL),"
+        "('zz99.com', 'com', 'zz99', 'mixed', '2026-10-13', NULL, NULL)"
+    )
+    data = client.get("/api/drops").json()
+    assert {i["name"]: i["watched"] for i in data["items"]} == {"abcd.com": True, "wx12.net": False}
+    assert data["pending_checks"] == 1
     client.__exit__(None, None, None)

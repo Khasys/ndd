@@ -26,8 +26,11 @@
 
   <aside class="sidebar" aria-label="Navigation">
     <nav class="side-nav">
-      <button type="button" class="side-link" :class="{ on: !legendOpen && !settingsOpen && filter === null }" @click="home(); filter = null">
+      <button type="button" class="side-link" :class="{ on: !paged && filter === null }" @click="home(); filter = null">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span>Domaines</span>
+      </button>
+      <button type="button" class="side-link" :class="{ on: dropsOpen }" @click="openSheet('drops')">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span>Suppressions</span>
       </button>
       <button type="button" class="side-link" :class="{ on: legendOpen }" @click="openSheet('legend')">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 7.5v.5"/></svg><span>Légende</span>
@@ -44,7 +47,7 @@
     </div>
   </aside>
 
-  <div class="main" :class="{ paged: legendOpen || settingsOpen }">
+  <div class="main" :class="{ paged: paged }">
 
   <header class="top">
     <a href="/" class="home" @click.prevent="home()" aria-label="Accueil">{{BRAND}}</a>
@@ -95,6 +98,101 @@
     </p>
   </section>
 
+
+  <section class="drops-page sheet" x-show="dropsOpen" x-transition.opacity.duration.150ms x-cloak aria-label="Suppressions">
+    <div class="sheet-head">
+      <h2>Suppressions</h2>
+      <button type="button" class="btn-ghost" @click="dropsOpen = false">Fermer</button>
+    </div>
+    <p class="muted drops-lead">Noms de 4 caractères (lettres, chiffres, tiret) sortis des zones ICANN, suivis jusqu'à leur libération.</p>
+
+    <template x-if="dropsData && !dropsData.configured">
+      <div class="drops-card">
+        <h3>Compte ICANN nécessaire</h3>
+        <p class="muted">Les zones viennent du service CZDS d'ICANN, gratuit sur inscription. Le compte se règle dans Paramètres, carte « Zones ICANN ».</p>
+        <button type="button" class="btn" @click="openSheet('settings')">Ouvrir les paramètres</button>
+      </div>
+    </template>
+
+    <template x-if="dropsData && dropsData.configured">
+      <div>
+        <div class="drops-card drops-status">
+          <div class="drops-zones">
+            <template x-for="z in dropsData.zones" :key="z.tld">
+              <div class="zone-line" :class="{ error: z.error }">
+                <span class="mono zone-tld" x-text="'.' + z.tld"></span>
+                <span class="small" x-text="zoneLine(z)"></span>
+              </div>
+            </template>
+            <p class="small muted" x-show="!dropsData.zones.length">Aucune zone activée. Paramètres, carte « Zones ICANN ».</p>
+            <p class="small error-text" x-show="dropsData.error" x-text="dropsData.error"></p>
+            <p class="small muted" x-show="dropsData.pending_checks" x-text="dropsData.pending_checks + ' nom(s) en attente de vérification RDAP.'"></p>
+          </div>
+          <button type="button" class="btn-ghost" @click="scanDrops()" :disabled="dropsData.running" x-text="dropsData.running ? 'Lecture en cours' : 'Lire les zones maintenant'"></button>
+        </div>
+
+        <div class="filters drops-filters">
+          <select class="filter-input drops-tld" x-model="dropTld" aria-label="Extension">
+            <option value="">Toutes les extensions</option>
+            <template x-for="t in dropTlds" :key="t"><option :value="t" x-text="'.' + t"></option></template>
+          </select>
+          <template x-for="(label, k) in dropsData.kinds" :key="k">
+            <button type="button" class="tag" :class="{ on: dropKinds.includes(k) }" @click="toggleDropKind(k)" x-text="label"></button>
+          </template>
+        </div>
+
+        <h3 class="drops-title">Libérés <span class="num muted" x-text="dropsReleased.length"></span></h3>
+        <p class="muted small" x-show="!dropsReleased.length">Aucun nom libéré ces 7 derniers jours.</p>
+        <table class="drops-table" x-show="dropsReleased.length">
+          <thead><tr><th>Nom</th><th>Type</th><th>Libéré</th><th><span class="visually-hidden">Action</span></th></tr></thead>
+          <tbody>
+            <template x-for="d in dropsReleased" :key="d.name">
+              <tr>
+                <td class="mono drop-name" x-text="d.name"></td>
+                <td data-label="Type" x-text="dropsData.kinds[d.kind]"></td>
+                <td data-label="Libéré" :title="exact(d.available_since)" x-text="relative(d.available_since)"></td>
+                <td class="drop-action">
+                  <button type="button" class="btn-ghost sm" @click="watchDrop(d)" :disabled="d.watched" x-text="d.watched ? 'Surveillé' : 'Surveiller'"></button>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+
+        <div class="drops-title-row">
+          <h3 class="drops-title">Libération à venir <span class="num muted" x-text="dropsComing.length"></span></h3>
+          <select class="filter-input drops-sort" x-model="dropSort" aria-label="Tri">
+            <option value="release">Par date de libération</option>
+            <option value="name">Par nom</option>
+          </select>
+        </div>
+        <p class="muted small" x-show="!dropsComing.length">Aucun nom en rédemption ou en suppression pour ces filtres.</p>
+        <table class="drops-table" x-show="dropsComing.length">
+          <thead><tr><th>Nom</th><th>Type</th><th>État</th><th>Libération estimée</th><th>Sorti de la zone</th><th><span class="visually-hidden">Action</span></th></tr></thead>
+          <tbody>
+            <template x-for="d in dropsComing" :key="d.name">
+              <tr>
+                <td class="mono drop-name" x-text="d.name"></td>
+                <td data-label="Type" x-text="dropsData.kinds[d.kind]"></td>
+                <td data-label="État"><span class="badge" :class="'s-' + d.state" x-text="labels[d.state]"></span></td>
+                <td data-label="Libération" :title="d.release_at ? exact(d.release_at) : 'Délais non sourcés pour cette extension'"
+                    x-text="d.release_at ? '~' + shortDate(d.release_at) + ' (' + relative(d.release_at).replace(/ /g, '\u00a0') + ')' : 'inconnue'"></td>
+                <td data-label="Sorti le" x-text="shortDate(d.removed_on)"></td>
+                <td class="drop-action">
+                  <button type="button" class="btn-ghost sm" @click="watchDrop(d)" :disabled="d.watched" x-text="d.watched ? 'Surveillé' : 'Surveiller'"></button>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+        <p class="muted small drops-note">
+          Un nom sort de la zone quand il entre en rédemption, ce qui laisse en général un mois avant sa libération.
+          <span x-show="dropsSuspended" x-text="dropsSuspended + ' nom(s) sorti(s) pour une autre raison (suspension, litige) ne sont pas affichés.'"></span>
+          Les noms convoités sont souvent repris par des services de drop-catching dans la seconde qui suit.
+        </p>
+      </div>
+    </template>
+  </section>
 
   <section class="panel settings sheet" x-show="settingsOpen" x-transition.opacity.duration.150ms x-cloak aria-label="Paramètres">
     <div class="sheet-head">
@@ -222,6 +320,45 @@
               </div>
             </div>
             <p class="muted small">PNG, JPEG, WebP ou SVG, 300 Ko maximum. Affiché à gauche du nom.</p>
+          </div>
+        </template>
+      </div>
+
+      <div>
+        <h2>Zones ICANN (CZDS)</h2>
+        <template x-if="cfg">
+          <div class="setting-lines">
+            <template x-if="!cfg.czds.password_set">
+              <ol class="steps">
+                <li>Créer un compte gratuit sur <span class="mono">czds.icann.org</span>.</li>
+                <li>Demander l'accès aux zones voulues (.com, .net, .org…) avec le motif demandé. Chaque registre valide, en général en quelques jours.</li>
+                <li>Saisir ici l'identifiant et le mot de passe du compte.</li>
+              </ol>
+            </template>
+            <form class="czds-form" @submit.prevent="saveCzds()">
+              <input type="email" x-model="czdsUser" placeholder="Identifiant ICANN (e-mail)" autocomplete="off" aria-label="Identifiant ICANN">
+              <input type="password" x-model="czdsPass" :placeholder="cfg.czds.password_set ? 'Mot de passe enregistré' : 'Mot de passe ICANN'" autocomplete="new-password" aria-label="Mot de passe ICANN">
+              <button type="submit" class="btn-ghost" :disabled="savingCzds || !czdsUser" x-text="savingCzds ? 'Vérification' : 'Enregistrer'"></button>
+            </form>
+            <p class="muted small">Le mot de passe reste sur le NAS : l'appli en a besoin pour se connecter chaque jour.</p>
+            <p class="small error-text" x-show="cfg.czds.error" x-text="cfg.czds.error"></p>
+            <template x-if="cfg.czds.password_set">
+              <div>
+                <p class="small muted" x-show="!cfg.czds.approved.length">Aucune zone autorisée pour l'instant. Revenir ici une fois les demandes validées.</p>
+                <div class="zone-chips" x-show="cfg.czds.approved.length">
+                  <template x-for="t in cfg.czds.approved" :key="t">
+                    <button type="button" class="tag" :class="{ on: cfg.czds.enabled.includes(t) }" @click="toggleZone(t)" x-text="'.' + t"></button>
+                  </template>
+                </div>
+                <p class="inline-form">
+                  <label class="small muted" for="czds-hour">Lecture chaque jour à</label>
+                  <select id="czds-hour" x-model.number="cfg.czds.hour" @change="saveZones()">
+                    <template x-for="h in 24" :key="h"><option :value="h - 1" x-text="(h - 1) + ' h'" :selected="cfg.czds.hour === h - 1"></option></template>
+                  </select>
+                </p>
+                <p class="setting-actions"><button type="button" class="btn-ghost sm danger" @click="deleteCzds()">Retirer le compte</button></p>
+              </div>
+            </template>
           </div>
         </template>
       </div>
@@ -451,9 +588,13 @@
   <datalist id="tag-list"><template x-for="t in allTags" :key="t"><option :value="t"></option></template></datalist>
 
   <nav class="tabbar" aria-label="Navigation">
-    <button type="button" :class="{ on: !legendOpen && !settingsOpen }" @click="home()">
+    <button type="button" :class="{ on: !paged }" @click="home()">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
       <span>Domaines</span>
+    </button>
+    <button type="button" :class="{ on: dropsOpen }" @click="openSheet('drops')">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
+      <span>Suppressions</span>
     </button>
     <button type="button" :class="{ on: legendOpen }" @click="openSheet('legend')">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 7.5v.5"/></svg>

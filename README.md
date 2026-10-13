@@ -71,6 +71,34 @@ Paramètres, Calendrier, « Créer l'adresse » : une URL secrète au format ICS
 calendrier par URL dans l'agenda du téléphone. Elle contient les expirations et les libérations
 estimées, avec un rappel la veille. Elle s'ouvre sans mot de passe : la changer si elle a fuité.
 
+### Suppressions : noms de 4 caractères
+
+Menu Suppressions : les noms de 4 caractères (lettres, chiffres, tiret) qui quittent les zones des
+extensions génériques, suivis jusqu'à leur libération. Deux listes : libérés ces 7 derniers jours,
+et libération à venir avec la date estimée. Un bouton Surveiller les ajoute à la liste principale.
+
+Source : les fichiers de zone publiés chaque jour par les registres via CZDS d'ICANN, gratuits sur
+inscription. Le .fr et les autres extensions nationales n'y sont pas.
+
+1. Créer un compte sur czds.icann.org et demander l'accès aux zones voulues. Chaque registre valide
+   la demande, en général en quelques jours. Un accès accordé expire au bout d'un certain temps et
+   se renouvelle sur le même site.
+2. Paramètres, carte « Zones ICANN » : identifiant et mot de passe du compte, puis Enregistrer.
+   L'appli vérifie le compte et affiche les zones autorisées. Un clic sur une zone l'active ou non.
+3. La lecture se fait une fois par jour, à l'heure choisie (6 h par défaut), ou tout de suite avec
+   « Lire les zones maintenant ». La première lecture pose la référence : les premiers noms sortis
+   apparaissent le lendemain.
+
+Fonctionnement : chaque zone est lue en flux, sans être stockée. Seuls les noms de 4 caractères
+sont retenus, dans une carte de 234 Ko par extension rangée dans `data/zones/`. Un nom présent la
+veille et absent ce jour est vérifié en RDAP : en rédemption ou en suppression, il est affiché avec
+sa date de libération estimée ; suspendu pour une autre raison, il est masqué. Un nom qui revient
+dans la zone (renouvelé ou repris) sort de la liste.
+
+La zone .com pèse plusieurs Go compressés : compter un gros téléchargement par jour et plusieurs
+minutes de calcul sur le NAS. Le mot de passe ICANN est stocké dans la base sur le NAS, puisque
+l'appli en a besoin chaque jour.
+
 ### Appli sur le téléphone
 
 L'interface est une PWA : sur téléphone, navigation en bas, panneaux plein écran, boutons larges.

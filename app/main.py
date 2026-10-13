@@ -1,3 +1,4 @@
+import asyncio
 import hmac
 import html
 import secrets
@@ -17,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import bot, calendar_ics, db, digest, signals, states, updates
+from . import bot, calendar_ics, db, digest, drops, signals, states, updates
 from .auth import (
     COOKIE_NAME,
     MIN_PASSWORD_LENGTH,
@@ -89,15 +90,27 @@ async def lifespan(app: FastAPI):
     async def refresh_signals() -> None:
         await signals.update_due(conn, limit=20)
 
+    watcher = drops.DropWatcher(conn, store, settings.data_dir, rdap, checker.delays)
+
+    async def scan_zones() -> None:
+        if watcher.due(datetime.now(digest.local_zone())):
+            await watcher.run()
+
+    async def check_drops() -> None:
+        await watcher.check_due(limit=20)
+
     now = datetime.now(timezone.utc)
     scheduler.add_job(refresh_latest, "interval", hours=24, next_run_time=now, max_instances=1, id="latest")
     scheduler.add_job(send_digest, "interval", minutes=15, max_instances=1)
     scheduler.add_job(refresh_signals, "interval", hours=1, next_run_time=now + timedelta(minutes=2), max_instances=1)
+    scheduler.add_job(scan_zones, "interval", minutes=15, next_run_time=now + timedelta(minutes=1), max_instances=1)
+    scheduler.add_job(check_drops, "interval", minutes=5, next_run_time=now + timedelta(minutes=3), max_instances=1)
     scheduler.start()
     telegram.start()
 
     app.state.refresh_latest = refresh_latest
     app.state.scheduler = scheduler
+    app.state.drops = watcher
     app.state.store = store
     app.state.telegram = telegram
     app.state.settings = settings
@@ -556,6 +569,7 @@ async def get_settings(request: Request):
             "last_sent": store.get("digest_last_sent") or None,
         },
         "calendar_url": _calendar_url(request),
+        "czds": _czds_settings(state.drops),
         "appearance": {
             "app_name": store.get("app_name") or DEFAULT_NAME,
             "theme": store.get("theme", "system"),
@@ -563,6 +577,117 @@ async def get_settings(request: Request):
             "logo_height": _logo_height(),
         },
     }
+
+
+def _czds_settings(watcher: drops.DropWatcher) -> dict:
+    store = watcher.store
+    return {
+        "username": watcher.username,
+        "password_set": bool(store.get("czds_password")),
+        "approved": watcher.approved(),
+        "enabled": watcher.enabled(),
+        "hour": int(store.get("czds_hour", "6")),
+        "error": store.get("czds_error") or None,
+    }
+
+
+class CzdsAccount(BaseModel):
+    username: str
+    password: str = ""
+
+
+@app.put("/api/settings/czds")
+async def set_czds(request: Request, payload: CzdsAccount):
+    watcher = request.app.state.drops
+    store = watcher.store
+    username = payload.username.strip()
+    if not username:
+        raise HTTPException(422, "Identifiant ICANN manquant.")
+    previous = (store.get("czds_username"), store.get("czds_password"))
+    store.set("czds_username", username)
+    if payload.password:
+        store.set("czds_password", payload.password)
+    if not store.get("czds_password"):
+        raise HTTPException(422, "Mot de passe ICANN manquant.")
+    try:
+        approved = await watcher.refresh_approved()
+    except drops.CzdsError as exc:
+        store.set("czds_username", previous[0])
+        store.set("czds_password", previous[1])
+        raise HTTPException(422, str(exc)) from None
+    store.set("czds_error", "")
+    if not approved:
+        return {**_czds_settings(watcher), "notice": "Compte accepté, mais aucune zone n'est encore autorisée."}
+    return _czds_settings(watcher)
+
+
+@app.delete("/api/settings/czds", status_code=204)
+async def delete_czds(request: Request):
+    store = request.app.state.drops.store
+    for key in ("czds_username", "czds_password", "czds_approved", "czds_enabled", "czds_error"):
+        store.set(key, "")
+    return Response(status_code=204)
+
+
+class CzdsZones(BaseModel):
+    enabled: list[str]
+    hour: int = 6
+
+
+@app.put("/api/settings/czds/zones")
+async def set_czds_zones(request: Request, payload: CzdsZones):
+    watcher = request.app.state.drops
+    if not 0 <= payload.hour <= 23:
+        raise HTTPException(422, "Heure invalide.")
+    approved = set(watcher.approved())
+    watcher.store.set("czds_enabled", json.dumps(sorted(t for t in payload.enabled if t in approved)))
+    watcher.store.set("czds_hour", str(payload.hour))
+    return _czds_settings(watcher)
+
+
+@app.get("/api/drops")
+async def list_drops(request: Request):
+    watcher = request.app.state.drops
+    rows = request.app.state.conn.execute(
+        "SELECT * FROM drops WHERE state IS NOT NULL ORDER BY release_at IS NULL, release_at, name"
+    ).fetchall()
+    pending = request.app.state.conn.execute("SELECT COUNT(*) FROM drops WHERE state IS NULL").fetchone()[0]
+    watched = {r[0] for r in request.app.state.conn.execute("SELECT name FROM domains")}
+    return {
+        "configured": watcher.configured,
+        "running": watcher.running,
+        "last_run": watcher.last_run(),
+        "error": watcher.store.get("czds_error") or None,
+        "zones": [{"tld": t, **watcher.status(t)} for t in watcher.enabled()],
+        "pending_checks": pending,
+        "kinds": drops.KINDS,
+        "items": [
+            {
+                "name": r["name"],
+                "tld": r["tld"],
+                "kind": r["kind"],
+                "state": r["state"],
+                "removed_on": r["removed_on"],
+                "release_at": r["release_at"],
+                "available_since": r["available_since"],
+                "checked_at": r["checked_at"],
+                "watched": r["name"] in watched,
+            }
+            for r in rows
+        ],
+    }
+
+
+@app.post("/api/drops/scan", status_code=202)
+async def scan_drops(request: Request):
+    watcher = request.app.state.drops
+    if not watcher.configured:
+        raise HTTPException(409, "Compte CZDS non configuré.")
+    if watcher.running:
+        return {"started": False}
+    # Référence gardée : une tâche sans référence peut être collectée en cours de route.
+    request.app.state.scan_task = asyncio.create_task(watcher.run())
+    return {"started": True}
 
 
 class TelegramToken(BaseModel):
