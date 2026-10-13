@@ -269,3 +269,27 @@ def test_cut_download_leaves_nothing_on_disk(fr):
     fr._http_factory = lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
     assert "interrompu" in asyncio.run(fr.import_file())["error"]
     assert not list(fr.dir.glob("afnic.*"))
+
+
+def test_utf8_file_keeps_creation_dates(fr, tmp_path):
+    # Fichier en UTF-8 : lu en latin-1, « création » devenait « crÃ©ation » et la colonne disparaissait.
+    path = tmp_path / "utf8.zip"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("x.csv", csv_text(["navarro.fr;FR;;;;;PP;FR;;01-02-2010;"]).encode("utf-8"))
+    kept, stats = frdata.read_zip(path)
+    assert kept["navarro"] == (date(2010, 2, 1), None) and stats["dated"] == 1
+    assert stats["columns"]["created"] == "Date de création"
+
+
+def test_latin1_file_still_read(tmp_path):
+    path = tmp_path / "latin1.zip"
+    path.write_bytes(make_zip(csv_text(["navarro.fr;FR;;;;;PP;FR;;01-02-2010;"])))
+    kept, stats = frdata.read_zip(path)
+    assert stats["columns"]["created"] == "Date de création" and kept["navarro"][0] == date(2010, 2, 1)
+
+
+def test_fixed_reader_reimports_the_same_month(fr):
+    fr.store.set("fr_status", json.dumps({"at": datetime.now(timezone.utc).isoformat(), "file_date": "202608", "reader": 1}))
+    assert fr.due(datetime.now())
+    fr.store.set("fr_status", json.dumps({"at": datetime.now(timezone.utc).isoformat(), "file_date": "202608", "reader": frdata.READER_VERSION}))
+    assert not fr.due(datetime.now())

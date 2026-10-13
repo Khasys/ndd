@@ -43,6 +43,8 @@ SWEEP_BATCH = 3
 SWEEP_EVERY_MINUTES = 5
 PAUSE_AFTER_LIMIT = timedelta(hours=24)
 RECENT_REMOVAL_DAYS = 45
+# À augmenter quand la lecture du fichier change : force un nouvel import du même mois.
+READER_VERSION = 2
 
 
 class FrDataError(Exception):
@@ -131,7 +133,8 @@ def read_rows(text_lines, watched=watched_label) -> tuple[dict[str, tuple[date |
         # Un nom supprimé puis recréé apparaît plusieurs fois : la ligne la plus récente fait foi.
         if previous is None or (created or date.min) >= (previous[0] or date.min):
             kept[label] = (created, removed)
-    stats = {"rows": rows, "kept": len(kept), "columns": {k: header[v] for k, v in columns.items()}}
+    stats = {"rows": rows, "kept": len(kept), "columns": {k: header[v] for k, v in columns.items()},
+             "dated": sum(1 for created, _ in kept.values() if created)}
     return kept, stats
 
 
@@ -171,9 +174,22 @@ def read_zip(path: Path, watched=watched_label):
             raise FrDataError("Aucun fichier CSV dans l'archive Afnic.")
         member = max(members, key=lambda m: archive.getinfo(m).file_size)
         with archive.open(member) as raw:
-            # Latin-1 lit n'importe quel octet : noms (Punycode) et dates sont en ASCII de toute façon.
-            lines = io.TextIOWrapper(raw, encoding="latin-1", newline="")
+            encoding = _encoding(raw.read(1 << 16))
+        with archive.open(member) as raw:
+            # Noms (Punycode) et dates sont en ASCII : seul l'en-tête dépend de l'encodage.
+            lines = io.TextIOWrapper(raw, encoding=encoding, errors="replace", newline="")
             return read_rows(iter(lines), watched)
+
+
+def _encoding(head: bytes) -> str:
+    """UTF-8 si le début du fichier en est (« Date de création » lisible), sinon latin-1."""
+    try:
+        head.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        # Un caractère coupé par la fin de l'échantillon ne compte pas.
+        if exc.start < len(head) - 4:
+            return "latin-1"
+    return "utf-8-sig"
 
 
 class FrWatcher:
@@ -198,11 +214,14 @@ class FrWatcher:
         counts = self.conn.execute(
             """SELECT COUNT(*) AS total,
                       SUM(removed_on IS NULL) AS registered,
-                      SUM(removed_on IS NULL AND next_check_at IS NOT NULL AND next_check_at <= ?) AS week
+                      SUM(removed_on IS NULL AND next_check_at IS NOT NULL AND next_check_at <= ?) AS week,
+                      SUM(removed_on IS NULL AND next_check_at IS NOT NULL) AS scheduled,
+                      MIN(CASE WHEN removed_on IS NULL THEN next_check_at END) AS next_at
                FROM fr_names""",
             (week,),
         ).fetchone()
         info.update(total=counts["total"], registered=counts["registered"] or 0, week=counts["week"] or 0,
+                    scheduled=counts["scheduled"] or 0, next_at=counts["next_at"],
                     paused_until=self.store.get("fr_paused_until") or None)
         return info
 
@@ -270,7 +289,8 @@ class FrWatcher:
         try:
             async with self._http_factory() as http:
                 url, modified = await self.resource_url(http)
-                if modified and modified == json.loads(self.store.get("fr_status") or "{}").get("file_date"):
+                previous = json.loads(self.store.get("fr_status") or "{}")
+                if modified and modified == previous.get("file_date") and previous.get("reader") == READER_VERSION:
                     return self.status()
                 self.dir.mkdir(parents=True, exist_ok=True)
                 try:
@@ -287,7 +307,7 @@ class FrWatcher:
             self._apply(kept, utcnow())
             self.store.set("fr_status", json.dumps({
                 "at": iso(utcnow()), "file_date": modified, "rows": stats["rows"], "kept": stats["kept"],
-                "columns": stats["columns"], "error": None,
+                "columns": stats["columns"], "dated": stats["dated"], "reader": READER_VERSION, "error": None,
                 "seconds": round((utcnow() - started).total_seconds()),
             }))
         except (FrDataError, zipfile.BadZipFile, OSError) as exc:
@@ -336,7 +356,10 @@ class FrWatcher:
         """Une fois par semaine : l'Afnic publie vers le milieu du mois, la date exacte varie."""
         if not self.enabled or self.running:
             return False
-        last = json.loads(self.store.get("fr_status") or "{}").get("at")
+        status = json.loads(self.store.get("fr_status") or "{}")
+        if status.get("file_date") and status.get("reader") != READER_VERSION:
+            return True  # Lecture corrigée depuis le dernier import : on relit le fichier.
+        last = status.get("at")
         return not last or datetime.fromisoformat(last) < utcnow() - timedelta(days=7)
 
     async def sweep(self, limit: int = SWEEP_BATCH) -> int:

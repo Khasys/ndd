@@ -262,7 +262,19 @@ document.addEventListener("alpine:init", () => {
       const registered = (f.registered || 0).toLocaleString("fr-FR");
       const pause = f.paused_until && new Date(f.paused_until) > new Date()
         ? ` En pause jusqu'au ${this.exact(f.paused_until)} : l'Afnic a signalé trop de requêtes.` : "";
-      return `open data Afnic${f.file_date ? " du " + this.shortDate(f.file_date) : ""}, ${names} noms suivis dont ${registered} enregistrés, ${f.week || 0} à vérifier dans les 7 jours (date anniversaire).${pause}`;
+      const week = (f.week || 0).toLocaleString("fr-FR");
+      const next = f.next_at ? ` Prochaine le ${this.exact(f.next_at)}.` : "";
+      const undated = f.registered && !f.scheduled
+        ? ` Attention : aucune date de création lue, aucune vérification planifiée. Colonnes lues : ${Object.values(f.columns || {}).join(", ") || "aucune"}.` : "";
+      return `open data Afnic${this.fileMonth(f.file_date)}, ${names} noms suivis dont ${registered} enregistrés, ${week} à vérifier dans les 7 jours (date anniversaire).${next}${undated}${pause}`;
+    },
+
+    fileMonth(v) {
+      if (!v) return "";
+      // Fichier pris chez l'Afnic : mois au format AAAAMM.
+      const m = /^(\d{4})(\d{2})$/.exec(v);
+      if (m) return ` (${new Date(+m[1], +m[2] - 1, 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" })})`;
+      return ` (${this.shortDate(v)})`;
     },
 
     async importFr() {
