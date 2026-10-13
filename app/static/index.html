@@ -25,20 +25,13 @@
 <div class="page" x-data="app" x-init="init()" @keydown.escape.window="escape()">
 
   <aside class="sidebar" aria-label="Navigation">
-    <a href="/" class="home" @click.prevent="home()" aria-label="Accueil">{{BRAND}}</a>
     <nav class="side-nav">
       <button type="button" class="side-link" :class="{ on: !legendOpen && !settingsOpen && filter === null }" @click="home(); filter = null">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span>Domaines</span><span class="num" x-text="domains.length"></span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span>Domaines</span>
       </button>
-      <div class="side-states" x-show="domains.length" x-cloak>
-        <template x-for="c in counters" :key="c.key">
-          <button type="button" class="side-sub" :class="{ on: !legendOpen && !settingsOpen && filter === c.key }"
-                  @click="showList(); filter = filter === c.key ? null : c.key">
-            <span class="dot" :class="'s-' + c.key" aria-hidden="true"></span>
-            <span x-text="c.label"></span><span class="num" x-text="c.count"></span>
-          </button>
-        </template>
-      </div>
+      <button type="button" class="side-link" @click="checkAll()" :disabled="bulkRunning || !domains.length">
+        <svg viewBox="0 0 24 24" aria-hidden="true" :class="{ spin: bulkRunning }"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v4h-4"/></svg><span x-text="bulkRunning ? 'En cours' : 'Tout vérifier'"></span>
+      </button>
       <button type="button" class="side-link" :class="{ on: legendOpen }" @click="openSheet('legend')">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 7.5v.5"/></svg><span>Légende</span>
       </button>
@@ -50,9 +43,6 @@
       </button>
     </nav>
     <div class="side-foot">
-      <button type="button" class="btn-ghost side-check" @click="checkAll()" :disabled="bulkRunning || !domains.length">
-        <svg viewBox="0 0 24 24" aria-hidden="true" :class="{ spin: bulkRunning }"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v4h-4"/></svg><span x-text="bulkRunning ? 'Vérification en cours' : 'Tout vérifier'"></span>
-      </button>
       <form method="post" action="/logout"><button type="submit" class="side-link"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 5h4a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-4M10 16l-4-4 4-4M6 12h10"/></svg><span>Déconnexion</span></button></form>
     </div>
   </aside>
@@ -366,84 +356,84 @@
       <aside class="drawer details" aria-label="Détail du domaine" x-transition.opacity.duration.150ms>
         <div class="drawer-head">
           <div class="drawer-title">
-            <span class="mono drawer-name" x-text="selected.unicode_name"></span>
-            <span class="mono muted punycode" x-show="selected.unicode_name !== selected.name" x-text="selected.name"></span>
+            <span class="mono drawer-name" x-text="shown.unicode_name"></span>
+            <span class="mono muted punycode" x-show="shown.unicode_name !== shown.name" x-text="shown.name"></span>
           </div>
           <button type="button" class="btn-ghost" @click="openId = null">Fermer</button>
         </div>
         <div class="drawer-state">
-          <span class="badge" :class="'s-' + displayState(selected)" :title="stateTitle(selected)" x-text="stateLabel(selected)"></span>
-          <span class="abandon" x-show="selected.abandoned">Signes d'abandon</span>
+          <span class="badge" :class="'s-' + displayState(shown)" :title="stateTitle(shown)" x-text="stateLabel(shown)"></span>
+          <span class="abandon" x-show="shown.abandoned">Signes d'abandon</span>
         </div>
         <div class="drawer-actions">
-          <button type="button" class="btn-ghost" @click="check(selected)" :disabled="!!busy[selected.id]" x-text="busy[selected.id] ? 'En cours' : 'Vérifier'"></button>
-          <button type="button" class="btn-ghost danger" @click="remove(selected)" :disabled="!!busy[selected.id]">Supprimer</button>
+          <button type="button" class="btn-ghost" @click="check(shown)" :disabled="!!busy[shown.id]" x-text="busy[shown.id] ? 'En cours' : 'Vérifier'"></button>
+          <button type="button" class="btn-ghost danger" @click="remove(shown)" :disabled="!!busy[shown.id]">Supprimer</button>
         </div>
       <div class="details-grid">
         <dl>
-          <dt>Création</dt><dd><span :title="exact(selected.registered_at)" x-text="longDate(selected.registered_at)"></span></dd>
-          <dt>Mise à jour</dt><dd><span :title="exact(selected.updated_at)" x-text="longDate(selected.updated_at)"></span></dd>
-          <dt>Expiration</dt><dd><span :title="exact(selected.expires_at)" x-text="longDate(selected.expires_at)"></span></dd>
+          <dt>Création</dt><dd><span :title="exact(shown.registered_at)" x-text="longDate(shown.registered_at)"></span></dd>
+          <dt>Mise à jour</dt><dd><span :title="exact(shown.updated_at)" x-text="longDate(shown.updated_at)"></span></dd>
+          <dt>Expiration</dt><dd><span :title="exact(shown.expires_at)" x-text="longDate(shown.expires_at)"></span></dd>
           <dt>Libération</dt>
           <dd>
-            <span x-show="selected.release_at" :title="releaseTitle(selected)" x-text="releaseLong(selected)"></span>
-            <span class="muted" x-show="!selected.release_at" x-text="noReleaseReason(selected)"></span>
+            <span x-show="shown.release_at" :title="releaseTitle(shown)" x-text="releaseLong(shown)"></span>
+            <span class="muted" x-show="!shown.release_at" x-text="noReleaseReason(shown)"></span>
           </dd>
-          <dt>Registrar</dt><dd x-text="selected.registrar || 'Aucun'"></dd>
+          <dt>Registrar</dt><dd x-text="shown.registrar || 'Aucun'"></dd>
           <dt>Serveurs DNS</dt>
           <dd>
-            <template x-for="ns in selected.nameservers" :key="ns"><div class="mono" x-text="ns"></div></template>
-            <span class="muted" x-show="!selected.nameservers.length">Aucun</span>
+            <template x-for="ns in shown.nameservers" :key="ns"><div class="mono" x-text="ns"></div></template>
+            <span class="muted" x-show="!shown.nameservers.length">Aucun</span>
           </dd>
           <dt>Statuts EPP</dt>
           <dd class="statuses">
-            <template x-for="s in selected.epp_statuses" :key="s">
+            <template x-for="s in shown.epp_statuses" :key="s">
               <span class="epp mono" :title="eppExplain(s)" x-text="s"></span>
             </template>
-            <span class="muted" x-show="!selected.epp_statuses.length">Aucun</span>
+            <span class="muted" x-show="!shown.epp_statuses.length">Aucun</span>
           </dd>
           <dt>Tags</dt>
           <dd class="tags-edit">
-            <template x-for="t in selected.tags" :key="t">
-              <span class="tag"><span x-text="t"></span><button type="button" class="tag-remove" @click="removeTag(selected, t)" :aria-label="'Retirer ' + t">×</button></span>
+            <template x-for="t in shown.tags" :key="t">
+              <span class="tag"><span x-text="t"></span><button type="button" class="tag-remove" @click="removeTag(shown, t)" :aria-label="'Retirer ' + t">×</button></span>
             </template>
-            <input type="text" class="tag-input" placeholder="Ajouter un tag" @keydown.enter.prevent="addTag(selected, $event.target)" list="tag-list" aria-label="Ajouter un tag">
+            <input type="text" class="tag-input" placeholder="Ajouter un tag" @keydown.enter.prevent="addTag(shown, $event.target)" list="tag-list" aria-label="Ajouter un tag">
           </dd>
           <dt>Signaux</dt>
           <dd>
-            <template x-if="!['active','expiring','expired','redemption','pending_delete'].includes(selected.state)">
+            <template x-if="!['active','expiring','expired','redemption','pending_delete'].includes(shown.state)">
               <span class="muted">Seulement pour un domaine enregistré.</span>
             </template>
-            <template x-if="['active','expiring','expired','redemption','pending_delete'].includes(selected.state)">
+            <template x-if="['active','expiring','expired','redemption','pending_delete'].includes(shown.state)">
               <div>
-                <span class="muted" x-show="!selected.signals_checked_at">Pas encore analysé.</span>
-                <span x-show="selected.signals_checked_at && !selected.signals.length">Aucun signe d'abandon<span class="muted" x-text="selected.signals_web ? ' (site : ' + selected.signals_web + ')' : ''"></span>.</span>
-                <ul class="signals" x-show="selected.signals.length">
-                  <template x-for="s in selected.signals" :key="s.key"><li x-text="s.label"></li></template>
+                <span class="muted" x-show="!shown.signals_checked_at">Pas encore analysé.</span>
+                <span x-show="shown.signals_checked_at && !shown.signals.length">Aucun signe d'abandon<span class="muted" x-text="shown.signals_web ? ' (site : ' + shown.signals_web + ')' : ''"></span>.</span>
+                <ul class="signals" x-show="shown.signals.length">
+                  <template x-for="s in shown.signals" :key="s.key"><li x-text="s.label"></li></template>
                 </ul>
-                <span class="muted small" x-show="selected.signals_checked_at" x-text="'Analysé ' + relative(selected.signals_checked_at)" :title="exact(selected.signals_checked_at)"></span>
-                <button type="button" class="btn-ghost sm" @click="refreshSignals(selected)" :disabled="!!busySignals[selected.id]" x-text="busySignals[selected.id] ? 'Analyse en cours' : 'Analyser'"></button>
+                <span class="muted small" x-show="shown.signals_checked_at" x-text="'Analysé ' + relative(shown.signals_checked_at)" :title="exact(shown.signals_checked_at)"></span>
+                <button type="button" class="btn-ghost sm" @click="refreshSignals(shown)" :disabled="!!busySignals[shown.id]" x-text="busySignals[shown.id] ? 'Analyse en cours' : 'Analyser'"></button>
               </div>
             </template>
           </dd>
-          <dt>Source</dt><dd x-text="selected.source ? selected.source.toUpperCase() : 'Inconnue'"></dd>
+          <dt>Source</dt><dd x-text="shown.source ? shown.source.toUpperCase() : 'Inconnue'"></dd>
           <dt>Dernier check</dt>
-          <dd><span :title="exact(selected.last_checked_at)" x-text="selected.last_checked_at ? relative(selected.last_checked_at) : 'Jamais'"></span></dd>
+          <dd><span :title="exact(shown.last_checked_at)" x-text="shown.last_checked_at ? relative(shown.last_checked_at) : 'Jamais'"></span></dd>
           <dt>Prochain check</dt>
-          <dd><span :title="exact(selected.next_check_at)" x-text="selected.next_check_at ? relative(selected.next_check_at) : 'Au prochain passage'"></span></dd>
-          <template x-if="selected.check_error">
+          <dd><span :title="exact(shown.next_check_at)" x-text="shown.next_check_at ? relative(shown.next_check_at) : 'Au prochain passage'"></span></dd>
+          <template x-if="shown.check_error">
             <div class="dl-row error-row">
               <dt>Erreur</dt>
-              <dd x-text="selected.check_error + (selected.last_success_at ? '. Dernier check réussi ' + relative(selected.last_success_at) + '.' : '.')"></dd>
+              <dd x-text="shown.check_error + (shown.last_success_at ? '. Dernier check réussi ' + relative(shown.last_success_at) + '.' : '.')"></dd>
             </div>
           </template>
         </dl>
         <div class="history">
           <h3>Historique</h3>
-          <p class="muted" x-show="!history[selected.id]">Chargement</p>
-          <p class="muted" x-show="history[selected.id] && !history[selected.id].length">Aucun changement enregistré.</p>
-          <ol x-show="history[selected.id] && history[selected.id].length">
-            <template x-for="(h, i) in history[selected.id] || []" :key="i">
+          <p class="muted" x-show="!history[shown.id]">Chargement</p>
+          <p class="muted" x-show="history[shown.id] && !history[shown.id].length">Aucun changement enregistré.</p>
+          <ol x-show="history[shown.id] && history[shown.id].length">
+            <template x-for="(h, i) in history[shown.id] || []" :key="i">
               <li>
                 <span class="when" :title="exact(h.at)" x-text="shortDate(h.at)"></span>
                 <span class="what" x-text="describe(h)"></span>

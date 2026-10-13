@@ -135,6 +135,14 @@ document.addEventListener("alpine:init", () => {
       return this.openId === null ? null : this.domains.find((d) => d.id === this.openId) || null;
     },
 
+    // Le panneau garde le dernier domaine affiché le temps de se fermer : ses liaisons
+    // ne doivent jamais lire un domaine nul pendant le démontage.
+    get shown() {
+      const current = this.selected;
+      if (current) this._lastShown = current;
+      return current || this._lastShown;
+    },
+
     escape() {
       if (this.openId !== null) this.openId = null;
       else if (this.legendOpen || this.settingsOpen) this.showList();

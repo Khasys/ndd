@@ -578,50 +578,34 @@ button:disabled { cursor: default; opacity: .55; }
 @media (min-width: 900px) {
   .page {
     max-width: none; padding: 0;
-    display: grid; grid-template-columns: 252px minmax(0, 1fr); min-height: 100vh;
+    display: grid; grid-template-columns: 84px minmax(0, 1fr); min-height: 100vh;
   }
-  .top, .counters { display: none; }
+  .top { padding-bottom: 18px; }
+  .top .tools { display: none; }
 
+  /* Rail d'icônes : la navigation tient en 84 px, la largeur va au tableau. */
   .sidebar {
-    display: flex; flex-direction: column;
+    display: flex; flex-direction: column; align-items: stretch;
     position: sticky; top: 0; height: 100vh; overflow-y: auto;
-    padding: 20px 14px 16px;
+    padding: 16px 8px;
     background: var(--surface); border-right: 1px solid var(--line);
   }
-  .sidebar .home { display: block; padding: 4px 8px 22px; }
-  .sidebar .brand { max-width: 100%; }
-  .sidebar svg { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-  .side-nav { display: flex; flex-direction: column; gap: 2px; }
+  .sidebar svg { width: 22px; height: 22px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .side-nav { display: flex; flex-direction: column; gap: 4px; }
   .side-link {
-    position: relative; display: flex; align-items: center; gap: 10px;
-    width: 100%; height: 40px; padding: 0 10px;
-    background: none; border: 0; border-radius: 8px;
-    color: var(--muted); font-size: 14px; font-weight: 500; text-align: left; cursor: pointer;
+    position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    width: 100%; min-height: 60px; padding: 8px 2px;
+    background: none; border: 0; border-radius: 10px;
+    color: var(--muted); font-size: 11px; font-weight: 500; line-height: 1.15; text-align: center; cursor: pointer;
     transition: background-color 150ms, color 150ms;
   }
-  .side-link:hover { background: var(--hover); color: var(--text); }
+  .side-link:hover:not(:disabled) { background: var(--hover); color: var(--text); }
   .side-link.on { background: var(--hover); color: var(--accent); }
-  .side-link .num { margin-left: auto; font-size: 12.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
-  .side-link .update-badge { position: static; margin-left: auto; border: 0; }
-  .side-states {
-    display: flex; flex-direction: column; gap: 1px;
-    margin: 2px 0 8px 19px; padding-left: 10px; border-left: 1px solid var(--line);
-  }
-  .side-sub {
-    display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 8px;
-    background: none; border: 0; border-radius: 6px;
-    color: var(--muted); font-size: 13px; text-align: left; cursor: pointer;
-    transition: background-color 150ms, color 150ms;
-  }
-  .side-sub .num { margin-left: auto; color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; }
-  .side-sub:hover { background: var(--hover); color: var(--text); }
-  .side-sub.on { background: var(--hover); color: var(--text); box-shadow: inset 2px 0 0 var(--accent); }
-  .side-foot { margin-top: auto; display: flex; flex-direction: column; gap: 4px; padding-top: 16px; border-top: 1px solid var(--line); }
+  .side-link .update-badge { top: 3px; right: 6px; border-color: var(--surface); }
+  .side-foot { margin-top: auto; padding-top: 8px; border-top: 1px solid var(--line); }
   .side-foot form { margin: 0; }
-  .side-check { height: 40px; gap: 8px; margin-bottom: 6px; }
-  .side-check svg { width: 18px; height: 18px; }
 
-  .main { min-width: 0; width: 100%; max-width: 1320px; padding: 28px 40px 64px; }
+  .main { min-width: 0; width: 100%; max-width: 1400px; padding: 24px 40px 64px; }
   .main.paged .list-view { display: none; }
 
   .add { max-width: 640px; }
@@ -676,13 +660,11 @@ button:disabled { cursor: default; opacity: .55; }
   /* La suppression se fait depuis le détail : la ligne garde de la place pour les colonnes utiles. */
   .col-actions .btn-ghost.danger { display: none; }
 }
-@media (min-width: 900px) and (max-width: 1439px) {
+@media (min-width: 900px) and (max-width: 1279px) {
   .col-registrar, .domains .col-last { display: none; }
   .main { padding-left: 28px; padding-right: 28px; }
 }
-@media (min-width: 900px) and (max-width: 1099px) {
-  .page { grid-template-columns: 216px minmax(0, 1fr); }
-}
-@media (min-width: 1440px) {
+
+@media (min-width: 1280px) {
   .domains td.state { min-width: 200px; }
 }
