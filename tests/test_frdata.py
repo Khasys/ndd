@@ -74,6 +74,8 @@ def serve(fr, archive: bytes, modified="2026-10-15T00:00:00"):
 
     def handler(request):
         calls.append(request.url.host)
+        if request.url.host == "www.afnic.fr":
+            return httpx.Response(404)
         if request.url.host == "www.data.gouv.fr":
             return httpx.Response(200, json={"resources": [
                 {"title": "B-Indicateurs par pays", "url": "https://opendata.afnic.fr/B.zip", "last_modified": modified},
@@ -108,7 +110,7 @@ def test_import_keeps_watched_names_and_queues_recent_removals(fr):
     # Même fichier la semaine suivante : rien n'est retéléchargé.
     calls.clear()
     asyncio.run(fr.import_file())
-    assert calls == ["www.data.gouv.fr"]
+    assert "opendata.afnic.fr" not in calls and calls[-1] == "www.data.gouv.fr"
 
 
 def test_unknown_columns_are_reported_not_hidden(fr):
@@ -186,6 +188,8 @@ def test_moved_dataset_is_found_through_search(fr):
     archive = make_zip(csv_text(["navarro.fr;FR;;;;;PP;FR;;01-02-2010;"]))
 
     def handler(request):
+        if request.url.host == "www.afnic.fr":
+            return httpx.Response(404)
         if request.url.path.endswith("/open-data-du-fr-1/"):
             return httpx.Response(404, json={"message": "Not Found"})
         if request.url.host == "www.data.gouv.fr":
@@ -204,6 +208,8 @@ def test_moved_dataset_is_found_through_search(fr):
 
 def test_missing_file_lists_what_was_seen(fr):
     def handler(request):
+        if request.url.host == "www.afnic.fr":
+            return httpx.Response(404)
         if "q=" in str(request.url):
             return httpx.Response(200, json={"data": []})
         return httpx.Response(200, json={"resources": [{"title": "Indicateurs par pays", "url": "https://x/B.zip"}]})
@@ -211,3 +217,43 @@ def test_missing_file_lists_what_was_seen(fr):
     fr._http_factory = lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
     error = asyncio.run(fr.import_file())["error"]
     assert "Indicateurs par pays" in error and "Adresse du fichier" in error
+
+
+def test_recent_months():
+    assert frdata.recent_months(date(2026, 2, 10)) == ["202602", "202601", "202512", "202511"]
+
+
+def afnic_files(fr, available: dict[str, bytes]):
+    fetched = []
+
+    def handler(request):
+        if request.url.host != "www.afnic.fr":
+            raise AssertionError("data.gouv.fr ne doit pas servir")
+        month = request.url.path.rsplit("/", 1)[-1][:6]
+        fetched.append(month)
+        if month in available:
+            return httpx.Response(200, content=available[month])
+        return httpx.Response(404)
+
+    fr._http_factory = lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    return fetched
+
+
+def test_latest_monthly_file_is_taken_from_afnic(fr):
+    months = frdata.recent_months(datetime.now(timezone.utc).date())
+    archive = make_zip(csv_text(["navarro.fr;FR;;;;;PP;FR;;01-02-2010;"]))
+    # Le fichier du mois n'est pas encore sorti : on prend celui du mois d'avant.
+    fetched = afnic_files(fr, {months[1]: archive, months[2]: archive})
+    status = asyncio.run(fr.import_file())
+    assert status["error"] is None and status["kept"] == 1
+    assert json.loads(fr.store.get("fr_status"))["file_date"] == months[1]
+    assert fetched[:2] == [months[0], months[1]]
+
+
+def test_pasted_monthly_address_follows_new_months(fr):
+    months = frdata.recent_months(datetime.now(timezone.utc).date())
+    fr.store.set("fr_url", "https://www.afnic.fr/wp-media/ftp/documentsOpenData/202001_OPENDATA_A-NomsDeDomaineEnPointFr.zip")
+    archive = make_zip(csv_text(["navarro.fr;FR;;;;;PP;FR;;01-02-2010;"]))
+    fetched = afnic_files(fr, {months[0]: archive})
+    assert asyncio.run(fr.import_file())["error"] is None
+    assert fetched[0] == months[0] and "202001" not in fetched

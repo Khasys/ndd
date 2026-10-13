@@ -34,6 +34,10 @@ DATASET_API = "https://www.data.gouv.fr/api/1/datasets/open-data-du-fr-1/"
 # Si le jeu de données a été renommé ou remplacé, on le cherche par mots-clés.
 SEARCH_API = "https://www.data.gouv.fr/api/1/datasets/?q=afnic&page_size=50"
 RESOURCE_HINTS = ("nomsdedomaine", "nomdedomaine", "enpointfr")
+# Adresse directe chez l'Afnic, un fichier par mois : on essaie le mois en cours puis les précédents.
+AFNIC_MONTHLY = "https://www.afnic.fr/wp-media/ftp/documentsOpenData/{month}_OPENDATA_A-NomsDeDomaineEnPointFr.zip"
+MONTHS_BACK = 4
+MONTH_IN_URL = re.compile(r"(?<!\d)(20\d{2}(?:0[1-9]|1[0-2]))(?=_OPENDATA)")
 # Plafond : 3 requêtes toutes les 5 minutes, soit 864 par jour au plus, même avec du retard.
 SWEEP_BATCH = 3
 SWEEP_EVERY_MINUTES = 5
@@ -150,6 +154,16 @@ def pick_resource(datasets: list[dict]) -> dict | None:
     return max(matches, key=lambda r: r.get("last_modified") or "")
 
 
+def recent_months(today: date, count: int = MONTHS_BACK) -> list[str]:
+    """Les mois au format AAAAMM, du plus récent au plus ancien."""
+    year, month = today.year, today.month
+    months = []
+    for _ in range(count):
+        months.append(f"{year}{month:02d}")
+        year, month = (year, month - 1) if month > 1 else (year - 1, 12)
+    return months
+
+
 def read_zip(path: Path, watched=watched_label):
     with zipfile.ZipFile(path) as archive:
         members = [m for m in archive.namelist() if m.lower().endswith((".csv", ".txt"))]
@@ -204,10 +218,31 @@ class FrWatcher:
         except ValueError:
             return None
 
+    async def _exists(self, http: httpx.AsyncClient, url: str) -> bool:
+        try:
+            async with http.stream("GET", url, follow_redirects=True) as response:
+                return response.status_code == 200
+        except httpx.HTTPError:
+            return False
+
+    async def _latest_monthly(self, http: httpx.AsyncClient, template: str) -> tuple[str, str] | None:
+        for month in recent_months(utcnow().date()):
+            url = template.format(month=month)
+            if await self._exists(http, url):
+                return url, month
+        return None
+
     async def resource_url(self, http: httpx.AsyncClient) -> tuple[str, str | None]:
         custom = self.store.get("fr_url").strip()
+        if custom and MONTH_IN_URL.search(custom):
+            # Adresse d'un mois précis : on la suit de mois en mois.
+            template = MONTH_IN_URL.sub("{month}", custom.replace("{", "{{").replace("}", "}}"), count=1)
+            return await self._latest_monthly(http, template) or (custom, None)
         if custom:
             return custom, None
+        found = await self._latest_monthly(http, AFNIC_MONTHLY)
+        if found:
+            return found
         datasets = []
         direct = await self._get_json(http, DATASET_API)
         if direct and direct.get("resources"):

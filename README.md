@@ -111,7 +111,10 @@ Le .fr n'est pas dans CZDS. Paramètres, carte « Extension .fr (Afnic) », case
 L'appli fonctionne alors en trois temps :
 
 1. Une fois par mois, elle importe la liste ouverte des noms en .fr publiée par l'Afnic (Licence
-   Ouverte, environ 120 Mo, trouvée automatiquement sur data.gouv.fr). Elle ne garde que les noms
+   Ouverte, environ 120 Mo). Elle prend le fichier du mois le plus récent sur afnic.fr
+   (`AAAAMM_OPENDATA_A-NomsDeDomaineEnPointFr.zip`), sinon le cherche sur data.gouv.fr.
+   Une adresse collée dans « Adresse du fichier » qui contient un mois est suivie de mois en
+   mois. Elle ne garde que les noms
    suivis. Les noms supprimés depuis moins de 45 jours passent directement en vérification.
 2. Un nom .fr expire à la date anniversaire de sa création. L'appli le vérifie en RDAP le
    lendemain de cet anniversaire : renouvelé, la vraie échéance lue en RDAP fixe la vérification
