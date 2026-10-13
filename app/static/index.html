@@ -29,9 +29,6 @@
       <button type="button" class="side-link" :class="{ on: !legendOpen && !settingsOpen && filter === null }" @click="home(); filter = null">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span>Domaines</span>
       </button>
-      <button type="button" class="side-link" @click="checkAll()" :disabled="bulkRunning || !domains.length">
-        <svg viewBox="0 0 24 24" aria-hidden="true" :class="{ spin: bulkRunning }"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v4h-4"/></svg><span x-text="bulkRunning ? 'En cours' : 'Tout vérifier'"></span>
-      </button>
       <button type="button" class="side-link" :class="{ on: legendOpen }" @click="openSheet('legend')">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 7.5v.5"/></svg><span>Légende</span>
       </button>
@@ -53,7 +50,6 @@
     <a href="/" class="home" @click.prevent="home()" aria-label="Accueil">{{BRAND}}</a>
     <nav class="tools">
       <button type="button" class="btn-ghost" :class="{ on: legendOpen }" @click="legendOpen = !legendOpen" :aria-expanded="legendOpen">Légende</button>
-      <button type="button" class="btn-ghost" @click="checkAll()" :disabled="bulkRunning || !domains.length" x-text="bulkRunning ? 'Vérification en cours' : 'Tout vérifier'"></button>
       <button type="button" class="btn-ghost has-badge" :class="{ on: settingsOpen }" @click="toggleSettings()" :aria-expanded="settingsOpen">
         Paramètres
         <span class="update-badge" x-show="meta && meta.update_available" x-cloak title="Mise à jour disponible" aria-label="Mise à jour disponible">
@@ -252,16 +248,22 @@
     </div>
   </section>
 
-  <div class="counters list-view" x-show="domains.length" x-cloak>
-    <button type="button" class="counter" :class="{ on: filter === null }" @click="filter = null">
-      Tous <span class="num" x-text="domains.length"></span>
-    </button>
-    <template x-for="c in counters" :key="c.key">
-      <button type="button" class="counter" :class="{ on: filter === c.key }" @click="filter = filter === c.key ? null : c.key">
-        <span class="dot" :class="'s-' + c.key" aria-hidden="true"></span>
-        <span x-text="c.label"></span> <span class="num" x-text="c.count"></span>
+  <div class="list-toolbar list-view" x-show="domains.length" x-cloak>
+    <div class="counters">
+      <button type="button" class="counter" :class="{ on: filter === null }" @click="filter = null">
+        Tous <span class="num" x-text="domains.length"></span>
       </button>
-    </template>
+      <template x-for="c in counters" :key="c.key">
+        <button type="button" class="counter" :class="{ on: filter === c.key }" @click="filter = filter === c.key ? null : c.key">
+          <span class="dot" :class="'s-' + c.key" aria-hidden="true"></span>
+          <span x-text="c.label"></span> <span class="num" x-text="c.count"></span>
+        </button>
+      </template>
+    </div>
+    <button type="button" class="btn-ghost check-all" @click="checkAll()" :disabled="bulkRunning" aria-label="Tout vérifier" title="Tout vérifier">
+      <svg viewBox="0 0 24 24" aria-hidden="true" :class="{ spin: bulkRunning }"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v4h-4"/></svg>
+      <span class="check-all-label" x-text="bulkRunning ? 'Vérification en cours' : 'Tout vérifier'"></span>
+    </button>
   </div>
 
 
@@ -452,10 +454,6 @@
     <button type="button" :class="{ on: !legendOpen && !settingsOpen }" @click="home()">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
       <span>Domaines</span>
-    </button>
-    <button type="button" @click="checkAll()" :disabled="bulkRunning || !domains.length">
-      <svg viewBox="0 0 24 24" aria-hidden="true" :class="{ spin: bulkRunning }"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v4h-4"/></svg>
-      <span x-text="bulkRunning ? 'En cours' : 'Tout vérifier'"></span>
     </button>
     <button type="button" :class="{ on: legendOpen }" @click="openSheet('legend')">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 7.5v.5"/></svg>
