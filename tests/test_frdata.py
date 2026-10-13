@@ -97,6 +97,7 @@ def test_import_keeps_watched_names_and_queues_recent_removals(fr):
     calls = serve(fr, archive)
     status = asyncio.run(fr.import_file())
     assert status["error"] is None and status["kept"] == 3 and status["registered"] == 1
+    assert not list(fr.dir.glob("afnic.*"))
     rows = {r["label"]: r for r in fr.conn.execute("SELECT * FROM fr_names")}
     # Créé un 1er février : vérifié le 2 février suivant, à midi UTC.
     following = datetime.fromisoformat(rows["navarro"]["next_check_at"])
@@ -117,6 +118,7 @@ def test_unknown_columns_are_reported_not_hidden(fr):
     serve(fr, make_zip("colonne1;colonne2\nx;y\n"))
     status = asyncio.run(fr.import_file())
     assert "introuvable" in status["error"] and "colonne1" in status["error"]
+    assert not list(fr.dir.glob("afnic.*"))
 
 
 class FakeRdap:
@@ -257,3 +259,13 @@ def test_pasted_monthly_address_follows_new_months(fr):
     fetched = afnic_files(fr, {months[0]: archive})
     assert asyncio.run(fr.import_file())["error"] is None
     assert fetched[0] == months[0] and "202001" not in fetched
+
+
+def test_cut_download_leaves_nothing_on_disk(fr):
+    def handler(request):
+        raise httpx.ReadError("coupure")
+
+    fr.store.set("fr_url", "https://example.org/fichier.zip")
+    fr._http_factory = lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    assert "interrompu" in asyncio.run(fr.import_file())["error"]
+    assert not list(fr.dir.glob("afnic.*"))

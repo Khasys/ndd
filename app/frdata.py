@@ -265,14 +265,14 @@ class FrWatcher:
             return {}
         self.running = True
         started = utcnow()
+        target = self.dir / "afnic.zip"
+        tmp = target.with_suffix(".tmp")
         try:
             async with self._http_factory() as http:
                 url, modified = await self.resource_url(http)
                 if modified and modified == json.loads(self.store.get("fr_status") or "{}").get("file_date"):
                     return self.status()
                 self.dir.mkdir(parents=True, exist_ok=True)
-                target = self.dir / "afnic.zip"
-                tmp = target.with_suffix(".tmp")
                 try:
                     async with http.stream("GET", url) as response:
                         if response.status_code != 200:
@@ -284,7 +284,6 @@ class FrWatcher:
                     raise FrDataError(f"Téléchargement Afnic interrompu ({exc.__class__.__name__}).") from None
                 tmp.replace(target)
             kept, stats = await asyncio.to_thread(read_zip, target)
-            target.unlink(missing_ok=True)
             self._apply(kept, utcnow())
             self.store.set("fr_status", json.dumps({
                 "at": iso(utcnow()), "file_date": modified, "rows": stats["rows"], "kept": stats["kept"],
@@ -296,6 +295,9 @@ class FrWatcher:
             previous.update(at=iso(utcnow()), error=str(exc) if isinstance(exc, FrDataError) else f"Fichier Afnic illisible ({exc.__class__.__name__}).")
             self.store.set("fr_status", json.dumps(previous))
         finally:
+            # Le zip ne sert qu'à l'import : il ne reste jamais sur le disque, même après une erreur.
+            for leftover in (tmp, target):
+                leftover.unlink(missing_ok=True)
             self.running = False
         return self.status()
 
