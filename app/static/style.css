@@ -108,7 +108,7 @@ body {
 .brand { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
 .logo { height: var(--logo-h, 32px); width: auto; max-width: min(70vw, 480px); object-fit: contain; }
 /* Sans logo, le curseur règle la taille du nom : 32 px donnent les 20 px d'origine. */
-.brand:not(:has(.logo)) .appname { font-size: calc(var(--logo-h, 32px) * .625); line-height: 1.2; overflow-wrap: anywhere; }
+.brand:not(:has(.logo)) .appname { font-size: calc(var(--logo-h, 32px) * .625); line-height: 1.2; }
 .logo-size { margin: 12px 0 8px; }
 .logo-size label { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
 .logo-size input[type="range"] { width: 100%; height: 32px; margin: 0; accent-color: var(--accent); }
@@ -116,7 +116,7 @@ body {
   display: flex; align-items: center; min-height: 64px; margin-top: 6px; padding: 10px 12px; overflow: hidden;
   background: var(--bg); border: 1px dashed var(--line-strong); border-radius: var(--radius);
 }
-.appname { font-family: var(--mono); font-weight: 600; font-size: 20px; color: var(--text); letter-spacing: -0.01em; }
+.appname { font-family: var(--mono); font-weight: 600; font-size: 20px; color: var(--text); letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .tools form { margin: 0; }
 
@@ -365,9 +365,19 @@ button:disabled { cursor: default; opacity: .55; }
 .update-badge svg { width: 11px; height: 11px; }
 
 /* Login */
-.login-page { min-height: 100vh; display: flex; align-items: flex-start; padding: 18vh 28px 0; }
-.login { width: 100%; max-width: 320px; }
-.login .brand { display: flex; margin-bottom: 20px; }
+.login-page {
+  min-height: 100vh; min-height: 100dvh;
+  display: flex; align-items: center; justify-content: center;
+  padding: calc(24px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom));
+}
+.login {
+  width: 100%; max-width: 360px; padding: 28px 24px 20px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: 0 8px 32px rgb(0 0 0 / .06);
+}
+.login .brand { display: flex; justify-content: center; margin-bottom: 24px; }
+.login input { font-size: 16px; }
+.login .btn { height: 44px; }
 .login label { display: block; font-size: 12px; color: var(--muted); margin: 0 0 4px; }
 .login input {
   width: 100%; height: 38px; padding: 0 12px; margin-bottom: 12px;
@@ -382,7 +392,7 @@ button:disabled { cursor: default; opacity: .55; }
   .col-registrar { display: none; }
 }
 
-.tabbar, .sheet-head, .mobile-only { display: none; }
+.tabbar, .sheet-head { display: none; }
 .tabbar svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -398,9 +408,11 @@ button:disabled { cursor: default; opacity: .55; }
     padding: calc(12px + env(safe-area-inset-top)) calc(14px + env(safe-area-inset-right)) calc(var(--tabbar) + 24px) calc(14px + env(safe-area-inset-left));
   }
   .top { padding-bottom: 12px; }
-  .top .tools { display: none; }
+  .top { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+  .top .tools { margin-left: auto; }
+  .top .tools > :not(.logout) { display: none; }
+  .top .tools .btn-text { min-height: 40px; padding: 0 10px; font-size: 14px; }
   .appname { font-size: 22px; }
-  .mobile-only { display: block; }
 
   .btn, .btn-ghost { min-height: 44px; height: auto; padding: 0 16px; font-size: 15px; }
   .btn-ghost.sm { min-height: 40px; padding: 0 14px; font-size: 14px; }
