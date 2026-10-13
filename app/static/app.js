@@ -189,7 +189,7 @@ document.addEventListener("alpine:init", () => {
       }
     },
 
-    // Suppressions : noms de 4 caractères sortis des zones ICANN.
+    // Suppressions : noms courts, mots et noms de famille sortis des zones ICANN.
 
     async loadDrops() {
       try {
@@ -200,7 +200,8 @@ document.addEventListener("alpine:init", () => {
     },
 
     dropMatches(d) {
-      return (!this.dropTld || d.tld === this.dropTld) && (!this.dropKinds.length || this.dropKinds.includes(d.kind));
+      return (!this.dropTld || d.tld === this.dropTld)
+        && (!this.dropKinds.length || d.categories.some((c) => this.dropKinds.includes(c)));
     },
 
     get dropsReleased() {
@@ -236,8 +237,8 @@ document.addEventListener("alpine:init", () => {
       const when = this.relative(z.at);
       const names = (z.names || 0).toLocaleString("fr-FR");
       const took = z.seconds >= 90 ? `${Math.round(z.seconds / 60)} min` : `${z.seconds} s`;
-      if (z.first) return `${names} noms, référence posée ${when}. Premières comparaisons au prochain passage.`;
-      return `${names} noms, ${z.removed} sortis, ${z.added} entrés, lue ${when} en ${took}`;
+      if (z.first) return `${names} noms suivis présents, référence posée ${when}. Premières comparaisons au prochain passage.`;
+      return `${names} noms suivis présents, ${z.removed} sortis, ${z.added} entrés, lue ${when} en ${took}`;
     },
 
     async scanDrops() {

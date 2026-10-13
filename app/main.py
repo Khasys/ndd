@@ -666,6 +666,7 @@ async def list_drops(request: Request):
                 "name": r["name"],
                 "tld": r["tld"],
                 "kind": r["kind"],
+                "categories": ([r["kind"]] if r["kind"] != "long" else []) + [c for c in r["lists"].split(",") if c],
                 "state": r["state"],
                 "removed_on": r["removed_on"],
                 "release_at": r["release_at"],

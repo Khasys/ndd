@@ -1,9 +1,11 @@
-"""Noms de 4 caractères qui quittent les zones ICANN (CZDS) : suivi jusqu'à leur libération.
+"""Noms qui quittent les zones ICANN (CZDS) : suivi jusqu'à leur libération.
 
-Chaque jour, la zone d'une extension est lue en flux. Les noms de 4 caractères présents
-sont notés dans une carte de bits (37^4 cases, 234 Ko). Un nom présent la veille et
-absent ce jour a quitté la zone : rédemption, suppression en cours ou suspension.
-Une vérification RDAP dit lequel, et l'estimation de libération suit les délais sourcés.
+Noms suivis : tous ceux de 1 à 4 caractères, plus les mots et noms de famille des listes
+de app/data. Chaque jour, la zone d'une extension est lue en flux. Les noms courts présents
+sont notés dans une carte de bits (240 Ko), les noms des listes dans un fichier texte.
+Un nom présent la veille et absent ce jour a quitté la zone : rédemption, suppression en
+cours ou suspension. Une vérification RDAP dit lequel, et l'estimation de libération suit
+les délais sourcés.
 """
 
 import asyncio
@@ -19,7 +21,7 @@ from typing import AsyncIterator, Iterable
 
 import httpx
 
-from . import digest, states
+from . import digest, states, wordlists
 from .checker import iso, parse_iso, utcnow
 from .store import Store
 
@@ -30,11 +32,19 @@ LINKS_URL = "https://czds-api.icann.org/czds/downloads/links"
 
 CHARSET = "abcdefghijklmnopqrstuvwxyz0123456789-"
 BASE = len(CHARSET)
-CELLS = BASE**4
+MAX_SHORT = 4
+# Les noms de longueur 1, puis 2, 3 et 4 occupent des plages successives de la carte.
+OFFSETS = [0]
+for _length in range(1, MAX_SHORT + 1):
+    OFFSETS.append(OFFSETS[-1] + BASE**_length)
+CELLS = OFFSETS[-1]
 BITMAP_BYTES = (CELLS + 7) // 8
 _INDEX = {c: i for i, c in enumerate(CHARSET)}
 
-KINDS = {"letters": "Lettres", "digits": "Chiffres", "mixed": "Lettres et chiffres", "hyphen": "Avec tiret"}
+KINDS = {
+    "letters": "Lettres", "digits": "Chiffres", "mixed": "Lettres et chiffres", "hyphen": "Avec tiret",
+    **wordlists.LABELS,
+}
 
 # États propres à cet écran, en plus de ceux de states.
 SUSPENDED = "suspended"  # hors zone mais ni en rédemption ni en suppression (hold, litige)
@@ -54,23 +64,33 @@ class CzdsError(Exception):
 
 
 def encode(label: str) -> int:
-    a, b, c, d = (_INDEX[ch] for ch in label)
-    return ((a * BASE + b) * BASE + c) * BASE + d
+    value = 0
+    for ch in label:
+        value = value * BASE + _INDEX[ch]
+    return OFFSETS[len(label) - 1] + value
 
 
 def decode(index: int) -> str:
+    length = next(n for n in range(1, MAX_SHORT + 1) if index < OFFSETS[n])
+    index -= OFFSETS[length - 1]
     chars = []
-    for _ in range(4):
+    for _ in range(length):
         index, rest = divmod(index, BASE)
         chars.append(CHARSET[rest])
     return "".join(reversed(chars))
 
 
 def valid_label(label: str) -> bool:
-    return len(label) == 4 and all(c in _INDEX for c in label) and label[0] != "-" and label[-1] != "-"
+    return (
+        1 <= len(label) <= MAX_SHORT and all(c in _INDEX for c in label)
+        and label[0] != "-" and label[-1] != "-"
+    )
 
 
 def kind_of(label: str) -> str:
+    """Type d'un nom court ; « long » au-delà de 4 caractères."""
+    if len(label) > MAX_SHORT:
+        return "long"
     if "-" in label:
         return "hyphen"
     if label.isalpha():
@@ -80,17 +100,19 @@ def kind_of(label: str) -> str:
     return "mixed"
 
 
-def _line_pattern(tld: str) -> re.Pattern:
-    # Première colonne d'un enregistrement : « abcd.com. ». Majuscules tolérées.
-    return re.compile(rb"^([a-z0-9-]{4})\." + re.escape(tld.encode()) + rb"\.?[ \t]", re.MULTILINE | re.IGNORECASE)
+def _pattern(tld: str) -> re.Pattern:
+    # Première colonne d'un enregistrement : « abcd.com. ». La zone est mise en minuscules avant.
+    return re.compile(rb"^([a-z0-9-]{1,63})\." + re.escape(tld.lower().encode()) + rb"\.?[ \t]", re.MULTILINE)
 
 
 class ZoneScanner:
-    """Lit une zone gzip morceau par morceau et remplit la carte de bits des noms de 4 caractères."""
+    """Lit une zone gzip morceau par morceau : carte des noms courts, ensemble des noms des listes."""
 
-    def __init__(self, tld: str):
-        self.pattern = _line_pattern(tld)
+    def __init__(self, tld: str, watched: frozenset[bytes] | None = None):
+        self.pattern = _pattern(tld)
+        self.watched = wordlists.watched() if watched is None else watched
         self.bits = bytearray(BITMAP_BYTES)
+        self.words: set[str] = set()
         self._inflate = zlib.decompressobj(16 + zlib.MAX_WBITS)
         self._rest = b""
         self.bytes_in = 0
@@ -105,36 +127,40 @@ class ZoneScanner:
             data += self._inflate.decompress(tail)
         self._scan(data, final=False)
 
-    def finish(self) -> bytearray:
+    def finish(self) -> tuple[bytearray, set[str]]:
         data = self._inflate.flush()
         if not self._inflate.eof:
             # Fin de flux gzip absente : téléchargement coupé. Comparer une zone tronquée
             # ferait passer des milliers de noms pour supprimés.
             raise zlib.error("zone tronquée")
         self._scan(data, final=True)
-        return self.bits
+        return self.bits, self.words
 
     def _scan(self, data: bytes, final: bool) -> None:
         buffer = self._rest + data
-        if final:
-            cut = len(buffer)
-        else:
-            cut = buffer.rfind(b"\n") + 1
-        complete, self._rest = buffer[:cut], buffer[cut:]
+        cut = len(buffer) if final else buffer.rfind(b"\n") + 1
+        complete, self._rest = buffer[:cut].lower(), buffer[cut:]
         if final and complete and not complete.endswith(b"\n"):
             complete += b"\n"
-        for match in self.pattern.finditer(complete):
-            label = match.group(1).decode().lower()
-            if label[0] != "-" and label[-1] != "-":
-                index = encode(label)
+        # Une seule recherche par morceau ; l'ensemble dédoublonne les lignes NS d'un même nom.
+        labels = set(self.pattern.findall(complete))
+        if self.watched:
+            # Intersection d'ensembles, faite en C : pas de boucle Python sur les millions de noms.
+            for label in labels & self.watched:
+                if len(label) > MAX_SHORT:
+                    self.words.add(label.decode())
+        for label in labels:
+            if len(label) <= MAX_SHORT and label[:1] != b"-" and label[-1:] != b"-":
+                index = encode(label.decode())
                 self.bits[index >> 3] |= 1 << (index & 7)
 
 
-def scan_bytes(chunks: Iterable[bytes], tld: str) -> bytearray:
-    scanner = ZoneScanner(tld)
+def scan_bytes(chunks: Iterable[bytes], tld: str, watched: frozenset[bytes] | None = frozenset()) -> bytearray:
+    """Carte des noms courts seule (tests et mesures)."""
+    scanner = ZoneScanner(tld, watched)
     for chunk in chunks:
         scanner.feed(chunk)
-    return scanner.finish()
+    return scanner.finish()[0]
 
 
 def count(bits: bytes) -> int:
@@ -289,20 +315,30 @@ class DropWatcher:
 
     # Lecture des zones
 
-    def _bitmap_path(self, tld: str) -> Path:
-        return self.dir / f"{tld}.bits"
+    def _path(self, tld: str, kind: str) -> Path:
+        return self.dir / f"{tld}.{kind}"
 
     def _load(self, tld: str) -> bytes | None:
-        path = self._bitmap_path(tld)
+        path = self._path(tld, "short")
         if path.exists() and path.stat().st_size == BITMAP_BYTES:
             return path.read_bytes()
         return None
 
-    def _save(self, tld: str, bits: bytes) -> None:
+    def _load_words(self, tld: str) -> set[str] | None:
+        path = self._path(tld, "words")
+        return set(path.read_text().split()) if path.exists() else None
+
+    def _write(self, path: Path, data: bytes) -> None:
         self.dir.mkdir(parents=True, exist_ok=True)
-        tmp = self._bitmap_path(tld).with_suffix(".tmp")
-        tmp.write_bytes(bits)
-        tmp.replace(self._bitmap_path(tld))
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_bytes(data)
+        tmp.replace(path)
+
+    def _save(self, tld: str, bits: bytes, words: set[str]) -> None:
+        self._write(self._path(tld, "short"), bytes(bits))
+        self._write(self._path(tld, "words"), "\n".join(sorted(words)).encode())
+        # Carte de la v0.5.0 (4 caractères seulement), devenue inutile.
+        self._path(tld, "bits").unlink(missing_ok=True)
 
     async def scan_zone(self, czds: Czds, tld: str, url: str) -> ScanResult:
         result = ScanResult(tld)
@@ -313,7 +349,7 @@ class DropWatcher:
                 # Décompression et recherche dans un thread : l'interface reste réactive
                 # pendant les minutes que prend une grosse zone comme .com.
                 await asyncio.to_thread(scanner.feed, chunk)
-            bits = await asyncio.to_thread(scanner.finish)
+            bits, words = await asyncio.to_thread(scanner.finish)
         except CzdsError as exc:
             result.error = str(exc)
         except zlib.error:
@@ -324,20 +360,31 @@ class DropWatcher:
             self._set_status(tld, result, started, scanner.bytes_in)
             return result
 
-        previous = self._load(tld)
-        result.names = count(bits)
+        previous, previous_words = self._load(tld), self._load_words(tld)
+        result.names = count(bits) + len(words)
         if previous is None:
             result.first = True
         else:
             removed, added = diff(previous, bits)
-            before = count(previous)
-            if before >= 1000 and len(removed) > before * MAX_DAILY_REMOVED_SHARE:
-                result.error = f"Écart anormal ({len(removed)} noms disparus sur {before}) : zone ignorée ce jour."
-                self._set_status(tld, result, started, scanner.bytes_in)
-                return result
+            removed_words, added_words = [], []
+            if previous_words is not None:
+                # Limité à la liste actuelle : un mot retiré des listes n'est pas un nom supprimé.
+                current_list = {w.decode() for w in scanner.watched}
+                removed_words = sorted((previous_words & current_list) - words)
+                added_words = sorted(words - previous_words)
+            for label, gone, before in (
+                ("noms courts", removed, count(previous)),
+                ("noms des listes", removed_words, len(previous_words or ())),
+            ):
+                if before >= 1000 and len(gone) > before * MAX_DAILY_REMOVED_SHARE:
+                    result.error = f"Écart anormal ({len(gone)} {label} disparus sur {before}) : zone ignorée ce jour."
+                    self._set_status(tld, result, started, scanner.bytes_in)
+                    return result
+            removed += removed_words
+            added += added_words
             result.removed, result.added = len(removed), len(added)
             self.record(tld, removed, added, utcnow())
-        self._save(tld, bits)
+        self._save(tld, bits, words)
         self._set_status(tld, result, started, scanner.bytes_in)
         return result
 
@@ -366,12 +413,13 @@ class DropWatcher:
             for label in removed:
                 name = f"{label}.{tld}"
                 self.conn.execute(
-                    """INSERT INTO drops (name, tld, label, kind, removed_on, next_check_at)
-                       VALUES (?, ?, ?, ?, ?, ?)
+                    """INSERT INTO drops (name, tld, label, kind, lists, removed_on, next_check_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)
                        ON CONFLICT(name) DO UPDATE SET removed_on = excluded.removed_on, state = NULL,
                          state_since = NULL, release_at = NULL, available_since = NULL, error = NULL,
-                         next_check_at = excluded.next_check_at""",
-                    (name, tld, label, kind_of(label), now.date().isoformat(), iso(now)),
+                         next_check_at = excluded.next_check_at, lists = excluded.lists""",
+                    (name, tld, label, kind_of(label), ",".join(wordlists.categories(label)),
+                     now.date().isoformat(), iso(now)),
                 )
             for label in added:
                 # Revenu dans la zone : renouvelé, restauré ou réenregistré. Plus rien à attendre.

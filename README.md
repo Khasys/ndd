@@ -71,10 +71,13 @@ Paramètres, Calendrier, « Créer l'adresse » : une URL secrète au format ICS
 calendrier par URL dans l'agenda du téléphone. Elle contient les expirations et les libérations
 estimées, avec un rappel la veille. Elle s'ouvre sans mot de passe : la changer si elle a fuité.
 
-### Suppressions : noms de 4 caractères
+### Suppressions : noms courts, mots et noms de famille
 
-Menu Suppressions : les noms de 4 caractères (lettres, chiffres, tiret) qui quittent les zones des
-extensions génériques, suivis jusqu'à leur libération. Deux listes : libérés ces 7 derniers jours,
+Menu Suppressions : les noms qui quittent les zones des extensions génériques, suivis jusqu'à leur
+libération. Sont suivis tous les noms de 1 à 4 caractères (lettres, chiffres, tiret), les 20 000
+mots français les plus courants (forme de base, sans accents) et les noms de famille donnés plus
+de 500 fois en France entre 1891 et 2000 (environ 21 700). Sources et licences des listes :
+`app/data/SOURCES.md`. Deux listes : libérés ces 7 derniers jours,
 et libération à venir avec la date estimée. Un bouton Surveiller les ajoute à la liste principale.
 
 Source : les fichiers de zone publiés chaque jour par les registres via CZDS d'ICANN, gratuits sur
@@ -89,8 +92,9 @@ inscription. Le .fr et les autres extensions nationales n'y sont pas.
    « Lire les zones maintenant ». La première lecture pose la référence : les premiers noms sortis
    apparaissent le lendemain.
 
-Fonctionnement : chaque zone est lue en flux, sans être stockée. Seuls les noms de 4 caractères
-sont retenus, dans une carte de 234 Ko par extension rangée dans `data/zones/`. Un nom présent la
+Fonctionnement : chaque zone est lue en flux, sans être stockée. Seuls les noms suivis sont
+retenus : une carte de 240 Ko par extension pour les noms courts, un fichier texte pour les noms
+des listes, rangés dans `data/zones/`. Un nom présent la
 veille et absent ce jour est vérifié en RDAP : en rédemption ou en suppression, il est affiché avec
 sa date de libération estimée ; suspendu pour une autre raison, il est masqué. Un nom qui revient
 dans la zone (renouvelé ou repris) sort de la liste.

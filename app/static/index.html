@@ -104,7 +104,7 @@
       <h2>Suppressions</h2>
       <button type="button" class="btn-ghost" @click="dropsOpen = false">Fermer</button>
     </div>
-    <p class="muted drops-lead">Noms de 4 caractères (lettres, chiffres, tiret) sortis des zones ICANN, suivis jusqu'à leur libération.</p>
+    <p class="muted drops-lead">Noms de 1 à 4 caractères, mots français et noms de famille courants sortis des zones ICANN, suivis jusqu'à leur libération.</p>
 
     <template x-if="dropsData && !dropsData.configured">
       <div class="drops-card">
@@ -149,7 +149,7 @@
             <template x-for="d in dropsReleased" :key="d.name">
               <tr>
                 <td class="mono drop-name" x-text="d.name"></td>
-                <td data-label="Type" x-text="dropsData.kinds[d.kind]"></td>
+                <td data-label="Type" x-text="d.categories.map((c) => dropsData.kinds[c]).join(', ')"></td>
                 <td data-label="Libéré" :title="exact(d.available_since)" x-text="relative(d.available_since)"></td>
                 <td class="drop-action">
                   <button type="button" class="btn-ghost sm" @click="watchDrop(d)" :disabled="d.watched" x-text="d.watched ? 'Surveillé' : 'Surveiller'"></button>
@@ -173,7 +173,7 @@
             <template x-for="d in dropsComing" :key="d.name">
               <tr>
                 <td class="mono drop-name" x-text="d.name"></td>
-                <td data-label="Type" x-text="dropsData.kinds[d.kind]"></td>
+                <td data-label="Type" x-text="d.categories.map((c) => dropsData.kinds[c]).join(', ')"></td>
                 <td data-label="État"><span class="badge" :class="'s-' + d.state" x-text="labels[d.state]"></span></td>
                 <td data-label="Libération" :title="d.release_at ? exact(d.release_at) : 'Délais non sourcés pour cette extension'"
                     x-text="d.release_at ? '~' + shortDate(d.release_at) + ' (' + relative(d.release_at).replace(/ /g, '\u00a0') + ')' : 'inconnue'"></td>

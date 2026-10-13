@@ -29,7 +29,8 @@ def test_encode_decode_round_trip():
     for label in ("aaaa", "zz99", "a-b1", "0000", "9--9"):
         assert drops.decode(drops.encode(label)) == label
     assert drops.encode("----") == drops.CELLS - 1
-    assert drops.BITMAP_BYTES == 234271
+    assert drops.encode("a") == 0 and drops.decode(drops.encode("zz")) == "zz"
+    assert drops.BITMAP_BYTES == 240778
 
 
 def test_kind_and_validity():
@@ -38,7 +39,9 @@ def test_kind_and_validity():
     assert drops.kind_of("ab12") == "mixed"
     assert drops.kind_of("ab-c") == "hyphen"
     assert drops.valid_label("ab-c") and not drops.valid_label("-abc") and not drops.valid_label("abc-")
+    assert drops.valid_label("x") and drops.valid_label("x1") and not drops.valid_label("-")
     assert not drops.valid_label("abcde") and not drops.valid_label("ab_c")
+    assert drops.kind_of("martinez") == "long"
 
 
 def test_scan_keeps_only_four_character_names_of_the_zone():
@@ -59,7 +62,7 @@ def test_scan_keeps_only_four_character_names_of_the_zone():
     chunks = [data[i:i + 7] for i in range(0, len(data), 7)]
     bits = drops.scan_bytes(chunks, "com")
     found = sorted(drops.diff(bytes(drops.BITMAP_BYTES), bits)[1])
-    assert found == ["ab12", "abcd", "x-y1"]
+    assert found == ["ab12", "abc", "abcd", "x-y1"]
 
 
 def test_scan_reads_concatenated_gzip_members():
@@ -257,3 +260,48 @@ def test_purge_forgets_old_available_and_suspended(watcher):
     c.execute("UPDATE drops SET state = 'suspended' WHERE label = 'cccc'")
     watcher.purge(now)
     assert [r[0] for r in c.execute("SELECT label FROM drops")] == ["bbbb"]
+
+
+def test_scanner_finds_short_names_and_listed_words_only():
+    data = zone([
+        "x.com.\t1\tin\tns\ta.",
+        "q7.com.\t1\tin\tns\ta.",
+        "martinez.com.\t1\tin\tns\ta.",
+        "martinez.com.\t1\tin\tns\tb.",
+        "MAISON.COM.\t1\tIN\tNS\ta.",
+        "zzkqwpl.com.\t1\tin\tns\ta.",
+        "martinez.net.\t1\tin\tns\ta.",
+    ])
+    scanner = drops.ZoneScanner("com")
+    for i in range(0, len(data), 11):
+        scanner.feed(data[i:i + 11])
+    bits, words = scanner.finish()
+    assert sorted(drops.diff(bytes(drops.BITMAP_BYTES), bits)[1]) == ["q7", "x"]
+    assert words == {"martinez", "maison"}
+
+
+def test_listed_words_are_tracked_with_their_categories(watcher):
+    icann = FakeIcann({"com": zone(["navarro.com.\t1\tin\tns\ta.", "courir.com.\t1\tin\tns\ta.",
+                                    "martin.com.\t1\tin\tns\ta.", "velo.com.\t1\tin\tns\ta."])})
+    use(watcher, icann)
+    asyncio.run(watcher.run())
+    icann.zones["com"] = zone([])
+    result = asyncio.run(watcher.run())[0]
+    assert result.removed == 4
+    rows = {r["name"]: (r["kind"], r["lists"]) for r in watcher.conn.execute("SELECT * FROM drops")}
+    assert rows == {
+        "navarro.com": ("long", "surname"),
+        "courir.com": ("long", "word"),
+        "martin.com": ("long", "word,surname"),
+        "velo.com": ("letters", "word"),
+    }
+
+
+def test_word_lists_are_loaded_and_normalised():
+    from app import wordlists
+
+    lists = wordlists.lists()
+    assert {"maison", "courir", "coeur", "eleve"} <= lists["word"]
+    assert {"martinez", "navarro", "dupont", "martin", "legall"} <= lists["surname"]
+    assert all(w == w.lower() and w.isascii() and " " not in w for names in lists.values() for w in names)
+    assert len(lists["word"]) == 20000 and len(lists["surname"]) > 20000
