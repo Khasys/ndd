@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import bot, calendar_ics, db, digest, drops, frdata, signals, states, updates
+from . import bot, calendar_ics, db, digest, drops, frdata, signals, states, updates, wordlists
 from .auth import (
     COOKIE_NAME,
     MIN_PASSWORD_LENGTH,
@@ -90,6 +90,10 @@ async def lifespan(app: FastAPI):
     async def refresh_signals() -> None:
         await signals.update_due(conn, limit=20)
 
+    # Chargées au démarrage : un fichier de liste absent de l'image doit se voir tout de suite,
+    # pas au milieu de la lecture de nuit.
+    sizes = {k: len(v) for k, v in wordlists.lists().items()}
+    log.info("Listes de noms : %s", ", ".join(f"{k} {n}" for k, n in sizes.items()))
     watcher = drops.DropWatcher(conn, store, settings.data_dir, rdap, checker.delays)
 
     async def scan_zones() -> None:
