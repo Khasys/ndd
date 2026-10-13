@@ -119,6 +119,7 @@ document.addEventListener("alpine:init", () => {
       });
       this.$watch("legendOpen", () => this.lockScroll());
       this.$watch("settingsOpen", () => this.lockScroll());
+      this.$watch("openId", () => this.lockScroll());
       if ("serviceWorker" in navigator && window.isSecureContext) {
         navigator.serviceWorker.register("/sw.js").catch(() => {});
       }
@@ -127,7 +128,16 @@ document.addEventListener("alpine:init", () => {
     get mobile() { return window.matchMedia("(max-width: 640px)").matches; },
 
     lockScroll() {
-      document.body.classList.toggle("sheet-open", this.mobile && (this.legendOpen || this.settingsOpen));
+      document.body.classList.toggle("sheet-open", this.mobile && (this.legendOpen || this.settingsOpen || this.openId !== null));
+    },
+
+    get selected() {
+      return this.openId === null ? null : this.domains.find((d) => d.id === this.openId) || null;
+    },
+
+    escape() {
+      if (this.openId !== null) this.openId = null;
+      else if (this.legendOpen || this.settingsOpen) this.showList();
     },
 
     showList() {
@@ -142,6 +152,7 @@ document.addEventListener("alpine:init", () => {
     },
 
     async openSheet(name) {
+      this.openId = null;
       if (name === "legend") {
         this.settingsOpen = false;
         this.legendOpen = !this.legendOpen;
