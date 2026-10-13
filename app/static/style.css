@@ -722,10 +722,16 @@ button:disabled { cursor: default; opacity: .55; }
 .czds-form input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .czds-form .btn-ghost { align-self: flex-start; }
 .zone-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
+.drops-actions { display: flex; flex-direction: column; gap: 8px; flex: none; }
+.scans-scroll { overflow-x: auto; }
+.scans-table { font-size: 13px; }
+.scans-table td, .scans-table th { padding: 8px 12px; white-space: nowrap; }
+.scans-table td:last-child { white-space: normal; min-width: 180px; }
 
 @media (max-width: 640px) {
   .drops-status { flex-direction: column; }
-  .drops-status .btn-ghost { width: 100%; }
+  .drops-status .btn-ghost, .drops-actions { width: 100%; }
+  .scans-table td:last-child { grid-column: 1 / -1; }
   .drops-title-row { flex-direction: column; align-items: stretch; gap: 0; }
   .drops-sort { margin-bottom: 8px; }
   .drops-table, .drops-table tbody, .drops-table tr { display: block; background: none; border: 0; }

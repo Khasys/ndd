@@ -659,6 +659,8 @@ async def list_drops(request: Request):
         "last_run": watcher.last_run(),
         "error": watcher.store.get("czds_error") or None,
         "zones": [{"tld": t, **watcher.status(t)} for t in watcher.enabled()],
+        "history": watcher.history(),
+        "workers": watcher.workers,
         "pending_checks": pending,
         "kinds": drops.KINDS,
         "items": [

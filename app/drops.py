@@ -339,6 +339,23 @@ class ScanResult:
     added: int = 0
     first: bool = False
     error: str | None = None
+    # Temps passé à attendre des données du réseau, et temps de calcul (décompression, recherche).
+    wait: float = 0.0
+    compute: float = 0.0
+    workers: int = 1
+
+
+KEEP_SCANS = 14
+
+
+async def _prefetch(chunks: AsyncIterator[bytes], queue: asyncio.Queue) -> None:
+    """Télécharge en avance pendant que le calcul tourne. None marque la fin, une exception l'échec."""
+    try:
+        async for chunk in chunks:
+            await queue.put(chunk)
+        await queue.put(None)
+    except Exception as exc:  # transmise au lecteur, qui la relève
+        await queue.put(exc)
 
 
 class DropWatcher:
@@ -418,12 +435,27 @@ class DropWatcher:
         started = time.monotonic()
         while True:
             scanner = ZoneScanner(tld, workers=self.workers)
+            result.workers, result.wait, result.compute = self.workers, 0.0, 0.0
+            # Le téléchargement continue pendant le calcul : 8 morceaux d'1 Mo d'avance au plus.
+            queue: asyncio.Queue = asyncio.Queue(maxsize=8)
+            fetcher = asyncio.create_task(_prefetch(czds.chunks(url), queue))
             try:
-                async for chunk in czds.chunks(url):
+                while True:
+                    waited = time.monotonic()
+                    chunk = await queue.get()
+                    began = time.monotonic()
+                    result.wait += began - waited
+                    if chunk is None:
+                        break
+                    if isinstance(chunk, Exception):
+                        raise chunk
                     # Décompression dans un thread, recherche dans des processus séparés :
                     # l'interface reste réactive pendant les minutes que prend .com.
                     await asyncio.to_thread(scanner.feed, chunk)
+                    result.compute += time.monotonic() - began
+                began = time.monotonic()
                 bits, words = await asyncio.to_thread(scanner.finish)
+                result.compute += time.monotonic() - began
             except BrokenProcessPool:
                 if self.workers == 1:
                     raise
@@ -438,6 +470,7 @@ class DropWatcher:
             except httpx.HTTPError as exc:
                 result.error = f"Téléchargement interrompu ({exc.__class__.__name__})."
             finally:
+                fetcher.cancel()
                 scanner.close()
             break
         if result.error:
@@ -489,6 +522,21 @@ class DropWatcher:
         else:
             value["ok_at"] = value["at"]
         self.store.set(f"zone_{tld}", json.dumps(value))
+        self.conn.execute(
+            """INSERT INTO zone_scans (tld, at, megabytes, seconds, wait_seconds, compute_seconds, workers,
+               names, removed, added, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (tld, value["at"], round(size / 1e6, 1), round(time.monotonic() - started, 1), round(result.wait, 1),
+             round(result.compute, 1), result.workers, result.names or None, result.removed, result.added, result.error),
+        )
+        self.conn.execute(
+            """DELETE FROM zone_scans WHERE tld = ? AND id NOT IN
+               (SELECT id FROM zone_scans WHERE tld = ? ORDER BY at DESC, id DESC LIMIT ?)""",
+            (tld, tld, KEEP_SCANS),
+        )
+
+    def history(self) -> list[dict]:
+        rows = self.conn.execute("SELECT * FROM zone_scans ORDER BY at DESC, id DESC LIMIT 100").fetchall()
+        return [dict(r) for r in rows]
 
     def record(self, tld: str, removed: list[str], added: list[str], now: datetime) -> None:
         now = now.replace(microsecond=0)

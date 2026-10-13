@@ -128,7 +128,35 @@
             <p class="small error-text" x-show="dropsData.error" x-text="dropsData.error"></p>
             <p class="small muted" x-show="dropsData.pending_checks" x-text="dropsData.pending_checks + ' nom(s) en attente de vérification RDAP.'"></p>
           </div>
-          <button type="button" class="btn-ghost" @click="scanDrops()" :disabled="dropsData.running" x-text="dropsData.running ? 'Lecture en cours' : 'Lire les zones maintenant'"></button>
+          <div class="drops-actions">
+            <button type="button" class="btn-ghost" @click="scanDrops()" :disabled="dropsData.running" x-text="dropsData.running ? 'Lecture en cours' : 'Lire les zones maintenant'"></button>
+            <button type="button" class="btn-ghost" @click="scansOpen = !scansOpen" :aria-expanded="scansOpen" x-show="dropsData.history.length" x-text="scansOpen ? 'Masquer l\'historique' : 'Historique des lectures'"></button>
+          </div>
+        </div>
+
+        <div class="drops-card scans" x-show="scansOpen && dropsData.history.length" x-cloak>
+          <h3>Historique des lectures</h3>
+          <p class="muted small">Attente réseau : le calcul attendait des données. Si elle domine, c'est la connexion ou ICANN qui limite ; si le calcul domine, c'est le NAS. Recherche répartie sur <span x-text="dropsData.workers"></span> processus.</p>
+          <div class="scans-scroll">
+            <table class="drops-table scans-table">
+              <thead><tr><th>Date</th><th>Zone</th><th>Taille</th><th>Durée</th><th>Attente réseau</th><th>Calcul</th><th>Vitesse</th><th>Proc.</th><th>Résultat</th></tr></thead>
+              <tbody>
+                <template x-for="h in dropsData.history" :key="h.id">
+                  <tr>
+                    <td data-label="Date" x-text="scanStamp(h.at)"></td>
+                    <td data-label="Zone" class="mono" x-text="'.' + h.tld"></td>
+                    <td data-label="Taille" x-text="h.megabytes + ' Mo'"></td>
+                    <td data-label="Durée" x-text="duration(h.seconds)"></td>
+                    <td data-label="Attente réseau" x-text="duration(h.wait_seconds)"></td>
+                    <td data-label="Calcul" x-text="duration(h.compute_seconds)"></td>
+                    <td data-label="Vitesse" x-text="speed(h)"></td>
+                    <td data-label="Processus" x-text="h.workers"></td>
+                    <td data-label="Résultat" :class="{ 'error-text': h.error }" x-text="h.error ? h.error : (h.removed + ' sortis, ' + h.added + ' entrés')"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <div class="filters drops-filters">

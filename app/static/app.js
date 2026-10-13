@@ -93,6 +93,7 @@ document.addEventListener("alpine:init", () => {
     dropTld: "",
     dropKinds: [],
     dropSort: "release",
+    scansOpen: false,
     czdsUser: "",
     czdsPass: "",
     savingCzds: false,
@@ -239,6 +240,19 @@ document.addEventListener("alpine:init", () => {
       const took = z.seconds >= 90 ? `${Math.round(z.seconds / 60)} min` : `${z.seconds} s`;
       if (z.first) return `${names} noms suivis présents, référence posée ${when}. Premières comparaisons au prochain passage.`;
       return `${names} noms suivis présents, ${z.removed} sortis, ${z.added} entrés, lue ${when} en ${took}`;
+    },
+
+    duration(seconds) {
+      if (seconds === null || seconds === undefined) return "";
+      return seconds >= 90 ? `${Math.round(seconds / 60)} min` : `${Math.round(seconds)} s`;
+    },
+
+    speed(h) {
+      return h.seconds > 0 && h.megabytes ? `${(h.megabytes / h.seconds).toFixed(1)} Mo/s` : "";
+    },
+
+    scanStamp(v) {
+      return v ? stampFmt.format(new Date(v)) : "";
     },
 
     async scanDrops() {

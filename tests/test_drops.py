@@ -324,3 +324,41 @@ def test_parallel_scan_gives_the_same_result_as_a_single_process():
     assert results[0][0] == results[1][0] and results[0][1] == results[1][1]
     assert "navarro" in results[1][1] and "upper" not in results[1][1]
     assert drops.count(results[1][0]) > 8000
+
+
+def test_scan_history_keeps_fourteen_runs_with_timings(watcher):
+    icann = FakeIcann({"com": zone(["abcd.com.\t1\tin\tns\ta."])})
+    use(watcher, icann)
+    for _ in range(16):
+        asyncio.run(watcher.run())
+    rows = watcher.history()
+    assert len(rows) == drops.KEEP_SCANS
+    row = rows[0]
+    assert row["tld"] == "com" and row["workers"] == 1 and row["error"] is None
+    assert row["seconds"] >= 0 and row["wait_seconds"] >= 0 and row["compute_seconds"] >= 0
+
+
+class _CutStream(httpx.AsyncByteStream):
+    def __init__(self, data: bytes):
+        self.data = data
+
+    async def __aiter__(self):
+        yield self.data[: len(self.data) // 2]
+        raise httpx.ReadError("coupure en cours de route")
+
+
+def test_cut_in_the_middle_of_a_download_is_reported(watcher):
+    full = zone([f"{drops.decode(i)}.com.\t1\tin\tns\ta." for i in range(0, 300000, 97)])
+    icann = FakeIcann({"com": full})
+    handler = icann.handler
+
+    def cut(request):
+        if request.url.path.endswith("com.zone"):
+            return httpx.Response(200, stream=_CutStream(full))
+        return handler(request)
+
+    use(watcher, icann)
+    watcher._http_factory = lambda: httpx.AsyncClient(transport=httpx.MockTransport(cut))
+    result = asyncio.run(watcher.run())[0]
+    assert result.error == "Téléchargement interrompu (ReadError)."
+    assert watcher._load("com") is None and watcher.history()[0]["error"] == result.error
