@@ -752,6 +752,7 @@ async def list_drops(request: Request):
     suspended = dict(conn.execute("SELECT tld, COUNT(*) FROM drops WHERE state = ? GROUP BY tld", (drops.SUSPENDED,)).fetchall())
     watched = {r[0] for r in conn.execute("SELECT name FROM domains")}
     details = rdapinfo.load(conn, [r["name"] for r in rows])
+    values = request.app.state.explorer.value_of([r["name"] for r in rows])
     return {
         "configured": watcher.configured or request.app.state.fr.enabled,
         "czds": watcher.configured,
@@ -766,6 +767,7 @@ async def list_drops(request: Request):
         "suspended": suspended,
         "keep_days": watcher.keep_days,
         "kinds": drops.KINDS,
+        "natures": explore.NATURES,
         "items": [
             {
                 "name": r["name"],
@@ -781,6 +783,7 @@ async def list_drops(request: Request):
                 "watched": r["name"] in watched,
                 "reserved": r["name"] in reserved_names,
                 "rdap": details.get(r["name"]),
+                **values[r["name"]],
             }
             for r in rows
         ],
@@ -836,7 +839,8 @@ def _explore_params(request: Request) -> dict:
         raise HTTPException(422, "État inconnu.")
     return {"tld": tld, "q": p.get("q", ""), "mode": mode, "status": p.get("status", ""),
             "category": p.get("cat", ""), "length": length, "cursor": cursor, "nature": p.get("nat", ""),
-            "max_rank": max_rank, "min_score": min_score, "taken": taken, "junk": p.get("junk") == "1"}
+            "max_rank": max_rank, "min_score": min_score, "taken": taken, "junk": p.get("junk") == "1",
+            "seo": p.get("seo", "") if p.get("seo", "") in explore.SEO_FILTERS else ""}
 
 
 def _facets(explorer, params: dict) -> dict:
@@ -849,6 +853,7 @@ def _explore_meta(explorer, tld: str) -> dict:
         "tlds": explorer.tlds(),
         "kinds": explore.KINDS,
         "natures": explore.NATURES,
+        "seo_filters": {k: v[0] for k, v in explore.SEO_FILTERS.items()},
         "statuses": explore.STATUS_NAMES,
         "absent_label": explore.ABSENT_FR if tld == "fr" else explore.ABSENT_ZONE,
     }
@@ -874,7 +879,7 @@ async def explore_rank(request: Request):
     params["status"] = params["status"] or "available"
     limit = min(int(request.query_params.get("limit", "50") or 50), explore.MAX_LIMIT * 5)
     sort = request.query_params.get("sort", "score")
-    if sort not in ("score", "freq", "length"):
+    if sort not in ("score", "freq", "length", "seo"):
         raise HTTPException(422, "Tri inconnu.")
     result = explorer.rank(**params, limit=limit, sort=sort)
     return {**result, **_explore_meta(explorer, params["tld"]),
@@ -1041,6 +1046,15 @@ async def explore_export(request: Request):
 @app.get("/api/explore/name")
 async def explore_name(request: Request):
     return request.app.state.explorer.card(request.query_params.get("label", ""))
+
+
+@app.get("/api/explore/fiche")
+async def explore_fiche(request: Request):
+    try:
+        name = clean_domain(request.query_params.get("name", ""))
+    except InvalidDomain as exc:
+        raise HTTPException(422, str(exc)) from None
+    return request.app.state.explorer.fiche(name)
 
 
 @app.post("/api/explore/check")

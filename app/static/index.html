@@ -192,6 +192,27 @@
             <button type="button" class="tag" :class="{ on: dropKinds.includes(k) }" @click="toggleDropKind(k)" x-text="label"></button>
           </template>
         </div>
+        <div class="ex-chips">
+          <button type="button" class="tag" :class="{ on: !df.nat }" @click="df.nat = ''">Toutes natures</button>
+          <template x-for="(label, k) in dropsData.natures" :key="k">
+            <button type="button" class="tag" :class="{ on: df.nat === k }" @click="df.nat = df.nat === k ? '' : k" x-text="label"></button>
+          </template>
+        </div>
+        <div class="ex-chips">
+          <template x-for="o in exLengths" :key="o.v">
+            <button type="button" class="tag" :class="{ on: df.len === o.v }" @click="df.len = o.v" x-text="o.v ? o.label + ' car.' : 'Toutes longueurs'"></button>
+          </template>
+          <span class="ex-sep"></span>
+          <template x-for="o in exRanks" :key="o.v">
+            <button type="button" class="tag" :class="{ on: df.rank === o.v }" @click="df.rank = o.v" x-text="o.v ? o.label : 'Toutes fréquences'"></button>
+          </template>
+        </div>
+        <div class="drops-more-filters">
+          <label class="small">Score minimum <strong class="num" x-text="df.min"></strong>
+            <input type="range" min="0" max="90" step="5" x-model.number="df.min" aria-label="Score minimum">
+          </label>
+          <label class="check small"><input type="checkbox" x-model="df.junk"><span>Inclure les suites imprononçables</span></label>
+        </div>
 
         <h3 class="drops-title">Libérés <span class="num muted" x-text="dropsReleased.length"></span></h3>
         <p class="muted small" x-show="!dropsReleased.length" x-text="'Aucun nom libéré ces ' + dropsData.keep_days + ' derniers jours.'"></p>
@@ -201,14 +222,9 @@
             <template x-for="d in dropsReleased" :key="d.name">
               <tr>
                 <td class="drop-name">
-                  <button type="button" class="link-like mono" @click="dropOpen = dropOpen === d.name ? null : d.name" x-text="d.name" :aria-expanded="dropOpen === d.name"></button>
-                  <template x-if="dropOpen === d.name">
-                    <div class="drop-detail">
-                      <dl class="ex-rdap" x-show="d.rdap" x-html="d.rdap ? rdapHtml(d.rdap) : ''"></dl>
-                      <p class="small muted" x-show="!d.rdap">Pas encore lu en RDAP : « Revérifier ».</p>
-                      <a class="btn-ghost sm" :href="orderLink(d.name)" target="_blank" rel="noopener">Réserver chez OVH</a>
-                    </div>
-                  </template>
+                  <button type="button" class="link-like mono" @click="openFiche(d.name)" x-text="d.name"></button>
+                  <span class="ex-bar drop-bar" :title="scoreTitle(d)"><i :style="'width:' + d.score + '%'"></i><b x-text="d.score >= 30 ? d.score : ''"></b></span>
+                  <div class="ex-reasons"><template x-for="r in d.reasons.slice(0, 3)" :key="r"><span class="ex-reason" x-text="r"></span></template></div>
                 </td>
                 <td data-label="Type" x-text="d.categories.map((c) => dropsData.kinds[c]).join(', ')"></td>
                 <td data-label="Libéré" :title="exact(d.available_since)" x-text="relative(d.available_since)"></td>
@@ -236,14 +252,9 @@
             <template x-for="d in dropsComing" :key="d.name">
               <tr>
                 <td class="drop-name">
-                  <button type="button" class="link-like mono" @click="dropOpen = dropOpen === d.name ? null : d.name" x-text="d.name" :aria-expanded="dropOpen === d.name"></button>
-                  <template x-if="dropOpen === d.name">
-                    <div class="drop-detail">
-                      <dl class="ex-rdap" x-show="d.rdap" x-html="d.rdap ? rdapHtml(d.rdap) : ''"></dl>
-                      <p class="small muted" x-show="!d.rdap">Pas encore lu en RDAP : « Revérifier ».</p>
-                      <a class="btn-ghost sm" :href="orderLink(d.name)" target="_blank" rel="noopener">Réserver chez OVH</a>
-                    </div>
-                  </template>
+                  <button type="button" class="link-like mono" @click="openFiche(d.name)" x-text="d.name"></button>
+                  <span class="ex-bar drop-bar" :title="scoreTitle(d)"><i :style="'width:' + d.score + '%'"></i><b x-text="d.score >= 30 ? d.score : ''"></b></span>
+                  <div class="ex-reasons"><template x-for="r in d.reasons.slice(0, 3)" :key="r"><span class="ex-reason" x-text="r"></span></template></div>
                 </td>
                 <td data-label="Type" x-text="d.categories.map((c) => dropsData.kinds[c]).join(', ')"></td>
                 <td data-label="État"><span class="badge" :class="'s-' + d.state" x-text="labels[d.state]"></span></td>
@@ -353,6 +364,14 @@
             <input type="checkbox" :checked="ex.junk === '1'" @change="exSet({ junk: $event.target.checked ? '1' : '' })">
             <span>Inclure les suites imprononçables, les mélanges lettres-chiffres et les tirets</span>
           </label>
+          <div class="ex-field"><span>SEO (noms analysés)</span>
+            <div class="ex-options">
+              <button type="button" class="tag" :class="{ on: !ex.seo }" @click="exSet({ seo: '' })">Peu importe</button>
+              <template x-for="(label, k) in exData.seo_filters" :key="k">
+                <button type="button" class="tag" :class="{ on: ex.seo === k }" @click="exSet({ seo: ex.seo === k ? '' : k })" x-text="label"></button>
+              </template>
+            </div>
+          </div>
           <div class="ex-field"><span>Score minimum <strong class="num" x-text="ex.min || 0"></strong></span>
             <input type="range" min="0" max="90" step="5" x-model="ex.min" @change="exSet({})" aria-label="Score minimum">
           </div>
@@ -416,6 +435,7 @@
             <option value="score">Par score</option>
             <option value="freq">Par fréquence</option>
             <option value="length">Par longueur</option>
+            <option value="seo">Par SEO</option>
           </select>
           <div class="ex-tools">
             <button type="button" class="btn-ghost sm" @click="exSelectAll()" x-text="exSelected.length ? 'Désélectionner' : 'Tout sélectionner'"></button>
@@ -426,8 +446,8 @@
         <p class="muted small" x-show="!exLoading && !exItems.length">Aucun nom.</p>
         <ol class="ex-list" :class="{ loading: exLoading }">
           <template x-for="i in exItems" :key="i.name">
-            <li class="ex-row" :class="{ open: exOpen === i.name, picked: exSelected.includes(i.name) }">
-              <div class="ex-line" @click="exOpen = exOpen === i.name ? null : i.name">
+            <li class="ex-row" :class="{ open: fiche && fiche.name === i.name, picked: exSelected.includes(i.name) }">
+              <div class="ex-line" @click="openFiche(i.name)">
                 <input type="checkbox" class="ex-pick" :checked="exSelected.includes(i.name)" @click.stop="exToggle(i.name)" :aria-label="'Sélectionner ' + i.name">
                 <span class="mono ex-name" x-text="i.name"></span>
                 <span class="ex-tags">
@@ -437,20 +457,6 @@
                   <span class="ex-reason more" x-show="i.reasons.length > (mobile ? 2 : 4)" x-text="'+' + (i.reasons.length - (mobile ? 2 : 4))"></span>
                 </span>
                 <span class="ex-bar" :title="scoreTitle(i)"><i :style="'width:' + i.score + '%'"></i><b x-text="i.score >= 30 ? i.score : ''"></b></span>
-              </div>
-              <div class="ex-more" x-show="exOpen === i.name" x-cloak>
-                <div class="ex-reasons" x-show="i.reasons.length > (mobile ? 2 : 4)"><template x-for="r in i.reasons.slice(mobile ? 2 : 4)" :key="r"><span class="ex-reason" x-text="r"></span></template></div>
-                <p class="small muted" x-show="exDetail(i)" x-text="exDetail(i)"></p>
-                <p class="small muted" x-text="scoreTitle(i)"></p>
-                <template x-if="i.rdap"><dl class="ex-rdap" x-html="rdapHtml(i.rdap)"></dl></template>
-                <div class="ex-actions">
-                  <button type="button" class="btn-ghost sm" @click="exCheck(i)" :disabled="!!exBusy[i.name]" x-text="exBusy[i.name] ? 'Vérification' : (i.rdap ? 'Revérifier' : 'Vérifier')"></button>
-                  <a class="btn-ghost sm" :href="orderLink(i.name)" target="_blank" rel="noopener">Réserver chez OVH</a>
-                  <button type="button" class="btn-ghost sm" @click="exSeoOne(i)" :disabled="!!exBusy[i.name] || exSeo.running">SEO</button>
-                  <button type="button" class="btn-ghost sm" @click="exWatch(i)" :disabled="i.watched" x-text="i.watched ? 'Surveillé' : 'Surveiller'"></button>
-                  <button type="button" class="btn-ghost sm" @click="ex.q = i.label; exTyped()">Autres extensions</button>
-                  <button type="button" class="btn-ghost sm" @click="exFlag(i, i.status !== 7)" x-text="i.status === 7 ? 'Pas réservé' : 'Réservé'"></button>
-                </div>
               </div>
             </li>
           </template>
@@ -936,6 +942,22 @@
             </div>
           </template>
         </dl>
+        <template x-if="domainFiche && domainFiche.name === shown.name">
+          <div>
+            <dl x-html="valueHtml(domainFiche)"></dl>
+            <div class="history" x-show="domainFiche.others.length">
+              <h3>Autres extensions</h3>
+              <ol>
+                <template x-for="o in domainFiche.others" :key="o.name">
+                  <li class="fiche-other">
+                    <button type="button" class="link-like mono" @click="openFiche(o.name)" x-text="o.name"></button>
+                    <span class="badge" :class="'x-' + o.status" x-text="o.status_label"></span>
+                  </li>
+                </template>
+              </ol>
+            </div>
+          </div>
+        </template>
         <div class="history">
           <h3>Historique</h3>
           <p class="muted" x-show="!history[shown.id]">Chargement</p>
@@ -952,7 +974,46 @@
       </div>
       </aside>
     </template>
+
   </main>
+
+  <template x-if="fiche">
+    <aside class="drawer details fiche" aria-label="Fiche du nom">
+      <div class="drawer-head">
+        <div class="drawer-title"><span class="mono drawer-name" x-text="fiche.name"></span></div>
+        <button type="button" class="btn-ghost" @click="fiche = null">Fermer</button>
+      </div>
+      <div class="drawer-state">
+        <span class="badge" :class="'x-' + (fiche.item ? fiche.item.status : 0)" x-text="fiche.item ? fiche.item.status_label : 'Hors des listes suivies'"></span>
+        <template x-for="r in (fiche.item ? fiche.item.reserved : [])" :key="r"><span class="ex-reason warn" x-text="r"></span></template>
+      </div>
+      <div class="drawer-actions">
+        <button type="button" class="btn-ghost" @click="ficheCheck()" :disabled="!!exBusy[fiche.name]" x-text="exBusy[fiche.name] ? 'Vérification' : 'Vérifier'"></button>
+        <a class="btn-ghost" :href="orderLink(fiche.name)" target="_blank" rel="noopener">Réserver chez OVH</a>
+        <button type="button" class="btn-ghost" x-show="!fiche.domain_id" @click="ficheWatch()">Surveiller</button>
+        <button type="button" class="btn-ghost" x-show="fiche.domain_id" @click="openDomain(fiche.domain_id)">Voir dans Domaines</button>
+      </div>
+      <div class="details-grid">
+        <dl x-html="valueHtml(fiche)"></dl>
+        <dl x-html="rdapDl(fiche.rdap)"></dl>
+        <div class="fiche-more">
+          <button type="button" class="btn-ghost sm" @click="ficheSeo()" :disabled="!!exBusy[fiche.name] || exSeo.running">Analyse SEO</button>
+          <button type="button" class="btn-ghost sm" x-show="fiche.item" @click="ficheFlag()" x-text="fiche.item && fiche.item.status === 7 ? 'Pas réservé' : 'Réservé'"></button>
+        </div>
+        <div class="history" x-show="fiche.others.length">
+          <h3>Autres extensions</h3>
+          <ol>
+            <template x-for="o in fiche.others" :key="o.name">
+              <li class="fiche-other">
+                <button type="button" class="link-like mono" @click="openFiche(o.name)" x-text="o.name"></button>
+                <span class="badge" :class="'x-' + o.status" x-text="o.status_label"></span>
+              </li>
+            </template>
+          </ol>
+        </div>
+      </div>
+    </aside>
+  </template>
 
   <datalist id="tag-list"><template x-for="t in allTags" :key="t"><option :value="t"></option></template></datalist>
 

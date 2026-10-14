@@ -359,5 +359,22 @@ def test_latin1_file_still_read(tmp_path):
 def test_fixed_reader_reimports_the_same_month(fr):
     fr.store.set("fr_status", json.dumps({"at": datetime.now(timezone.utc).isoformat(), "file_date": "202608", "reader": 1}))
     assert fr.due(datetime.now())
-    fr.store.set("fr_status", json.dumps({"at": datetime.now(timezone.utc).isoformat(), "file_date": "202608", "reader": frdata.READER_VERSION}))
+    fr.store.set("fr_status", json.dumps({"at": datetime.now(timezone.utc).isoformat(), "file_date": "202608",
+                                          "reader": frdata.READER_VERSION, "lists": frdata.lists_version()}))
     assert not fr.due(datetime.now())
+
+
+def test_new_lists_force_a_reimport_without_flooding_checks(fr):
+    old = (datetime.now(timezone.utc) - timedelta(days=400)).strftime("%d-%m-%Y")
+    serve(fr, make_zip(csv_text(["navarro.fr;FR;;;;;PP;FR;;01-02-2010;"])))
+    asyncio.run(fr.import_file())
+    # Les listes changent : le même fichier est relu.
+    status = json.loads(fr.store.get("fr_status"))
+    status["lists"] = "ancienne"
+    fr.store.set("fr_status", json.dumps(status))
+    assert fr.due(datetime.now())
+    serve(fr, make_zip(csv_text(["navarro.fr;FR;;;;;PP;FR;;01-02-2010;", f"maisons.fr;FR;;;;;PP;FR;;01-02-2010;{old}"])))
+    asyncio.run(fr.import_file())
+    assert fr.conn.execute("SELECT COUNT(*) FROM fr_names WHERE label = 'maisons'").fetchone()[0] == 1
+    # Supprimé il y a plus d'un an, nouveau dans les listes : pas de vérification.
+    assert fr.conn.execute("SELECT COUNT(*) FROM drops").fetchone()[0] == 0

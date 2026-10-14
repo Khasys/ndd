@@ -52,6 +52,14 @@ KEEP_REQUEST_LOG_DAYS = 30
 READER_VERSION = 3
 
 
+def lists_version() -> str:
+    """Empreinte des listes de noms suivis : si elles changent, le fichier est relu."""
+    import hashlib
+
+    names = sorted(w.decode() for w in wordlists.watched())
+    return hashlib.sha256("\n".join(names).encode()).hexdigest()[:16]
+
+
 class FrDataError(Exception):
     pass
 
@@ -348,7 +356,8 @@ class FrWatcher:
             async with self._http_factory() as http:
                 url, modified = await self.resource_url(http)
                 previous = json.loads(self.store.get("fr_status") or "{}")
-                if modified and modified == previous.get("file_date") and previous.get("reader") == READER_VERSION:
+                if (modified and modified == previous.get("file_date") and previous.get("reader") == READER_VERSION
+                        and previous.get("lists") == lists_version()):
                     return self.status()
                 self.dir.mkdir(parents=True, exist_ok=True)
                 try:
@@ -365,7 +374,7 @@ class FrWatcher:
             self._apply(kept, utcnow())
             self.store.set("fr_status", json.dumps({
                 "at": iso(utcnow()), "file_date": modified, "rows": stats["rows"], "kept": stats["kept"],
-                "columns": stats["columns"], "dated": stats["dated"], "reader": READER_VERSION, "error": None,
+                "columns": stats["columns"], "dated": stats["dated"], "reader": READER_VERSION, "lists": lists_version(), "error": None,
                 "seconds": round((utcnow() - started).total_seconds()),
             }))
         except (FrDataError, zipfile.BadZipFile, OSError) as exc:
@@ -411,7 +420,10 @@ class FrWatcher:
                     continue
                 # Nouvelle suppression depuis le fichier précédent, quelle que soit sa date :
                 # le fichier arrive avec plusieurs semaines de retard.
-                new = removed >= since if first else before.get(label) != removed.isoformat()
+                # Un nom tout juste ajouté aux listes n'a pas d'état précédent : seule une suppression
+                # récente compte, sinon des milliers de vieilles suppressions partiraient en vérification.
+                known = label in before
+                new = removed >= since if first or not known else before[label] != removed.isoformat()
                 if new:
                     self.drops.record("fr", [label], [], now, removed_on=removed)
             self.conn.execute("COMMIT")
@@ -425,7 +437,7 @@ class FrWatcher:
         if not self.enabled or self.running:
             return False
         status = json.loads(self.store.get("fr_status") or "{}")
-        if status.get("file_date") and status.get("reader") != READER_VERSION:
+        if status.get("file_date") and (status.get("reader") != READER_VERSION or status.get("lists") != lists_version()):
             return True  # Lecture corrigée depuis le dernier import : on relit le fichier.
         last = status.get("at")
         return not last or datetime.fromisoformat(last) < utcnow() - timedelta(days=7)

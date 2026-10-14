@@ -332,3 +332,16 @@ def test_weights_and_seo_refresh_the_explorer_at_once(logged):
     second = client.get("/api/explore/rank", params={"q": "velo", "mode": "exact"}).json()["items"][0]["score"]
     assert second > first  # pas une minute d'attente
     client.__exit__(None, None, None)
+
+
+def test_fiche_is_the_same_wherever_the_name_comes_from(logged):
+    client = logged()
+    conn = client.app.state.conn
+    conn.execute("INSERT INTO fr_names (label, created_on, removed_on) VALUES ('velo', '2010-01-01', '2025-01-01')")
+    conn.execute("INSERT INTO domains (name, added_at, state, registrar, nameservers, epp_statuses, last_checked_at) "
+                 "VALUES ('velo.fr', '2026-10-01T00:00:00+00:00', 'available', NULL, '[]', '[]', '2026-10-14T00:00:00+00:00')")
+    fiche = client.get("/api/explore/fiche", params={"name": "velo.fr"}).json()
+    assert fiche["item"]["status_label"] == "Supprimé, non repris" and fiche["item"]["score"] > 0
+    assert fiche["domain_id"] and fiche["rdap"]["available"] is True and "word" in fiche["categories"]
+    assert client.get("/api/explore/fiche", params={"name": "pas un nom"}).status_code == 422
+    client.__exit__(None, None, None)

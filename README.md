@@ -146,7 +146,12 @@ Le moins de requêtes possible : un nom n'est revérifié que quand quelque chos
 | Libre, repris | jamais automatiquement : boutons « Revérifier » et « Surveiller » |
 
 Un nom libre reste affiché dans Suppressions 30 jours (réglable dans Paramètres). Rien n'est
-effacé de la base : passé ce délai, il reste visible dans l'Explorer.
+effacé de la base : passé ce délai, il reste visible dans l'Explorer. Suppressions a les mêmes
+filtres que l'Explorer (catégorie, nature, longueur, fréquence, score minimum, suites
+imprononçables) ; chaque nom montre son score et ouvre la même fiche.
+
+Quand les listes suivies changent (formes fléchies ajoutées, par exemple), le dernier fichier
+.fr est relu automatiquement : sans ça, les nouveaux noms passeraient pour jamais enregistrés.
 
 #### Explorer
 
@@ -156,12 +161,16 @@ requête : zones ICANN lues chaque jour, open data de l'Afnic, écran Suppressio
 
 - **Carte** : extension × catégorie (1 à 3 caractères, 4 lettres, mots, formes fléchies, noms,
   prénoms), nombre de noms à saisir par case. Une case ouvre la liste filtrée.
-- **Liste** triée par score, par fréquence ou par longueur. Une ligne s'ouvre d'un geste : toutes
-  les raisons, le détail du score, la dernière réponse RDAP ou WHOIS (registrar, dates, statuts,
-  DNS), et les actions (Vérifier, Réserver chez OVH, SEO, Surveiller, Réservé).
+- **Liste** triée par score, par fréquence, par longueur ou par SEO. Une ligne ouvre la fiche du nom.
+- **Fiche** : la même dans Domaines, Suppressions et Explorer. État, score détaillé, raisons,
+  catégories, nature, fréquence, historique .fr, SEO, dernière réponse RDAP ou WHOIS (registrar,
+  dates, statuts, DNS), autres extensions, et les actions (Vérifier, Réserver chez OVH,
+  Surveiller ou Voir dans Domaines, SEO, Réservé).
 - **Filtres** (panneau du bas sur téléphone) : catégorie, nature des mots (verbes, noms communs,
   adjectifs, adverbes, mots outils), longueur, fréquence (top 100 à top 5 000), pris sur une
-  autre extension, score minimum. Les compteurs suivent les filtres ; les filtres sont mémorisés.
+  autre extension, SEO (analysé, PageRank 1, 3 ou 5 et plus, archivé 5 ans et plus), score
+  minimum. Les compteurs suivent les filtres ; les filtres sont mémorisés. Le filtre SEO ne
+  porte que sur les noms déjà analysés.
 - **Vues enregistrées** : un jeu de filtres nommé, rappelé d'un geste.
 - **Sélection multiple** : Vérifier, SEO, Surveiller ou Réservé en lot.
 - Recherche : le nom tapé sur toutes les extensions, puis les noms qui commencent pareil.
@@ -193,7 +202,7 @@ note de 0 à 10 tirée des liens (Common Crawl), avec une clé gratuite à saisi
 la Wayback Machine donne les années où le site a été archivé, sans clé. Le nombre exact de
 backlinks n'existe que chez des services payants (Ahrefs, Majestic, Moz).
 
-Tri : score, fréquence (mot, nom ou prénom du plus courant au moins courant), longueur.
+Tri : score, fréquence (mot, nom ou prénom du plus courant au moins courant), longueur, SEO.
 
 #### Noms réservés (.fr)
 

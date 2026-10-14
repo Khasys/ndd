@@ -274,3 +274,14 @@ def test_background_checks_patch_the_explorer(env):
     env.drops.record("fr", ["velo"], [], now)
     env.drops.apply(env.drops.row("velo.fr"), LookupResult(available=True), now)
     assert env.status_bytes("fr")[env.universe.index("velo")] == explore.FREE
+
+
+def test_seo_filter_and_sort(env):
+    for label, pr, years in (("velo", 4.0, 12), ("ciel", 1.5, 2), ("mer", None, 8)):
+        add_fr(env, label, removed="2024-01-01")
+        env.conn.execute("INSERT INTO domain_seo (name, pr, wb_years, checked_at) VALUES (?, ?, ?, '2026-10-01')", (f"{label}.fr", pr, years))
+    by_seo = [i["label"] for i in env.rank("fr", sort="seo", limit=10)["items"]]
+    assert by_seo == ["velo", "ciel", "mer"]
+    assert [i["label"] for i in env.rank("fr", seo="pr3", limit=10)["items"]] == ["velo"]
+    assert {i["label"] for i in env.rank("fr", seo="wb5", limit=10)["items"]} == {"velo", "mer"}
+    assert env.facets("fr", seo="pr1")["available"] == 2

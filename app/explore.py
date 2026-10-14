@@ -12,6 +12,7 @@ Recherche, filtres et comptages se font sur ces octets : bytes.find et bytes.cou
 """
 
 import bisect
+import json
 import functools
 import heapq
 import itertools
@@ -64,6 +65,15 @@ WITH_RESERVED = {"available", "maybe_free", "free", "coming"}
 # Pris sur une autre extension : signe de demande pour le nom.
 TAKEN_CODES = (REGISTERED, SUSPENDED, COMING)
 
+# Filtre SEO : seuls les noms déjà analysés (bouton SEO) ont ces données.
+SEO_FILTERS = {
+    "any": ("Avec signal SEO", "(pr > 0 OR wb_years > 0)"),
+    "pr1": ("PageRank ≥ 1", "pr >= 1"),
+    "pr3": ("PageRank ≥ 3", "pr >= 3"),
+    "pr5": ("PageRank ≥ 5", "pr >= 5"),
+    "wb5": ("Archivé 5 ans et +", "wb_years >= 5"),
+}
+
 # Catégories de l'Explorer.
 NATURES = wordlists.NATURES
 KINDS = {
@@ -114,6 +124,7 @@ class Filters:
     taken: str = ""  # "any" ou une extension : pris ailleurs
     min_score: int | None = None
     junk: bool = False  # True : garder aussi les suites imprononçables, les mélanges, les tirets
+    seo: str = ""  # any : analysé avec signal ; pr1, pr3, pr5 : PageRank minimum ; wb5 : archivé 5 ans et plus
 
     @classmethod
     def of(cls, *args, **kwargs) -> "Filters":
@@ -463,9 +474,23 @@ class Explorer:
             return label == q
         return q in label if f.mode == "contains" else label.startswith(q)
 
-    def _candidates(self, f: Filters, q: str):
+    def _seo_indices(self, tld: str, key: str, order: bool = False) -> list[int]:
+        """Noms analysés en SEO qui passent le seuil ; triés par PageRank puis archives si order."""
+        condition = SEO_FILTERS.get(key, ("", "1"))[1]
+        rows = self.conn.execute(
+            f"SELECT name FROM domain_seo WHERE name LIKE ? AND {condition} "
+            "ORDER BY COALESCE(pr, 0) DESC, COALESCE(wb_years, 0) DESC", (f"%.{tld}",)
+        ).fetchall()
+        found = [self.universe.index(r[0][: -len(tld) - 1]) for r in rows]
+        found = [i for i in found if i is not None]
+        return found if order else sorted(found)
+
+    def _candidates(self, f: Filters, q: str, tld: str = ""):
         """Positions à examiner, dans l'ordre, ou None pour tout l'univers."""
         u = self.universe
+        if f.seo and tld:
+            found = self._seo_indices(tld, f.seo)
+            return [i for i in found if self._matches(u.label(i), f, q)] if q else found
         if q:
             return self._short_matching(q, f.mode) + self._word_matching(q, f.mode)
         if f.nature:
@@ -489,7 +514,7 @@ class Explorer:
         hits: list[int] = []
         last = cursor
         exhausted = True
-        candidates = self._candidates(f, q)
+        candidates = self._candidates(f, q, tld)
         if candidates is not None:
             start = bisect.bisect_right(candidates, cursor)
             for pos in range(start, len(candidates)):
@@ -578,6 +603,8 @@ class Explorer:
             return self._ordered(tld, f, limit)
         if sort == "freq":
             return self._by_frequency(tld, f, limit)
+        if sort == "seo":
+            return self._by_seo(tld, f, limit)
         codes = self.codes(f.status, "available")
         data = self.status_bytes(tld)
         others = self._others(tld, f)
@@ -601,7 +628,7 @@ class Explorer:
             elif entry > best[0]:
                 heapq.heapreplace(best, entry)
 
-        candidates = self._candidates(f, q)
+        candidates = self._candidates(f, q, tld)
         if candidates is not None:
             for i in candidates:
                 consider(i)
@@ -630,6 +657,21 @@ class Explorer:
         u = self.universe
         hits = [u.index(item["label"]) for item in found["items"]]
         return {"items": self._scored(tld, f, hits, self.status_bytes(tld), ctx)["items"][:limit]}
+
+    def _by_seo(self, tld: str, f: Filters, limit: int) -> dict:
+        """Meilleur PageRank d'abord, puis le plus d'années d'archives ; noms analysés seulement."""
+        codes = self.codes(f.status, "available")
+        data = self.status_bytes(tld)
+        others = self._others(tld, f)
+        u = self.universe
+        q = self.normalize(f.q, tld)
+        hits = []
+        for i in self._seo_indices(tld, f.seo or "any", order=True):
+            label = u.label(i)
+            if (data[i] in codes and self._good_ok(i, f) and self._taken_ok(i, others)
+                    and self._matches(label, f, q) and self._keep(label, f)):
+                hits.append(i)
+        return {"items": self._scored(tld, f, hits, data, self._bonus_context(tld))["items"][:limit]}
 
     def _by_frequency(self, tld: str, f: Filters, limit: int) -> dict:
         codes = self.codes(f.status, "available")
@@ -701,6 +743,8 @@ class Explorer:
             parts.append(combined)
         if not f.junk:
             parts.append(u.good_int)
+        if f.seo:
+            parts.append(from_indices(self._seo_indices(tld, f.seo)))
         if not parts:
             return None
         mask = parts[0]
@@ -711,7 +755,7 @@ class Explorer:
     def facets(self, tld: str, *args, **kwargs) -> dict:
         """Nombre de noms par état, pour les filtres choisis (recherche exclue)."""
         f = Filters.of(*args, **kwargs)
-        key = ("facets", tld, f.category, f.length, f.nature, f.max_rank, f.taken, f.junk)
+        key = ("facets", tld, f.category, f.length, f.nature, f.max_rank, f.taken, f.junk, f.seo)
         raw = self._memo(key, lambda: self._facets(tld, f))
         by_code = raw["by_code"]
         # Les états réservés suivent le réglage du moment : conversion à chaque appel, sans recompter.
@@ -788,6 +832,9 @@ class Explorer:
                 seo = self.conn.execute("SELECT * FROM domain_seo WHERE name = ?", (name,)).fetchone()
                 if seo is not None:
                     value["seo"][name] = seo
+        # Le SEO du nom a pu changer : les compteurs filtrés sur le SEO sont recomptés.
+        for key in [k for k in self._memos if k[0][0] == "facets" and k[0][1] == tld and k[0][8]]:
+            del self._memos[key]
         if changed:
             self._forget("map")
             # Les compteurs « pris ailleurs » des autres extensions dépendent de celle-ci.
@@ -876,6 +923,51 @@ class Explorer:
                 "reserved": self.reserved.why(name) if self.reserved is not None and code == RESERVED else [],
             })
         return items
+
+    def value_of(self, names: list[str]) -> dict[str, dict]:
+        """Score, raisons et filtres d'une liste de noms (écran Suppressions), mêmes calculs que l'Explorer."""
+        found = {}
+        u = self.universe
+        for name in names:
+            label, _, tld = name.partition(".")
+            i = u.index(label)
+            if i is None:
+                found[name] = {"score": 0, "reasons": [], "parts": {}, "natures": [], "rank": None, "good": False}
+                continue
+            item = self._value(tld, i, label, self._bonus_context(tld))
+            item.update(natures=sorted(wordlists.natures().get(label, ())), good=bool(u.good[i]), length=len(label))
+            found[name] = item
+        return found
+
+    def fiche(self, name: str) -> dict:
+        """Tout ce qu'on sait d'un nom, pour la fiche commune à Domaines, Suppressions et Explorer."""
+        label, _, tld = name.partition(".")
+        card = self.card(label)
+        items = {i["tld"]: i for i in card["items"]}
+        main = items.get(tld)
+        domain = self.conn.execute("SELECT * FROM domains WHERE name = ?", (name,)).fetchone()
+        rdap = (main or {}).get("rdap") or rdapinfo.load(self.conn, [name]).get(name)
+        if domain is not None and (rdap is None or (domain["last_checked_at"] or "") > (rdap.get("at") or "")):
+            # Domaine surveillé : sa dernière vérification est la plus fraîche.
+            rdap = {
+                "at": domain["last_checked_at"], "source": domain["source"] or "rdap",
+                "available": domain["state"] == states.AVAILABLE,
+                "statuses": json.loads(domain["epp_statuses"] or "[]"), "registrar": domain["registrar"],
+                "registered_at": domain["registered_at"], "updated_at": domain["updated_at"],
+                "expires_at": domain["expires_at"], "nameservers": json.loads(domain["nameservers"] or "[]"),
+            }
+        seo = self.conn.execute("SELECT * FROM domain_seo WHERE name = ?", (name,)).fetchone()
+        return {
+            "name": name, "label": label, "tld": tld, "known": card["known"],
+            "item": main,
+            "others": [i for t, i in items.items() if t != tld],
+            "categories": card.get("categories", []),
+            "natures": sorted(wordlists.natures().get(label, ())),
+            "rank": self.best_rank(label),
+            "seo": dict(seo) if seo else None,
+            "rdap": rdap,
+            "domain_id": domain["id"] if domain is not None else None,
+        }
 
     def card(self, label: str) -> dict:
         """Un nom sur toutes les extensions connues."""

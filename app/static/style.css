@@ -872,3 +872,20 @@ button:disabled { cursor: default; opacity: .55; }
 .weight-line input { accent-color: var(--accent); }
 .ex-junk { font-size: 13px; }
 .ex-wait { padding: 24px 0; }
+
+/* Fiche d'un nom : même panneau que le détail d'un domaine, au-dessus des écrans. */
+.drawer.fiche { z-index: 47; }
+.fiche .details-grid dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 20px; margin: 0; }
+.fiche-bar { width: 160px; }
+.fiche-more { display: flex; gap: 8px; flex-wrap: wrap; }
+.fiche-other { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.drawer-actions a.btn-ghost { flex: 1; display: inline-flex; align-items: center; justify-content: center; height: 38px; }
+.details .ex-reason { display: inline-block; margin: 0 2px 3px 0; }
+.drop-bar { width: 90px; display: inline-block; vertical-align: middle; margin-left: 8px; height: 16px; }
+.drops-table .ex-reasons { margin-top: 4px; }
+.drops-more-filters { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; margin: 2px 0 10px; }
+.drops-more-filters input[type=range] { vertical-align: middle; accent-color: var(--accent); }
+@media (max-width: 640px) {
+  .drawer-actions { flex-wrap: wrap; }
+  .drawer-actions .btn-ghost, .drawer-actions a.btn-ghost { flex: 1 1 45%; }
+}

@@ -101,9 +101,11 @@ document.addEventListener("alpine:init", () => {
     exBusy: {},
     exSeo: { running: false, done: 0, total: 0, key_set: true },
     seoKey: "",
-    ex: { tld: "", q: "", status: "available", cat: "", len: "", sort: "score", nat: "", rank: "", taken: "", min: "", junk: "" },
+    ex: { tld: "", q: "", status: "available", cat: "", len: "", sort: "score", nat: "", rank: "", taken: "", min: "", junk: "", seo: "" },
     exFiltersOpen: false,
-    dropOpen: null,
+    fiche: null,
+    domainFiche: null,
+    df: { nat: "", len: "", rank: "", min: 0, junk: false },
     exOpen: null,
     exSelected: [],
     exBulkRunning: false,
@@ -154,7 +156,14 @@ document.addEventListener("alpine:init", () => {
       this.$watch("exploreOpen", () => this.lockScroll());
       // Suppressions ouvert : le travail .fr est suivi en direct.
       setInterval(() => { if (this.dropsOpen && document.visibilityState === "visible") this.loadDrops(); }, 15000);
-      this.$watch("openId", () => this.lockScroll());
+      this.$watch("openId", (id) => {
+        this.lockScroll();
+        // Panneau d'un domaine surveillé : même bloc « Valeur » que la fiche des autres écrans.
+        const d = this.domains.find((x) => x.id === id);
+        this.domainFiche = null;
+        if (d) this.api("GET", `/api/explore/fiche?name=${encodeURIComponent(d.name)}`).then((f) => (this.domainFiche = f)).catch(() => {});
+      });
+      this.$watch("fiche", () => this.lockScroll());
       if ("serviceWorker" in navigator && window.isSecureContext) {
         navigator.serviceWorker.register("/sw.js").catch(() => {});
       }
@@ -163,7 +172,7 @@ document.addEventListener("alpine:init", () => {
     get mobile() { return window.matchMedia("(max-width: 640px)").matches; },
 
     lockScroll() {
-      document.body.classList.toggle("sheet-open", this.mobile && (this.paged || this.openId !== null));
+      document.body.classList.toggle("sheet-open", this.mobile && (this.paged || this.openId !== null || this.fiche !== null));
     },
 
     get selected() {
@@ -179,7 +188,8 @@ document.addEventListener("alpine:init", () => {
     },
 
     escape() {
-      if (this.openId !== null) this.openId = null;
+      if (this.fiche) this.fiche = null;
+      else if (this.openId !== null) this.openId = null;
       else if (this.exploreOpen && this.ex.q) { this.ex.q = ""; this.exTyped(); }
       else if (this.paged) this.showList();
     },
@@ -229,9 +239,88 @@ document.addEventListener("alpine:init", () => {
 
     // Explorer : tous les noms suivis, extension par extension.
 
+    // Fiche d'un nom : la même partout (Domaines, Suppressions, Explorer).
+
+    async openFiche(name) {
+      try {
+        this.fiche = await this.api("GET", `/api/explore/fiche?name=${encodeURIComponent(name)}`);
+      } catch (e) {
+        this.say(`${name} : ${e.message}`, "error");
+      }
+    },
+
+    async ficheReload() {
+      if (this.fiche) await this.openFiche(this.fiche.name);
+    },
+
+    async ficheCheck() {
+      const item = await this.verifyName(this.fiche.name);
+      if (!item) return;
+      this.exReplace(item);
+      if (this.dropsOpen) this.loadDrops();
+      await this.ficheReload();
+    },
+
+    async ficheWatch() {
+      this.newName = this.fiche.name;
+      await this.add();
+      this.exReplace({ name: this.fiche.name, watched: true });
+      await this.ficheReload();
+    },
+
+    async ficheSeo() {
+      await this.exSeoOne({ name: this.fiche.name });
+      await this.ficheReload();
+    },
+
+    async ficheFlag() {
+      const reserved = this.fiche.item.status !== 7;
+      await this.api("POST", "/api/reserved/flag", { name: this.fiche.name, reserved });
+      this.exItems = this.exItems.filter((x) => x.name !== this.fiche.name);
+      this.say(reserved ? `${this.fiche.name} marqué réservé.` : `${this.fiche.name} remis dans la liste.`);
+      await this.ficheReload();
+    },
+
+    openDomain(id) {
+      this.fiche = null;
+      this.showList();
+      this.openId = id;
+    },
+
+    valueHtml(f) {
+      const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+      if (!f) return "";
+      const rows = [];
+      const item = f.item;
+      if (item && item.score !== undefined) {
+        rows.push(["Score", `<span class="ex-bar fiche-bar"><i style="width:${Number(item.score)}%"></i><b>${Number(item.score)}</b></span>`]);
+        rows.push(["Détail", esc(this.scoreTitle(item).replace(/^Score \d+ : /, "")) || "—"]);
+        if (item.reasons && item.reasons.length) rows.push(["Raisons", item.reasons.map((r) => `<span class="ex-reason">${esc(r)}</span>`).join(" ")]);
+      }
+      const kinds = (this.exData && this.exData.kinds) || (this.dropsData && this.dropsData.kinds) || {};
+      if (f.categories && f.categories.length) rows.push(["Catégories", esc(f.categories.map((c) => kinds[c] || c).join(", "))]);
+      const natures = (this.exData && this.exData.natures) || (this.dropsData && this.dropsData.natures) || {};
+      if (f.natures && f.natures.length) rows.push(["Nature", esc(f.natures.map((n) => natures[n] || n).join(", "))]);
+      if (f.rank) rows.push(["Fréquence", `n° ${esc(this.fmt(f.rank))} de sa liste`]);
+      if (item && item.created_on) rows.push(["Open data .fr", esc(`créé le ${this.shortDate(item.created_on)}` + (item.removed_on ? `, supprimé le ${this.shortDate(item.removed_on)}` : ""))]);
+      if (item && item.release_at) rows.push(["Libération", esc("~" + this.shortDate(item.release_at))]);
+      if (f.seo) {
+        const parts = [];
+        if (f.seo.pr) parts.push(`PageRank ${String(f.seo.pr).replace(".", ",")}`);
+        if (f.seo.wb_first) parts.push(`archivé depuis ${f.seo.wb_first.slice(0, 4)}` + (f.seo.wb_years ? ` (${f.seo.wb_years} ans)` : ""));
+        rows.push(["SEO", esc(parts.join(", ") || "aucun signal") + `, analysé ${esc(this.relative(f.seo.checked_at))}`]);
+      }
+      return rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("");
+    },
+
+    rdapDl(r) {
+      if (!r) return "<dt>RDAP</dt><dd>Pas encore lu : « Vérifier ».</dd>";
+      return this.rdapHtml(r);
+    },
+
     exQuery(cursor) {
       const e = this.ex;
-      const params = new URLSearchParams({ q: e.q.trim(), mode: "prefix", status: e.status, cat: e.cat, len: e.len, nat: e.nat, rank: e.rank, taken: e.taken, min: e.min && e.min !== "0" ? e.min : "", junk: e.junk, cursor: String(cursor) });
+      const params = new URLSearchParams({ q: e.q.trim(), mode: "prefix", status: e.status, cat: e.cat, len: e.len, nat: e.nat, rank: e.rank, taken: e.taken, min: e.min && e.min !== "0" ? e.min : "", junk: e.junk, seo: e.seo, cursor: String(cursor) });
       if (this.ex.tld) params.set("tld", this.ex.tld);
       return params.toString();
     },
@@ -313,12 +402,13 @@ document.addEventListener("alpine:init", () => {
       if (e.taken) out.push({ key: "taken", label: e.taken === "any" ? "Pris ailleurs" : "Pris en ." + e.taken });
       if (e.min && e.min !== "0") out.push({ key: "min", label: "Score ≥ " + e.min });
       if (e.junk) out.push({ key: "junk", label: "Suites et mélanges inclus" });
+      if (e.seo) out.push({ key: "seo", label: this.exData.seo_filters[e.seo] });
       return out;
     },
 
     exClear(key) { return this.exSet({ [key]: "" }); },
 
-    exReset() { return this.exSet({ cat: "", nat: "", len: "", rank: "", taken: "", min: "", junk: "", status: "available" }); },
+    exReset() { return this.exSet({ cat: "", nat: "", len: "", rank: "", taken: "", min: "", junk: "", seo: "", status: "available" }); },
 
     async exLoadViews() {
       try { this.exViews = await this.api("GET", "/api/explore/views"); } catch (_) {}
@@ -600,8 +690,16 @@ document.addEventListener("alpine:init", () => {
     },
 
     dropMatches(d) {
+      const f = this.df;
+      const len = f.len ? Number(f.len) : 0;
+      const label = d.name.slice(0, -(d.tld.length + 1));
       return (!this.dropTld || d.tld === this.dropTld)
-        && (!this.dropKinds.length || d.categories.some((c) => this.dropKinds.includes(c)));
+        && (!this.dropKinds.length || d.categories.some((c) => this.dropKinds.includes(c)))
+        && (!f.nat || (d.natures || []).includes(f.nat))
+        && (!len || (len < 0 ? label.length <= -len : len >= 5 ? label.length >= 5 : label.length === len))
+        && (!f.rank || (d.rank && d.rank <= Number(f.rank)))
+        && (!f.min || d.score >= f.min)
+        && (f.junk || d.good !== false);
     },
 
     get dropsReleased() {
