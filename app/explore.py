@@ -34,12 +34,12 @@ LABELS = {
     ABSENT: "Jamais vu",
     COMING: "Libération à venir",
     FREE: "Libre (vérifié)",
-    SUSPENDED: "Suspendu",
+    SUSPENDED: "Enregistré, suspendu (hold)",
     RESERVED: "Réservé",
 }
 # Pour une zone ICANN, l'absence veut seulement dire « pas dans la zone » : un nom enregistré
 # sans serveurs DNS n'y figure pas non plus. Pour le .fr, l'open data liste aussi l'historique.
-ABSENT_ZONE = "Absent de la zone"
+ABSENT_ZONE = "Absent de la zone, à vérifier"
 ABSENT_FR = "Jamais enregistré"
 
 STATUS_FILTERS = {
@@ -1003,7 +1003,8 @@ class Explorer:
             result.info.statuses, result.info.expires_at, now, 0) not in drops.TRACKED
         row = self.drops.row(name)
         state = None
-        if row is not None or not registered:
+        # Hors .fr, la zone ne dit rien d'un nom enregistré sans DNS (hold) : on garde la réponse.
+        if row is not None or not registered or tld != "fr":
             row = row or self.drops.ensure(name, now)
             state = self.drops.apply(row, result, now)
         if tld == "fr":

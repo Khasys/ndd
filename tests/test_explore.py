@@ -133,6 +133,19 @@ def test_manual_check_of_a_registered_name_creates_no_drop(env):
     assert datetime.fromisoformat(row["next_check_at"]).date() == (expires + timedelta(days=1)).date()
 
 
+def test_manual_check_outside_fr_keeps_a_held_name(env):
+    # Enregistré mais sans DNS (client hold) : absent de la zone, la vérification doit le dire.
+    zone(env, ["abcd"], ["navarro"])
+    expires = datetime.now(timezone.utc) + timedelta(days=200)
+    held = LookupResult(found=True, info=DomainInfo(statuses=["client hold", "client delete prohibited"], expires_at=expires))
+    active = LookupResult(found=True, info=DomainInfo(statuses=["active"], expires_at=expires))
+    env.drops.rdap = FakeRdap({"kylian.com": held, "wxyz.com": active})
+    assert env.search("com", q="kylian", mode="exact")["items"][0]["status_label"] == explore.ABSENT_ZONE
+    item = asyncio.run(env.verify("kylian.com"))
+    assert item["status"] == explore.SUSPENDED and item["status_label"] == "Enregistré, suspendu (hold)"
+    assert asyncio.run(env.verify("wxyz.com"))["status"] == explore.REGISTERED
+
+
 def test_paused_afnic_refuses_manual_checks(env):
     env.fr._pause("Limite (429)", datetime.now(timezone.utc))
     with pytest.raises(explore.VerifyError, match="pause"):
