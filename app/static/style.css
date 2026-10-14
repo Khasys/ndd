@@ -891,3 +891,6 @@ button:disabled { cursor: default; opacity: .55; }
   .drawer-actions { flex-wrap: wrap; }
   .drawer-actions .btn-ghost, .drawer-actions a.btn-ghost { flex: 1 1 45%; }
 }
+
+.ex-reason.ai { border-color: var(--accent); color: var(--accent); }
+.ai-comment { font-style: italic; }

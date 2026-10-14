@@ -104,6 +104,8 @@ document.addEventListener("alpine:init", () => {
     ex: { tld: "", q: "", status: "available", cat: "", len: "", sort: "score", nat: "", rank: "", taken: "", min: "", junk: "", seo: "" },
     exFiltersOpen: false,
     fiche: null,
+    aiToken: "",
+    aiStatus: null,
     domainFiche: null,
     df: { nat: "", len: "", rank: "", min: 0, junk: false },
     exOpen: null,
@@ -312,6 +314,12 @@ document.addEventListener("alpine:init", () => {
       if (f.rank) rows.push(["Fréquence", `n° ${esc(this.fmt(f.rank))} de sa liste`]);
       if (item && item.created_on) rows.push(["Open data .fr", esc(`créé le ${this.shortDate(item.created_on)}` + (item.removed_on ? `, supprimé le ${this.shortDate(item.removed_on)}` : ""))]);
       if (item && item.release_at) rows.push(["Libération", esc("~" + this.shortDate(item.release_at))]);
+      const opinion = f.ai || (item && item.ai);
+      if (opinion) {
+        rows.push(["Avis IA", `<span class="ai-notes">Exploitation <b>${Number(opinion.exploit)}</b> · revente <b>${Number(opinion.resale)}</b></span>`]);
+        rows.push(["Prix envisagé", esc(this.priceRange(opinion))]);
+        rows.push(["Commentaire", `<span class="ai-comment">${esc(opinion.comment)}</span>`]);
+      }
       if (f.seo) {
         const parts = [];
         if (f.seo.pr) parts.push(`PageRank ${String(f.seo.pr).replace(".", ",")}`);
@@ -319,6 +327,34 @@ document.addEventListener("alpine:init", () => {
         rows.push(["SEO", esc(parts.join(", ") || "aucun signal") + `, analysé ${esc(this.relative(f.seo.checked_at))}`]);
       }
       return rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("");
+    },
+
+    // Fourchette de prix d'un avis IA : « 2 000 à 6 000 € », « invendable » à 0.
+    priceRange(a) {
+      if (!a || !a.price_high) return "invendable selon l'avis";
+      const n = (v) => Number(v).toLocaleString("fr-FR");
+      return a.price_low && a.price_low !== a.price_high ? `${n(a.price_low)} à ${n(a.price_high)} €` : `${n(a.price_high)} €`;
+    },
+
+    // Étiquette courte dans les listes : revente sur 100 et prix haut arrondi.
+    aiTag(a) {
+      if (!a) return "";
+      const high = a.price_high >= 1000 ? `${Math.round(a.price_high / 1000)} k€` : `${a.price_high || 0} €`;
+      return `IA ${a.resale} · ${high}`;
+    },
+
+    async newAiToken() {
+      if (this.cfg && this.cfg.ai && this.cfg.ai.token_set && !confirm("Un nouveau jeton remplace l'ancien : la tâche de notation devra utiliser le nouveau. Continuer ?")) return;
+      try {
+        this.aiToken = (await this.api("POST", "/api/settings/ai-token")).token;
+        await this.loadAiStatus();
+      } catch (e) {
+        this.say(e.message, "error");
+      }
+    },
+
+    async loadAiStatus() {
+      try { this.aiStatus = await this.api("GET", "/api/ai/status"); } catch (_) {}
     },
 
     rdapDl(r) {
@@ -1019,6 +1055,7 @@ document.addEventListener("alpine:init", () => {
         this.cfg = await this.api("GET", "/api/settings");
         this.czdsUser = this.cfg.czds.username;
         this.orderUrl = this.cfg.order_url;
+        this.loadAiStatus();
       } catch (e) {
         this.say(`Paramètres indisponibles : ${e.message}`, "error");
       }

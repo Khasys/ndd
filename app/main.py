@@ -19,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import bot, calendar_ics, db, digest, drops, explore, frdata, rdapinfo, reserved, seo, signals, states, updates, value, wordlists
+from . import ai, bot, calendar_ics, db, digest, drops, explore, frdata, rdapinfo, reserved, seo, signals, states, updates, value, wordlists
 from .auth import (
     COOKIE_NAME,
     MIN_PASSWORD_LENGTH,
@@ -41,6 +41,7 @@ log = logging.getLogger("domain-watch")
 
 STATIC = Path(__file__).parent / "static"
 PWA_PATHS = {"/manifest.webmanifest", "/sw.js", "/offline"}
+AI_PATHS = {"/api/ai/pending", "/api/ai/results"}
 PUBLIC_PATHS = {"/login", "/health", "/favicon.svg", "/logo", *PWA_PATHS}
 SETUP_PATHS = {"/setup", "/health", "/favicon.svg", "/logo"}
 BCRYPT_HASH = re.compile(r"\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}")
@@ -194,6 +195,9 @@ async def require_session(request: Request, call_next):
     if path in PUBLIC_PATHS or path.startswith(("/static/", "/calendar/")):
         return await call_next(request)
     if state.sessions.valid(request.cookies.get(COOKIE_NAME), state.settings.username):
+        return await call_next(request)
+    # Tâche de notation IA : jeton d'accès, limité à l'échange de la liste et des avis.
+    if path in AI_PATHS and ai.token_ok(state.store, request.headers.get("authorization")):
         return await call_next(request)
     if path.startswith("/api/"):
         return JSONResponse({"detail": "Session expirée."}, status_code=401)
@@ -913,7 +917,7 @@ async def explore_rank(request: Request):
     params["status"] = params["status"] or "available"
     limit = _limit(request, explore.MAX_LIMIT * 5)
     sort = request.query_params.get("sort", "score")
-    if sort not in ("score", "freq", "length", "seo"):
+    if sort not in ("score", "freq", "length", "seo", "ai"):
         raise HTTPException(422, "Tri inconnu.")
     chosen = params["tlds"]
     rest = {k: v for k, v in params.items() if k not in ("tld", "tlds")}
@@ -1018,6 +1022,37 @@ async def set_order_url(request: Request, payload: OrderUrl):
 
 class Views(BaseModel):
     views: list[dict]
+
+
+@app.get("/api/ai/pending")
+async def ai_pending(request: Request):
+    """Liste à noter, avec la consigne : la tâche planifiée la récupère chaque nuit."""
+    explorer = request.app.state.explorer
+    names = ai.pending(explorer, _limit(request, ai.MAX_PENDING))
+    return {"version": ai.VERSION, "guide": ai.GUIDE, "names": names}
+
+
+class AiResults(BaseModel):
+    results: list[dict]
+
+
+@app.post("/api/ai/results")
+async def ai_results(request: Request, payload: AiResults):
+    if len(payload.results) > ai.MAX_RESULTS:
+        raise HTTPException(422, f"{ai.MAX_RESULTS} avis au plus par envoi.")
+    explorer = request.app.state.explorer
+    return ai.save(request.app.state.conn, payload.results, ai.known_label(explorer))
+
+
+@app.get("/api/ai/status")
+async def ai_status(request: Request):
+    return ai.stats(request.app.state.explorer)
+
+
+@app.post("/api/settings/ai-token")
+async def ai_token(request: Request):
+    """Nouveau jeton pour la tâche de notation ; l'ancien cesse de marcher. Montré une seule fois."""
+    return {"token": ai.new_token(request.app.state.store)}
 
 
 @app.get("/api/explore/views")

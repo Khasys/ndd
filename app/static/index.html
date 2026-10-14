@@ -224,7 +224,7 @@
                 <td class="drop-name">
                   <button type="button" class="link-like mono" @click="openFiche(d.name)" x-text="d.name"></button>
                   <span class="ex-bar drop-bar" :title="scoreTitle(d)"><i :style="'width:' + d.score + '%'"></i><b x-text="d.score >= 30 ? d.score : ''"></b></span>
-                  <div class="ex-reasons"><template x-for="r in d.reasons.slice(0, 3)" :key="r"><span class="ex-reason" x-text="r"></span></template></div>
+                  <div class="ex-reasons"><span class="ex-reason ai" x-show="d.ai" x-text="aiTag(d.ai)" :title="d.ai ? d.ai.comment : ''"></span><template x-for="r in d.reasons.slice(0, 3)" :key="r"><span class="ex-reason" x-text="r"></span></template></div>
                 </td>
                 <td data-label="Type" x-text="d.categories.map((c) => dropsData.kinds[c]).join(', ')"></td>
                 <td data-label="Libéré" :title="exact(d.available_since)" x-text="relative(d.available_since)"></td>
@@ -254,7 +254,7 @@
                 <td class="drop-name">
                   <button type="button" class="link-like mono" @click="openFiche(d.name)" x-text="d.name"></button>
                   <span class="ex-bar drop-bar" :title="scoreTitle(d)"><i :style="'width:' + d.score + '%'"></i><b x-text="d.score >= 30 ? d.score : ''"></b></span>
-                  <div class="ex-reasons"><template x-for="r in d.reasons.slice(0, 3)" :key="r"><span class="ex-reason" x-text="r"></span></template></div>
+                  <div class="ex-reasons"><span class="ex-reason ai" x-show="d.ai" x-text="aiTag(d.ai)" :title="d.ai ? d.ai.comment : ''"></span><template x-for="r in d.reasons.slice(0, 3)" :key="r"><span class="ex-reason" x-text="r"></span></template></div>
                 </td>
                 <td data-label="Type" x-text="d.categories.map((c) => dropsData.kinds[c]).join(', ')"></td>
                 <td data-label="État"><span class="badge" :class="'s-' + d.state" x-text="labels[d.state]"></span></td>
@@ -439,6 +439,7 @@
             <option value="freq">Par fréquence</option>
             <option value="length">Par longueur</option>
             <option value="seo">Par SEO</option>
+            <option value="ai">Par avis IA (revente)</option>
           </select>
           <div class="ex-tools">
             <button type="button" class="btn-ghost sm" @click="exSelectAll()" x-text="exSelected.length ? 'Désélectionner' : 'Tout sélectionner'"></button>
@@ -456,6 +457,7 @@
                 <span class="ex-tags">
                   <span class="badge" :class="'x-' + i.status" x-show="i.status !== 2 && i.status !== 3" x-text="i.status_label"></span>
                   <template x-for="r in i.reserved" :key="r"><span class="ex-reason warn" x-text="r"></span></template>
+                  <span class="ex-reason ai" x-show="i.ai" x-text="aiTag(i.ai)" :title="i.ai ? i.ai.comment : ''"></span>
                   <template x-for="r in i.reasons.slice(0, mobile ? 2 : 4)" :key="r"><span class="ex-reason" x-text="r"></span></template>
                   <span class="ex-reason more" x-show="i.reasons.length > (mobile ? 2 : 4)" x-text="'+' + (i.reasons.length - (mobile ? 2 : 4))"></span>
                 </span>
@@ -726,6 +728,21 @@
                 <span class="num" x-text="'× ' + Number(cfg.weights.values[k]).toLocaleString('fr-FR')"></span>
               </label>
             </template>
+          </div>
+        </template>
+      </div>
+
+      <div>
+        <h2>Avis IA</h2>
+        <p class="small" x-show="aiStatus">
+          <span x-text="aiStatus ? fmt(aiStatus.rated) + ' noms notés sur ' + fmt(aiStatus.total) : ''"></span><span x-show="aiStatus && aiStatus.last" x-text="aiStatus && aiStatus.last ? ', dernier envoi ' + relative(aiStatus.last) : ''"></span>.
+        </p>
+        <p class="muted small">Une tâche planifiée récupère chaque nuit les noms à noter et renvoie, pour chacun, le potentiel d'exploitation, de revente, une fourchette de prix et un commentaire. Elle se connecte avec ce jeton.</p>
+        <button type="button" class="btn-ghost" @click="newAiToken()" x-text="aiStatus && aiStatus.token_set ? 'Nouveau jeton' : 'Créer le jeton'"></button>
+        <template x-if="aiToken">
+          <div>
+            <p class="small">Copie-le maintenant : il ne sera plus affiché.</p>
+            <div class="hash" x-text="aiToken"></div>
           </div>
         </template>
       </div>

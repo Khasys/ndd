@@ -381,3 +381,43 @@ def test_fiche_is_the_same_wherever_the_name_comes_from(logged):
     conn.execute("UPDATE domains SET check_error = 'délai dépassé', last_success_at = NULL WHERE name = 'velo.fr'")
     assert client.get("/api/explore/fiche", params={"name": "velo.fr"}).json()["rdap"] is None
     client.__exit__(None, None, None)
+
+
+def test_ai_opinions_round_trip_with_a_token(logged):
+    client = logged()
+    conn = client.app.state.conn
+    conn.execute("INSERT INTO fr_names (label, created_on, removed_on) VALUES ('velo', '2010-01-01', '2025-01-01')")
+    token = client.post("/api/settings/ai-token").json()["token"]
+    assert token.startswith("dw_") and client.app.state.store.get("ai_token_hash") != token
+    pending = client.get("/api/ai/pending", params={"limit": 20}).json()
+    assert pending["version"] == 1 and "exploit" in pending["guide"] and len(pending["names"]) == 20
+    first = pending["names"][0]
+    assert {"label", "categories", "ranks", "taken", "base"} <= set(first)
+
+    # Hors session : seul le jeton ouvre l'échange.
+    client.cookies.clear()
+    assert client.get("/api/ai/pending").status_code == 401
+    assert client.get("/api/ai/pending", headers={"Authorization": "Bearer faux"}).status_code == 401
+    headers = {"Authorization": f"Bearer {token}"}
+    assert client.get("/api/ai/pending", headers=headers, params={"limit": 5}).status_code == 200
+    assert client.get("/api/explore", headers=headers).status_code == 401  # le jeton ne sert qu'à ça
+    sent = client.post("/api/ai/results", headers=headers, json={"results": [
+        {"label": "velo", "exploit": 80, "resale": 70, "price_low": 2000, "price_high": 6000,
+         "comment": "Mot courant, commercial : cycles, location, réparation."},
+        {"label": "velo", "exploit": 120, "resale": 1, "comment": "x"},
+        {"label": "pasunnomconnu", "exploit": 1, "resale": 1, "comment": "x"},
+        {"label": "mot", "exploit": 50, "resale": 50, "price_low": 900, "price_high": 100, "comment": "x"},
+    ]}).json()
+    assert sent["saved"] == 1 and [r["reason"] for r in sent["rejected"]] == [
+        "notes hors de 0 à 100", "nom inconnu", "fourchette de prix invalide"]
+    client.__exit__(None, None, None)
+
+    client = logged()
+    fiche = client.get("/api/explore/fiche", params={"name": "velo.fr"}).json()
+    assert fiche["ai"]["resale"] == 70 and fiche["ai"]["price_high"] == 6000
+    ranked = client.get("/api/explore/rank", params={"sort": "ai", "status": ""}).json()["items"]
+    assert ranked and ranked[0]["label"] == "velo" and ranked[0]["ai"]["exploit"] == 80
+    assert "velo" not in [n["label"] for n in client.get("/api/ai/pending", params={"limit": 5000}).json()["names"]]
+    status = client.get("/api/ai/status").json()
+    assert status["rated"] == 1 and status["token_set"] and status["pending"] > 0
+    client.__exit__(None, None, None)

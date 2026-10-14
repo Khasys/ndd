@@ -22,7 +22,7 @@ from array import array
 from dataclasses import dataclass
 from datetime import date
 
-from . import drops, precompute, rdapinfo, states, value, wordlists
+from . import ai, drops, precompute, rdapinfo, states, value, wordlists
 from .checker import iso, utcnow
 
 # États, un octet par nom.
@@ -635,6 +635,8 @@ class Explorer:
             return self._by_frequency(tld, f, limit)
         if sort == "seo":
             return self._by_seo(tld, f, limit)
+        if sort == "ai":
+            return self._by_ai(tld, f, limit)
         codes = self.codes(f.status, "available")
         data = self.status_bytes(tld)
         others = self._others(tld, f)
@@ -725,6 +727,8 @@ class Explorer:
             return lambda item: (u.position(key, where(item)), item["tld"])
         if sort == "seo":
             return lambda item: (-(item.get("_pr") or 0), -(item.get("_wb") or 0), item["tld"])
+        if sort == "ai":
+            return lambda item: (-((item.get("ai") or {}).get("resale") or -1), -((item.get("ai") or {}).get("exploit") or -1), item["label"], item["tld"])
         return lambda item: (-item["score"], where(item), item["tld"])
 
     def _by_seo(self, tld: str, f: Filters, limit: int) -> dict:
@@ -740,6 +744,23 @@ class Explorer:
             if (data[i] in codes and self._good_ok(i, f) and self._taken_ok(i, others)
                     and self._matches(label, f, q) and self._keep(label, f)):
                 hits.append(i)
+        return {"items": self._scored(tld, f, hits, data, self._bonus_context(tld))["items"][:limit]}
+
+    def _by_ai(self, tld: str, f: Filters, limit: int) -> dict:
+        """Meilleur potentiel de revente selon l'avis IA, puis d'exploitation ; noms notés seulement."""
+        codes = self.codes(f.status, "available")
+        data = self.status_bytes(tld)
+        others = self._others(tld, f)
+        u = self.universe
+        q = self.normalize(f.q, tld)
+        hits = []
+        for (label,) in self.conn.execute("SELECT label FROM name_ai ORDER BY resale DESC, exploit DESC, label"):
+            i = u.index(label)
+            if (i is not None and data[i] in codes and self._good_ok(i, f) and self._taken_ok(i, others)
+                    and self._matches(label, f, q) and self._keep(label, f)):
+                hits.append(i)
+                if len(hits) >= limit * (4 if f.min_score else 1):
+                    break
         return {"items": self._scored(tld, f, hits, data, self._bonus_context(tld))["items"][:limit]}
 
     def _by_frequency(self, tld: str, f: Filters, limit: int) -> dict:
@@ -968,6 +989,7 @@ class Explorer:
             dropped.update({r["name"]: r for r in rows})
         watched = {r[0] for r in self.conn.execute("SELECT name FROM domains")}
         details = rdapinfo.load(self.conn, names)
+        opinions = ai.load(self.conn, labels)
         items = []
         for i, label, name in zip(indices, labels, names):
             code = data[i]
@@ -992,6 +1014,7 @@ class Explorer:
                 "watched": name in watched,
                 "rdap": details.get(name),
                 "reserved": self.reserved.why(name) if self.reserved is not None and code == RESERVED else [],
+                "ai": opinions.get(label),
             })
         return items
 
@@ -1008,6 +1031,9 @@ class Explorer:
             item = self._value(tld, i, label, self._bonus_context(tld))
             item.update(natures=sorted(wordlists.natures().get(label, ())), good=bool(u.good[i]), length=len(label))
             found[name] = item
+        opinions = ai.load(self.conn, sorted({n.partition(".")[0] for n in found}))
+        for name, item in found.items():
+            item["ai"] = opinions.get(name.partition(".")[0])
         return found
 
     def fiche(self, name: str) -> dict:
@@ -1038,6 +1064,7 @@ class Explorer:
             "rank": self.best_rank(label),
             "seo": dict(seo) if seo else None,
             "rdap": rdap,
+            "ai": ai.load(self.conn, [label]).get(label),
             "domain_id": domain["id"] if domain is not None else None,
         }
 
