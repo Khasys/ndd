@@ -257,108 +257,130 @@
       <h2>Explorer</h2>
       <button type="button" class="btn-ghost" @click="exploreOpen = false">Fermer</button>
     </div>
-    <p class="muted drops-lead">Tous les noms suivis, extension par extension, avec leur état connu. Aucune requête n'est faite tant que tu ne cliques pas sur « Vérifier ».</p>
 
     <template x-if="exError">
       <div class="drops-card"><p class="muted" x-text="exError"></p></div>
     </template>
 
     <template x-if="exData">
-      <div>
-        <div class="explore-bar">
-          <div class="explore-tlds" role="tablist" aria-label="Extension">
+      <div class="ex">
+        <div class="ex-sticky">
+          <input type="search" class="filter-input ex-search" x-model="ex.q" @input.debounce.300ms="exTyped()"
+                 placeholder="Chercher un nom : maison, navarro, ab…" aria-label="Chercher un nom" autocapitalize="off" autocomplete="off" spellcheck="false">
+          <div class="ex-chips" role="tablist" aria-label="Extension">
             <template x-for="t in exData.tlds" :key="t">
-              <button type="button" class="tag" role="tab" :aria-selected="ex.tld === t" :class="{ on: ex.tld === t }" @click="ex.tld = t; exSearch()" x-text="'.' + t"></button>
+              <button type="button" class="tag" role="tab" :aria-selected="ex.tld === t" :class="{ on: ex.tld === t }" @click="ex.tld = t; exLoad()" x-text="'.' + t"></button>
             </template>
           </div>
-          <div class="explore-search">
-            <input type="search" class="filter-input" list="explore-suggest" x-model="ex.q" @input.debounce.250ms="exSearch(); exSuggestions()"
-                   placeholder="Nom, début de nom, morceau de nom" aria-label="Rechercher un nom" autocapitalize="off" spellcheck="false">
-            <datalist id="explore-suggest"><template x-for="w in exSuggest" :key="w"><option :value="w"></option></template></datalist>
-            <select class="filter-input" x-model="ex.mode" @change="exSearch()" aria-label="Mode de recherche">
-              <option value="prefix">Commence par</option>
-              <option value="contains">Contient</option>
-              <option value="exact">Exact</option>
-            </select>
-            <button type="button" class="btn-ghost" x-show="ex.q.trim()" @click="exOpenCard(ex.q)">Fiche du nom</button>
-          </div>
         </div>
 
-        <div class="filters explore-filters">
-          <button type="button" class="tag" :class="{ on: !ex.status }" @click="ex.status = ''; exSearch()">Tous</button>
-          <template x-for="(label, k) in exData.statuses" :key="k">
-            <button type="button" class="tag" :class="{ on: ex.status === k }" @click="ex.status = ex.status === k ? '' : k; exSearch()">
-              <span x-text="label"></span> <span class="num muted" x-text="fmt(exData.counts[k])"></span>
-            </button>
-          </template>
-        </div>
-        <div class="filters explore-filters">
-          <select class="filter-input drops-tld" x-model="ex.cat" @change="exSearch()" aria-label="Catégorie">
-            <option value="">Toutes catégories</option>
-            <template x-for="(label, k) in exData.kinds" :key="k"><option :value="k" x-text="label"></option></template>
-          </select>
-          <select class="filter-input drops-tld" x-model="ex.len" @change="exSearch()" aria-label="Longueur">
-            <option value="">Toutes longueurs</option>
-            <option value="1">1 caractère</option>
-            <option value="2">2 caractères</option>
-            <option value="3">3 caractères</option>
-            <option value="4">4 caractères</option>
-            <option value="5">5 et plus</option>
-          </select>
-          <a class="btn-ghost" :href="'/api/explore/export?' + exQuery(-1)" download>Exporter (CSV)</a>
-        </div>
-        <p class="muted small" x-show="ex.status === 'maybe_free'" x-text="ex.tld === 'fr'
-          ? 'Probablement libres : supprimés sans réenregistrement connu, ou jamais enregistrés, d\'après l\'open data Afnic du dernier mois. À confirmer avec « Vérifier ».'
-          : 'Probablement libres : absents de la zone. Un nom enregistré sans serveurs DNS en est absent aussi. À confirmer avec « Vérifier ».'"></p>
-
-        <template x-if="exCard">
-          <div class="drops-card explore-card">
-            <div class="drops-title-row">
-              <h3 class="mono" x-text="exCard.label"></h3>
-              <button type="button" class="btn-ghost sm" @click="exCard = null">Fermer la fiche</button>
+        <!-- Recherche : le nom sur toutes les extensions, puis les noms qui commencent pareil. -->
+        <template x-if="ex.q.trim() && exCard">
+          <div class="ex-card">
+            <div class="ex-card-head">
+              <span class="mono ex-card-name" x-text="exCard.label"></span>
+              <span class="small muted" x-text="exCard.known ? exCard.categories.map((c) => exData.kinds[c]).join(', ') : 'Hors des listes suivies'"></span>
             </div>
-            <p class="muted small" x-show="!exCard.known">Ce nom ne fait partie d'aucune liste suivie (1 à 4 caractères, mots, noms de famille, prénoms).</p>
-            <p class="small" x-show="exCard.known && exCard.categories.length" x-text="exCard.categories.map((c) => exData.kinds[c]).join(', ')"></p>
-            <table class="drops-table" x-show="exCard.known">
-              <thead><tr><th>Nom</th><th>État</th><th>Détail</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
-              <tbody>
-                <template x-for="i in exCard.items" :key="i.name">
-                  <tr>
-                    <td class="mono drop-name" x-text="i.name"></td>
-                    <td data-label="État"><span class="badge" :class="'x-' + i.status" x-text="i.status_label"></span></td>
-                    <td data-label="Détail" class="small" x-text="exDetail(i)"></td>
-                    <td class="drop-action">
-                      <button type="button" class="btn-ghost sm" @click="exCheck(i)" :disabled="!!exBusy[i.name]" x-text="exBusy[i.name] ? 'Vérification' : 'Vérifier'"></button>
-                      <button type="button" class="btn-ghost sm" @click="exWatch(i)" :disabled="i.watched" x-text="i.watched ? 'Surveillé' : 'Surveiller'"></button>
-                    </td>
-                  </tr>
-                </template>
-              </tbody>
-            </table>
+            <div class="ex-card-grid" x-show="exCard.known">
+              <template x-for="i in exCard.items" :key="i.name">
+                <div class="ex-cell" :class="'x-' + i.status">
+                  <div class="ex-cell-top">
+                    <span class="mono" x-text="'.' + i.tld"></span>
+                    <span class="ex-score" :class="scoreClass(i.score)" x-show="exAvailable(i)" x-text="i.score"></span>
+                  </div>
+                  <div class="ex-reasons">
+                    <span class="badge" :class="'x-' + i.status" x-text="i.status_label"></span>
+                    <template x-for="r in (exAvailable(i) ? i.reasons : [])" :key="r"><span class="ex-reason" x-text="r"></span></template>
+                  </div>
+                  <p class="small muted" x-show="exDetail(i)" x-text="exDetail(i)"></p>
+                  <div class="ex-actions">
+                    <button type="button" class="btn-ghost sm" @click="exCheck(i)" :disabled="!!exBusy[i.name]" x-text="exBusy[i.name] ? '…' : 'Vérifier'"></button>
+                    <button type="button" class="btn-ghost sm" @click="exWatch(i)" :disabled="i.watched" x-text="i.watched ? 'Surveillé' : 'Surveiller'"></button>
+                  </div>
+                </div>
+              </template>
+            </div>
           </div>
         </template>
 
+        <!-- Sans recherche : où sont les affaires. -->
+        <template x-if="!ex.q.trim() && exMap">
+          <div class="ex-map">
+            <h3 class="drops-title">Où sont les affaires <span class="muted small">noms à saisir par catégorie</span></h3>
+            <div class="ex-map-scroll">
+              <table class="ex-map-table">
+                <thead><tr><th></th><template x-for="t in exMap.tlds" :key="t"><th class="mono" x-text="'.' + t"></th></template></tr></thead>
+                <tbody>
+                  <template x-for="(label, key) in exMap.rows" :key="key">
+                    <tr>
+                      <th scope="row" x-text="label"></th>
+                      <template x-for="t in exMap.tlds" :key="t">
+                        <td>
+                          <button type="button" class="ex-map-cell" :class="{ on: exMapOn(key, t), empty: !exMap.cells[t][key] }" @click="exMapPick(key, t)"
+                                  x-text="fmt(exMap.cells[t][key])" :aria-label="label + ' en .' + t"></button>
+                        </td>
+                      </template>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </template>
+
+        <div class="ex-list-head">
+          <h3 class="drops-title" x-text="ex.q.trim() ? 'Noms qui commencent par « ' + ex.q.trim() + ' »' : 'Meilleures affaires en .' + ex.tld"></h3>
+          <div class="ex-tools">
+            <button type="button" class="btn-ghost sm" @click="exSeoTop()" :disabled="exSeo.running || !exItems.length" :title="exSeo.key_set ? 'PageRank et archives Wayback' : 'Archives Wayback seulement : clé Open PageRank dans Paramètres'" x-text="exSeo.running ? 'SEO ' + exSeo.done + '/' + exSeo.total : 'SEO des 50 premiers'"></button>
+            <a class="btn-ghost sm" :href="'/api/explore/export?' + exQuery(-1)" download>CSV</a>
+          </div>
+        </div>
+        <div class="ex-chips" aria-label="État">
+          <template x-for="(label, k) in exData.statuses" :key="k">
+            <button type="button" class="tag" :class="{ on: ex.status === k }" @click="ex.status = k; exLoad()">
+              <span x-text="label"></span> <span class="num" x-text="fmt(exData.counts[k])"></span>
+            </button>
+          </template>
+        </div>
+        <div class="ex-chips" aria-label="Catégorie">
+          <button type="button" class="tag" :class="{ on: !ex.cat }" @click="ex.cat = ''; exLoad()">Tout</button>
+          <template x-for="(label, k) in exData.kinds" :key="k">
+            <button type="button" class="tag" :class="{ on: ex.cat === k }" @click="ex.cat = ex.cat === k ? '' : k; exLoad()" x-text="label"></button>
+          </template>
+        </div>
+        <div class="ex-chips" aria-label="Longueur">
+          <template x-for="n in ['', '1', '2', '3', '4', '5']" :key="n">
+            <button type="button" class="tag" :class="{ on: ex.len === n }" @click="ex.len = n; exLoad()" x-text="n === '' ? 'Toutes longueurs' : n === '5' ? '5 et plus' : n + ' car.'"></button>
+          </template>
+        </div>
+        <p class="muted small ex-note" x-text="exNote()"></p>
+
         <p class="muted small" x-show="!exLoading && !exItems.length">Aucun nom pour ces critères.</p>
-        <table class="drops-table" x-show="exItems.length">
-          <thead><tr><th>Nom</th><th>Type</th><th>État</th><th>Détail</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
-          <tbody>
-            <template x-for="i in exItems" :key="i.name">
-              <tr>
-                <td class="mono drop-name"><button type="button" class="link-like mono" @click="exOpenCard(i.label)" x-text="i.name" title="Fiche du nom sur toutes les extensions"></button></td>
-                <td data-label="Type" x-text="i.categories.map((c) => exData.kinds[c]).join(', ')"></td>
-                <td data-label="État"><span class="badge" :class="'x-' + i.status" x-text="i.status_label"></span></td>
-                <td data-label="Détail" class="small" x-text="exDetail(i)"></td>
-                <td class="drop-action">
-                  <button type="button" class="btn-ghost sm" @click="exCheck(i)" :disabled="!!exBusy[i.name]" x-text="exBusy[i.name] ? 'Vérification' : 'Vérifier'"></button>
-                  <button type="button" class="btn-ghost sm" @click="exWatch(i)" :disabled="i.watched" x-text="i.watched ? 'Surveillé' : 'Surveiller'"></button>
-                </td>
-              </tr>
-            </template>
-          </tbody>
-        </table>
+        <ol class="ex-list">
+          <template x-for="(i, n) in exItems" :key="i.name">
+            <li class="ex-row">
+              <span class="ex-rank muted" x-text="n + 1"></span>
+              <div class="ex-main">
+                <div class="ex-top">
+                  <button type="button" class="link-like mono ex-name" @click="ex.q = i.label; exTyped()" x-text="i.name" title="Voir ce nom sur toutes les extensions"></button>
+                  <span class="ex-score" :class="scoreClass(i.score)" x-text="i.score" title="Score sur 100"></span>
+                </div>
+                <div class="ex-reasons">
+                  <span class="badge" :class="'x-' + i.status" x-text="i.status_label"></span>
+                  <template x-for="r in i.reasons" :key="r"><span class="ex-reason" x-text="r"></span></template>
+                </div>
+                <p class="small muted" x-show="exDetail(i)" x-text="exDetail(i)"></p>
+              </div>
+              <div class="ex-actions">
+                <button type="button" class="btn-ghost sm" @click="exCheck(i)" :disabled="!!exBusy[i.name]" x-text="exBusy[i.name] ? 'Vérification' : 'Vérifier'"></button>
+                <button type="button" class="btn-ghost sm" @click="exSeoOne(i)" :disabled="!!exBusy[i.name] || exSeo.running">SEO</button>
+                <button type="button" class="btn-ghost sm" @click="exWatch(i)" :disabled="i.watched" x-text="i.watched ? 'Surveillé' : 'Surveiller'"></button>
+              </div>
+            </li>
+          </template>
+        </ol>
         <div class="explore-more">
-          <button type="button" class="btn-ghost" x-show="exCursor !== null" @click="exSearch(false)" :disabled="exLoading" x-text="exLoading ? 'Chargement' : 'Afficher plus'"></button>
-          <span class="muted small" x-show="exItems.length" x-text="exItems.length + ' nom(s) affiché(s)'"></span>
+          <button type="button" class="btn-ghost" x-show="exItems.length >= exLimit" @click="exLimit += 50; exLoad(false)" :disabled="exLoading" x-text="exLoading ? 'Chargement' : 'Afficher 50 de plus'"></button>
         </div>
       </div>
     </template>
@@ -569,6 +591,17 @@
           </form>
         </template>
         <p class="muted small">Passé ce délai, le nom n'est plus affiché dans Suppressions. Il reste en base et dans l'Explorer.</p>
+      </div>
+
+      <div>
+        <h2>SEO (Explorer)</h2>
+        <template x-if="cfg">
+          <form class="inline-form" @submit.prevent="saveSeoKey()">
+            <input type="password" x-model="seoKey" :placeholder="cfg.seo.key_set ? 'Clé enregistrée' : 'Clé Open PageRank'" aria-label="Clé Open PageRank" autocomplete="off">
+            <button type="submit" class="btn-ghost">Enregistrer</button>
+          </form>
+        </template>
+        <p class="muted small">Note de 0 à 10 tirée des liens vers le domaine (Common Crawl). Clé gratuite sur domcop.com/openpagerank. Sans clé, l'analyse se limite aux archives Wayback. Le nombre exact de backlinks n'existe que chez des services payants.</p>
       </div>
 
       <div>

@@ -94,12 +94,14 @@ document.addEventListener("alpine:init", () => {
     exData: null,
     exError: "",
     exItems: [],
-    exCursor: null,
+    exLimit: 50,
     exLoading: false,
     exCard: null,
-    exSuggest: [],
+    exMap: null,
     exBusy: {},
-    ex: { tld: "", q: "", mode: "prefix", status: "", cat: "", len: "" },
+    exSeo: { running: false, done: 0, total: 0, key_set: true },
+    seoKey: "",
+    ex: { tld: "", q: "", status: "available", cat: "", len: "" },
     dropTld: "",
     dropKinds: [],
     dropSort: "release",
@@ -168,7 +170,7 @@ document.addEventListener("alpine:init", () => {
 
     escape() {
       if (this.openId !== null) this.openId = null;
-      else if (this.exploreOpen && this.exCard) this.exCard = null;
+      else if (this.exploreOpen && this.ex.q) { this.ex.q = ""; this.exTyped(); }
       else if (this.paged) this.showList();
     },
 
@@ -203,7 +205,10 @@ document.addEventListener("alpine:init", () => {
       } else if (name === "explore") {
         this.settingsOpen = false;
         this.exploreOpen = opening;
-        if (opening && !this.exData) await this.exSearch();
+        if (opening) {
+          this.exSeoStatus();
+          await Promise.all([this.exLoad(), this.exLoadMap()]);
+        }
       } else {
         await this.toggleSettings();
       }
@@ -212,46 +217,124 @@ document.addEventListener("alpine:init", () => {
     // Explorer : tous les noms suivis, extension par extension.
 
     exQuery(cursor) {
-      const params = new URLSearchParams({ q: this.ex.q.trim(), mode: this.ex.mode, status: this.ex.status, cat: this.ex.cat, len: this.ex.len, cursor: String(cursor) });
+      const params = new URLSearchParams({ q: this.ex.q.trim(), mode: "prefix", status: this.ex.status, cat: this.ex.cat, len: this.ex.len, cursor: String(cursor) });
       if (this.ex.tld) params.set("tld", this.ex.tld);
       return params.toString();
     },
 
-    async exSearch(reset = true) {
-      const cursor = reset ? -1 : this.exCursor;
+    async exLoad(reset = true) {
+      if (reset) this.exLimit = 50;
       const ticket = (this._exTicket = (this._exTicket || 0) + 1);
       this.exLoading = true;
       try {
-        const data = await this.api("GET", `/api/explore?${this.exQuery(cursor)}&limit=100`);
-        // Une frappe plus récente a déjà relancé la recherche : ce résultat est périmé.
+        const data = await this.api("GET", `/api/explore/rank?${this.exQuery(-1)}&limit=${this.exLimit}`);
+        // Une frappe ou un filtre plus récent a déjà relancé le chargement : ce résultat est périmé.
         if (ticket !== this._exTicket) return;
         this.exError = "";
         this.exData = data;
         this.ex.tld = data.tld;
-        this.exItems = reset ? data.items : [...this.exItems, ...data.items];
-        this.exCursor = data.cursor;
+        this.exItems = data.items;
       } catch (e) {
-        if (ticket !== this._exTicket) return;
-        this.exError = e.message;
+        if (ticket === this._exTicket) this.exError = e.message;
       } finally {
         if (ticket === this._exTicket) this.exLoading = false;
       }
     },
 
-    async exSuggestions() {
-      const q = this.ex.q.trim();
-      if (q.length < 2) { this.exSuggest = []; return; }
+    async exLoadMap() {
       try {
-        this.exSuggest = await this.api("GET", `/api/explore/suggest?q=${encodeURIComponent(q)}`);
+        this.exMap = await this.api("GET", "/api/explore/map");
       } catch (_) {
-        this.exSuggest = [];
+        this.exMap = null;
       }
     },
 
-    async exOpenCard(label) {
+    async exTyped() {
+      const q = this.ex.q.trim();
+      const loading = this.exLoad();
+      if (!q) { this.exCard = null; return loading; }
       try {
-        this.exCard = await this.api("GET", `/api/explore/name?label=${encodeURIComponent(label.trim())}`);
-        this.$nextTick(() => document.querySelector(".explore-card")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+        const card = await this.api("GET", `/api/explore/name?label=${encodeURIComponent(q)}`);
+        if (this.ex.q.trim() === q) {
+          this.exCard = card;
+          this.$nextTick(() => document.querySelector(".ex-card")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+        }
+      } catch (_) {
+        this.exCard = null;
+      }
+      return loading;
+    },
+
+    exMapOn(key, tld) {
+      const f = this.exMap.filters[key];
+      return !this.ex.q.trim() && this.ex.tld === tld && this.ex.cat === (f.cat || "") && this.ex.len === (f.len ? String(f.len) : "");
+    },
+
+    async exMapPick(key, tld) {
+      const f = this.exMap.filters[key];
+      Object.assign(this.ex, { tld, cat: f.cat || "", len: f.len ? String(f.len) : "", status: "available" });
+      await this.exLoad();
+      this.$nextTick(() => document.querySelector(".ex-list-head")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    },
+
+    exAvailable(i) { return [2, 3, 4, 5].includes(i.status); },
+
+    scoreClass(n) { return n >= 70 ? "hi" : n >= 45 ? "mid" : "lo"; },
+
+    exNote() {
+      if (!this.exData) return "";
+      const fr = this.ex.tld === "fr";
+      const notes = {
+        available: "Les meilleurs d'abord. Score sur 100, expliqué sous chaque nom.",
+        maybe_free: fr ? "Supprimés sans réenregistrement connu, ou jamais enregistrés, d'après l'open data Afnic du dernier mois." : "Absents de la zone. Un nom enregistré sans serveurs DNS en est absent aussi.",
+        coming: "En rédemption ou en suppression : libération estimée dans le détail.",
+        free: "Vérifiés libres en RDAP.",
+        registered: "Enregistrés aujourd'hui.",
+        suspended: "Hors zone sans être supprimés (hold, litige).",
+      };
+      const seo = this.exSeo.key_set ? "" : " SEO sans clé Open PageRank : archives Wayback seulement.";
+      return (notes[this.ex.status] || "") + (this.ex.status === "available" || this.ex.status === "maybe_free" ? " À confirmer avec « Vérifier »." : "") + seo;
+    },
+
+    async exSeoStatus() {
+      try { this.exSeo = await this.api("GET", "/api/explore/seo"); } catch (_) {}
+    },
+
+    async exSeoOne(i) {
+      this.exBusy[i.name] = true;
+      try {
+        await this.api("POST", "/api/explore/seo", { names: [i.name] });
+        await this.exLoad(false);
+        if (this.exCard) await this.exTyped();
+        this.say(`${i.name} : analyse SEO faite.`);
+      } catch (e) {
+        this.say(`${i.name} : ${e.message}`, "error");
+      } finally {
+        this.exBusy[i.name] = false;
+      }
+    },
+
+    async exSeoTop() {
+      const names = this.exItems.filter((i) => this.exAvailable(i)).slice(0, 50).map((i) => i.name);
+      if (!names.length) return;
+      try {
+        const res = await this.api("POST", "/api/explore/seo", { names });
+        this.exSeo = { ...this.exSeo, running: !res.done, done: 0, total: names.length };
+        this.say(`Analyse SEO de ${names.length} noms lancée : environ une seconde par nom.`);
+        const poll = setInterval(async () => {
+          await this.exSeoStatus();
+          if (!this.exSeo.running) { clearInterval(poll); await this.exLoad(false); this.say("Analyse SEO terminée."); }
+        }, 3000);
+      } catch (e) {
+        this.say(e.message, "error");
+      }
+    },
+
+    async saveSeoKey() {
+      try {
+        this.cfg.seo = await this.api("PUT", "/api/settings/seo", { key: this.seoKey });
+        this.seoKey = "";
+        this.say(this.cfg.seo.key_set ? "Clé Open PageRank enregistrée." : "Clé Open PageRank retirée.");
       } catch (e) {
         this.say(e.message, "error");
       }
@@ -291,7 +374,7 @@ document.addEventListener("alpine:init", () => {
 
     async exCheck(i) {
       const item = await this.verifyName(i.name);
-      if (item) this.exReplace(item);
+      if (item) { this.exReplace(item); this.exLoadMap(); }
     },
 
     async exWatch(i) {

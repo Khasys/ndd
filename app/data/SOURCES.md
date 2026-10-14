@@ -1,5 +1,7 @@
 # Listes de noms surveillés
 
+Chaque fichier est trié du plus fréquent au moins fréquent : le rang sert au score de l'Explorer.
+
 ## mots.txt
 
 Les 20 000 lemmes les plus fréquents de Lexique 3.83 (somme des fréquences films et livres),

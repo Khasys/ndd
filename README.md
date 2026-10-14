@@ -154,12 +154,28 @@ Tous les noms suivis, extension par extension : les 1 926 220 noms possibles de 
 puis les mots, noms de famille et prénoms. L'état vient des données déjà sur le NAS, sans aucune
 requête : zones ICANN lues chaque jour, open data de l'Afnic, écran Suppressions par-dessus.
 
-- Recherche « commence par », « contient » ou « exact », avec suggestions.
-- Filtres par état (enregistrés, probablement libres, libération à venir, libres vérifiés,
-  suspendus), catégorie et longueur. Compteurs par état.
-- Fiche d'un nom sur toutes les extensions connues.
-- « Vérifier » interroge le registre à la demande ; pour le .fr, sous le plafond de l'Afnic.
-- Export CSV de la sélection (50 000 lignes au plus).
+- **Où sont les affaires** : carte extension × catégorie (1, 2, 3 caractères, 4 lettres,
+  4 chiffres, mots, noms, prénoms) avec le nombre de noms à saisir. Une case ouvre le classement.
+- **Meilleures affaires** : noms à saisir (probablement libres, libres vérifiés, libération à
+  venir) classés par score sur 100, avec ses raisons sous chaque nom.
+- Filtres en un geste (état, catégorie, longueur) ; les compteurs suivent la sélection.
+- Recherche : le nom tapé sur toutes les extensions, puis les noms qui commencent pareil.
+- « Vérifier » interroge le registre ; pour le .fr, sous le plafond de l'Afnic. Export CSV.
+
+Score, barème fixe (`app/value.py`) :
+
+| Critère | Points |
+|---|---|
+| Forme : longueur, lettres avant chiffres, 4 lettres prononçables | 40 au plus |
+| Popularité : rang du mot (Lexique), du nom ou du prénom (Insee) | 30 au plus |
+| Demande : pris sur d'autres extensions, .com surtout | 15 au plus |
+| Historique .fr : années de détention, suppression récente | 15 au plus |
+| SEO, si analysé : Open PageRank, années archivées par la Wayback Machine | 20 au plus |
+
+SEO à la demande (bouton « SEO » d'un nom, ou « SEO des 50 premiers ») : Open PageRank donne une
+note de 0 à 10 tirée des liens (Common Crawl), avec une clé gratuite à saisir dans Paramètres ;
+la Wayback Machine donne les années où le site a été archivé, sans clé. Le nombre exact de
+backlinks n'existe que chez des services payants (Ahrefs, Majestic, Moz).
 
 « Probablement libre » veut dire : pour le .fr, supprimé sans réenregistrement connu ou jamais
 enregistré d'après l'open data ; pour une zone ICANN, absent de la zone. Un nom enregistré sans
