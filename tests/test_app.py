@@ -317,6 +317,7 @@ def test_views_weights_order_url(logged):
     assert client.get("/api/explore/views").json() == views
     weights = client.put("/api/settings/weights", json={"values": {"shape": 5, "seo": 0}}).json()["values"]
     assert weights["shape"] == 2 and weights["seo"] == 0 and weights["demand"] == 1
+    assert "gandi" in client.get("/api/settings").json()["order_url"]
     assert client.put("/api/settings/order-url", json={"url": "https://exemple.fr/"}).status_code == 422
     assert client.put("/api/settings/order-url", json={"url": "https://exemple.fr/?d={domain}"}).json()["order_url"].endswith("{domain}")
     assert client.get("/api/settings").json()["order_url"] == "https://exemple.fr/?d={domain}"

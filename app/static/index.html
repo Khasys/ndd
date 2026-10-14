@@ -989,7 +989,7 @@
       </div>
       <div class="drawer-actions">
         <button type="button" class="btn-ghost" @click="ficheCheck()" :disabled="!!exBusy[fiche.name]" x-text="exBusy[fiche.name] ? 'Vérification' : 'Vérifier'"></button>
-        <a class="btn-ghost" :href="orderLink(fiche.name)" target="_blank" rel="noopener">Réserver chez OVH</a>
+        <a class="btn-ghost" :href="orderLink(fiche.name)" target="_blank" rel="noopener" x-text="registrarName ? 'Réserver chez ' + registrarName : 'Réserver'"></a>
         <button type="button" class="btn-ghost" x-show="!fiche.domain_id" @click="ficheWatch()">Surveiller</button>
         <button type="button" class="btn-ghost" x-show="fiche.domain_id" @click="openDomain(fiche.domain_id)">Voir dans Domaines</button>
       </div>

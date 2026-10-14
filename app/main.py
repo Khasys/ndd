@@ -610,7 +610,7 @@ async def get_settings(request: Request):
         "seo": {"key_set": bool(state.seo.key)},
         "reserved": state.reserved.status(),
         "weights": {"values": value.weights_from(store.get("score_weights")), "labels": value.CRITERIA},
-        "order_url": store.get("order_url") or DEFAULT_ORDER_URL,
+        "order_url": _order_url(store),
         "appearance": {
             "app_name": store.get("app_name") or DEFAULT_NAME,
             "theme": store.get("theme", "system"),
@@ -926,8 +926,10 @@ async def explore_seo_status(request: Request):
     return {"running": analyzer.running, **analyzer.progress, "key_set": bool(analyzer.key)}
 
 
-# Lien « Réserver » : {domain} est remplacé par le nom. Format à vérifier chez OVH, modifiable.
-DEFAULT_ORDER_URL = "https://www.ovhcloud.com/fr/order/webcloud/?#/webCloud/domain/select?selection=~(domain~'{domain}')"
+# Lien « Réserver » : {domain} est remplacé par le nom. Registrar : Gandi, modifiable dans Paramètres.
+DEFAULT_ORDER_URL = "https://shop.gandi.net/fr/domain/suggest?search={domain}"
+# Ancien défaut (OVH) : s'il a été enregistré tel quel, on passe au nouveau.
+OLD_ORDER_URL = "https://www.ovhcloud.com/fr/order/webcloud/?#/webCloud/domain/select?selection=~(domain~'{domain}')"
 
 
 class Weights(BaseModel):
@@ -940,6 +942,11 @@ async def set_weights(request: Request, payload: Weights):
     request.app.state.store.set("score_weights", json.dumps(clean))
     request.app.state.explorer.refresh_settings()
     return {"values": clean, "labels": value.CRITERIA}
+
+
+def _order_url(store) -> str:
+    saved = store.get("order_url")
+    return saved if saved and saved != OLD_ORDER_URL else DEFAULT_ORDER_URL
 
 
 class OrderUrl(BaseModel):

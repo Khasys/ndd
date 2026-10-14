@@ -486,7 +486,15 @@ document.addEventListener("alpine:init", () => {
     },
 
     orderLink(name) {
-      return (this.orderUrl || "https://www.ovhcloud.com/fr/order/webcloud/?#/webCloud/domain/select?selection=~(domain~'{domain}')").replace("{domain}", encodeURIComponent(name));
+      return (this.orderUrl || "https://shop.gandi.net/fr/domain/suggest?search={domain}").replace("{domain}", encodeURIComponent(name));
+    },
+
+    get registrarName() {
+      let host = "";
+      try { host = new URL(this.orderUrl || "https://shop.gandi.net/").hostname; } catch (e) { return ""; }
+      if (host.includes("gandi")) return "Gandi";
+      if (host.includes("ovh")) return "OVH";
+      return host.replace(/^(www|shop)\./, "");
     },
 
     exAvailable(i) { return [2, 3, 4, 5].includes(i.status); },
@@ -1366,7 +1374,8 @@ document.addEventListener("alpine:init", () => {
       const abs = Math.abs(diff);
       const past = diff < 0;
       const min = Math.round(abs / 60000);
-      if (min < 1) return past ? "à l'instant" : "imminent";
+      // Moins d'une minute : quelques secondes d'écart d'horloge entre le NAS et le téléphone.
+      if (min < 1) return "à l'instant";
       let text;
       if (min < 60) text = `${min} min`;
       else if (min < 60 * 24) text = `${Math.round(min / 60)} h`;

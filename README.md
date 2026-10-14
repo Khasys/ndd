@@ -164,7 +164,7 @@ requête : zones ICANN lues chaque jour, open data de l'Afnic, écran Suppressio
 - **Liste** triée par score, par fréquence, par longueur ou par SEO. Une ligne ouvre la fiche du nom.
 - **Fiche** : la même dans Domaines, Suppressions et Explorer. État, score détaillé, raisons,
   catégories, nature, fréquence, historique .fr, SEO, dernière réponse RDAP ou WHOIS (registrar,
-  dates, statuts, DNS), autres extensions, et les actions (Vérifier, Réserver chez OVH,
+  dates, statuts, DNS), autres extensions, et les actions (Vérifier, Réserver chez Gandi,
   Surveiller ou Voir dans Domaines, SEO, Réservé).
 - **Filtres** (panneau du bas sur téléphone) : catégorie, nature des mots (verbes, noms communs,
   adjectifs, adverbes, mots outils), longueur, fréquence (top 100 à top 5 000), pris sur une
