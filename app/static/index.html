@@ -294,17 +294,19 @@
             <button type="button" class="btn-ghost ex-filter-btn" :class="{ on: exFiltersOpen || exActive().length }" @click="exFiltersOpen = !exFiltersOpen" :aria-expanded="exFiltersOpen"
                     x-text="exActive().length ? 'Filtres (' + exActive().length + ')' : 'Filtres'"></button>
           </div>
-          <div class="ex-chips" role="tablist" aria-label="Extension">
+          <div class="ex-chips" aria-label="Extensions et vues">
+            <button type="button" class="tag" x-show="exData.tlds.length > 2" :class="{ on: exTlds().length === exData.tlds.length }" :aria-pressed="exTlds().length === exData.tlds.length" @click="exSet({ tld: exData.tlds.join(',') })">Toutes</button>
             <template x-for="t in exData.tlds" :key="t">
-              <button type="button" class="tag" role="tab" :aria-selected="ex.tld === t" :class="{ on: ex.tld === t }" @click="exSet({ tld: t })" x-text="'.' + t"></button>
+              <button type="button" class="tag" :aria-pressed="exTlds().includes(t)" :class="{ on: exTlds().includes(t) }" @click="exToggleTld(t)" x-text="'.' + t"></button>
             </template>
             <span class="ex-sep"></span>
             <template x-for="(v, n) in exViews" :key="v.name">
-              <button type="button" class="tag ex-view" @click="exApplyView(v)">
-                <span x-text="v.name"></span><span class="ex-x" @click.stop="exDeleteView(n)" aria-label="Supprimer la vue">×</span>
-              </button>
+              <span class="tag ex-view" :class="{ on: exViewOn(v) }">
+                <button type="button" class="ex-view-name" @click="exApplyView(v)" x-text="v.name"></button>
+                <button type="button" class="ex-x" @click="exDeleteView(n)" :aria-label="'Supprimer la vue ' + v.name">×</button>
+              </span>
             </template>
-            <button type="button" class="tag" x-show="exActive().length" @click="exSaveView()">+ Vue</button>
+            <button type="button" class="tag" x-show="exActive().length && !exViews.some((v) => exViewOn(v))" @click="exSaveView()">+ Vue</button>
           </div>
           <div class="ex-active" x-show="exActive().length">
             <template x-for="a in exActive()" :key="a.key">
@@ -355,7 +357,7 @@
             <div class="ex-options">
               <button type="button" class="tag" :class="{ on: !ex.taken }" @click="exSet({ taken: '' })">Peu importe</button>
               <button type="button" class="tag" :class="{ on: ex.taken === 'any' }" @click="exSet({ taken: 'any' })">Sur une autre extension</button>
-              <template x-for="t in exData.tlds.filter((t) => t !== ex.tld)" :key="t">
+              <template x-for="t in exData.tlds.filter((t) => !exTlds().includes(t))" :key="t">
                 <button type="button" class="tag" :class="{ on: ex.taken === t }" @click="exSet({ taken: t })" x-text="'Pris en .' + t"></button>
               </template>
             </div>

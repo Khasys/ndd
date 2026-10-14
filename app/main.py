@@ -817,9 +817,12 @@ def _explore_params(request: Request) -> dict:
     p = request.query_params
     explorer = request.app.state.explorer
     tlds = explorer.tlds()
-    tld = p.get("tld") or (tlds[0] if tlds else "")
-    if tld not in tlds:
+    # Une ou plusieurs extensions, séparées par des virgules, dans l'ordre de la liste connue.
+    asked = {t.strip().lstrip(".") for t in (p.get("tld") or "").split(",") if t.strip()}
+    chosen = [t for t in tlds if t in asked] if asked else tlds[:1]
+    if not chosen or len(chosen) != len(asked or chosen):
         raise HTTPException(404, "Extension sans données : importer le .fr ou lire les zones d'abord.")
+    tld = chosen[0]
     try:
         length = int(p["len"]) if p.get("len") else None
         cursor = int(p.get("cursor", "-1"))
@@ -837,25 +840,43 @@ def _explore_params(request: Request) -> dict:
         raise HTTPException(422, "Mode de recherche inconnu.")
     if p.get("status") and p["status"] not in explore.STATUS_FILTERS:
         raise HTTPException(422, "État inconnu.")
-    return {"tld": tld, "q": p.get("q", ""), "mode": mode, "status": p.get("status", ""),
+    return {"tld": tld, "tlds": chosen, "q": p.get("q", ""), "mode": mode, "status": p.get("status", ""),
             "category": p.get("cat", ""), "length": length, "cursor": cursor, "nature": p.get("nat", ""),
             "max_rank": max_rank, "min_score": min_score, "taken": taken, "junk": p.get("junk") == "1",
             "seo": p.get("seo", "") if p.get("seo", "") in explore.SEO_FILTERS else ""}
 
 
 def _facets(explorer, params: dict) -> dict:
-    return explorer.facets(params["tld"], **{k: v for k, v in params.items() if k not in ("tld", "cursor", "q")})
+    """Compteurs de la sélection, additionnés sur les extensions choisies."""
+    rest = {k: v for k, v in params.items() if k not in ("tld", "tlds", "cursor", "q")}
+    total: dict[str, int] = {}
+    for tld in params["tlds"]:
+        for key, count in explorer.facets(tld, **rest).items():
+            total[key] = total.get(key, 0) + count
+    return total
 
 
-def _explore_meta(explorer, tld: str) -> dict:
+def _merge_key(explorer, sort: str, category: str):
+    """Ordre d'une liste fusionnée : le même que celui de chaque extension prise seule."""
+    if sort == "length":
+        return lambda item: (item["length"], item["label"], item["tld"])
+    if sort == "freq":
+        return lambda item: (explorer.best_rank(item["label"], category) or 10**9, item["label"], item["tld"])
+    if sort == "seo":
+        return lambda item: (-(item.get("_pr") or 0), -(item.get("_wb") or 0), -item["score"], item["name"])
+    return lambda item: (-item["score"], item["name"])
+
+
+def _explore_meta(explorer, tld: str, chosen: list[str] | None = None) -> dict:
+    chosen = chosen or [tld]
     return {
-        "tld": tld,
+        "tld": ",".join(chosen),
         "tlds": explorer.tlds(),
         "kinds": explore.KINDS,
         "natures": explore.NATURES,
         "seo_filters": {k: v[0] for k, v in explore.SEO_FILTERS.items()},
         "statuses": explore.STATUS_NAMES,
-        "absent_label": explore.ABSENT_FR if tld == "fr" else explore.ABSENT_ZONE,
+        "absent_label": explore.ABSENT_FR if chosen == ["fr"] else explore.ABSENT_ZONE,
     }
 
 
@@ -864,9 +885,11 @@ async def explore_search(request: Request):
     """Liste par ordre des noms (et export) : la vue « par nom »."""
     explorer = request.app.state.explorer
     params = _explore_params(request)
+    chosen = params.pop("tlds")
     limit = min(int(request.query_params.get("limit", "50") or 50), explore.MAX_LIMIT)
     result = explorer.search(**params, limit=limit)
-    return {**result, **_explore_meta(explorer, params["tld"]),
+    params["tlds"] = chosen
+    return {**result, **_explore_meta(explorer, params["tld"], chosen),
             "counts": _facets(explorer, params)}
 
 
@@ -881,8 +904,24 @@ async def explore_rank(request: Request):
     sort = request.query_params.get("sort", "score")
     if sort not in ("score", "freq", "length", "seo"):
         raise HTTPException(422, "Tri inconnu.")
-    result = explorer.rank(**params, limit=limit, sort=sort)
-    return {**result, **_explore_meta(explorer, params["tld"]),
+    chosen = params["tlds"]
+    rest = {k: v for k, v in params.items() if k not in ("tld", "tlds")}
+    if len(chosen) == 1:
+        result = explorer.rank(chosen[0], **rest, limit=limit, sort=sort)
+    else:
+        # Plusieurs extensions : les meilleurs de chacune, fusionnés dans le même ordre.
+        items = [item for tld in chosen for item in explorer.rank(tld, **rest, limit=limit, sort=sort)["items"]]
+        if sort == "seo":
+            rows = explorer._seo_rows([i["name"] for i in items])
+            for item in items:
+                row = rows.get(item["name"])
+                item["_pr"], item["_wb"] = (row["pr"], row["wb_years"]) if row else (0, 0)
+        items.sort(key=_merge_key(explorer, sort, params["category"]))
+        for item in items:
+            item.pop("_pr", None)
+            item.pop("_wb", None)
+        result = {"items": items[:limit]}
+    return {**result, **_explore_meta(explorer, params["tld"], chosen),
             "counts": _facets(explorer, params)}
 
 
@@ -1038,14 +1077,18 @@ async def set_seo_key(request: Request, payload: SeoKey):
 async def explore_export(request: Request):
     params = _explore_params(request)
     params["cursor"] = -1
-    result = request.app.state.explorer.search(**params, limit=explore.EXPORT_LIMIT)
+    chosen = params.pop("tlds")
+    params.pop("tld")
+    items = []
+    for tld in chosen:
+        items += request.app.state.explorer.search(tld, **params, limit=explore.EXPORT_LIMIT)["items"]
     lines = ["nom;etat;categories;cree_le;supprime_le;echeance;verifie_le"]
-    for item in result["items"]:
+    for item in items[:explore.EXPORT_LIMIT]:
         lines.append(";".join([
             item["name"], item["status_label"], ",".join(item["categories"]),
             item["created_on"] or "", item["removed_on"] or "", item["expires_at"] or "", item["checked_at"] or "",
         ]))
-    filename = f"explorer-{params['tld']}.csv"
+    filename = f"explorer-{'-'.join(chosen)}.csv"
     return Response("\n".join(lines) + "\n", media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 

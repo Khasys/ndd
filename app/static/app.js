@@ -427,7 +427,28 @@ document.addEventListener("alpine:init", () => {
 
     exApplyView(v) { return this.exSet({ ...v.filters, q: "" }); },
 
-    exDeleteView(n) { return this.exSaveViews(this.exViews.filter((_, i) => i !== n)); },
+    // Vue active : tous ses filtres sont ceux du moment.
+    exViewOn(v) {
+      return Object.entries(v.filters).every(([k, val]) => k === "q" || String(this.ex[k] ?? "") === String(val ?? ""));
+    },
+
+    async exDeleteView(n) {
+      const v = this.exViews[n];
+      if (!v || !confirm(`Supprimer la vue « ${v.name} » ? Les filtres affichés restent en place.`)) return;
+      await this.exSaveViews(this.exViews.filter((_, i) => i !== n));
+      this.say(`Vue « ${v.name} » supprimée.`);
+    },
+
+    exTlds() { return (this.ex.tld || "").split(",").filter(Boolean); },
+
+    // Plusieurs extensions à la fois ; il en reste toujours une.
+    exToggleTld(t) {
+      const on = this.exTlds();
+      const next = on.includes(t) ? on.filter((x) => x !== t) : [...on, t];
+      if (!next.length) return;
+      const order = this.exData ? this.exData.tlds : next;
+      return this.exSet({ tld: order.filter((x) => next.includes(x)).join(",") });
+    },
 
     exToggle(name) {
       this.exSelected = this.exSelected.includes(name) ? this.exSelected.filter((x) => x !== name) : [...this.exSelected, name];

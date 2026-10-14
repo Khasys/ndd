@@ -300,6 +300,23 @@ def test_explorer_and_drops_settings(logged):
     csv = client.get("/api/explore/export", params={"status": "registered"})
     assert csv.headers["content-type"].startswith("text/csv") and "navarro.fr;Enregistré" in csv.text
 
+    # Plusieurs extensions : listes fusionnées, compteurs additionnés.
+    from app import drops as drops_mod
+    state = client.app.state
+    state.store.set("czds_approved", '["com"]')
+    bits = bytearray(drops_mod.BITMAP_BYTES)
+    state.drops._save("com", bits, {"navarro"})
+    state.explorer.invalidate()
+    one = client.get("/api/explore/rank", params={"tld": "fr", "cat": "surname", "status": "registered"}).json()
+    both = client.get("/api/explore/rank", params={"tld": "com,fr", "cat": "surname", "status": "registered"}).json()
+    assert both["tld"] == "fr,com" and both["counts"]["registered"] == one["counts"]["registered"] + 1
+    assert {i["name"] for i in both["items"]} == {"navarro.fr", "navarro.com"}
+    scores = [i["score"] for i in client.get("/api/explore/rank", params={"tld": "fr,com", "limit": 30}).json()["items"]]
+    assert scores == sorted(scores, reverse=True)
+    assert client.get("/api/explore/rank", params={"tld": "fr,xyz"}).status_code == 404
+    csv = client.get("/api/explore/export", params={"tld": "fr,com", "status": "registered", "cat": "surname"}).text
+    assert "navarro.fr" in csv and "navarro.com" in csv
+
     assert client.put("/api/settings/drops", json={"keep_days": 0}).status_code == 422
     assert client.put("/api/settings/drops", json={"keep_days": 45}).json() == {"keep_days": 45}
     assert client.put("/api/settings/fr", json={"enabled": True, "rate": 50}).status_code == 422

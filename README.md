@@ -171,7 +171,10 @@ requête : zones ICANN lues chaque jour, open data de l'Afnic, écran Suppressio
   autre extension, SEO (analysé, PageRank 1, 3 ou 5 et plus, archivé 5 ans et plus), score
   minimum. Les compteurs suivent les filtres ; les filtres sont mémorisés. Le filtre SEO ne
   porte que sur les noms déjà analysés.
-- **Vues enregistrées** : un jeu de filtres nommé, rappelé d'un geste.
+- **Extensions** : une ou plusieurs à la fois (« Toutes » au-delà de deux). Les listes sont
+  fusionnées dans l'ordre du tri choisi, les compteurs additionnés.
+- **Vues enregistrées** : un jeu de filtres nommé, rappelé d'un geste. La vue en cours est
+  surlignée ; sa suppression demande confirmation et laisse les filtres affichés en place.
 - **Sélection multiple** : Vérifier, SEO, Surveiller ou Réservé en lot.
 - Recherche : le nom tapé sur toutes les extensions, puis les noms qui commencent pareil.
 - Par défaut, seuls les noms qui ont un sens sont listés et comptés : noms des listes, vrais mots
