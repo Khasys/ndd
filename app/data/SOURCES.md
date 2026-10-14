@@ -40,3 +40,14 @@ réunis. En minuscules, sans accents ; les prénoms composés gardent leur tiret
 
 Source : Insee, fichier des prénoms, données publiques. Lu dans le même dépôt
 github.com/cnovel/prenoms (fichiers dist.prenoms.f.all.txt et dist.prenoms.m.all.txt).
+
+## mots_courts.txt
+
+Toutes les formes de 2 à 4 lettres de Lexique 3.83, même rares (« oye », « ovni »), pour
+reconnaître un vrai mot parmi les noms courts. Même normalisation, même source, même licence.
+
+## trigrammes.json
+
+Fréquences des suites de trois lettres (avec début et fin de mot) dans les formes de Lexique
+3.83 et les listes de noms et prénoms, chaque mot compté une fois. Sert à juger si un nom court
+se prononce en français. Dérivé de Lexique 3.83 (CC BY-SA 4.0) et des fichiers Insee.

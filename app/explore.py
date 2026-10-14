@@ -15,12 +15,13 @@ import bisect
 import functools
 import heapq
 import itertools
+import threading
 import time
 from array import array
 from dataclasses import dataclass
 from datetime import date
 
-from . import drops, rdapinfo, states, value, wordlists
+from . import drops, precompute, rdapinfo, states, value, wordlists
 from .checker import iso, utcnow
 
 # États, un octet par nom.
@@ -50,7 +51,7 @@ STATUS_FILTERS = {
     "reserved": (RESERVED,),
 }
 STATUS_NAMES = {
-    "available": "À saisir",
+    "available": "Tous non pris",
     "maybe_free": "Probablement libres",
     "coming": "Libération à venir",
     "free": "Libres vérifiés",
@@ -84,6 +85,7 @@ MAP_ROWS = {
 }
 
 CACHE_SECONDS = 600
+MEMO_SECONDS = 60
 MAX_LIMIT = 200
 EXPORT_LIMIT = 50_000
 # Une page sans résultat ne parcourt pas plus que ceci : la suite se demande avec le curseur.
@@ -109,6 +111,7 @@ class Filters:
     max_rank: int | None = None  # dans les N plus fréquents de sa liste
     taken: str = ""  # "any" ou une extension : pris ailleurs
     min_score: int | None = None
+    junk: bool = False  # True : garder aussi les suites imprononçables, les mélanges, les tirets
 
     @classmethod
     def of(cls, *args, **kwargs) -> "Filters":
@@ -137,6 +140,8 @@ class Universe:
                        for n in range(1, drops.MAX_SHORT + 1)}
         self.letters4, self.digits4 = self.letters[4], self.digits[4]
         self._buckets: list[array] | None = None
+        self._lock = threading.Lock()
+        self.good: bytearray | None = None
         # Noms des listes du plus fréquent au moins fréquent, par liste et toutes listes confondues.
         ranks = wordlists.ranks()
         self.by_frequency = {key: array("i", (self.index(w) for w in sorted(r, key=r.get) if self.index(w) is not None))
@@ -158,26 +163,36 @@ class Universe:
 
         Noms des listes, noms de 1 à 3 caractères, 4 lettres et 4 chiffres : environ 565 000.
         Les 4 caractères mélangés (1,4 million) valent trop peu pour le classement.
+        Construit aussi self.good : 1 pour un nom qui a un sens (liste, vrai mot, prononçable,
+        chiffres seuls), 0 pour une suite de lettres imprononçable, un mélange ou un tiret.
+        Calculé une fois, en tâche de fond au démarrage ; les autres appels attendent.
         """
-        if self._buckets is not None:
-            return self._buckets
-        buckets = [array("i") for _ in range(71)]
-        listed = set(self.listed_sorted_labels)
-        for label in listed:
-            i = self.index(label)
-            if i is not None:
-                buckets[value.base(label)].append(i)
-        for length in range(1, 4):
-            for i in range(drops.OFFSETS[length - 1], drops.OFFSETS[length]):
-                label = drops.decode(i)
-                if drops.valid_label(label) and label not in listed:
-                    buckets[value.shape(label)[0]].append(i)
-        for i in itertools.chain(self.letters4, self.digits4):
-            label = drops.decode(i)
-            if label not in listed:
-                buckets[value.shape(label)[0]].append(i)
-        self._buckets = buckets
-        return buckets
+        with self._lock:
+            if self._buckets is not None:
+                return self._buckets
+            buckets = [array("i") for _ in range(71)]
+            good = bytearray(self.size)
+            good[drops.CELLS:] = b"\x01" * (self.size - drops.CELLS)  # noms des listes de 5 caractères et plus
+            listed = set(self.listed_sorted_labels)
+            for label in listed:
+                i = self.index(label)
+                if i is not None:
+                    buckets[value.base(label)].append(i)
+                    good[i] = 1
+            table = precompute.load() or precompute.compute()
+            # Classement : noms de 1 à 3 caractères, 4 lettres et 4 chiffres. Les 4 caractères
+            # mélangés (1,4 million) valent trop peu pour y entrer.
+            for i in itertools.chain(range(0, drops.OFFSETS[3]), self.letters4, self.digits4):
+                byte = table[i]
+                if byte and not good[i]:
+                    buckets[byte & 127].append(i)
+            for i in range(drops.CELLS):
+                if table[i] & precompute.GOOD:
+                    good[i] = 1
+            self.good = good
+            self.good_int = int.from_bytes(good, "big")
+            self._buckets = buckets
+            return buckets
 
     def index(self, label: str) -> int | None:
         if len(label) <= drops.MAX_SHORT:
@@ -215,12 +230,37 @@ class Explorer:
         self.reserved = reserved
         self._universe: Universe | None = None
         self._cache: dict[str, tuple[float, object, bytearray]] = {}
+        self._memos: dict = {}
+        self.generation = 0
 
     @property
     def universe(self) -> Universe:
         if self._universe is None:
-            self._universe = shared_universe()
+            universe = shared_universe()
+            universe.buckets()  # construit aussi universe.good
+            self._universe = universe
         return self._universe
+
+    def _memo(self, key, compute, ttl: float = MEMO_SECONDS):
+        """Résultat gardé ttl secondes, oublié dès qu'une vérification ou un marquage change les données."""
+        now = time.monotonic()
+        # Import .fr ou nouvelle lecture de zone : la version des données change, la mémoire aussi.
+        key = (key, tuple((t, self._version(t)) for t in self.tlds()))
+        found = self._memos.get(key)
+        if found and found[0] == self.generation and now - found[1] < ttl:
+            return found[2]
+        result = compute()
+        if len(self._memos) > 200:
+            self._memos.clear()
+        self._memos[key] = (self.generation, now, result)
+        return result
+
+    def warm(self) -> None:
+        """Prépare ce que l'ouverture de l'Explorer demande, pour que le premier écran soit immédiat."""
+        for tld in self.tlds():
+            self.status_bytes(tld)
+            self._bonus_context(tld)
+        self.map()
 
     # --- Extensions et octets d'état -------------------------------------------------
 
@@ -269,7 +309,11 @@ class Explorer:
         return status
 
     def status_bytes(self, tld: str) -> bytearray:
-        """Octets d'état, écran Suppressions par-dessus (plus récent que les fichiers)."""
+        """Octets d'état, écran Suppressions par-dessus (plus récent que les fichiers).
+        Gardés en mémoire une minute : chaque écran en demande plusieurs fois."""
+        return self._memo(("status", tld), lambda: self._status_bytes(tld))
+
+    def _status_bytes(self, tld: str) -> bytearray:
         status = bytearray(self._base(tld))
         u = self.universe
         for label, state in self.conn.execute("SELECT label, state FROM drops WHERE tld = ? AND state IS NOT NULL", (tld,)):
@@ -299,10 +343,11 @@ class Explorer:
         return codes
 
     def invalidate(self, tld: str | None = None) -> None:
+        """Données changées (vérification, marquage, import) : on recalcule au prochain affichage."""
+        self.generation += 1
+        self._memos.clear()
         if tld:
             self._cache.pop(tld, None)
-        else:
-            self._cache.clear()
 
     # --- Recherche -------------------------------------------------------------------
 
@@ -398,6 +443,9 @@ class Explorer:
         tlds = [t for t in self.tlds() if t != tld and (f.taken == "any" or t == f.taken)]
         return [self.status_bytes(t) for t in tlds] or [bytearray(self.universe.size)]
 
+    def _good_ok(self, i: int, f: Filters) -> bool:
+        return f.junk or bool(self.universe.good[i])
+
     @staticmethod
     def _taken_ok(i: int, others: list[bytearray]) -> bool:
         return not others or any(data[i] in TAKEN_CODES for data in others)
@@ -441,7 +489,7 @@ class Explorer:
             for pos in range(start, len(candidates)):
                 i = candidates[pos]
                 last = i
-                if data[i] in codes and self._taken_ok(i, others) and self._keep(u.label(i), f):
+                if data[i] in codes and self._good_ok(i, f) and self._taken_ok(i, others) and self._keep(u.label(i), f):
                     hits.append(i)
                     if len(hits) >= limit:
                         exhausted = pos == len(candidates) - 1
@@ -460,7 +508,7 @@ class Explorer:
                 scanned += i - pos + 1
                 pos = i + 1
                 last = i
-                if self._taken_ok(i, others) and self._keep(u.label(i), f):
+                if self._good_ok(i, f) and self._taken_ok(i, others) and self._keep(u.label(i), f):
                     hits.append(i)
                 if scanned > SCAN_BUDGET:
                     break
@@ -484,6 +532,9 @@ class Explorer:
         return value.weights_from(self.fr.store.get("score_weights"))
 
     def _bonus_context(self, tld: str) -> dict:
+        return self._memo(("bonus", tld), lambda: self._build_bonus_context(tld))
+
+    def _build_bonus_context(self, tld: str) -> dict:
         """Ce qu'il faut pour le bonus : les autres extensions, l'historique .fr, le SEO connu."""
         others = {t: self.status_bytes(t) for t in self.tlds() if t != tld}
         gone = {}
@@ -529,7 +580,7 @@ class Explorer:
         best: list[tuple[int, int, int, dict]] = []  # tas : (score, -position, position, valeur)
 
         def consider(i: int) -> None:
-            if data[i] not in codes or not self._taken_ok(i, others):
+            if data[i] not in codes or not self._good_ok(i, f) or not self._taken_ok(i, others):
                 return
             label = u.label(i)
             if not self._keep(label, f):
@@ -585,7 +636,7 @@ class Explorer:
         for chunk_start in range(0, len(order), 2000):
             hits = []
             for i in order[chunk_start:chunk_start + 2000]:
-                if data[i] not in codes or not self._taken_ok(i, others):
+                if data[i] not in codes or not self._good_ok(i, f) or not self._taken_ok(i, others):
                     continue
                 label = u.label(i)
                 if self._matches(label, f, q) and self._keep(label, f):
@@ -641,6 +692,8 @@ class Explorer:
             for data in others:
                 combined |= int.from_bytes(data.translate(taken), "big")
             parts.append(combined)
+        if not f.junk:
+            parts.append(u.good_int)
         if not parts:
             return None
         mask = parts[0]
@@ -651,6 +704,10 @@ class Explorer:
     def facets(self, tld: str, *args, **kwargs) -> dict:
         """Nombre de noms par état, pour les filtres choisis (recherche exclue)."""
         f = Filters.of(*args, **kwargs)
+        key = ("facets", tld, f.category, f.length, f.nature, f.max_rank, f.taken, f.junk)
+        return self._memo(key, lambda: self._facets(tld, f))
+
+    def _facets(self, tld: str, f: Filters) -> dict:
         data = self.status_bytes(tld)
         mask = self._mask(tld, f)
         counts = {}
@@ -663,21 +720,19 @@ class Explorer:
         return {key: sum(counts.get(c, 0) for c in self.codes(key)) for key in STATUS_FILTERS}
 
     def map(self) -> dict:
-        """Carte extension x catégorie : noms à saisir par case."""
-        u = self.universe
-        codes = self.codes("available")
+        return self._memo(("map",), self._build_map)
+
+    def _build_map(self) -> dict:
+        """Carte extension x catégorie : noms à saisir par case (noms qui ont un sens seulement)."""
         tlds = self.tlds()
         cells = {}
         for tld in tlds:
-            data = self.status_bytes(tld)
-            in_list = lambda indices: sum(1 for i in indices if data[i] in codes)
-            row = {
-                "short": sum(data.count(c, 0, drops.OFFSETS[3]) for c in codes),
-                "l4": in_list(u.letters4),
+            # Mêmes compteurs que la liste : une case et le filtre qu'elle ouvre donnent le même nombre.
+            cells[tld] = {
+                "short": self.facets(tld, length=-3)["available"],
+                "l4": self.facets(tld, category="letters", length=4)["available"],
+                **{key: self.facets(tld, category=key)["available"] for key in wordlists.LABELS},
             }
-            for key in wordlists.LABELS:
-                row[key] = in_list(u.by_list[key])
-            cells[tld] = row
         filters = {"short": ("", -3), "l4": ("letters", 4), **{k: (k, None) for k in wordlists.LABELS}}
         return {"rows": MAP_ROWS, "tlds": tlds, "cells": cells,
                 "filters": {k: {"cat": c, "len": n} for k, (c, n) in filters.items()}}
@@ -777,6 +832,7 @@ class Explorer:
                 self.fr._sync_name(label, result, drops.TAKEN)
             elif not registered:
                 self.conn.execute("UPDATE fr_names SET checked_at = ?, next_check_at = NULL WHERE label = ?", (iso(now), label))
+        self.invalidate()
         i = self.universe.index(label)
         return self.describe(tld, [i])[0] if i is not None else {"name": name}
 

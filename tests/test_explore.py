@@ -59,8 +59,10 @@ def test_fr_states_and_filters(env):
     add_fr(env, "navarro")
     add_fr(env, "velo", removed="2026-01-01")
     assert env.tlds() == ["fr"]
-    counts = env.facets("fr")
+    counts = env.facets("fr", junk=True)
     assert counts["registered"] == 1 and counts["maybe_free"] > 1_000_000
+    # Par défaut, seuls les noms qui ont un sens sont comptés.
+    assert env.facets("fr")["maybe_free"] < 200_000
 
     found = env.search("fr", q="nav", mode="prefix", category="surname", status="registered")
     assert [i["label"] for i in found["items"]] == ["navarro"]
@@ -74,7 +76,7 @@ def test_paging_with_a_cursor_covers_everything_once(env):
     seen = []
     cursor = -1
     while True:
-        page = env.search("fr", q="ab", mode="prefix", cursor=cursor, limit=500)
+        page = env.search("fr", q="ab", mode="prefix", cursor=cursor, limit=500, junk=True)
         seen += [i["label"] for i in page["items"]]
         if page["cursor"] is None:
             break
@@ -98,9 +100,9 @@ def test_zone_status_and_drops_overlay(env):
     assert "com" in env.tlds()
     card = {i["tld"]: i for i in env.card("navarro")["items"]}
     assert card["com"]["status_label"] == "Enregistré"
-    by_label = {i["label"]: i for i in env.search("com", q="wxyz", mode="exact")["items"]}
+    by_label = {i["label"]: i for i in env.search("com", q="wxyz", mode="exact", junk=True)["items"]}
     assert by_label["wxyz"]["status"] == explore.FREE
-    absent = env.search("com", q="qqqq", mode="exact")["items"][0]
+    absent = env.search("com", q="qqqq", mode="exact", junk=True)["items"][0]
     assert absent["status_label"] == explore.ABSENT_ZONE
 
 
@@ -139,7 +141,8 @@ def test_paused_afnic_refuses_manual_checks(env):
 
 def test_value_scores_are_explained():
     from app import value
-    assert value.base("ab") > value.base("abc") > value.base("mako") > value.base("xkcd") > value.base("ab12")
+    assert value.base("ab") > value.base("abc") > value.base("mako") > value.base("1234") > value.base("ab12") > value.base("xkcd")
+    assert value.base("oye") > value.base("qsd")
     found = value.score("maison", ["com"])
     assert found["reasons"][:2] == ["6 lettres", "mot n° 153"] and "pris en .com" in found["reasons"]
     old = {"created_on": "2008-01-01", "removed_on": "2026-03-01"}

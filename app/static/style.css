@@ -870,3 +870,5 @@ button:disabled { cursor: default; opacity: .55; }
 .drop-detail { display: grid; gap: 8px; margin: 8px 0 4px; max-width: 460px; justify-items: start; }
 .weight-line { display: grid; grid-template-columns: 110px 1fr 46px; gap: 10px; align-items: center; font-size: 13px; }
 .weight-line input { accent-color: var(--accent); }
+.ex-junk { font-size: 13px; }
+.ex-wait { padding: 24px 0; }

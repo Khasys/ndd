@@ -115,6 +115,7 @@ async def lifespan(app: FastAPI):
     async def refresh_reserved() -> None:
         if app.state.reserved.due():
             await app.state.reserved.refresh()
+            app.state.explorer.invalidate()
 
     now = datetime.now(timezone.utc)
     scheduler.add_job(refresh_latest, "interval", hours=24, next_run_time=now, max_instances=1, id="latest")
@@ -136,8 +137,12 @@ async def lifespan(app: FastAPI):
     app.state.reserved = reserved.Reserved(conn, store)
     app.state.explorer = explore.Explorer(conn, watcher, fr, app.state.reserved)
     app.state.seo = seo.Seo(conn, store)
-    # Classement de l'Explorer : environ 565 000 noms rangés par score, calculés une fois, hors requête.
-    asyncio.get_running_loop().run_in_executor(None, lambda: app.state.explorer.universe.buckets())
+    # Explorer : univers et classement préparés hors requête (thread), puis états et carte en mémoire.
+    async def warm_explorer() -> None:
+        await asyncio.get_running_loop().run_in_executor(None, lambda: explore.shared_universe().buckets())
+        app.state.explorer.warm()
+
+    app.state.explorer_warm = asyncio.create_task(warm_explorer())
     app.state.store = store
     app.state.telegram = telegram
     app.state.settings = settings
@@ -824,7 +829,7 @@ def _explore_params(request: Request) -> dict:
         raise HTTPException(422, "État inconnu.")
     return {"tld": tld, "q": p.get("q", ""), "mode": mode, "status": p.get("status", ""),
             "category": p.get("cat", ""), "length": length, "cursor": cursor, "nature": p.get("nat", ""),
-            "max_rank": max_rank, "min_score": min_score, "taken": taken}
+            "max_rank": max_rank, "min_score": min_score, "taken": taken, "junk": p.get("junk") == "1"}
 
 
 def _facets(explorer, params: dict) -> dict:
@@ -963,7 +968,11 @@ async def set_reserved_mode(request: Request, payload: ReservedSettings):
 async def refresh_reserved_now(request: Request):
     lists = request.app.state.reserved
     if not lists.running:
-        request.app.state.reserved_task = asyncio.create_task(lists.refresh())
+        async def refresh() -> None:
+            await lists.refresh()
+            request.app.state.explorer.invalidate()
+
+        request.app.state.reserved_task = asyncio.create_task(refresh())
     return {"started": not lists.running}
 
 
@@ -979,6 +988,7 @@ async def flag_reserved(request: Request, payload: NameFlag):
     except InvalidDomain as exc:
         raise HTTPException(422, str(exc)) from None
     request.app.state.reserved.flag(name, payload.reserved)
+    request.app.state.explorer.invalidate()
     return {"name": name, "reserved": name in request.app.state.reserved.names()}
 
 

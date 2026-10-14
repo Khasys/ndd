@@ -101,7 +101,7 @@ document.addEventListener("alpine:init", () => {
     exBusy: {},
     exSeo: { running: false, done: 0, total: 0, key_set: true },
     seoKey: "",
-    ex: { tld: "", q: "", status: "available", cat: "", len: "", sort: "score", nat: "", rank: "", taken: "", min: "" },
+    ex: { tld: "", q: "", status: "available", cat: "", len: "", sort: "score", nat: "", rank: "", taken: "", min: "", junk: "" },
     exFiltersOpen: false,
     dropOpen: null,
     exOpen: null,
@@ -231,7 +231,7 @@ document.addEventListener("alpine:init", () => {
 
     exQuery(cursor) {
       const e = this.ex;
-      const params = new URLSearchParams({ q: e.q.trim(), mode: "prefix", status: e.status, cat: e.cat, len: e.len, nat: e.nat, rank: e.rank, taken: e.taken, min: e.min && e.min !== "0" ? e.min : "", cursor: String(cursor) });
+      const params = new URLSearchParams({ q: e.q.trim(), mode: "prefix", status: e.status, cat: e.cat, len: e.len, nat: e.nat, rank: e.rank, taken: e.taken, min: e.min && e.min !== "0" ? e.min : "", junk: e.junk, cursor: String(cursor) });
       if (this.ex.tld) params.set("tld", this.ex.tld);
       return params.toString();
     },
@@ -312,12 +312,13 @@ document.addEventListener("alpine:init", () => {
       if (e.rank) out.push({ key: "rank", label: this.exRanks.find((o) => o.v === e.rank)?.label });
       if (e.taken) out.push({ key: "taken", label: e.taken === "any" ? "Pris ailleurs" : "Pris en ." + e.taken });
       if (e.min && e.min !== "0") out.push({ key: "min", label: "Score ≥ " + e.min });
+      if (e.junk) out.push({ key: "junk", label: "Suites et mélanges inclus" });
       return out;
     },
 
     exClear(key) { return this.exSet({ [key]: "" }); },
 
-    exReset() { return this.exSet({ cat: "", nat: "", len: "", rank: "", taken: "", min: "", status: "available" }); },
+    exReset() { return this.exSet({ cat: "", nat: "", len: "", rank: "", taken: "", min: "", junk: "", status: "available" }); },
 
     async exLoadViews() {
       try { this.exViews = await this.api("GET", "/api/explore/views"); } catch (_) {}

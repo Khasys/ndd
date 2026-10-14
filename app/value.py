@@ -3,7 +3,8 @@
 Barème fixe et lisible plutôt qu'un modèle : chaque point vient d'une raison affichée.
 
 - Forme (40 au plus) : plus c'est court, mieux c'est ; lettres avant chiffres, chiffres avant
-  mélanges, tiret en dernier. Un nom de 4 lettres prononçable vaut plus qu'une suite de consonnes.
+  mélanges, tiret en dernier. En lettres : un vrai mot (même rare, d'après le Lexique) vaut plus
+  qu'un nom prononçable, qui vaut bien plus qu'une suite de lettres (pronounce.py).
 - Popularité (30 au plus) : rang du mot, du nom de famille ou du prénom dans sa liste.
 - Demande (15 au plus) : le même nom est pris sur d'autres extensions, .com surtout.
 - Historique (15 au plus) : pour un .fr supprimé, années de détention et suppression récente.
@@ -16,39 +17,37 @@ Le reste dépend de l'extension et des données du moment : c'est le « bonus »
 import math
 from datetime import date
 
-from . import drops, wordlists
+from . import drops, pronounce, wordlists
 
 MAX_BONUS = 50
-VOWELS = set("aeiouy")
 
 
-def pronounceable(label: str) -> bool:
-    """Au moins une voyelle et jamais trois consonnes de suite (lettres seulement)."""
-    if not any(c in VOWELS for c in label):
-        return False
-    run = 0
-    for c in label:
-        run = 0 if c in VOWELS else run + 1
-        if run >= 3:
-            return False
-    return True
+def quality(label: str) -> str:
+    """word : vrai mot ; pron : prononçable ; letters : suite de lettres ; autre sinon."""
+    if label in pronounce.real_words() or any(label in names for names in wordlists.lists().values()):
+        return "word"
+    if label.isalpha():
+        return "pron" if len(label) <= 2 or pronounce.pronounceable(label) else "letters"
+    return "other"
 
 
 def shape(label: str) -> tuple[int, str | None]:
     n = len(label)
     if n <= drops.MAX_SHORT:
         kind = drops.kind_of(label)
+        if kind == "letters":
+            q = quality(label)
+            table = {"word": {1: 40, 2: 40, 3: 36, 4: 30}, "pron": {1: 40, 2: 40, 3: 30, 4: 24},
+                     "letters": {3: 16, 4: 6}}[q]
+            reason = {"word": "vrai mot", "pron": "prononçable", "letters": "imprononçable"}[q]
+            return table.get(n, 0), f"{n} lettre{'s' if n > 1 else ''}, {reason}" if n > 2 else f"{n} lettre{'s' if n > 1 else ''}"
         table = {
-            "letters": {1: 40, 2: 40, 3: 34, 4: 22},
             "digits": {1: 30, 2: 30, 3: 22, 4: 14},
             "mixed": {2: 26, 3: 16, 4: 7},
             "hyphen": {3: 4, 4: 2},
         }
         points = table[kind].get(n, 0)
-        if kind == "letters" and n == 4 and pronounceable(label):
-            points += 6
-            return points, "4 lettres prononçables"
-        names = {"letters": "lettre", "digits": "chiffre", "mixed": "caractère", "hyphen": "caractère"}
+        names = {"digits": "chiffre", "mixed": "caractère", "hyphen": "caractère"}
         unit = names[kind] + ("s" if n > 1 else "")
         return points, f"{n} {unit}" + (" avec tiret" if kind == "hyphen" else "")
     if n <= 6:

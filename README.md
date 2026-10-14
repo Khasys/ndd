@@ -165,6 +165,16 @@ requête : zones ICANN lues chaque jour, open data de l'Afnic, écran Suppressio
 - **Vues enregistrées** : un jeu de filtres nommé, rappelé d'un geste.
 - **Sélection multiple** : Vérifier, SEO, Surveiller ou Réservé en lot.
 - Recherche : le nom tapé sur toutes les extensions, puis les noms qui commencent pareil.
+- Par défaut, seuls les noms qui ont un sens sont listés et comptés : noms des listes, vrais mots
+  courts (toutes les formes de 2 à 4 lettres du Lexique, même rares), noms prononçables, chiffres
+  seuls. Les suites imprononçables (qsd, xkcd), les mélanges lettres-chiffres et les tirets
+  restent accessibles par une case du panneau des filtres.
+
+Prononçable : modèle de trigrammes de lettres appris sur le Lexique et les listes de noms
+(`app/pronounce.py`). Seuil choisi pour garder 92 % des vrais mots de 3 et 4 lettres et
+seulement 8 % des suites de lettres tirées au hasard. La forme des 1,9 million de noms courts
+est précalculée à la construction de l'image (`app/precompute.py`) ; l'Explorer garde ses
+calculs une minute en mémoire et les prépare au démarrage.
 
 Score (`app/value.py`), chaque critère pondérable de 0 à 2 dans Paramètres :
 

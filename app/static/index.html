@@ -272,6 +272,7 @@
     <template x-if="exError">
       <div class="drops-card"><p class="muted" x-text="exError"></p></div>
     </template>
+    <p class="muted ex-wait" x-show="!exData && !exError">Chargement…</p>
 
     <template x-if="exData">
       <div class="ex">
@@ -348,6 +349,10 @@
               </template>
             </div>
           </div>
+          <label class="check ex-junk">
+            <input type="checkbox" :checked="ex.junk === '1'" @change="exSet({ junk: $event.target.checked ? '1' : '' })">
+            <span>Inclure les suites imprononçables, les mélanges lettres-chiffres et les tirets</span>
+          </label>
           <div class="ex-field"><span>Score minimum <strong class="num" x-text="ex.min || 0"></strong></span>
             <input type="range" min="0" max="90" step="5" x-model="ex.min" @change="exSet({})" aria-label="Score minimum">
           </div>
