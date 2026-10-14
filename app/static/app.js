@@ -162,10 +162,16 @@ document.addEventListener("alpine:init", () => {
         this.lockScroll();
         // Panneau d'un domaine surveillé : même bloc « Valeur » que la fiche des autres écrans.
         const d = this.domains.find((x) => x.id === id);
+        if (d) this.remember();
         this.domainFiche = null;
         if (d) this.api("GET", `/api/explore/fiche?name=${encodeURIComponent(d.name)}`).then((f) => (this.domainFiche = f)).catch(() => {});
       });
-      this.$watch("fiche", () => this.lockScroll());
+      this.$watch("fiche", (f) => {
+        this.lockScroll();
+        // Fiche ouverte : le clavier va dessus, pas sur la liste derrière.
+        if (f) this.$nextTick(() => document.querySelector(".fiche-close")?.focus({ preventScroll: true }));
+      });
+      window.addEventListener("popstate", () => this.back());
       if ("serviceWorker" in navigator && window.isSecureContext) {
         navigator.serviceWorker.register("/sw.js").catch(() => {});
       }
@@ -174,7 +180,8 @@ document.addEventListener("alpine:init", () => {
     get mobile() { return window.matchMedia("(max-width: 640px)").matches; },
 
     lockScroll() {
-      document.body.classList.toggle("sheet-open", this.mobile && (this.paged || this.openId !== null || this.fiche !== null));
+      // La fiche est par-dessus tout : la page derrière ne défile plus, sur ordinateur aussi.
+      document.body.classList.toggle("sheet-open", (this.mobile && (this.paged || this.openId !== null)) || this.fiche !== null);
     },
 
     get selected() {
@@ -191,6 +198,7 @@ document.addEventListener("alpine:init", () => {
 
     escape() {
       if (this.fiche) this.fiche = null;
+      else if (this.exploreOpen && this.exFiltersOpen) this.exFiltersOpen = false;
       else if (this.openId !== null) this.openId = null;
       else if (this.exploreOpen && this.ex.q) { this.ex.q = ""; this.exTyped(); }
       else if (this.paged) this.showList();
@@ -208,12 +216,28 @@ document.addEventListener("alpine:init", () => {
 
     home() {
       this.openId = null;
+      this.fiche = null;
       this.showList();
+    },
+
+    // Retour arrière du navigateur ou du téléphone : ferme ce qui est ouvert au lieu de quitter l'appli.
+    remember() {
+      try { history.pushState({ dw: true }, ""); } catch (_) {}
+    },
+
+    back() {
+      if (this.fiche) this.fiche = null;
+      else if (this.openId !== null) this.openId = null;
+      else if (this.paged) this.showList();
     },
 
     async openSheet(name) {
       this.openId = null;
-      const opening = !this[`${name === "settings" ? "settings" : name}Open`];
+      this.fiche = null;
+      // L'écran déjà affiché le reste : un second appui ne le ferme pas.
+      if (this[`${name}Open`]) return;
+      this.remember();
+      const opening = true;
       this.legendOpen = false;
       this.dropsOpen = false;
       this.exploreOpen = false;
@@ -249,6 +273,7 @@ document.addEventListener("alpine:init", () => {
 
     async openFiche(name) {
       this.loadOrderUrl();
+      if (!this.fiche) this.remember();
       try {
         this.fiche = await this.api("GET", `/api/explore/fiche?name=${encodeURIComponent(name)}`);
       } catch (e) {
@@ -430,6 +455,8 @@ document.addEventListener("alpine:init", () => {
     async exSet(patch) {
       Object.assign(this.ex, patch);
       if ("cat" in patch && patch.cat && !["word", "form"].includes(patch.cat)) this.ex.nat = "";
+      // Mélanges et tirets ne sont jamais « prononçables » : sans les suites incluses, la liste serait vide.
+      if (patch.cat === "mixed") this.ex.junk = "1";
       this.exSelected = [];
       this.exOpen = null;
       try { localStorage.setItem("explorer", JSON.stringify({ ...this.ex, q: "" })); } catch (_) {}
@@ -1046,7 +1073,7 @@ document.addEventListener("alpine:init", () => {
     },
 
     async toggleSettings() {
-      this.settingsOpen = !this.settingsOpen;
+      this.settingsOpen = true;
       if (this.settingsOpen) await this.loadSettings();
     },
 

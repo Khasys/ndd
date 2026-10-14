@@ -294,7 +294,8 @@ def test_seo_filter_and_sort(env):
         add_fr(env, label, removed="2024-01-01")
         env.conn.execute("INSERT INTO domain_seo (name, pr, wb_years, checked_at) VALUES (?, ?, ?, '2026-10-01')", (f"{label}.fr", pr, years))
     by_seo = [i["label"] for i in env.rank("fr", sort="seo", limit=10)["items"]]
-    assert by_seo == ["velo", "ciel", "mer"]
+    # Les noms analysés d'abord, puis les autres par score : le tri ne vide pas la liste.
+    assert by_seo[:3] == ["velo", "ciel", "mer"] and len(by_seo) == 10
     assert [i["label"] for i in env.rank("fr", seo="pr3", limit=10)["items"]] == ["velo"]
     assert {i["label"] for i in env.rank("fr", seo="wb5", limit=10)["items"]} == {"velo", "mer"}
     assert env.facets("fr", seo="pr1")["available"] == 2

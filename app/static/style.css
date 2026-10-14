@@ -354,8 +354,10 @@ button:disabled { cursor: default; opacity: .55; }
 .signals { margin: 0 0 4px; padding-left: 18px; }
 
 @media (max-width: 900px) {
-  .settings-grid { grid-template-columns: 1fr; gap: 18px; }
+  /* minmax(0, …) : un contenu long (jeton, adresse) ne doit pas élargir la colonne au-delà de l'écran. */
+  .settings-grid { grid-template-columns: minmax(0, 1fr); gap: 18px; }
 }
+.settings-grid > div { min-width: 0; }
 @media (max-width: 640px) {
   .filter-input { width: 100%; }
   .panel { padding: 10px 12px; }
@@ -834,7 +836,8 @@ button:disabled { cursor: default; opacity: .55; }
 .explore-more { display: flex; align-items: center; gap: 12px; margin: 12px 0 0; }
 .link-like { background: none; border: 0; padding: 0; color: inherit; font: inherit; cursor: pointer; text-align: left; text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
 .drop-action .btn-ghost + .btn-ghost { margin-left: 6px; }
-.num-input { width: 90px !important; flex: none; }
+.num-input, .inline-form .num-input { width: 90px !important; flex: none; }
+.inline-form { flex-wrap: wrap; }
 
 @media (max-width: 640px) {
   .ex-sticky { margin: 0 -16px; padding: 6px 16px 8px; }
@@ -847,7 +850,7 @@ button:disabled { cursor: default; opacity: .55; }
   .ex-more { padding: 0 12px 12px; }
   .ex-actions .btn-ghost { flex: 1 1 30%; min-height: 36px; padding: 0 8px; font-size: 13.5px; text-align: center; }
   .ex-card-grid { grid-template-columns: minmax(0, 1fr); }
-  .ex-bulk { bottom: 8px; flex-wrap: nowrap; overflow-x: auto; gap: 6px; padding: 8px 10px; font-size: 13.5px; }
+  .ex-bulk { bottom: 8px; flex-wrap: wrap; gap: 6px; padding: 8px 10px; font-size: 13.5px; }
   .ex-bulk > * { flex: none; }
   .ex-bulk .btn-ghost { min-height: 34px; padding: 0 10px; font-size: 13.5px; }
   .ex-map-cell { min-width: 64px; }

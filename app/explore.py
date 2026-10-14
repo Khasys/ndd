@@ -633,10 +633,14 @@ class Explorer:
             return self._ordered(tld, f, limit)
         if sort == "freq":
             return self._by_frequency(tld, f, limit)
-        if sort == "seo":
-            return self._by_seo(tld, f, limit)
-        if sort == "ai":
-            return self._by_ai(tld, f, limit)
+        if sort in ("seo", "ai"):
+            # Un tri ne filtre pas : les noms analysés (ou notés) d'abord, puis les autres par score.
+            first = (self._by_seo if sort == "seo" else self._by_ai)(tld, f, limit)["items"]
+            if len(first) < limit:
+                seen = {i["label"] for i in first}
+                rest = self.rank(tld, f, limit=limit + len(first), sort="score")["items"]
+                first += [i for i in rest if i["label"] not in seen][: limit - len(first)]
+            return {"items": first}
         codes = self.codes(f.status, "available")
         data = self.status_bytes(tld)
         others = self._others(tld, f)
@@ -726,9 +730,12 @@ class Explorer:
             key = category if category in wordlists.LABELS else ""
             return lambda item: (u.position(key, where(item)), item["tld"])
         if sort == "seo":
-            return lambda item: (-(item.get("_pr") or 0), -(item.get("_wb") or 0), item["tld"])
+            return lambda item: (-(item.get("_pr") or 0), -(item.get("_wb") or 0), -item["score"], where(item), item["tld"])
         if sort == "ai":
-            return lambda item: (-((item.get("ai") or {}).get("resale") or -1), -((item.get("ai") or {}).get("exploit") or -1), item["label"], item["tld"])
+            def opinion(item):
+                a = item.get("ai")
+                return (0, -a["resale"], -a["exploit"]) if a else (1, 0, 0)
+            return lambda item: (*opinion(item), -item["score"], where(item), item["tld"])
         return lambda item: (-item["score"], where(item), item["tld"])
 
     def _by_seo(self, tld: str, f: Filters, limit: int) -> dict:

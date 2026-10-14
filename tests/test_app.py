@@ -417,6 +417,7 @@ def test_ai_opinions_round_trip_with_a_token(logged):
     assert fiche["ai"]["resale"] == 70 and fiche["ai"]["price_high"] == 6000
     ranked = client.get("/api/explore/rank", params={"sort": "ai", "status": ""}).json()["items"]
     assert ranked and ranked[0]["label"] == "velo" and ranked[0]["ai"]["exploit"] == 80
+    assert len(ranked) == 50  # un tri ne filtre pas : les noms sans avis suivent, par score
     assert "velo" not in [n["label"] for n in client.get("/api/ai/pending", params={"limit": 5000}).json()["names"]]
     status = client.get("/api/ai/status").json()
     assert status["rated"] == 1 and status["token_set"] and status["pending"] > 0

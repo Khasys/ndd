@@ -205,7 +205,19 @@ note de 0 à 10 tirée des liens (Common Crawl), avec une clé gratuite à saisi
 la Wayback Machine donne les années où le site a été archivé, sans clé. Le nombre exact de
 backlinks n'existe que chez des services payants (Ahrefs, Majestic, Moz).
 
-Tri : score, fréquence (mot, nom ou prénom du plus courant au moins courant), longueur, SEO.
+Tri : score, fréquence (mot, nom ou prénom du plus courant au moins courant), longueur, SEO, avis IA. Un tri ne filtre pas : avec SEO ou avis IA, les noms analysés viennent d'abord, puis les autres par score.
+
+#### Avis IA
+
+Pour chaque nom qui a un sens (environ 88 000), un avis : potentiel d'exploitation et de revente
+sur 100, fourchette de prix en euros, commentaire de 200 caractères. Il porte sur le nom seul et
+n'est fait qu'une fois. Le NAS publie la liste à noter (`GET /api/ai/pending`, les plus prometteurs
+d'abord, avec la consigne) et réimporte les avis (`POST /api/ai/results`). Une tâche planifiée fait
+l'échange chaque nuit avec `scripts/ai_exchange.py` (variables `DW_URL` et `DW_AI_TOKEN`).
+
+Le jeton se crée dans Paramètres > Avis IA ; il n'est montré qu'une fois et n'ouvre que ces deux
+adresses. L'avis s'affiche dans la fiche et les listes, avec un tri « Par avis IA ». La fourchette
+de prix est indicative : un avis, pas une cote du marché.
 
 #### Noms réservés (.fr)
 

@@ -56,7 +56,7 @@
     <a href="/" class="home" @click.prevent="home()" aria-label="Accueil">{{BRAND}}</a>
     <nav class="tools">
       <button type="button" class="btn-ghost" :class="{ on: legendOpen }" @click="legendOpen = !legendOpen" :aria-expanded="legendOpen">Légende</button>
-      <button type="button" class="btn-ghost has-badge" :class="{ on: settingsOpen }" @click="toggleSettings()" :aria-expanded="settingsOpen">
+      <button type="button" class="btn-ghost has-badge" :class="{ on: settingsOpen }" @click="openSheet('settings')" :aria-expanded="settingsOpen">
         Paramètres
         <span class="update-badge" x-show="meta && meta.update_available" x-cloak title="Mise à jour disponible" aria-label="Mise à jour disponible">
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 12V4M4.5 7.5 8 4l3.5 3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -965,10 +965,10 @@
         <template x-if="domainFiche && domainFiche.name === shown.name">
           <div>
             <dl x-html="valueHtml(domainFiche)"></dl>
-            <div class="history" x-show="domainFiche.others.length">
+            <div class="history" x-show="domainFiche && domainFiche.others.length">
               <h3>Autres extensions</h3>
               <ol>
-                <template x-for="o in domainFiche.others" :key="o.name">
+                <template x-for="o in (domainFiche ? domainFiche.others : [])" :key="o.name">
                   <li class="fiche-other">
                     <button type="button" class="link-like mono" @click="openFiche(o.name)" x-text="o.name"></button>
                     <span class="badge" :class="'x-' + o.status" x-text="o.status_label"></span>
@@ -1001,7 +1001,7 @@
     <aside class="drawer details fiche" aria-label="Fiche du nom">
       <div class="drawer-head">
         <div class="drawer-title"><span class="mono drawer-name" x-text="fiche.name"></span></div>
-        <button type="button" class="btn-ghost" @click="fiche = null">Fermer</button>
+        <button type="button" class="btn-ghost fiche-close" @click="fiche = null">Fermer</button>
       </div>
       <div class="drawer-state">
         <span class="badge" :class="'x-' + (fiche.item ? fiche.item.status : 0)" x-text="fiche.item ? fiche.item.status_label : 'Hors des listes suivies'"></span>
