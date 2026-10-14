@@ -439,7 +439,7 @@
             <option value="freq">Par fréquence</option>
             <option value="length">Par longueur</option>
             <option value="seo">Par SEO</option>
-            <option value="ai">Par avis IA (revente)</option>
+            <option value="ai">Par avis IA (revente rapide)</option>
           </select>
           <div class="ex-tools">
             <button type="button" class="btn-ghost sm" @click="exSelectAll()" x-text="exSelected.length ? 'Désélectionner' : 'Tout sélectionner'"></button>
@@ -737,7 +737,7 @@
         <p class="small" x-show="aiStatus">
           <span x-text="aiStatus ? fmt(aiStatus.rated) + ' noms notés sur ' + fmt(aiStatus.total) : ''"></span><span x-show="aiStatus && aiStatus.last" x-text="aiStatus && aiStatus.last ? ', dernier envoi ' + relative(aiStatus.last) : ''"></span>.
         </p>
-        <p class="muted small">Une tâche planifiée récupère chaque nuit les noms à noter et renvoie, pour chacun, le potentiel d'exploitation, de revente, une fourchette de prix et un commentaire. Elle se connecte avec ce jeton.</p>
+        <p class="muted small">Une tâche planifiée récupère chaque nuit les noms à noter et renvoie, pour chaque nom complet, le potentiel d'exploitation et de revente, un prix de revente rapide, un prix utilisateur final et un commentaire. Elle se connecte avec ce jeton.</p>
         <button type="button" class="btn-ghost" @click="newAiToken()" x-text="aiStatus && aiStatus.token_set ? 'Nouveau jeton' : 'Créer le jeton'"></button>
         <template x-if="aiToken">
           <div>

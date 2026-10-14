@@ -42,7 +42,7 @@ def main() -> None:
             total["rejected"] += answer["rejected"]
         print(f"{total['saved']} avis enregistrés, {len(total['rejected'])} rejetés")
         for r in total["rejected"][:20]:
-            print(f"  {r['label']} : {r['reason']}")
+            print(f"  {r['name']} : {r['reason']}")
     else:
         sys.exit("Usage : pull <nombre> <fichier> | push <fichier>")
 

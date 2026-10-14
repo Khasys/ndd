@@ -209,15 +209,19 @@ Tri : score, fréquence (mot, nom ou prénom du plus courant au moins courant), 
 
 #### Avis IA
 
-Pour chaque nom qui a un sens (environ 88 000), un avis : potentiel d'exploitation et de revente
-sur 100, fourchette de prix en euros, commentaire de 200 caractères. Il porte sur le nom seul et
-n'est fait qu'une fois. Le NAS publie la liste à noter (`GET /api/ai/pending`, les plus prometteurs
-d'abord, avec la consigne) et réimporte les avis (`POST /api/ai/results`). Une tâche planifiée fait
-l'échange chaque nuit avec `scripts/ai_exchange.py` (variables `DW_URL` et `DW_AI_TOKEN`).
+Pour chaque nom complet (velo.fr, ciel.org) : potentiel d'exploitation et de revente sur 100, prix
+de revente rapide (à un investisseur, en quelques semaines), prix utilisateur final (avec de la
+patience) et un commentaire de 200 caractères qui explique la valeur sans répéter les notes.
+
+Le NAS publie la liste à noter (`GET /api/ai/pending`) : noms libres ou bientôt libres d'abord, puis
+probablement libres, puis enregistrés, les plus prometteurs d'abord, avec la consigne et des exemples
+de référence pour garder des notes cohérentes. Il réimporte les avis (`POST /api/ai/results`) après
+contrôle (notes de 0 à 100, revente rapide sous le prix final). Une tâche planifiée fait l'échange
+chaque nuit avec `scripts/ai_exchange.py` (variables `DW_URL` et `DW_AI_TOKEN`).
 
 Le jeton se crée dans Paramètres > Avis IA ; il n'est montré qu'une fois et n'ouvre que ces deux
-adresses. L'avis s'affiche dans la fiche et les listes, avec un tri « Par avis IA ». La fourchette
-de prix est indicative : un avis, pas une cote du marché.
+adresses. L'avis s'affiche dans la fiche et les listes, avec un tri « Par avis IA » (revente
+rapide). Les prix sont des avis, pas des cotes du marché.
 
 #### Noms réservés (.fr)
 

@@ -387,38 +387,52 @@ def test_ai_opinions_round_trip_with_a_token(logged):
     client = logged()
     conn = client.app.state.conn
     conn.execute("INSERT INTO fr_names (label, created_on, removed_on) VALUES ('velo', '2010-01-01', '2025-01-01')")
+    conn.execute("INSERT INTO fr_names (label, created_on) VALUES ('mot', '2010-01-01')")
     token = client.post("/api/settings/ai-token").json()["token"]
     assert token.startswith("dw_") and client.app.state.store.get("ai_token_hash") != token
+    # Un nom libre vérifié passe avant tous les autres.
+    now = "2026-10-01T00:00:00+00:00"
+    client.app.state.drops.record("fr", ["ciel"], [], datetime.fromisoformat(now))
+    conn.execute("UPDATE drops SET state = 'available', available_since = ? WHERE name = 'ciel.fr'", (now,))
+    client.app.state.explorer.touch("ciel.fr")
     pending = client.get("/api/ai/pending", params={"limit": 20}).json()
-    assert pending["version"] == 1 and "exploit" in pending["guide"] and len(pending["names"]) == 20
+    assert pending["version"] == 2 and "revente rapide" in pending["guide"] and len(pending["names"]) == 20
     first = pending["names"][0]
-    assert {"label", "categories", "ranks", "taken", "base"} <= set(first)
+    assert first["name"] == "ciel.fr" and first["status"] == "Libre (vérifié)"
+    assert {"categories", "ranks", "taken_elsewhere", "base"} <= set(first)
+    velo = next(n for n in client.get("/api/ai/pending", params={"limit": 5000}).json()["names"] if n["name"] == "velo.fr")
+    assert velo["fr_history"]["removed_on"] == "2025-01-01"
 
-    # Hors session : seul le jeton ouvre l'échange.
+    # Hors session : seul le jeton ouvre l'échange, et rien d'autre.
     client.cookies.clear()
     assert client.get("/api/ai/pending").status_code == 401
     assert client.get("/api/ai/pending", headers={"Authorization": "Bearer faux"}).status_code == 401
     headers = {"Authorization": f"Bearer {token}"}
     assert client.get("/api/ai/pending", headers=headers, params={"limit": 5}).status_code == 200
-    assert client.get("/api/explore", headers=headers).status_code == 401  # le jeton ne sert qu'à ça
+    assert client.get("/api/explore", headers=headers).status_code == 401
+    good = {"name": "velo.fr", "exploit": 90, "resale": 90, "quick_low": 2000, "quick_high": 5000,
+            "final_low": 10000, "final_high": 30000, "comment": "Mot courant et commercial : vente, location, réparation."}
     sent = client.post("/api/ai/results", headers=headers, json={"results": [
-        {"label": "velo", "exploit": 80, "resale": 70, "price_low": 2000, "price_high": 6000,
-         "comment": "Mot courant, commercial : cycles, location, réparation."},
-        {"label": "velo", "exploit": 120, "resale": 1, "comment": "x"},
-        {"label": "pasunnomconnu", "exploit": 1, "resale": 1, "comment": "x"},
-        {"label": "mot", "exploit": 50, "resale": 50, "price_low": 900, "price_high": 100, "comment": "x"},
+        good,
+        {**good, "exploit": 120},
+        {**good, "name": "pasunnomconnu.fr"},
+        {**good, "name": "velo.xyz"},
+        {**good, "name": "mot.fr", "final_low": 900, "final_high": 100},
+        {**good, "name": "mot.fr", "quick_high": 50000},
     ]}).json()
     assert sent["saved"] == 1 and [r["reason"] for r in sent["rejected"]] == [
-        "notes hors de 0 à 100", "nom inconnu", "fourchette de prix invalide"]
+        "notes hors de 0 à 100", "nom inconnu", "nom inconnu", "fourchette de prix invalide",
+        "revente rapide plus chère que l'utilisateur final"]
     client.__exit__(None, None, None)
 
     client = logged()
     fiche = client.get("/api/explore/fiche", params={"name": "velo.fr"}).json()
-    assert fiche["ai"]["resale"] == 70 and fiche["ai"]["price_high"] == 6000
+    assert fiche["ai"]["quick_high"] == 5000 and fiche["ai"]["final_high"] == 30000
     ranked = client.get("/api/explore/rank", params={"sort": "ai", "status": ""}).json()["items"]
-    assert ranked and ranked[0]["label"] == "velo" and ranked[0]["ai"]["exploit"] == 80
+    assert ranked and ranked[0]["name"] == "velo.fr" and ranked[0]["ai"]["exploit"] == 90
     assert len(ranked) == 50  # un tri ne filtre pas : les noms sans avis suivent, par score
-    assert "velo" not in [n["label"] for n in client.get("/api/ai/pending", params={"limit": 5000}).json()["names"]]
+    names = [n["name"] for n in client.get("/api/ai/pending", params={"limit": 5000}).json()["names"]]
+    assert "velo.fr" not in names
     status = client.get("/api/ai/status").json()
     assert status["rated"] == 1 and status["token_set"] and status["pending"] > 0
     client.__exit__(None, None, None)

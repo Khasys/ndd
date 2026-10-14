@@ -734,7 +734,7 @@ class Explorer:
         if sort == "ai":
             def opinion(item):
                 a = item.get("ai")
-                return (0, -a["resale"], -a["exploit"]) if a else (1, 0, 0)
+                return (0, -a["quick_high"], -a["resale"], -a["final_high"]) if a else (1, 0, 0, 0)
             return lambda item: (*opinion(item), -item["score"], where(item), item["tld"])
         return lambda item: (-item["score"], where(item), item["tld"])
 
@@ -754,14 +754,17 @@ class Explorer:
         return {"items": self._scored(tld, f, hits, data, self._bonus_context(tld))["items"][:limit]}
 
     def _by_ai(self, tld: str, f: Filters, limit: int) -> dict:
-        """Meilleur potentiel de revente selon l'avis IA, puis d'exploitation ; noms notés seulement."""
+        """Meilleure revente rapide selon l'avis IA, puis potentiel de revente ; noms notés seulement."""
         codes = self.codes(f.status, "available")
         data = self.status_bytes(tld)
         others = self._others(tld, f)
         u = self.universe
         q = self.normalize(f.q, tld)
         hits = []
-        for (label,) in self.conn.execute("SELECT label FROM name_ai ORDER BY resale DESC, exploit DESC, label"):
+        rows = self.conn.execute("SELECT name FROM domain_ai WHERE name LIKE ? ORDER BY quick_high DESC, resale DESC, "
+                                 "final_high DESC, name", (f"%.{tld}",))
+        for (name,) in rows:
+            label = name[: -len(tld) - 1]
             i = u.index(label)
             if (i is not None and data[i] in codes and self._good_ok(i, f) and self._taken_ok(i, others)
                     and self._matches(label, f, q) and self._keep(label, f)):
@@ -996,7 +999,7 @@ class Explorer:
             dropped.update({r["name"]: r for r in rows})
         watched = {r[0] for r in self.conn.execute("SELECT name FROM domains")}
         details = rdapinfo.load(self.conn, names)
-        opinions = ai.load(self.conn, labels)
+        opinions = ai.load(self.conn, names)
         items = []
         for i, label, name in zip(indices, labels, names):
             code = data[i]
@@ -1021,7 +1024,7 @@ class Explorer:
                 "watched": name in watched,
                 "rdap": details.get(name),
                 "reserved": self.reserved.why(name) if self.reserved is not None and code == RESERVED else [],
-                "ai": opinions.get(label),
+                "ai": opinions.get(name),
             })
         return items
 
@@ -1038,9 +1041,9 @@ class Explorer:
             item = self._value(tld, i, label, self._bonus_context(tld))
             item.update(natures=sorted(wordlists.natures().get(label, ())), good=bool(u.good[i]), length=len(label))
             found[name] = item
-        opinions = ai.load(self.conn, sorted({n.partition(".")[0] for n in found}))
+        opinions = ai.load(self.conn, list(found))
         for name, item in found.items():
-            item["ai"] = opinions.get(name.partition(".")[0])
+            item["ai"] = opinions.get(name)
         return found
 
     def fiche(self, name: str) -> dict:
@@ -1071,7 +1074,7 @@ class Explorer:
             "rank": self.best_rank(label),
             "seo": dict(seo) if seo else None,
             "rdap": rdap,
-            "ai": ai.load(self.conn, [label]).get(label),
+            "ai": ai.load(self.conn, [name]).get(name),
             "domain_id": domain["id"] if domain is not None else None,
         }
 

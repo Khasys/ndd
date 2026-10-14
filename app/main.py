@@ -1041,7 +1041,7 @@ async def ai_results(request: Request, payload: AiResults):
     if len(payload.results) > ai.MAX_RESULTS:
         raise HTTPException(422, f"{ai.MAX_RESULTS} avis au plus par envoi.")
     explorer = request.app.state.explorer
-    return ai.save(request.app.state.conn, payload.results, ai.known_label(explorer))
+    return ai.save(request.app.state.conn, payload.results, ai.known_name(explorer))
 
 
 @app.get("/api/ai/status")

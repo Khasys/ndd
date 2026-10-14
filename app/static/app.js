@@ -327,6 +327,13 @@ document.addEventListener("alpine:init", () => {
       if (!f) return "";
       const rows = [];
       const item = f.item;
+      const opinion = f.ai || (item && item.ai);
+      if (opinion) {
+        rows.push(["Avis IA", `<span class="ai-notes">Exploitation <b>${Number(opinion.exploit)}</b> · revente <b>${Number(opinion.resale)}</b></span>`]);
+        rows.push(["Revente rapide", esc(this.priceRange(opinion.quick_low, opinion.quick_high))]);
+        rows.push(["Utilisateur final", esc(this.priceRange(opinion.final_low, opinion.final_high))]);
+        rows.push(["Commentaire", `<span class="ai-comment">${esc(opinion.comment)}</span>`]);
+      }
       if (item && item.score !== undefined) {
         rows.push(["Score", `<span class="ex-bar fiche-bar"><i style="width:${Number(item.score)}%"></i><b>${Number(item.score)}</b></span>`]);
         rows.push(["Détail", esc(this.scoreTitle(item).replace(/^Score \d+ : /, "")) || "—"]);
@@ -339,12 +346,6 @@ document.addEventListener("alpine:init", () => {
       if (f.rank) rows.push(["Fréquence", `n° ${esc(this.fmt(f.rank))} de sa liste`]);
       if (item && item.created_on) rows.push(["Open data .fr", esc(`créé le ${this.shortDate(item.created_on)}` + (item.removed_on ? `, supprimé le ${this.shortDate(item.removed_on)}` : ""))]);
       if (item && item.release_at) rows.push(["Libération", esc("~" + this.shortDate(item.release_at))]);
-      const opinion = f.ai || (item && item.ai);
-      if (opinion) {
-        rows.push(["Avis IA", `<span class="ai-notes">Exploitation <b>${Number(opinion.exploit)}</b> · revente <b>${Number(opinion.resale)}</b></span>`]);
-        rows.push(["Prix envisagé", esc(this.priceRange(opinion))]);
-        rows.push(["Commentaire", `<span class="ai-comment">${esc(opinion.comment)}</span>`]);
-      }
       if (f.seo) {
         const parts = [];
         if (f.seo.pr) parts.push(`PageRank ${String(f.seo.pr).replace(".", ",")}`);
@@ -354,18 +355,18 @@ document.addEventListener("alpine:init", () => {
       return rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("");
     },
 
-    // Fourchette de prix d'un avis IA : « 2 000 à 6 000 € », « invendable » à 0.
-    priceRange(a) {
-      if (!a || !a.price_high) return "invendable selon l'avis";
+    // Fourchette de prix d'un avis IA : « 2 000 à 6 000 € », « sans valeur » à 0.
+    priceRange(low, high) {
+      if (!high) return "sans valeur à ce stade";
       const n = (v) => Number(v).toLocaleString("fr-FR");
-      return a.price_low && a.price_low !== a.price_high ? `${n(a.price_low)} à ${n(a.price_high)} €` : `${n(a.price_high)} €`;
+      return low && low !== high ? `${n(low)} à ${n(high)} €` : `${n(high)} €`;
     },
 
-    // Étiquette courte dans les listes : revente sur 100 et prix haut arrondi.
+    // Étiquette courte dans les listes : revente rapide (haut de fourchette), sinon prix utilisateur final.
     aiTag(a) {
       if (!a) return "";
-      const high = a.price_high >= 1000 ? `${Math.round(a.price_high / 1000)} k€` : `${a.price_high || 0} €`;
-      return `IA ${a.resale} · ${high}`;
+      const k = (v) => (v >= 1000 ? `${Math.round(v / 1000)} k€` : `${v} €`);
+      return a.quick_high ? `IA ${a.resale} · rapide ${k(a.quick_high)}` : `IA ${a.resale} · final ${k(a.final_high)}`;
     },
 
     async newAiToken() {
