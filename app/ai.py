@@ -16,7 +16,7 @@ from . import value, wordlists
 from .checker import iso, utcnow
 
 # Version de la consigne : la monter fait renoter tous les noms, petit à petit.
-VERSION = 2
+VERSION = 3
 MAX_PENDING = 5000
 MAX_RESULTS = 5000
 MAX_PRICE = 10_000_000
@@ -32,8 +32,12 @@ SCORE_STEP = 5
 PRICE_STEPS = (0, 50, 100, 150, 200, 300, 500, 800, 1000, 1500, 2000, 3000, 5000, 8000, 10000, 15000,
                20000, 30000, 50000, 80000, 100000, 150000, 200000, 300000, 500000, 1000000)
 COMMENT_MAX = 200
-# « Ce que c'est. Cible : à qui ça sert. Limite : ce qui freine. »
-COMMENT_SHAPE = re.compile(r"^[^\s].{2,}?\. Cible : .{3,}?\. Limite : .{3,}?\.$")
+# « Verdict. Raison. Acheteur type : qui. » Le verdict est l'un des trois, en tête.
+VERDICTS = ("À prendre", "À surveiller", "À laisser")
+COMMENT_SHAPE = re.compile(r"^(À prendre|À surveiller|À laisser)\. [^\s].{5,}?\. Acheteur type : .{3,}?\.$")
+# Cohérence avec les notes (la meilleure des deux) : un verdict ne contredit pas les chiffres.
+PRENDRE_MIN = 60
+LAISSER_MAX = 45
 FORBIDDEN = re.compile("[\u2013\u2014\U0001F000-\U0001FAFF\u2600-\u27BF]")  # tirets longs, emoji
 
 FORMAT = {
@@ -49,7 +53,7 @@ FORMAT = {
         "final_low": {"type": "integer", "enum": list(PRICE_STEPS)},
         "final_high": {"type": "integer", "enum": list(PRICE_STEPS)},
         "comment": {"type": "string", "maxLength": COMMENT_MAX,
-                    "pattern": "Ce que c'est. Cible : à qui ça sert. Limite : ce qui freine."},
+                    "pattern": "À prendre|À surveiller|À laisser. Raison en une phrase. Acheteur type : qui."},
     },
 }
 
@@ -64,26 +68,31 @@ Format, identique pour chaque nom, sans exception :
 - quick_low, quick_high : revente rapide en euros, à un investisseur ou une place de marché en quelques semaines ;
 - final_low, final_high : prix pour un utilisateur final, avec de la patience (mois ou années) ;
 - prix : uniquement ces valeurs : 0, 50, 100, 150, 200, 300, 500, 800, 1000, 1500, 2000, 3000, 5000, 8000, 10000, 15000, 20000, 30000, 50000, 80000, 100000, 150000, 200000, 300000, 500000, 1000000 ; bas inférieur ou égal au haut ; revente rapide inférieure ou égale au prix final ;
-- comment : exactement trois phrases sur ce gabarit : « Ce que c'est. Cible : à qui ça sert. Limite : ce qui freine. » ; 200 caractères au plus ; en français ; sans emoji ni tiret long ; sans répéter les notes ni les prix.
+- comment : exactement trois phrases sur ce gabarit : « Verdict. Raison. Acheteur type : qui. » ;
+  verdict : « À prendre », « À surveiller » ou « À laisser », rien d'autre ;
+  « À prendre » seulement si exploit ou resale vaut au moins 60 ; « À laisser » seulement si les deux valent 45 au plus ;
+  raison : ce qui fait la valeur ou ce qui la freine (sens, longueur, demande, risque de marque) ;
+  acheteur type : à qui le revendre ou qui l'exploiterait ;
+  200 caractères au plus ; en français ; sans emoji ni tiret long ; sans répéter les notes ni les prix.
 
 Crédibilité avant tout :
 - La plupart des noms valent peu. Une note de revente au-dessus de 70 est rare et réservée aux noms très courts ou très recherchés. Beaucoup de noms ont une revente rapide à 0.
 - Revente rapide : en général 10 à 25 % du prix utilisateur final. Si elle ne couvre pas les frais (moins de 100 euros), mets 0 et 0.
 - Le .fr se revend moins facilement que le .com ; le .org vise les associations et les projets non commerciaux ; le .info vaut peu.
-- Un risque de marque connue fait baisser la revente : mets-le dans la limite.
+- Un risque de marque connue fait baisser la revente : mets-le dans la raison.
 - N'invente rien : un nom sans sens connu le dit.
 
 Exemples de référence :
-{"name": "velo.fr", "exploit": 90, "resale": 90, "quick_low": 2000, "quick_high": 5000, "final_low": 10000, "final_high": 30000, "comment": "Mot courant et commercial, rare en 4 lettres. Cible : vente, location et réparation de vélos, mobilité. Limite : prix d'entrée élevé pour un revendeur."}
-{"name": "femmes.fr", "exploit": 80, "resale": 75, "quick_low": 1000, "quick_high": 3000, "final_low": 5000, "final_high": 15000, "comment": "Thème large et porteur, au pluriel. Cible : magazine, santé, mode, emploi, associations. Limite : très générique, demande un vrai projet."}
-{"name": "mai.fr", "exploit": 75, "resale": 80, "quick_low": 800, "quick_high": 2000, "final_low": 3000, "final_high": 8000, "comment": "3 lettres, mot du calendrier, facile à retenir. Cible : marque courte, événementiel. Limite : sens vague, pas d'activité évidente."}
-{"name": "lea.fr", "exploit": 60, "resale": 55, "quick_low": 150, "quick_high": 500, "final_low": 1000, "final_high": 3000, "comment": "Prénom très donné, 3 lettres. Cible : particuliers, marques prénom (cosmétique, enfant). Limite : peu d'usage professionnel direct."}
-{"name": "premiere.fr", "exploit": 55, "resale": 50, "quick_low": 200, "quick_high": 800, "final_low": 2000, "final_high": 5000, "comment": "Mot fort et polyvalent. Cible : événement, service « première fois ». Limite : risque de marque (magazine Première)."}
-{"name": "oye.fr", "exploit": 45, "resale": 40, "quick_low": 100, "quick_high": 300, "final_low": 500, "final_high": 2000, "comment": "Court et prononçable, sans sens courant en français. Cible : marque inventée. Limite : valeur portée par la brièveté seule."}
-{"name": "ciel.org", "exploit": 55, "resale": 40, "quick_low": 50, "quick_high": 200, "final_low": 500, "final_high": 2000, "comment": "Mot simple et poétique. Cible : associations, projets culturels. Limite : marché de revente étroit en .org."}
-{"name": "sommes.fr", "exploit": 30, "resale": 25, "quick_low": 0, "quick_high": 100, "final_low": 300, "final_high": 1000, "comment": "Forme de « être » ou pluriel de « somme ». Cible : finance ou calcul, à la marge. Limite : sens flou hors contexte."}
-{"name": "qsd.fr", "exploit": 15, "resale": 25, "quick_low": 50, "quick_high": 200, "final_low": 200, "final_high": 800, "comment": "Suite de 3 lettres imprononçable, sans sens. Cible : sigle d'entreprise, collectionneur. Limite : aucun usage évident."}
-{"name": "kylian.org", "exploit": 25, "resale": 15, "quick_low": 0, "quick_high": 0, "final_low": 50, "final_high": 200, "comment": "Prénom courant. Cible : association portant ce nom. Limite : le .org ne colle pas à un usage personnel."}
+{"name": "velo.fr", "exploit": 90, "resale": 90, "quick_low": 2000, "quick_high": 5000, "final_low": 10000, "final_high": 30000, "comment": "À prendre. Mot que tout le monde tape, rare en 4 lettres. Acheteur type : enseigne, marketplace ou start-up vélo."}
+{"name": "femmes.fr", "exploit": 80, "resale": 75, "quick_low": 1000, "quick_high": 3000, "final_low": 5000, "final_high": 15000, "comment": "À prendre. Thème large et porteur, se lit bien au pluriel. Acheteur type : média, marque de mode ou de santé."}
+{"name": "mai.fr", "exploit": 75, "resale": 80, "quick_low": 800, "quick_high": 2000, "final_low": 3000, "final_high": 8000, "comment": "À prendre. Trois lettres et un mot du calendrier, rare en .fr. Acheteur type : marque courte ou agence événementielle."}
+{"name": "lea.fr", "exploit": 60, "resale": 55, "quick_low": 150, "quick_high": 500, "final_low": 1000, "final_high": 3000, "comment": "À surveiller. Prénom court très donné, plaît aux particuliers. Acheteur type : parent, marque cosmétique ou enfant."}
+{"name": "premiere.fr", "exploit": 55, "resale": 50, "quick_low": 200, "quick_high": 800, "final_low": 2000, "final_high": 5000, "comment": "À surveiller. Mot fort, mais le magazine Première peut s'y opposer. Acheteur type : organisateur d'événements."}
+{"name": "oye.fr", "exploit": 45, "resale": 40, "quick_low": 100, "quick_high": 300, "final_low": 500, "final_high": 2000, "comment": "À surveiller. Court et prononçable, sans sens courant en français. Acheteur type : créateur de marque inventée."}
+{"name": "ciel.org", "exploit": 55, "resale": 40, "quick_low": 50, "quick_high": 200, "final_low": 500, "final_high": 2000, "comment": "À surveiller. Mot simple et poétique, mais le .org limite les acheteurs. Acheteur type : association ou projet culturel."}
+{"name": "sommes.fr", "exploit": 30, "resale": 25, "quick_low": 0, "quick_high": 100, "final_low": 300, "final_high": 1000, "comment": "À laisser. Forme de « être » ou pluriel de « somme », sens flou. Acheteur type : rare, à la marge en finance."}
+{"name": "qsd.fr", "exploit": 15, "resale": 25, "quick_low": 50, "quick_high": 200, "final_low": 200, "final_high": 800, "comment": "À laisser. Suite imprononçable sans sens, seule la brièveté compte. Acheteur type : entreprise au sigle QSD."}
+{"name": "kylian.org", "exploit": 25, "resale": 15, "quick_low": 0, "quick_high": 0, "final_low": 50, "final_high": 200, "comment": "À laisser. Prénom courant, mais le .org ne colle pas à un usage perso. Acheteur type : association de ce nom."}
 
 Réponds par une liste JSON de ces objets, un par nom reçu, dans le même ordre, sans texte autour."""
 
@@ -120,8 +129,14 @@ def check(item, known) -> str | None:
         return f"commentaire : {COMMENT_MAX} caractères au plus"
     if FORBIDDEN.search(comment):
         return "commentaire : ni emoji ni tiret long"
-    if not COMMENT_SHAPE.match(comment):
-        return "commentaire : « Ce que c'est. Cible : … Limite : … »"
+    shape = COMMENT_SHAPE.match(comment)
+    if not shape:
+        return "commentaire : « À prendre|À surveiller|À laisser. Raison. Acheteur type : … »"
+    best = max(exploit, resale)
+    if shape.group(1) == "À prendre" and best < PRENDRE_MIN:
+        return f"« À prendre » demande une note d'au moins {PRENDRE_MIN}"
+    if shape.group(1) == "À laisser" and best > LAISSER_MAX:
+        return f"« À laisser » demande des notes de {LAISSER_MAX} au plus"
     return None
 
 

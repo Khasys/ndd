@@ -396,7 +396,7 @@ def test_ai_opinions_round_trip_with_a_token(logged):
     conn.execute("UPDATE drops SET state = 'available', available_since = ? WHERE name = 'ciel.fr'", (now,))
     client.app.state.explorer.touch("ciel.fr")
     pending = client.get("/api/ai/pending", params={"limit": 20}).json()
-    assert pending["version"] == 2 and "revente rapide" in pending["guide"] and len(pending["names"]) == 20
+    assert pending["version"] == 3 and "revente rapide" in pending["guide"] and len(pending["names"]) == 20
     assert pending["format"]["required"][0] == "name" and pending["format"]["additionalProperties"] is False
     first = pending["names"][0]
     assert first["name"] == "ciel.fr" and first["status"] == "Libre (vérifié)"
@@ -413,7 +413,7 @@ def test_ai_opinions_round_trip_with_a_token(logged):
     assert client.get("/api/explore", headers=headers).status_code == 401
     good = {"name": "velo.fr", "exploit": 90, "resale": 90, "quick_low": 2000, "quick_high": 5000,
             "final_low": 10000, "final_high": 30000,
-            "comment": "Mot courant et commercial. Cible : vente et location de vélos. Limite : prix d'entrée élevé."}
+            "comment": "À prendre. Mot que tout le monde tape, rare en 4 lettres. Acheteur type : enseigne vélo."}
     sent = client.post("/api/ai/results", headers=headers, json={"results": [
         good,
         {**good, "exploit": 120},
@@ -426,7 +426,9 @@ def test_ai_opinions_round_trip_with_a_token(logged):
         {**good, "name": "mot.fr", "quick_high": 50000},
         {**good, "note": "en trop"},
         {**good, "comment": "Très bon nom, à acheter."},
-        {**good, "comment": "Mot courant — commercial. Cible : vélos. Limite : aucune."},
+        {**good, "comment": "À prendre. Mot courant — commercial. Acheteur type : enseigne."},
+        {**good, "exploit": 40, "resale": 40, "name": "mot.fr"},
+        {**good, "comment": "À laisser. Mot courant sans intérêt réel. Acheteur type : personne."},
     ]}).json()
     assert sent["saved"] == 1
     reasons = [r["reason"] for r in sent["rejected"]]
@@ -434,7 +436,9 @@ def test_ai_opinions_round_trip_with_a_token(logged):
                            "notes et prix : entiers attendus", "nom inconnu", "nom inconnu", "prix hors de l'échelle",
                            "fourchette inversée", "revente rapide plus chère que l'utilisateur final"]
     assert reasons[8].startswith("clés attendues") and "en trop note" in reasons[8]
-    assert reasons[9].startswith("commentaire : « Ce que c'est") and reasons[10] == "commentaire : ni emoji ni tiret long"
+    assert reasons[9].startswith("commentaire : « À prendre") and reasons[10] == "commentaire : ni emoji ni tiret long"
+    assert reasons[11] == "« À prendre » demande une note d'au moins 60"
+    assert reasons[12] == "« À laisser » demande des notes de 45 au plus"
     client.__exit__(None, None, None)
 
     client = logged()
@@ -458,9 +462,9 @@ def test_exchange_script_checks_the_format_before_sending(tmp_path):
     avis = tmp_path / "avis.json"
     avis.write_text(json.dumps([
         {"name": "velo.fr", "exploit": 90, "resale": 90, "quick_low": 2000, "quick_high": 5000, "final_low": 10000,
-         "final_high": 30000, "comment": "Mot courant. Cible : vélos. Limite : cher."},
+         "final_high": 30000, "comment": "À prendre. Mot courant et rare. Acheteur type : enseigne vélo."},
         {"name": "autre.fr", "exploit": 10, "resale": 10, "quick_low": 0, "quick_high": 0, "final_low": 0,
-         "final_high": 50, "comment": "Mot rare. Cible : personne. Limite : tout."},
+         "final_high": 50, "comment": "À laisser. Mot rare sans usage. Acheteur type : personne."},
     ]))
     out = subprocess.run([sys.executable, "scripts/ai_exchange.py", "check", str(lot), str(avis)],
                          capture_output=True, text=True, check=True).stdout

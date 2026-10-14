@@ -224,7 +224,7 @@
                 <td class="drop-name">
                   <button type="button" class="link-like mono" @click="openFiche(d.name)" x-text="d.name"></button>
                   <span class="ex-bar drop-bar" :title="scoreTitle(d)"><i :style="'width:' + d.score + '%'"></i><b x-text="d.score >= 30 ? d.score : ''"></b></span>
-                  <div class="ex-reasons"><span class="ex-reason ai" x-show="d.ai" x-text="aiTag(d.ai)" :title="d.ai ? d.ai.comment : ''"></span><template x-for="r in d.reasons.slice(0, 3)" :key="r"><span class="ex-reason" x-text="r"></span></template></div>
+                  <div class="ex-reasons"><span class="ex-reason ai" :class="aiClass(d.ai)" x-show="d.ai" x-text="aiTag(d.ai)" :title="d.ai ? d.ai.comment : ''"></span><template x-for="r in d.reasons.slice(0, 3)" :key="r"><span class="ex-reason" x-text="r"></span></template></div>
                 </td>
                 <td data-label="Type" x-text="d.categories.map((c) => dropsData.kinds[c]).join(', ')"></td>
                 <td data-label="Libéré" :title="exact(d.available_since)" x-text="relative(d.available_since)"></td>
@@ -254,7 +254,7 @@
                 <td class="drop-name">
                   <button type="button" class="link-like mono" @click="openFiche(d.name)" x-text="d.name"></button>
                   <span class="ex-bar drop-bar" :title="scoreTitle(d)"><i :style="'width:' + d.score + '%'"></i><b x-text="d.score >= 30 ? d.score : ''"></b></span>
-                  <div class="ex-reasons"><span class="ex-reason ai" x-show="d.ai" x-text="aiTag(d.ai)" :title="d.ai ? d.ai.comment : ''"></span><template x-for="r in d.reasons.slice(0, 3)" :key="r"><span class="ex-reason" x-text="r"></span></template></div>
+                  <div class="ex-reasons"><span class="ex-reason ai" :class="aiClass(d.ai)" x-show="d.ai" x-text="aiTag(d.ai)" :title="d.ai ? d.ai.comment : ''"></span><template x-for="r in d.reasons.slice(0, 3)" :key="r"><span class="ex-reason" x-text="r"></span></template></div>
                 </td>
                 <td data-label="Type" x-text="d.categories.map((c) => dropsData.kinds[c]).join(', ')"></td>
                 <td data-label="État"><span class="badge" :class="'s-' + d.state" x-text="labels[d.state]"></span></td>
@@ -457,7 +457,7 @@
                 <span class="ex-tags">
                   <span class="badge" :class="'x-' + i.status" x-show="i.status !== 2 && i.status !== 3" x-text="i.status_label"></span>
                   <template x-for="r in i.reserved" :key="r"><span class="ex-reason warn" x-text="r"></span></template>
-                  <span class="ex-reason ai" x-show="i.ai" x-text="aiTag(i.ai)" :title="i.ai ? i.ai.comment : ''"></span>
+                  <span class="ex-reason ai" :class="aiClass(i.ai)" x-show="i.ai" x-text="aiTag(i.ai)" :title="i.ai ? i.ai.comment : ''"></span>
                   <template x-for="r in i.reasons.slice(0, mobile ? 2 : 4)" :key="r"><span class="ex-reason" x-text="r"></span></template>
                   <span class="ex-reason more" x-show="i.reasons.length > (mobile ? 2 : 4)" x-text="'+' + (i.reasons.length - (mobile ? 2 : 4))"></span>
                 </span>

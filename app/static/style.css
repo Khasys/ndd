@@ -896,4 +896,6 @@ button:disabled { cursor: default; opacity: .55; }
 }
 
 .ex-reason.ai { border-color: var(--accent); color: var(--accent); }
+.ex-reason.ai.take { border-color: var(--s-available-dot); color: var(--s-available-fg); background: var(--s-available-bg); font-weight: 600; }
+.ex-reason.ai.skip { border-color: var(--line-strong); color: var(--muted); }
 .ai-comment { font-style: italic; }

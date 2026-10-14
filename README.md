@@ -218,8 +218,9 @@ probablement libres, puis enregistrés, les plus prometteurs d'abord, avec la co
 de référence pour garder des notes cohérentes. Il réimporte les avis (`POST /api/ai/results`) après
 contrôle du format, le même pour chaque avis : exactement huit champs, notes en multiples de 5,
 prix sur une échelle fixe (0, 50, 100, 150, 200, 300, 500, 800, 1 000…), revente rapide sous le prix
-final, commentaire sur le gabarit « Ce que c'est. Cible : … Limite : … » (200 caractères, sans emoji
-ni tiret long). Le script applique le même contrôle avant l'envoi (`check`). Une tâche planifiée fait l'échange
+final, commentaire sur le gabarit « Verdict. Raison. Acheteur type : … » (200 caractères, sans emoji
+ni tiret long). Le verdict est « À prendre » (note d'au moins 60), « À surveiller » ou « À laisser »
+(notes de 45 au plus) ; il apparaît en tête de l'étiquette dans les listes. Le script applique le même contrôle avant l'envoi (`check`). Une tâche planifiée fait l'échange
 chaque nuit avec `scripts/ai_exchange.py` (variables `DW_URL` et `DW_AI_TOKEN`).
 
 Le jeton se crée dans Paramètres > Avis IA ; il n'est montré qu'une fois et n'ouvre que ces deux

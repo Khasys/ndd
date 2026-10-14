@@ -362,12 +362,16 @@ document.addEventListener("alpine:init", () => {
       return low && low !== high ? `${n(low)} à ${n(high)} €` : `${n(high)} €`;
     },
 
-    // Étiquette courte dans les listes : revente rapide (haut de fourchette), sinon prix utilisateur final.
+    // Étiquette courte dans les listes : verdict, puis revente rapide (sinon prix utilisateur final).
     aiTag(a) {
       if (!a) return "";
       const k = (v) => (v >= 1000 ? `${Math.round(v / 1000)} k€` : `${v} €`);
-      return a.quick_high ? `IA ${a.resale} · rapide ${k(a.quick_high)}` : `IA ${a.resale} · final ${k(a.final_high)}`;
+      return `${this.aiVerdict(a)} · ` + (a.quick_high ? `rapide ${k(a.quick_high)}` : `final ${k(a.final_high)}`);
     },
+
+    aiVerdict(a) { return a && a.comment ? a.comment.split(".")[0] : ""; },
+
+    aiClass(a) { return { "À prendre": "take", "À surveiller": "watch", "À laisser": "skip" }[this.aiVerdict(a)] || ""; },
 
     async newAiToken() {
       if (this.cfg && this.cfg.ai && this.cfg.ai.token_set && !confirm("Un nouveau jeton remplace l'ancien : la tâche de notation devra utiliser le nouveau. Continuer ?")) return;
