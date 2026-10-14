@@ -177,6 +177,23 @@ note de 0 à 10 tirée des liens (Common Crawl), avec une clé gratuite à saisi
 la Wayback Machine donne les années où le site a été archivé, sans clé. Le nombre exact de
 backlinks n'existe que chez des services payants (Ahrefs, Majestic, Moz).
 
+Tri : score, fréquence (mot, nom ou prénom du plus courant au moins courant), longueur.
+
+#### Noms réservés (.fr)
+
+Certains noms libres ne se réservent pas simplement. L'appli télécharge chaque semaine :
+
+- la liste Afnic des termes soumis à examen préalable (PDF public, version 2021 :
+  professions réglementées, institutions, termes sensibles), lue ligne par ligne ;
+- les noms de communes (geo.api.gouv.fr), sous la forme protégée par l'Afnic : sans espaces,
+  tirets, accents ni apostrophes, avec et sans l'article.
+
+Ces noms ne sont enregistrables qu'en justifiant d'un intérêt légitime. Dans l'Explorer ils
+prennent l'état « Réservé » et sont retirés des noms à saisir, de la carte et du classement
+(réglable dans Paramètres). Bouton « Réservé » pour retirer un nom à la main, « Pas réservé »
+pour corriger une liste. La liste Afnic publiée n'est pas exhaustive : l'Afnic indique ne pas
+publier les termes dont la seule mention heurterait le public.
+
 « Probablement libre » veut dire : pour le .fr, supprimé sans réenregistrement connu ou jamais
 enregistré d'après l'open data ; pour une zone ICANN, absent de la zone. Un nom enregistré sans
 serveurs DNS est absent de la zone lui aussi. Toujours vérifier avant de conclure.

@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import bot, calendar_ics, db, digest, drops, explore, frdata, seo, signals, states, updates, wordlists
+from . import bot, calendar_ics, db, digest, drops, explore, frdata, reserved, seo, signals, states, updates, wordlists
 from .auth import (
     COOKIE_NAME,
     MIN_PASSWORD_LENGTH,
@@ -112,6 +112,10 @@ async def lifespan(app: FastAPI):
     async def tick_fr() -> None:
         await fr.tick()
 
+    async def refresh_reserved() -> None:
+        if app.state.reserved.due():
+            await app.state.reserved.refresh()
+
     now = datetime.now(timezone.utc)
     scheduler.add_job(refresh_latest, "interval", hours=24, next_run_time=now, max_instances=1, id="latest")
     scheduler.add_job(send_digest, "interval", minutes=15, max_instances=1)
@@ -119,6 +123,7 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(scan_zones, "interval", minutes=15, next_run_time=now + timedelta(minutes=1), max_instances=1)
     scheduler.add_job(check_drops, "interval", minutes=5, next_run_time=now + timedelta(minutes=3), max_instances=1)
     scheduler.add_job(import_fr, "interval", hours=6, next_run_time=now + timedelta(minutes=4), max_instances=1)
+    scheduler.add_job(refresh_reserved, "interval", hours=6, next_run_time=now + timedelta(minutes=2), max_instances=1)
     # File .fr : chaque minute, autant de requêtes que le plafond réglé le permet.
     scheduler.add_job(tick_fr, "interval", minutes=1, next_run_time=now + timedelta(minutes=6), max_instances=1)
     scheduler.start()
@@ -128,7 +133,8 @@ async def lifespan(app: FastAPI):
     app.state.scheduler = scheduler
     app.state.drops = watcher
     app.state.fr = fr
-    app.state.explorer = explore.Explorer(conn, watcher, fr)
+    app.state.reserved = reserved.Reserved(conn, store)
+    app.state.explorer = explore.Explorer(conn, watcher, fr, app.state.reserved)
     app.state.seo = seo.Seo(conn, store)
     # Classement de l'Explorer : environ 565 000 noms rangés par score, calculés une fois, hors requête.
     asyncio.get_running_loop().run_in_executor(None, lambda: app.state.explorer.universe.buckets())
@@ -594,6 +600,7 @@ async def get_settings(request: Request):
         "fr": {"enabled": state.fr.enabled, "url": state.store.get("fr_url"), "rate": state.fr.rate},
         "drops": {"keep_days": state.drops.keep_days},
         "seo": {"key_set": bool(state.seo.key)},
+        "reserved": state.reserved.status(),
         "appearance": {
             "app_name": store.get("app_name") or DEFAULT_NAME,
             "theme": store.get("theme", "system"),
@@ -725,6 +732,9 @@ async def list_drops(request: Request):
         (*drops.TRACKED, states.AVAILABLE, shown_since),
     ).fetchall()
     pending = conn.execute("SELECT COUNT(*) FROM drops WHERE state IS NULL").fetchone()[0]
+    reserved_names = request.app.state.reserved.names()
+    hide_reserved = request.app.state.reserved.mode == "hide"
+    rows = [r for r in rows if not (hide_reserved and r["name"] in reserved_names)]
     suspended = dict(conn.execute("SELECT tld, COUNT(*) FROM drops WHERE state = ? GROUP BY tld", (drops.SUSPENDED,)).fetchall())
     watched = {r[0] for r in conn.execute("SELECT name FROM domains")}
     return {
@@ -754,6 +764,7 @@ async def list_drops(request: Request):
                 "checked_at": r["checked_at"],
                 "next_check_at": r["next_check_at"],
                 "watched": r["name"] in watched,
+                "reserved": r["name"] in reserved_names,
             }
             for r in rows
         ],
@@ -833,7 +844,10 @@ async def explore_rank(request: Request):
     params.pop("cursor")
     params["status"] = params["status"] or "available"
     limit = min(int(request.query_params.get("limit", "50") or 50), explore.MAX_LIMIT * 5)
-    result = explorer.rank(**params, limit=limit)
+    sort = request.query_params.get("sort", "score")
+    if sort not in ("score", "freq", "length"):
+        raise HTTPException(422, "Tri inconnu.")
+    result = explorer.rank(**params, limit=limit, sort=sort)
     return {**result, **_explore_meta(explorer, params["tld"]),
             "counts": explorer.facets(params["tld"], params["category"], params["length"])}
 
@@ -866,6 +880,41 @@ async def explore_seo(request: Request, payload: SeoNames):
 async def explore_seo_status(request: Request):
     analyzer = request.app.state.seo
     return {"running": analyzer.running, **analyzer.progress, "key_set": bool(analyzer.key)}
+
+
+class ReservedSettings(BaseModel):
+    mode: str
+
+
+@app.put("/api/settings/reserved")
+async def set_reserved_mode(request: Request, payload: ReservedSettings):
+    if payload.mode not in ("hide", "show"):
+        raise HTTPException(422, "Mode inconnu.")
+    request.app.state.store.set("reserved_mode", payload.mode)
+    return request.app.state.reserved.status()
+
+
+@app.post("/api/reserved/refresh", status_code=202)
+async def refresh_reserved_now(request: Request):
+    lists = request.app.state.reserved
+    if not lists.running:
+        request.app.state.reserved_task = asyncio.create_task(lists.refresh())
+    return {"started": not lists.running}
+
+
+class NameFlag(BaseModel):
+    name: str
+    reserved: bool | None
+
+
+@app.post("/api/reserved/flag")
+async def flag_reserved(request: Request, payload: NameFlag):
+    try:
+        name = clean_domain(payload.name)
+    except InvalidDomain as exc:
+        raise HTTPException(422, str(exc)) from None
+    request.app.state.reserved.flag(name, payload.reserved)
+    return {"name": name, "reserved": name in request.app.state.reserved.names()}
 
 
 class SeoKey(BaseModel):

@@ -107,7 +107,6 @@
       <h2>Suppressions</h2>
       <button type="button" class="btn-ghost" @click="dropsOpen = false">Fermer</button>
     </div>
-    <p class="muted drops-lead">Noms de 1 à 4 caractères, mots français, noms de famille et prénoms courants sortis des zones ICANN, suivis jusqu'à leur libération.</p>
 
     <template x-if="dropsData && !dropsData.configured">
       <div class="drops-card">
@@ -161,7 +160,7 @@
 
         <div class="drops-card scans" x-show="scansOpen && dropsData.history.length" x-cloak>
           <h3>Historique des lectures</h3>
-          <p class="muted small">Attente réseau : le calcul attendait des données. Si elle domine, c'est la connexion ou ICANN qui limite ; si le calcul domine, c'est le NAS. Recherche répartie sur <span x-text="dropsData.workers"></span> processus.</p>
+          <p class="muted small">Attente réseau élevée : la connexion limite. Calcul élevé : le NAS limite. <span x-text="dropsData.workers"></span> processus.</p>
           <div class="scans-scroll">
             <table class="drops-table scans-table">
               <thead><tr><th>Date</th><th>Zone</th><th>Taille</th><th>Durée</th><th>Attente réseau</th><th>Calcul</th><th>Vitesse</th><th>Proc.</th><th>Résultat</th></tr></thead>
@@ -242,12 +241,6 @@
             </template>
           </tbody>
         </table>
-        <p class="muted small drops-note">
-          Un nom sort de la zone quand il entre en rédemption, ce qui laisse en général un mois avant sa libération.
-          Il est vérifié une fois à la libération estimée, puis toutes les 6 h tant qu'il n'est pas libre. Un nom libre n'est plus revérifié automatiquement : « Revérifier » au besoin.
-          <span x-show="dropsSuspended" x-text="dropsSuspended + ' nom(s) sorti(s) pour une autre raison (suspension, litige) ne sont pas affichés.'"></span>
-          Les noms convoités sont souvent repris par des services de drop-catching dans la seconde qui suit.
-        </p>
       </div>
     </template>
   </section>
@@ -306,7 +299,7 @@
         <!-- Sans recherche : où sont les affaires. -->
         <template x-if="!ex.q.trim() && exMap">
           <div class="ex-map">
-            <h3 class="drops-title">Où sont les affaires <span class="muted small">noms à saisir par catégorie</span></h3>
+            <h3 class="drops-title">Noms à saisir</h3>
             <div class="ex-map-scroll">
               <table class="ex-map-table">
                 <thead><tr><th></th><template x-for="t in exMap.tlds" :key="t"><th class="mono" x-text="'.' + t"></th></template></tr></thead>
@@ -329,8 +322,13 @@
         </template>
 
         <div class="ex-list-head">
-          <h3 class="drops-title" x-text="ex.q.trim() ? 'Noms qui commencent par « ' + ex.q.trim() + ' »' : 'Meilleures affaires en .' + ex.tld"></h3>
+          <h3 class="drops-title" x-text="ex.q.trim() ? '« ' + ex.q.trim() + ' »…' : '.' + ex.tld"></h3>
           <div class="ex-tools">
+            <select class="filter-input ex-sort" x-model="ex.sort" @change="exLoad()" aria-label="Tri">
+              <option value="score">Score</option>
+              <option value="freq">Fréquence</option>
+              <option value="length">Longueur</option>
+            </select>
             <button type="button" class="btn-ghost sm" @click="exSeoTop()" :disabled="exSeo.running || !exItems.length" :title="exSeo.key_set ? 'PageRank et archives Wayback' : 'Archives Wayback seulement : clé Open PageRank dans Paramètres'" x-text="exSeo.running ? 'SEO ' + exSeo.done + '/' + exSeo.total : 'SEO des 50 premiers'"></button>
             <a class="btn-ghost sm" :href="'/api/explore/export?' + exQuery(-1)" download>CSV</a>
           </div>
@@ -353,7 +351,6 @@
             <button type="button" class="tag" :class="{ on: ex.len === n }" @click="ex.len = n; exLoad()" x-text="n === '' ? 'Toutes longueurs' : n === '5' ? '5 et plus' : n + ' car.'"></button>
           </template>
         </div>
-        <p class="muted small ex-note" x-text="exNote()"></p>
 
         <p class="muted small" x-show="!exLoading && !exItems.length">Aucun nom pour ces critères.</p>
         <ol class="ex-list">
@@ -366,7 +363,8 @@
                   <span class="ex-score" :class="scoreClass(i.score)" x-text="i.score" title="Score sur 100"></span>
                 </div>
                 <div class="ex-reasons">
-                  <span class="badge" :class="'x-' + i.status" x-text="i.status_label"></span>
+                  <span class="badge" :class="'x-' + i.status" x-text="i.status_label" :title="i.reserved.join(', ')"></span>
+                  <template x-for="r in i.reserved" :key="r"><span class="ex-reason warn" x-text="r"></span></template>
                   <template x-for="r in i.reasons" :key="r"><span class="ex-reason" x-text="r"></span></template>
                 </div>
                 <p class="small muted" x-show="exDetail(i)" x-text="exDetail(i)"></p>
@@ -375,6 +373,7 @@
                 <button type="button" class="btn-ghost sm" @click="exCheck(i)" :disabled="!!exBusy[i.name]" x-text="exBusy[i.name] ? 'Vérification' : 'Vérifier'"></button>
                 <button type="button" class="btn-ghost sm" @click="exSeoOne(i)" :disabled="!!exBusy[i.name] || exSeo.running">SEO</button>
                 <button type="button" class="btn-ghost sm" @click="exWatch(i)" :disabled="i.watched" x-text="i.watched ? 'Surveillé' : 'Surveiller'"></button>
+                <button type="button" class="btn-ghost sm" @click="exFlag(i, i.status !== 7)" x-text="i.status === 7 ? 'Pas réservé' : 'Réservé'" :title="i.status === 7 ? 'Remettre dans les noms à saisir' : 'Retirer des noms à saisir'"></button>
               </div>
             </li>
           </template>
@@ -563,13 +562,13 @@
               <input type="checkbox" x-model="cfg.fr.enabled" @change="saveFr()">
               <span>Suivre le .fr dans Suppressions</span>
             </label>
-            <p class="muted small">Le .fr n'est pas dans CZDS. L'appli importe chaque mois la liste ouverte des noms en .fr publiée par l'Afnic (environ 120 Mo) et garde les noms suivis. Chaque nom enregistré est vérifié une fois par an, le lendemain de sa date anniversaire de création. Chaque nouvelle suppression du fichier est vérifiée aussi.</p>
+            <p class="muted small">Open data Afnic mensuel. Vérification le lendemain de chaque date anniversaire et à chaque nouvelle suppression.</p>
             <form class="inline-form" @submit.prevent="saveFr()">
               <label class="small" for="fr-rate">Requêtes par minute vers l'Afnic</label>
               <input id="fr-rate" type="number" min="1" max="20" x-model.number="cfg.fr.rate" class="num-input">
               <button type="submit" class="btn-ghost">Enregistrer</button>
             </form>
-            <p class="muted small" x-text="'Plafond commun à toutes les vérifications .fr, boutons compris : ' + ((cfg.fr.rate || 2) * 1440).toLocaleString('fr-FR') + ' par jour au plus. L\'Afnic ne publie pas de limite. Au premier signal de trop de requêtes, pause d\'1 h, doublée à chaque nouveau signal.'"></p>
+            <p class="muted small" x-text="((cfg.fr.rate || 2) * 1440).toLocaleString('fr-FR') + ' par jour au plus. Pause automatique si l\'Afnic limite.'"></p>
             <details class="fr-advanced">
               <summary class="small muted">Adresse du fichier (facultatif)</summary>
               <form class="inline-form" @submit.prevent="saveFr()">
@@ -590,7 +589,23 @@
             <button type="submit" class="btn-ghost">Enregistrer</button>
           </form>
         </template>
-        <p class="muted small">Passé ce délai, le nom n'est plus affiché dans Suppressions. Il reste en base et dans l'Explorer.</p>
+        <p class="muted small">Ensuite visible dans l'Explorer seulement.</p>
+      </div>
+
+      <div>
+        <h2>Noms réservés (.fr)</h2>
+        <template x-if="cfg">
+          <div class="setting-lines">
+            <label class="check">
+              <input type="checkbox" :checked="cfg.reserved.mode === 'hide'" @change="saveReservedMode($event.target.checked ? 'hide' : 'show')">
+              <span>Retirer des noms à saisir</span>
+            </label>
+            <p class="small" x-text="reservedLine(cfg.reserved)"></p>
+            <p class="small error-text" x-show="cfg.reserved.error" x-text="cfg.reserved.error"></p>
+            <p><button type="button" class="btn-ghost" @click="refreshReserved()" :disabled="cfg.reserved.running">Mettre à jour les listes</button></p>
+          </div>
+        </template>
+        <p class="muted small">Examen préalable Afnic et noms de communes : intérêt légitime exigé.</p>
       </div>
 
       <div>
@@ -601,7 +616,7 @@
             <button type="submit" class="btn-ghost">Enregistrer</button>
           </form>
         </template>
-        <p class="muted small">Note de 0 à 10 tirée des liens vers le domaine (Common Crawl). Clé gratuite sur domcop.com/openpagerank. Sans clé, l'analyse se limite aux archives Wayback. Le nombre exact de backlinks n'existe que chez des services payants.</p>
+        <p class="muted small">PageRank 0 à 10 : clé gratuite sur domcop.com/openpagerank. Sans clé : archives Wayback seulement.</p>
       </div>
 
       <div>

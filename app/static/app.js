@@ -101,7 +101,7 @@ document.addEventListener("alpine:init", () => {
     exBusy: {},
     exSeo: { running: false, done: 0, total: 0, key_set: true },
     seoKey: "",
-    ex: { tld: "", q: "", status: "available", cat: "", len: "" },
+    ex: { tld: "", q: "", status: "available", cat: "", len: "", sort: "score" },
     dropTld: "",
     dropKinds: [],
     dropSort: "release",
@@ -227,7 +227,7 @@ document.addEventListener("alpine:init", () => {
       const ticket = (this._exTicket = (this._exTicket || 0) + 1);
       this.exLoading = true;
       try {
-        const data = await this.api("GET", `/api/explore/rank?${this.exQuery(-1)}&limit=${this.exLimit}`);
+        const data = await this.api("GET", `/api/explore/rank?${this.exQuery(-1)}&limit=${this.exLimit}&sort=${this.ex.sort}`);
         // Une frappe ou un filtre plus récent a déjà relancé le chargement : ce résultat est périmé.
         if (ticket !== this._exTicket) return;
         this.exError = "";
@@ -281,19 +281,42 @@ document.addEventListener("alpine:init", () => {
 
     scoreClass(n) { return n >= 70 ? "hi" : n >= 45 ? "mid" : "lo"; },
 
-    exNote() {
-      if (!this.exData) return "";
-      const fr = this.ex.tld === "fr";
-      const notes = {
-        available: "Les meilleurs d'abord. Score sur 100, expliqué sous chaque nom.",
-        maybe_free: fr ? "Supprimés sans réenregistrement connu, ou jamais enregistrés, d'après l'open data Afnic du dernier mois." : "Absents de la zone. Un nom enregistré sans serveurs DNS en est absent aussi.",
-        coming: "En rédemption ou en suppression : libération estimée dans le détail.",
-        free: "Vérifiés libres en RDAP.",
-        registered: "Enregistrés aujourd'hui.",
-        suspended: "Hors zone sans être supprimés (hold, litige).",
-      };
-      const seo = this.exSeo.key_set ? "" : " SEO sans clé Open PageRank : archives Wayback seulement.";
-      return (notes[this.ex.status] || "") + (this.ex.status === "available" || this.ex.status === "maybe_free" ? " À confirmer avec « Vérifier »." : "") + seo;
+    async exFlag(i, isReserved) {
+      try {
+        await this.api("POST", "/api/reserved/flag", { name: i.name, reserved: isReserved });
+        this.exItems = this.exItems.filter((x) => x.name !== i.name);
+        this.say(isReserved ? `${i.name} marqué réservé.` : `${i.name} remis dans les noms à saisir.`);
+        this.exLoadMap();
+      } catch (e) {
+        this.say(e.message, "error");
+      }
+    },
+
+    reservedLine(r) {
+      const c = r.counts || {};
+      const when = r.at ? `, mis à jour ${this.relative(r.at)}` : ", pas encore téléchargées";
+      return `${this.fmt(c.afnic)} termes Afnic, ${this.fmt(c.commune)} formes de noms de communes, ${this.fmt(r.manual_reserved)} marqués à la main, ${this.fmt(r.manual_ok)} remis${when}.`;
+    },
+
+    async saveReservedMode(mode) {
+      try {
+        this.cfg.reserved = await this.api("PUT", "/api/settings/reserved", { mode });
+      } catch (e) {
+        this.say(e.message, "error");
+      }
+    },
+
+    async refreshReserved() {
+      try {
+        await this.api("POST", "/api/reserved/refresh");
+        this.cfg.reserved.running = true;
+        const poll = setInterval(async () => {
+          await this.loadSettings();
+          if (!this.cfg.reserved.running) clearInterval(poll);
+        }, 3000);
+      } catch (e) {
+        this.say(e.message, "error");
+      }
     },
 
     async exSeoStatus() {

@@ -23,7 +23,7 @@ from . import drops, states, value, wordlists
 from .checker import iso, utcnow
 
 # États, un octet par nom.
-INVALID, REGISTERED, GONE, ABSENT, COMING, FREE, SUSPENDED = range(7)
+INVALID, REGISTERED, GONE, ABSENT, COMING, FREE, SUSPENDED, RESERVED = range(8)
 
 LABELS = {
     REGISTERED: "Enregistré",
@@ -32,6 +32,7 @@ LABELS = {
     COMING: "Libération à venir",
     FREE: "Libre (vérifié)",
     SUSPENDED: "Suspendu",
+    RESERVED: "Réservé",
 }
 # Pour une zone ICANN, l'absence veut seulement dire « pas dans la zone » : un nom enregistré
 # sans serveurs DNS n'y figure pas non plus. Pour le .fr, l'open data liste aussi l'historique.
@@ -45,6 +46,7 @@ STATUS_FILTERS = {
     "free": (FREE,),
     "registered": (REGISTERED,),
     "suspended": (SUSPENDED,),
+    "reserved": (RESERVED,),
 }
 STATUS_NAMES = {
     "available": "À saisir",
@@ -53,7 +55,10 @@ STATUS_NAMES = {
     "free": "Libres vérifiés",
     "registered": "Enregistrés",
     "suspended": "Suspendus",
+    "reserved": "Réservés",
 }
+# Réservés mêlés aux noms à saisir si on le demande dans Paramètres.
+WITH_RESERVED = {"available", "maybe_free", "free", "coming"}
 # Pris sur une autre extension : signe de demande pour le nom.
 TAKEN_CODES = (REGISTERED, SUSPENDED, COMING)
 
@@ -112,6 +117,17 @@ class Universe:
                        for n in range(1, drops.MAX_SHORT + 1)}
         self.letters4, self.digits4 = self.letters[4], self.digits[4]
         self._buckets: list[array] | None = None
+        # Noms des listes du plus fréquent au moins fréquent, par liste et toutes listes confondues.
+        ranks = wordlists.ranks()
+        self.by_frequency = {key: array("i", (self.index(w) for w in sorted(r, key=r.get) if self.index(w) is not None))
+                             for key, r in ranks.items()}
+        best: dict[int, float] = {}
+        for key, r in ranks.items():
+            for w, n in r.items():
+                i = self.index(w)
+                if i is not None:
+                    best[i] = min(best.get(i, 1.0), n / len(r))
+        self.by_frequency[""] = array("i", sorted(best, key=best.get))
 
     def buckets(self) -> list[array]:
         """Noms qui peuvent valoir quelque chose, rangés par score de base (0 à 70).
@@ -168,10 +184,11 @@ def shared_universe() -> Universe:
 
 
 class Explorer:
-    def __init__(self, conn, drops_watcher: drops.DropWatcher, fr_watcher):
+    def __init__(self, conn, drops_watcher: drops.DropWatcher, fr_watcher, reserved=None):
         self.conn = conn
         self.drops = drops_watcher
         self.fr = fr_watcher
+        self.reserved = reserved
         self._universe: Universe | None = None
         self._cache: dict[str, tuple[float, object, bytearray]] = {}
 
@@ -243,7 +260,19 @@ class Explorer:
                 status[i] = SUSPENDED
             elif state == drops.TAKEN:
                 status[i] = REGISTERED
+        if self.reserved is not None:
+            # Réservé : seulement s'il n'est pas enregistré. Un nom pris reste « Enregistré ».
+            for i in self.reserved.indices(tld, u):
+                if status[i] in (GONE, ABSENT, FREE, COMING):
+                    status[i] = RESERVED
         return status
+
+    def codes(self, status: str, default: str = "") -> tuple[int, ...]:
+        key = status if status in STATUS_FILTERS else default
+        codes = STATUS_FILTERS.get(key) or tuple(LABELS)
+        if key in WITH_RESERVED and self.reserved is not None and self.reserved.mode == "show":
+            codes = codes + (RESERVED,)
+        return codes
 
     def invalidate(self, tld: str | None = None) -> None:
         if tld:
@@ -319,7 +348,7 @@ class Explorer:
     def search(self, tld: str, q: str = "", mode: str = "prefix", status: str = "", category: str = "",
                length: int | None = None, cursor: int = -1, limit: int = 50) -> dict:
         limit = max(1, min(limit, EXPORT_LIMIT))
-        codes = STATUS_FILTERS.get(status) or tuple(LABELS)
+        codes = self.codes(status)
         data = self.status_bytes(tld)
         u = self.universe
         q = self.normalize(q, tld)
@@ -408,11 +437,22 @@ class Explorer:
         return value.score(label, taken, ctx["gone"].get(i), ctx["seo"].get(f"{label}.{tld}"), ctx["today"])
 
     def rank(self, tld: str, q: str = "", mode: str = "prefix", status: str = "available", category: str = "",
-             length: int | None = None, limit: int = 50) -> dict:
+             length: int | None = None, limit: int = 50, sort: str = "score") -> dict:
         """Les meilleurs noms d'abord. Sans recherche, parcours par score de base décroissant,
-        arrêté dès qu'aucun nom restant ne peut plus entrer dans le classement."""
+        arrêté dès qu'aucun nom restant ne peut plus entrer dans le classement.
+
+        sort="freq" : mots, noms ou prénoms du plus fréquent au moins fréquent.
+        sort="length" : du plus court au plus long, puis dans l'ordre alphabétique."""
+        if sort == "freq":
+            return self._by_frequency(tld, q, mode, status, category, length, limit)
+        if sort == "length":
+            found = self.search(tld, q, mode, status, category, length, -1, limit)
+            ctx = self._bonus_context(tld)
+            for item in found["items"]:
+                item.update(self._value(tld, self.universe.index(item["label"]), item["label"], ctx))
+            return {"items": found["items"]}
         limit = max(1, min(limit, MAX_LIMIT * 5))
-        codes = STATUS_FILTERS.get(status) or STATUS_FILTERS["available"]
+        codes = self.codes(status, "available")
         data = self.status_bytes(tld)
         u = self.universe
         ctx = self._bonus_context(tld)
@@ -447,6 +487,30 @@ class Explorer:
             item.update(entry[3])
         return {"items": items}
 
+    def _by_frequency(self, tld, q, mode, status, category, length, limit) -> dict:
+        codes = self.codes(status, "available")
+        data = self.status_bytes(tld)
+        u = self.universe
+        ctx = self._bonus_context(tld)
+        order = u.by_frequency.get(category if category in wordlists.LABELS else "", u.by_frequency[""])
+        q = self.normalize(q, tld)
+        hits = []
+        for i in order:
+            if data[i] not in codes:
+                continue
+            label = u.label(i)
+            if q and not (label == q if mode == "exact" else q in label if mode == "contains" else label.startswith(q)):
+                continue
+            if not self._keep(label, category, length):
+                continue
+            hits.append(i)
+            if len(hits) >= limit:
+                break
+        items = self.describe(tld, hits, data)
+        for i, item in zip(hits, items):
+            item.update(self._value(tld, i, item["label"], ctx))
+        return {"items": items}
+
     def facets(self, tld: str, category: str = "", length: int | None = None) -> dict:
         """Nombre de noms par état, pour la catégorie et la longueur choisies."""
         data = self.status_bytes(tld)
@@ -478,12 +542,12 @@ class Explorer:
                 add_range(drops.OFFSETS[n - 1], drops.OFFSETS[n])
                 add_indices(u.letters[n], -1)
                 add_indices(u.digits[n], -1)
-        return {key: sum(counts[c] for c in codes) for key, codes in STATUS_FILTERS.items()}
+        return {key: sum(counts[c] for c in self.codes(key)) for key in STATUS_FILTERS}
 
     def map(self) -> dict:
         """Carte extension x catégorie : noms à saisir par case."""
         u = self.universe
-        codes = STATUS_FILTERS["available"]
+        codes = self.codes("available")
         tlds = self.tlds()
         cells = {}
         for tld in tlds:
@@ -551,6 +615,7 @@ class Explorer:
                 "release_at": drop["release_at"] if drop else None,
                 "available_since": drop["available_since"] if drop else None,
                 "watched": name in watched,
+                "reserved": self.reserved.why(name) if self.reserved is not None and code == RESERVED else [],
             })
         return items
 
