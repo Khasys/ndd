@@ -3,6 +3,7 @@ import hmac
 import html
 import secrets
 import json
+import math
 import logging
 import re
 import sqlite3
@@ -644,12 +645,12 @@ async def set_czds(request: Request, payload: CzdsAccount):
     username = payload.username.strip()
     if not username:
         raise HTTPException(422, "Identifiant ICANN manquant.")
+    if not payload.password and not store.get("czds_password"):
+        raise HTTPException(422, "Mot de passe ICANN manquant.")
     previous = (store.get("czds_username"), store.get("czds_password"))
     store.set("czds_username", username)
     if payload.password:
         store.set("czds_password", payload.password)
-    if not store.get("czds_password"):
-        raise HTTPException(422, "Mot de passe ICANN manquant.")
     try:
         approved = await watcher.refresh_approved()
     except drops.CzdsError as exc:
@@ -698,11 +699,11 @@ async def set_fr(request: Request, payload: FrSettings):
     url = payload.url.strip()
     if url and not url.startswith("https://"):
         raise HTTPException(422, "Adresse du fichier : https:// attendu.")
+    if payload.rate is not None and not 1 <= payload.rate <= frdata.MAX_RATE:
+        raise HTTPException(422, f"Requêtes par minute : entre 1 et {frdata.MAX_RATE}.")
     store.set("fr_enabled", "1" if payload.enabled else "0")
     store.set("fr_url", url)
     if payload.rate is not None:
-        if not 1 <= payload.rate <= frdata.MAX_RATE:
-            raise HTTPException(422, f"Requêtes par minute : entre 1 et {frdata.MAX_RATE}.")
         store.set("fr_rate", str(payload.rate))
     return {"enabled": payload.enabled, "url": url, "rate": request.app.state.fr.rate}
 
@@ -818,9 +819,10 @@ def _explore_params(request: Request) -> dict:
     explorer = request.app.state.explorer
     tlds = explorer.tlds()
     # Une ou plusieurs extensions, séparées par des virgules, dans l'ordre de la liste connue.
-    # Une extension inconnue (zone retirée, vue ancienne) est ignorée plutôt que de bloquer l'écran.
-    asked = {t.strip().lstrip(".") for t in (p.get("tld") or "").split(",") if t.strip()}
-    chosen = [t for t in tlds if t in asked] or tlds[:1]
+    # Une extension inconnue (zone retirée, vue ancienne) est ignorée si une autre est connue ;
+    # aucune connue : 404, et l'écran revient à l'extension par défaut.
+    asked = {t.strip().lstrip(".").lower() for t in (p.get("tld") or "").split(",") if t.strip()}
+    chosen = [t for t in tlds if t in asked] if asked else tlds[:1]
     if not chosen:
         raise HTTPException(404, "Extension sans données : importer le .fr ou lire les zones d'abord.")
     tld = chosen[0]
@@ -831,10 +833,13 @@ def _explore_params(request: Request) -> dict:
         min_score = int(p["min"]) if p.get("min") else None
     except ValueError:
         raise HTTPException(422, "Paramètre numérique invalide.") from None
+    if p.get("cat") and p["cat"] not in explore.KINDS:
+        raise HTTPException(422, "Catégorie inconnue.")
     if p.get("nat") and p["nat"] not in explore.NATURES:
         raise HTTPException(422, "Nature inconnue.")
     taken = p.get("taken", "")
-    if taken and taken != "any" and taken not in tlds:
+    # « Pris en .X » avec .X dans la sélection, ou inconnu : sans objet.
+    if taken and taken != "any" and (taken not in tlds or taken in chosen):
         taken = ""
     mode = p.get("mode", "prefix")
     if mode not in ("prefix", "contains", "exact"):
@@ -845,6 +850,16 @@ def _explore_params(request: Request) -> dict:
             "category": p.get("cat", ""), "length": length, "cursor": cursor, "nature": p.get("nat", ""),
             "max_rank": max_rank, "min_score": min_score, "taken": taken, "junk": p.get("junk") == "1",
             "seo": p.get("seo", "") if p.get("seo", "") in explore.SEO_FILTERS else ""}
+
+
+def _limit(request: Request, most: int) -> int:
+    try:
+        limit = int(request.query_params.get("limit") or 50)
+    except ValueError:
+        raise HTTPException(422, "Paramètre numérique invalide.") from None
+    if limit < 1:
+        raise HTTPException(422, "Paramètre numérique invalide.")
+    return min(limit, most)
 
 
 def _facets(explorer, params: dict) -> dict:
@@ -876,8 +891,14 @@ async def explore_search(request: Request):
     explorer = request.app.state.explorer
     params = _explore_params(request)
     chosen = params.pop("tlds")
-    limit = min(int(request.query_params.get("limit", "50") or 50), explore.MAX_LIMIT)
-    result = explorer.search(**params, limit=limit)
+    limit = _limit(request, explore.MAX_LIMIT)
+    if len(chosen) == 1:
+        result = explorer.search(**params, limit=limit)
+    else:
+        # Plusieurs extensions : une page par extension, sans curseur commun.
+        rest = {k: v for k, v in params.items() if k != "tld"}
+        items = [i for tld in chosen for i in explorer.search(tld, **rest, limit=limit)["items"]]
+        result = {"items": items[:limit], "cursor": None}
     params["tlds"] = chosen
     return {**result, **_explore_meta(explorer, params["tld"], chosen),
             "counts": _facets(explorer, params)}
@@ -890,7 +911,7 @@ async def explore_rank(request: Request):
     params = _explore_params(request)
     params.pop("cursor")
     params["status"] = params["status"] or "available"
-    limit = min(int(request.query_params.get("limit", "50") or 50), explore.MAX_LIMIT * 5)
+    limit = _limit(request, explore.MAX_LIMIT * 5)
     sort = request.query_params.get("sort", "score")
     if sort not in ("score", "freq", "length", "seo"):
         raise HTTPException(422, "Tri inconnu.")
@@ -968,7 +989,10 @@ class Weights(BaseModel):
 
 @app.put("/api/settings/weights")
 async def set_weights(request: Request, payload: Weights):
-    clean = {k: max(0.0, min(2.0, float(payload.values.get(k, 1.0)))) for k in value.CRITERIA}
+    raw = {k: float(payload.values.get(k, 1.0)) for k in value.CRITERIA}
+    if any(math.isnan(v) or math.isinf(v) for v in raw.values()):
+        raise HTTPException(422, "Poids invalide.")
+    clean = {k: max(0.0, min(2.0, v)) for k, v in raw.items()}
     request.app.state.store.set("score_weights", json.dumps(clean))
     request.app.state.explorer.refresh_settings()
     return {"values": clean, "labels": value.CRITERIA}
@@ -1003,12 +1027,19 @@ async def get_views(request: Request):
 
 @app.put("/api/explore/views")
 async def set_views(request: Request, payload: Views):
+    if len(payload.views) > 30:
+        raise HTTPException(422, "30 vues au plus.")
     keep = []
-    for view in payload.views[:30]:
+    for view in payload.views:
         name = str(view.get("name", "")).strip()[:60]
-        if name and isinstance(view.get("filters"), dict):
-            # La liste des extensions peut être longue (« Toutes ») : pas de coupure pour elle.
-            keep.append({"name": name, "filters": {str(k)[:20]: str(v)[:400 if k == "tld" else 40] for k, v in view["filters"].items()}})
+        filters = view.get("filters")
+        if not name or not isinstance(filters, dict) or len(filters) > 20:
+            continue
+        keep = [v for v in keep if v["name"] != name]  # même nom : la dernière l'emporte
+        # La liste des extensions peut être longue (« Toutes ») : pas de coupure pour elle.
+        clean = {str(k)[:20]: ("" if v is None else str(v))[:400 if k == "tld" else 40]
+                 for k, v in filters.items() if v is None or isinstance(v, (str, int, float, bool))}
+        keep.append({"name": name, "filters": clean})
     request.app.state.store.set("explore_views", json.dumps(keep))
     return keep
 
@@ -1087,7 +1118,8 @@ async def explore_export(request: Request):
             item["created_on"] or "", item["removed_on"] or "", item["expires_at"] or "", item["checked_at"] or "",
         ]))
     filename = f"explorer-{'-'.join(chosen)}.csv"
-    return Response("\n".join(lines) + "\n", media_type="text/csv; charset=utf-8",
+    # BOM : Excel lit alors les accents correctement.
+    return Response("\ufeff" + "\n".join(lines) + "\n", media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 

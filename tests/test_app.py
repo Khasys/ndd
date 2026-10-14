@@ -315,7 +315,14 @@ def test_explorer_and_drops_settings(logged):
     assert scores == sorted(scores, reverse=True)
     # Extension inconnue (zone retirée, vue ancienne) : ignorée, l'écran reste utilisable.
     assert client.get("/api/explore/rank", params={"tld": "fr,xyz"}).json()["tld"] == "fr"
-    assert client.get("/api/explore/rank", params={"tld": "xyz"}).json()["tld"] == "fr"
+    assert client.get("/api/explore/rank", params={"tld": "xyz"}).status_code == 404
+    assert client.get("/api/explore/rank", params={"tld": "FR"}).json()["tld"] == "fr"
+    # Cas qui figeaient le serveur ou renvoyaient 500.
+    assert client.get("/api/explore/rank", params={"limit": "abc"}).status_code == 422
+    assert client.get("/api/explore", params={"limit": "0"}).status_code == 422
+    assert client.get("/api/explore", params={"cat": "zzz"}).status_code == 422
+    assert client.get("/api/explore", params={"tld": "fr", "taken": "fr"}).json()["items"]
+    assert client.get("/api/explore", params={"tld": "fr", "taken": "any", "cat": "surname"}).json()["counts"]["registered"] >= 0
     for sort in ("freq", "length"):
         merged = client.get("/api/explore/rank", params={"tld": "fr,com", "cat": "surname", "sort": sort, "limit": 40}).json()["items"]
         alone = client.get("/api/explore/rank", params={"tld": "fr", "cat": "surname", "sort": sort, "limit": 40}).json()["items"]
@@ -325,7 +332,9 @@ def test_explorer_and_drops_settings(logged):
 
     assert client.put("/api/settings/drops", json={"keep_days": 0}).status_code == 422
     assert client.put("/api/settings/drops", json={"keep_days": 45}).json() == {"keep_days": 45}
-    assert client.put("/api/settings/fr", json={"enabled": True, "rate": 50}).status_code == 422
+    assert client.put("/api/settings/fr", json={"enabled": False, "url": "https://x/y", "rate": 50}).status_code == 422
+    assert client.app.state.store.get("fr_url") != "https://x/y"  # rien d'écrit sur une erreur
+    assert client.put("/api/settings/weights", json={"values": {"shape": "NaN"}}).status_code == 422
     assert client.put("/api/settings/fr", json={"enabled": True, "rate": 5}).json()["rate"] == 5
     settings = client.get("/api/settings").json()
     assert settings["drops"]["keep_days"] == 45 and settings["fr"]["rate"] == 5

@@ -474,6 +474,11 @@ class Explorer:
                 return False
         return True
 
+    def _hopeless(self, tld: str, f: Filters) -> bool:
+        """« Pris ailleurs » sans autre extension où regarder : aucun nom ne peut passer.
+        Réponse immédiate plutôt qu'un parcours de tout l'univers."""
+        return bool(f.taken) and not any(t != tld and (f.taken == "any" or t == f.taken) for t in self.tlds())
+
     def _others(self, tld: str, f: Filters) -> list[bytearray]:
         """Octets d'état des extensions où le nom doit être pris (filtre « pris ailleurs »)."""
         if not f.taken:
@@ -527,6 +532,8 @@ class Explorer:
     def search(self, tld: str, *args, cursor: int = -1, limit: int = 50, **kwargs) -> dict:
         f = Filters.of(*args, **kwargs)
         limit = max(1, min(limit, EXPORT_LIMIT))
+        if self._hopeless(tld, f):
+            return {"items": [], "cursor": None}
         codes = self.codes(f.status)
         data = self.status_bytes(tld)
         others = self._others(tld, f)
@@ -620,6 +627,8 @@ class Explorer:
         kwargs.setdefault("status", "available")
         f = Filters.of(*args, **kwargs)
         limit = max(1, min(limit, MAX_LIMIT * 5))
+        if self._hopeless(tld, f):
+            return {"items": []}
         if sort == "length":
             return self._ordered(tld, f, limit)
         if sort == "freq":
@@ -815,6 +824,8 @@ class Explorer:
     def facets(self, tld: str, *args, **kwargs) -> dict:
         """Nombre de noms par état, pour les filtres choisis (recherche exclue)."""
         f = Filters.of(*args, **kwargs)
+        if self._hopeless(tld, f):
+            return dict.fromkeys(STATUS_FILTERS, 0)
         key = ("facets", tld, f.category, f.length, f.nature, f.max_rank, f.taken, f.junk, f.seo)
         raw = self._memo(key, lambda: self._facets(tld, f))
         by_code = raw["by_code"]

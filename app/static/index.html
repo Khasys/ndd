@@ -431,6 +431,7 @@
             </button>
           </template>
         </div>
+        <p class="muted small ex-note" x-show="ex.min && ex.min !== '0'">Compteurs sans le score minimum : il ne s'applique qu'à la liste.</p>
 
         <div class="ex-list-head">
           <select class="filter-input ex-sort" x-model="ex.sort" @change="exSet({})" aria-label="Tri">

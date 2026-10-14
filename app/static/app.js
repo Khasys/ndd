@@ -346,7 +346,15 @@ document.addEventListener("alpine:init", () => {
         this.ex.tld = data.tld;
         this.exItems = data.items;
       } catch (e) {
-        if (ticket === this._exTicket) this.exError = e.message;
+        if (ticket !== this._exTicket) return;
+        // Extension mémorisée qui n'existe plus : retour à l'extension par défaut, une fois.
+        if (e.status === 404 && this.ex.tld) {
+          this.ex.tld = "";
+          this.ex.taken = "";
+          this.exLoading = false;
+          return this.exLoad(reset);
+        }
+        this.exError = e.message;
       } finally {
         if (ticket === this._exTicket) this.exLoading = false;
       }
@@ -908,7 +916,7 @@ document.addEventListener("alpine:init", () => {
           const data = await res.json();
           if (typeof data.detail === "string") detail = data.detail;
         } catch (_) {}
-        throw new Error(detail);
+        throw Object.assign(new Error(detail), { status: res.status });
       }
       return res.status === 204 ? null : res.json();
     },
