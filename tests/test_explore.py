@@ -104,12 +104,6 @@ def test_zone_status_and_drops_overlay(env):
     assert absent["status_label"] == explore.ABSENT_ZONE
 
 
-def test_suggestions(env):
-    assert "navarro" in env.suggest("navar") and "navar" not in env.suggest("navar")
-    # Un nom court est toujours proposé tel quel : il fait partie des noms suivis.
-    assert env.suggest("qz")[0] == "qz"
-
-
 def test_status_scan_jumps_fast(env):
     add_fr(env, "zzzz")
     start = time.monotonic()
@@ -141,3 +135,71 @@ def test_paused_afnic_refuses_manual_checks(env):
     env.fr._pause("Limite (429)", datetime.now(timezone.utc))
     with pytest.raises(explore.VerifyError, match="pause"):
         asyncio.run(env.verify("velo.fr"))
+
+
+def test_value_scores_are_explained():
+    from app import value
+    assert value.base("ab") > value.base("abc") > value.base("mako") > value.base("xkcd") > value.base("ab12")
+    found = value.score("maison", ["com"])
+    assert found["reasons"][:2] == ["6 lettres", "mot n° 153"] and "pris en .com" in found["reasons"]
+    old = {"created_on": "2008-01-01", "removed_on": "2026-03-01"}
+    assert value.score("maison", [], old, today=datetime(2026, 10, 1).date())["score"] > value.score("maison", [])["score"]
+
+
+def test_rank_puts_the_best_first_and_respects_filters(env):
+    zone(env, ["ab"], ["maison"])
+    add_fr(env, "zz")
+    found = env.rank("fr", limit=20)["items"]
+    scores = [i["score"] for i in found]
+    assert scores == sorted(scores, reverse=True)
+    assert all(i["status"] in (explore.GONE, explore.ABSENT, explore.FREE, explore.COMING) for i in found)
+    assert "zz.fr" not in [i["name"] for i in found]  # enregistré : pas à saisir
+    # Pris en .com : la demande remonte le nom.
+    words = env.rank("fr", category="word", limit=5)["items"]
+    assert words and all("word" in i["categories"] for i in words) and words[0]["reasons"]
+    assert all(len(i["label"]) == 3 for i in env.rank("fr", length=3, limit=10)["items"])
+    typed = env.rank("fr", q="mais", limit=5)["items"]
+    assert typed and all(i["label"].startswith("mais") for i in typed)
+
+
+def test_facets_follow_the_filters(env):
+    add_fr(env, "ab")
+    add_fr(env, "a1", removed="2025-01-01")
+    all_fr = env.facets("fr")
+    two = env.facets("fr", length=2)
+    letters2 = env.facets("fr", category="letters", length=2)
+    mixed2 = env.facets("fr", category="mixed", length=2)
+    assert two["registered"] == 1 and letters2["registered"] == 1 and mixed2["registered"] == 0
+    assert letters2["available"] == 26 * 26 - 1
+    assert letters2["available"] + mixed2["available"] + env.facets("fr", category="digits", length=2)["available"] == two["available"]
+    assert all_fr["available"] > two["available"]
+
+
+def test_map_counts_per_extension_and_category(env):
+    zone(env, ["ab"], ["maison"])
+    add_fr(env, "ab")
+    found = env.map()
+    assert found["tlds"] == ["fr", "com"] and "Mots" in found["rows"].values()
+    assert found["cells"]["fr"]["s3"] == found["cells"]["com"]["s3"] and found["filters"]["l4"] == {"cat": "letters", "len": 4}
+    assert found["cells"]["com"]["word"] == len(env.universe.by_list["word"]) - 1
+
+
+def test_seo_analysis_reads_pagerank_and_wayback(env):
+    import httpx
+    from app import seo
+
+    def handler(request):
+        if request.url.host == "openpagerank.com":
+            assert request.headers["API-OPR"] == "cle"
+            return httpx.Response(200, json={"status_code": 200, "response": [
+                {"domain": "velo.fr", "page_rank_decimal": 3.21, "status_code": 200}]})
+        return httpx.Response(200, json=[["timestamp"], ["20040312000000"], ["20110101000000"], ["20190101000000"]])
+
+    env.fr.store.set("opr_key", "cle")
+    analyzer = seo.Seo(env.conn, env.fr.store, lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    rows = asyncio.run(analyzer.analyze(["velo.fr"]))
+    row = rows["velo.fr"]
+    assert row["pr"] == 3.21 and row["wb_first"] == "2004-03-12" and row["wb_years"] == 3 and row["error"] is None
+    add_fr(env, "velo", removed="2025-01-01")
+    item = env.rank("fr", q="velo", mode="exact")["items"][0]
+    assert "PageRank 3,2" in item["reasons"] and any("2004" in r for r in item["reasons"])

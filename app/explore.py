@@ -12,9 +12,14 @@ Recherche, filtres et comptages se font sur ces octets : bytes.find et bytes.cou
 """
 
 import bisect
+import functools
+import heapq
 import itertools
 import time
-from . import drops, states, wordlists
+from array import array
+from datetime import date
+
+from . import drops, states, value, wordlists
 from .checker import iso, utcnow
 
 # États, un octet par nom.
@@ -34,11 +39,44 @@ ABSENT_ZONE = "Absent de la zone"
 ABSENT_FR = "Jamais enregistré"
 
 STATUS_FILTERS = {
-    "registered": (REGISTERED,),
+    "available": (GONE, ABSENT, FREE, COMING),
     "maybe_free": (GONE, ABSENT),
     "coming": (COMING,),
     "free": (FREE,),
+    "registered": (REGISTERED,),
     "suspended": (SUSPENDED,),
+}
+STATUS_NAMES = {
+    "available": "À saisir",
+    "maybe_free": "Probablement libres",
+    "coming": "Libération à venir",
+    "free": "Libres vérifiés",
+    "registered": "Enregistrés",
+    "suspended": "Suspendus",
+}
+# Pris sur une autre extension : signe de demande pour le nom.
+TAKEN_CODES = (REGISTERED, SUSPENDED, COMING)
+
+# Catégories de l'Explorer.
+KINDS = {
+    "letters": "Lettres",
+    "digits": "Chiffres",
+    "mixed": "Mélangés, tirets",
+    **wordlists.LABELS,
+}
+
+# Lignes de la carte : catégorie -> libellé.
+# Chaque case correspond à un filtre : catégorie et longueur.
+MAP_ROWS = {
+    "s1": "1 caractère",
+    "s2": "2 caractères",
+    "s3": "3 caractères",
+    "l4": "4 lettres",
+    "d4": "4 chiffres",
+    "o4": "4 caractères, autres",
+    "word": "Mots",
+    "surname": "Noms de famille",
+    "firstname": "Prénoms",
 }
 
 CACHE_SECONDS = 600
@@ -65,6 +103,41 @@ class Universe:
         # Noms des listes, par position : le filtre par catégorie ne parcourt qu'eux.
         self.listed = sorted(i for i in (self.index(w) for w in listed) if i is not None)
         self.listed_sorted_labels = sorted(listed)
+        self.by_list = {key: array("i", sorted(self.index(w) for w in names if self.index(w) is not None))
+                        for key, names in wordlists.lists().items()}
+        # Positions des noms en lettres seules et en chiffres seuls, par longueur.
+        self.letters = {n: array("i", (drops.encode("".join(p)) for p in itertools.product(drops.CHARSET[:26], repeat=n)))
+                        for n in range(1, drops.MAX_SHORT + 1)}
+        self.digits = {n: array("i", (drops.encode("".join(p)) for p in itertools.product(drops.CHARSET[26:36], repeat=n)))
+                       for n in range(1, drops.MAX_SHORT + 1)}
+        self.letters4, self.digits4 = self.letters[4], self.digits[4]
+        self._buckets: list[array] | None = None
+
+    def buckets(self) -> list[array]:
+        """Noms qui peuvent valoir quelque chose, rangés par score de base (0 à 70).
+
+        Noms des listes, noms de 1 à 3 caractères, 4 lettres et 4 chiffres : environ 565 000.
+        Les 4 caractères mélangés (1,4 million) valent trop peu pour le classement.
+        """
+        if self._buckets is not None:
+            return self._buckets
+        buckets = [array("i") for _ in range(71)]
+        listed = set(self.listed_sorted_labels)
+        for label in listed:
+            i = self.index(label)
+            if i is not None:
+                buckets[value.base(label)].append(i)
+        for length in range(1, 4):
+            for i in range(drops.OFFSETS[length - 1], drops.OFFSETS[length]):
+                label = drops.decode(i)
+                if drops.valid_label(label) and label not in listed:
+                    buckets[value.shape(label)[0]].append(i)
+        for i in itertools.chain(self.letters4, self.digits4):
+            label = drops.decode(i)
+            if label not in listed:
+                buckets[value.shape(label)[0]].append(i)
+        self._buckets = buckets
+        return buckets
 
     def index(self, label: str) -> int | None:
         if len(label) <= drops.MAX_SHORT:
@@ -88,6 +161,12 @@ class Universe:
         return kinds + wordlists.categories(label)
 
 
+@functools.lru_cache(maxsize=1)
+def shared_universe() -> Universe:
+    """L'univers ne dépend que des listes de noms : une seule instance par processus."""
+    return Universe()
+
+
 class Explorer:
     def __init__(self, conn, drops_watcher: drops.DropWatcher, fr_watcher):
         self.conn = conn
@@ -99,7 +178,7 @@ class Explorer:
     @property
     def universe(self) -> Universe:
         if self._universe is None:
-            self._universe = Universe()
+            self._universe = shared_universe()
         return self._universe
 
     # --- Extensions et octets d'état -------------------------------------------------
@@ -231,7 +310,11 @@ class Explorer:
             return True
         if category in wordlists.LABELS:
             return label in wordlists.lists()[category]
-        return len(label) <= drops.MAX_SHORT and drops.kind_of(label) == category
+        if len(label) > drops.MAX_SHORT:
+            return False
+        kind = drops.kind_of(label)
+        # Dans l'Explorer, « mélangés » regroupe lettres et chiffres mêlés et noms à tiret.
+        return kind == category or (category == "mixed" and kind == "hyphen")
 
     def search(self, tld: str, q: str = "", mode: str = "prefix", status: str = "", category: str = "",
                length: int | None = None, cursor: int = -1, limit: int = 50) -> dict:
@@ -281,6 +364,147 @@ class Explorer:
     def counts(self, tld: str) -> dict:
         data = self.status_bytes(tld)
         return {key: sum(data.count(c) for c in codes) for key, codes in STATUS_FILTERS.items()}
+
+    # --- Classement des affaires -------------------------------------------------------
+
+    def _fr_rows(self, labels: list[str]) -> dict:
+        found = {}
+        for chunk in range(0, len(labels), 900):
+            part = labels[chunk:chunk + 900]
+            rows = self.conn.execute(
+                f"SELECT * FROM fr_names WHERE label IN ({','.join('?' * len(part))})", part
+            ).fetchall()
+            found.update({r["label"]: r for r in rows})
+        return found
+
+    def _seo_rows(self, names: list[str]) -> dict:
+        found = {}
+        for chunk in range(0, len(names), 900):
+            part = names[chunk:chunk + 900]
+            rows = self.conn.execute(
+                f"SELECT * FROM domain_seo WHERE name IN ({','.join('?' * len(part))})", part
+            ).fetchall()
+            found.update({r["name"]: r for r in rows})
+        return found
+
+    def _bonus_context(self, tld: str) -> dict:
+        """Ce qu'il faut pour le bonus : les autres extensions, l'historique .fr, le SEO connu."""
+        others = {t: self.status_bytes(t) for t in self.tlds() if t != tld}
+        gone = {}
+        if tld == "fr":
+            u = self.universe
+            for label, created, removed in self.conn.execute(
+                    "SELECT label, created_on, removed_on FROM fr_names WHERE removed_on IS NOT NULL"):
+                i = u.index(label)
+                if i is not None:
+                    gone[i] = {"created_on": created, "removed_on": removed}
+        seo = {r["name"]: r for r in self.conn.execute("SELECT * FROM domain_seo WHERE name LIKE ?", (f"%.{tld}",))}
+        # Bonus le plus haut possible avec ces données : sert à arrêter le classement au plus tôt.
+        reach = value.demand(list(others))[0] + (15 if gone else 0) + (20 if seo else 0)
+        return {"others": others, "gone": gone, "seo": seo, "today": date.today(), "reach": reach}
+
+    def _value(self, tld: str, i: int, label: str, ctx: dict) -> dict:
+        taken = [t for t, data in ctx["others"].items() if data[i] in TAKEN_CODES]
+        return value.score(label, taken, ctx["gone"].get(i), ctx["seo"].get(f"{label}.{tld}"), ctx["today"])
+
+    def rank(self, tld: str, q: str = "", mode: str = "prefix", status: str = "available", category: str = "",
+             length: int | None = None, limit: int = 50) -> dict:
+        """Les meilleurs noms d'abord. Sans recherche, parcours par score de base décroissant,
+        arrêté dès qu'aucun nom restant ne peut plus entrer dans le classement."""
+        limit = max(1, min(limit, MAX_LIMIT * 5))
+        codes = STATUS_FILTERS.get(status) or STATUS_FILTERS["available"]
+        data = self.status_bytes(tld)
+        u = self.universe
+        ctx = self._bonus_context(tld)
+        q = self.normalize(q, tld)
+        best: list[tuple[int, int, int, dict]] = []  # tas : (score, -position, position, valeur)
+
+        def consider(i: int) -> None:
+            if data[i] not in codes:
+                return
+            label = u.label(i)
+            if not self._keep(label, category, length):
+                return
+            found = self._value(tld, i, label, ctx)
+            entry = (found["score"], -i, i, found)
+            if len(best) < limit:
+                heapq.heappush(best, entry)
+            elif entry > best[0]:
+                heapq.heapreplace(best, entry)
+
+        if q:
+            for i in self._short_matching(q, mode) + self._word_matching(q, mode):
+                consider(i)
+        else:
+            for score in range(70, -1, -1):
+                if len(best) >= limit and score + ctx["reach"] <= best[0][0]:
+                    break
+                for i in self.universe.buckets()[score]:
+                    consider(i)
+        ranked = sorted(best, reverse=True)
+        items = self.describe(tld, [e[2] for e in ranked], data)
+        for item, entry in zip(items, ranked):
+            item.update(entry[3])
+        return {"items": items}
+
+    def facets(self, tld: str, category: str = "", length: int | None = None) -> dict:
+        """Nombre de noms par état, pour la catégorie et la longueur choisies."""
+        data = self.status_bytes(tld)
+        u = self.universe
+        counts = dict.fromkeys(range(256), 0)
+
+        def add_range(lo: int, hi: int, sign: int = 1) -> None:
+            for c in LABELS:
+                counts[c] += sign * data.count(c, lo, hi)
+
+        def add_indices(indices, sign: int = 1) -> None:
+            for i in indices:
+                if not length or self._keep(u.label(i), "", length):
+                    counts[data[i]] += sign
+
+        lengths = [length] if length and length <= drops.MAX_SHORT else [] if length else list(range(1, drops.MAX_SHORT + 1))
+        if not category:
+            lo, hi = self._range(length)
+            add_range(lo, hi)
+        elif category in wordlists.LABELS:
+            add_indices(u.by_list[category])
+        elif category in ("letters", "digits"):
+            arrays = u.letters if category == "letters" else u.digits
+            for n in lengths:
+                add_indices(arrays[n])
+        else:
+            # Mélangés et tirets : tout le reste, par soustraction (pas de parcours d'1,9 million de noms).
+            for n in lengths:
+                add_range(drops.OFFSETS[n - 1], drops.OFFSETS[n])
+                add_indices(u.letters[n], -1)
+                add_indices(u.digits[n], -1)
+        return {key: sum(counts[c] for c in codes) for key, codes in STATUS_FILTERS.items()}
+
+    def map(self) -> dict:
+        """Carte extension x catégorie : noms à saisir par case."""
+        u = self.universe
+        codes = STATUS_FILTERS["available"]
+        tlds = self.tlds()
+        cells = {}
+        for tld in tlds:
+            data = self.status_bytes(tld)
+            count = lambda lo, hi: sum(data.count(c, lo, hi) for c in codes)
+            in_list = lambda indices: sum(1 for i in indices if data[i] in codes)
+            row = {
+                "s1": count(0, drops.OFFSETS[1]),
+                "s2": count(drops.OFFSETS[1], drops.OFFSETS[2]),
+                "s3": count(drops.OFFSETS[2], drops.OFFSETS[3]),
+                "l4": in_list(u.letters4),
+                "d4": in_list(u.digits4),
+            }
+            row["o4"] = count(drops.OFFSETS[3], drops.OFFSETS[4]) - row["l4"] - row["d4"]
+            for key in wordlists.LABELS:
+                row[key] = in_list(u.by_list[key])
+            cells[tld] = row
+        filters = {"s1": ("", 1), "s2": ("", 2), "s3": ("", 3), "l4": ("letters", 4), "d4": ("digits", 4),
+                   "o4": ("mixed", 4), **{k: (k, None) for k in wordlists.LABELS}}
+        return {"rows": MAP_ROWS, "tlds": tlds, "cells": cells,
+                "filters": {k: {"cat": c, "len": n} for k, (c, n) in filters.items()}}
 
     # --- Fiches ----------------------------------------------------------------------
 
@@ -336,27 +560,12 @@ class Explorer:
         i = self.universe.index(label)
         if i is None:
             return {"label": label, "known": False, "items": []}
-        return {
-            "label": label,
-            "known": True,
-            "categories": self.universe.categories(label),
-            "items": [self.describe(tld, [i])[0] for tld in self.tlds()],
-        }
-
-    def suggest(self, q: str, limit: int = 8) -> list[str]:
-        q = self.normalize(q)
-        if not q:
-            return []
-        labels = self.universe.listed_sorted_labels
-        lo = bisect.bisect_left(labels, q)
-        found = []
-        for label in labels[lo:]:
-            if not label.startswith(q) or len(found) >= limit:
-                break
-            found.append(label)
-        if drops.valid_label(q) and q not in found:
-            found.insert(0, q)
-        return found[:limit]
+        items = []
+        for tld in self.tlds():
+            item = self.describe(tld, [i])[0]
+            item.update(self._value(tld, i, label, self._bonus_context(tld)))
+            items.append(item)
+        return {"label": label, "known": True, "categories": self.universe.categories(label), "items": items}
 
     # --- Vérification à la demande ----------------------------------------------------
 

@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import bot, calendar_ics, db, digest, drops, explore, frdata, signals, states, updates, wordlists
+from . import bot, calendar_ics, db, digest, drops, explore, frdata, seo, signals, states, updates, wordlists
 from .auth import (
     COOKIE_NAME,
     MIN_PASSWORD_LENGTH,
@@ -129,6 +129,9 @@ async def lifespan(app: FastAPI):
     app.state.drops = watcher
     app.state.fr = fr
     app.state.explorer = explore.Explorer(conn, watcher, fr)
+    app.state.seo = seo.Seo(conn, store)
+    # Classement de l'Explorer : environ 565 000 noms rangés par score, calculés une fois, hors requête.
+    asyncio.get_running_loop().run_in_executor(None, lambda: app.state.explorer.universe.buckets())
     app.state.store = store
     app.state.telegram = telegram
     app.state.settings = settings
@@ -590,6 +593,7 @@ async def get_settings(request: Request):
         "czds": _czds_settings(state.drops),
         "fr": {"enabled": state.fr.enabled, "url": state.store.get("fr_url"), "rate": state.fr.rate},
         "drops": {"keep_days": state.drops.keep_days},
+        "seo": {"key_set": bool(state.seo.key)},
         "appearance": {
             "app_name": store.get("app_name") or DEFAULT_NAME,
             "theme": store.get("theme", "system"),
@@ -794,31 +798,84 @@ def _explore_params(request: Request) -> dict:
     mode = p.get("mode", "prefix")
     if mode not in ("prefix", "contains", "exact"):
         raise HTTPException(422, "Mode de recherche inconnu.")
+    if p.get("status") and p["status"] not in explore.STATUS_FILTERS:
+        raise HTTPException(422, "État inconnu.")
     return {"tld": tld, "q": p.get("q", ""), "mode": mode, "status": p.get("status", ""),
             "category": p.get("cat", ""), "length": length, "cursor": cursor}
 
 
+def _explore_meta(explorer, tld: str) -> dict:
+    return {
+        "tld": tld,
+        "tlds": explorer.tlds(),
+        "kinds": explore.KINDS,
+        "statuses": explore.STATUS_NAMES,
+        "absent_label": explore.ABSENT_FR if tld == "fr" else explore.ABSENT_ZONE,
+    }
+
+
 @app.get("/api/explore")
 async def explore_search(request: Request):
+    """Liste par ordre des noms (et export) : la vue « par nom »."""
     explorer = request.app.state.explorer
     params = _explore_params(request)
     limit = min(int(request.query_params.get("limit", "50") or 50), explore.MAX_LIMIT)
     result = explorer.search(**params, limit=limit)
-    return {
-        **result,
-        "tld": params["tld"],
-        "tlds": explorer.tlds(),
-        "counts": explorer.counts(params["tld"]),
-        "kinds": drops.KINDS,
-        "statuses": {k: v for k, v in {
-            "registered": "Enregistrés",
-            "maybe_free": "Probablement libres",
-            "coming": "Libération à venir",
-            "free": "Libres vérifiés",
-            "suspended": "Suspendus",
-        }.items()},
-        "absent_label": "Jamais enregistré (open data)" if params["tld"] == "fr" else explore.ABSENT_ZONE,
-    }
+    return {**result, **_explore_meta(explorer, params["tld"]),
+            "counts": explorer.facets(params["tld"], params["category"], params["length"])}
+
+
+@app.get("/api/explore/rank")
+async def explore_rank(request: Request):
+    """Les meilleures affaires d'abord, avec les compteurs de la sélection."""
+    explorer = request.app.state.explorer
+    params = _explore_params(request)
+    params.pop("cursor")
+    params["status"] = params["status"] or "available"
+    limit = min(int(request.query_params.get("limit", "50") or 50), explore.MAX_LIMIT * 5)
+    result = explorer.rank(**params, limit=limit)
+    return {**result, **_explore_meta(explorer, params["tld"]),
+            "counts": explorer.facets(params["tld"], params["category"], params["length"])}
+
+
+@app.get("/api/explore/map")
+async def explore_map(request: Request):
+    return request.app.state.explorer.map()
+
+
+class SeoNames(BaseModel):
+    names: list[str]
+
+
+@app.post("/api/explore/seo")
+async def explore_seo(request: Request, payload: SeoNames):
+    analyzer = request.app.state.seo
+    names = [n.strip().lower() for n in payload.names if n.strip()][:seo.MAX_NAMES]
+    if not names:
+        raise HTTPException(422, "Aucun nom à analyser.")
+    if analyzer.running:
+        raise HTTPException(409, "Une analyse est déjà en cours.")
+    if len(names) == 1:
+        rows = await analyzer.analyze(names)
+        return {"done": True, "rows": {k: dict(v) for k, v in rows.items()}}
+    request.app.state.seo_task = asyncio.create_task(analyzer.analyze(names))
+    return {"done": False, "total": len(names)}
+
+
+@app.get("/api/explore/seo")
+async def explore_seo_status(request: Request):
+    analyzer = request.app.state.seo
+    return {"running": analyzer.running, **analyzer.progress, "key_set": bool(analyzer.key)}
+
+
+class SeoKey(BaseModel):
+    key: str
+
+
+@app.put("/api/settings/seo")
+async def set_seo_key(request: Request, payload: SeoKey):
+    request.app.state.store.set("opr_key", payload.key.strip())
+    return {"key_set": bool(payload.key.strip())}
 
 
 @app.get("/api/explore/export")
@@ -840,11 +897,6 @@ async def explore_export(request: Request):
 @app.get("/api/explore/name")
 async def explore_name(request: Request):
     return request.app.state.explorer.card(request.query_params.get("label", ""))
-
-
-@app.get("/api/explore/suggest")
-async def explore_suggest(request: Request):
-    return request.app.state.explorer.suggest(request.query_params.get("q", ""))
 
 
 @app.post("/api/explore/check")

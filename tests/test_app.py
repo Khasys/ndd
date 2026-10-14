@@ -290,7 +290,13 @@ def test_explorer_and_drops_settings(logged):
     assert client.get("/api/explore", params={"mode": "nimporte"}).status_code == 422
     card = client.get("/api/explore/name", params={"label": "Navarro.fr"}).json()
     assert card["known"] and card["items"][0]["name"] == "navarro.fr"
-    assert "navarro" in client.get("/api/explore/suggest", params={"q": "navar"}).json()
+    ranked = client.get("/api/explore/rank", params={"cat": "surname", "limit": 5}).json()
+    assert ranked["items"] and ranked["counts"]["available"] > 0 and "Mots" in ranked["kinds"].values()
+    assert client.get("/api/explore/map").json()["tlds"] == ["fr"]
+    assert client.get("/api/explore/rank", params={"status": "nimporte"}).status_code == 422
+    assert client.put("/api/settings/seo", json={"key": "abc"}).json() == {"key_set": True}
+    assert client.get("/api/settings").json()["seo"] == {"key_set": True}
+    assert client.post("/api/explore/seo", json={"names": []}).status_code == 422
     csv = client.get("/api/explore/export", params={"status": "registered"})
     assert csv.headers["content-type"].startswith("text/csv") and "navarro.fr;Enregistré" in csv.text
 
