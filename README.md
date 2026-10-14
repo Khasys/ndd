@@ -154,20 +154,24 @@ Tous les noms suivis, extension par extension : les 1 926 220 noms possibles de 
 puis les mots, noms de famille et prénoms. L'état vient des données déjà sur le NAS, sans aucune
 requête : zones ICANN lues chaque jour, open data de l'Afnic, écran Suppressions par-dessus.
 
-- **Où sont les affaires** : carte extension × catégorie (1, 2, 3 caractères, 4 lettres,
-  4 chiffres, mots, noms, prénoms) avec le nombre de noms à saisir. Une case ouvre le classement.
-- **Meilleures affaires** : noms à saisir (probablement libres, libres vérifiés, libération à
-  venir) classés par score sur 100, avec ses raisons sous chaque nom.
-- Filtres en un geste (état, catégorie, longueur) ; les compteurs suivent la sélection.
+- **Carte** : extension × catégorie (1 à 3 caractères, 4 lettres, mots, formes fléchies, noms,
+  prénoms), nombre de noms à saisir par case. Une case ouvre la liste filtrée.
+- **Liste** triée par score, par fréquence ou par longueur. Une ligne s'ouvre d'un geste : toutes
+  les raisons, le détail du score, la dernière réponse RDAP ou WHOIS (registrar, dates, statuts,
+  DNS), et les actions (Vérifier, Réserver chez OVH, SEO, Surveiller, Réservé).
+- **Filtres** (panneau du bas sur téléphone) : catégorie, nature des mots (verbes, noms communs,
+  adjectifs, adverbes, mots outils), longueur, fréquence (top 100 à top 5 000), pris sur une
+  autre extension, score minimum. Les compteurs suivent les filtres ; les filtres sont mémorisés.
+- **Vues enregistrées** : un jeu de filtres nommé, rappelé d'un geste.
+- **Sélection multiple** : Vérifier, SEO, Surveiller ou Réservé en lot.
 - Recherche : le nom tapé sur toutes les extensions, puis les noms qui commencent pareil.
-- « Vérifier » interroge le registre ; pour le .fr, sous le plafond de l'Afnic. Export CSV.
 
-Score, barème fixe (`app/value.py`) :
+Score (`app/value.py`), chaque critère pondérable de 0 à 2 dans Paramètres :
 
 | Critère | Points |
 |---|---|
 | Forme : longueur, lettres avant chiffres, 4 lettres prononçables | 40 au plus |
-| Popularité : rang du mot (Lexique), du nom ou du prénom (Insee) | 30 au plus |
+| Popularité : rang du mot ou de la forme (Lexique), du nom ou du prénom (Insee) | 30 au plus |
 | Demande : pris sur d'autres extensions, .com surtout | 15 au plus |
 | Historique .fr : années de détention, suppression récente | 15 au plus |
 | SEO, si analysé : Open PageRank, années archivées par la Wayback Machine | 20 au plus |

@@ -101,7 +101,17 @@ document.addEventListener("alpine:init", () => {
     exBusy: {},
     exSeo: { running: false, done: 0, total: 0, key_set: true },
     seoKey: "",
-    ex: { tld: "", q: "", status: "available", cat: "", len: "", sort: "score" },
+    ex: { tld: "", q: "", status: "available", cat: "", len: "", sort: "score", nat: "", rank: "", taken: "", min: "" },
+    exFiltersOpen: false,
+    dropOpen: null,
+    exOpen: null,
+    exSelected: [],
+    exBulkRunning: false,
+    exBulkDone: 0,
+    exViews: [],
+    exLengths: [{ v: "", label: "Toutes" }, { v: "-3", label: "1 à 3" }, { v: "1", label: "1" }, { v: "2", label: "2" }, { v: "3", label: "3" }, { v: "4", label: "4" }, { v: "5", label: "5 et plus" }],
+    exRanks: [{ v: "", label: "Toutes" }, { v: "100", label: "Top 100" }, { v: "500", label: "Top 500" }, { v: "1000", label: "Top 1 000" }, { v: "5000", label: "Top 5 000" }],
+    orderUrl: "",
     dropTld: "",
     dropKinds: [],
     dropSort: "release",
@@ -206,7 +216,10 @@ document.addEventListener("alpine:init", () => {
         this.settingsOpen = false;
         this.exploreOpen = opening;
         if (opening) {
+          this.exRestore();
           this.exSeoStatus();
+          this.exLoadViews();
+          if (!this.orderUrl) this.api("GET", "/api/settings").then((c) => (this.orderUrl = c.order_url)).catch(() => {});
           await Promise.all([this.exLoad(), this.exLoadMap()]);
         }
       } else {
@@ -217,7 +230,8 @@ document.addEventListener("alpine:init", () => {
     // Explorer : tous les noms suivis, extension par extension.
 
     exQuery(cursor) {
-      const params = new URLSearchParams({ q: this.ex.q.trim(), mode: "prefix", status: this.ex.status, cat: this.ex.cat, len: this.ex.len, cursor: String(cursor) });
+      const e = this.ex;
+      const params = new URLSearchParams({ q: e.q.trim(), mode: "prefix", status: e.status, cat: e.cat, len: e.len, nat: e.nat, rank: e.rank, taken: e.taken, min: e.min && e.min !== "0" ? e.min : "", cursor: String(cursor) });
       if (this.ex.tld) params.set("tld", this.ex.tld);
       return params.toString();
     },
@@ -265,16 +279,123 @@ document.addEventListener("alpine:init", () => {
       return loading;
     },
 
-    exMapOn(key, tld) {
-      const f = this.exMap.filters[key];
-      return !this.ex.q.trim() && this.ex.tld === tld && this.ex.cat === (f.cat || "") && this.ex.len === (f.len ? String(f.len) : "");
-    },
-
     async exMapPick(key, tld) {
       const f = this.exMap.filters[key];
-      Object.assign(this.ex, { tld, cat: f.cat || "", len: f.len ? String(f.len) : "", status: "available" });
+      await this.exSet({ tld, cat: f.cat || "", len: f.len ? String(f.len) : "", status: "available" });
+      this.$nextTick(() => document.querySelector(".ex-status")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    },
+
+    // Filtres : un seul point d'entrée, mémorisé pour la prochaine ouverture.
+    async exSet(patch) {
+      Object.assign(this.ex, patch);
+      if ("cat" in patch && patch.cat && !["word", "form"].includes(patch.cat)) this.ex.nat = "";
+      this.exSelected = [];
+      this.exOpen = null;
+      try { localStorage.setItem("explorer", JSON.stringify({ ...this.ex, q: "" })); } catch (_) {}
       await this.exLoad();
-      this.$nextTick(() => document.querySelector(".ex-list-head")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    },
+
+    exRestore() {
+      try {
+        const saved = JSON.parse(localStorage.getItem("explorer") || "null");
+        if (saved) Object.assign(this.ex, saved, { q: "" });
+      } catch (_) {}
+    },
+
+    exActive() {
+      if (!this.exData) return [];
+      const e = this.ex;
+      const out = [];
+      if (e.cat) out.push({ key: "cat", label: this.exData.kinds[e.cat] });
+      if (e.nat) out.push({ key: "nat", label: this.exData.natures[e.nat] });
+      if (e.len) out.push({ key: "len", label: this.exLengths.find((o) => o.v === e.len)?.label + " car." });
+      if (e.rank) out.push({ key: "rank", label: this.exRanks.find((o) => o.v === e.rank)?.label });
+      if (e.taken) out.push({ key: "taken", label: e.taken === "any" ? "Pris ailleurs" : "Pris en ." + e.taken });
+      if (e.min && e.min !== "0") out.push({ key: "min", label: "Score ≥ " + e.min });
+      return out;
+    },
+
+    exClear(key) { return this.exSet({ [key]: "" }); },
+
+    exReset() { return this.exSet({ cat: "", nat: "", len: "", rank: "", taken: "", min: "", status: "available" }); },
+
+    async exLoadViews() {
+      try { this.exViews = await this.api("GET", "/api/explore/views"); } catch (_) {}
+    },
+
+    async exSaveViews(views) {
+      try { this.exViews = await this.api("PUT", "/api/explore/views", { views }); } catch (e) { this.say(e.message, "error"); }
+    },
+
+    async exSaveView() {
+      const name = prompt("Nom de la vue", this.exActive().map((a) => a.label).join(", "));
+      if (!name) return;
+      const { q, ...filters } = this.ex;
+      await this.exSaveViews([...this.exViews.filter((v) => v.name !== name), { name, filters }]);
+    },
+
+    exApplyView(v) { return this.exSet({ ...v.filters, q: "" }); },
+
+    exDeleteView(n) { return this.exSaveViews(this.exViews.filter((_, i) => i !== n)); },
+
+    exToggle(name) {
+      this.exSelected = this.exSelected.includes(name) ? this.exSelected.filter((x) => x !== name) : [...this.exSelected, name];
+    },
+
+    exSelectAll() {
+      this.exSelected = this.exSelected.length ? [] : this.exItems.map((i) => i.name);
+    },
+
+    async exBulk(action) {
+      const names = [...this.exSelected];
+      const items = this.exItems.filter((i) => names.includes(i.name));
+      this.exBulkRunning = true;
+      this.exBulkDone = 0;
+      try {
+        if (action === "seo") {
+          await this.api("POST", "/api/explore/seo", { names: names.slice(0, 100) });
+          this.say(`Analyse SEO de ${Math.min(names.length, 100)} noms lancée.`);
+          const poll = setInterval(async () => {
+            await this.exSeoStatus();
+            if (!this.exSeo.running) { clearInterval(poll); await this.exLoad(false); }
+          }, 3000);
+          return;
+        }
+        for (const i of items) {
+          if (action === "check") await this.exCheck(i);
+          else if (action === "watch" && !i.watched) await this.exWatch(i);
+          else if (action === "reserve") await this.api("POST", "/api/reserved/flag", { name: i.name, reserved: true });
+          this.exBulkDone += 1;
+        }
+        if (action === "reserve") { await this.exLoad(false); this.exLoadMap(); }
+        this.exSelected = [];
+      } catch (e) {
+        this.say(e.message, "error");
+      } finally {
+        this.exBulkRunning = false;
+      }
+    },
+
+    scoreTitle(i) {
+      if (!i.parts) return "";
+      const names = { shape: "forme", popularity: "popularité", demand: "demande", history: "historique", seo: "SEO" };
+      return `Score ${i.score} : ` + Object.entries(i.parts).filter(([, v]) => v).map(([k, v]) => `${names[k]} ${v}`).join(", ");
+    },
+
+    rdapHtml(r) {
+      const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+      const rows = [[r.source === "whois" ? "WHOIS" : "RDAP", `${r.available ? "libre" : "enregistré"}, lu ${this.relative(r.at)}`]];
+      if (r.registrar) rows.push(["Registrar", r.registrar]);
+      if (r.registered_at) rows.push(["Créé", this.shortDate(r.registered_at)]);
+      if (r.updated_at) rows.push(["Modifié", this.shortDate(r.updated_at)]);
+      if (r.expires_at) rows.push(["Expire", this.shortDate(r.expires_at)]);
+      if (r.statuses?.length) rows.push(["Statuts", r.statuses.join(", ")]);
+      if (r.nameservers?.length) rows.push(["DNS", r.nameservers.join(", ")]);
+      return rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("");
+    },
+
+    orderLink(name) {
+      return (this.orderUrl || "https://www.ovhcloud.com/fr/order/webcloud/?#/webCloud/domain/select?selection=~(domain~'{domain}')").replace("{domain}", encodeURIComponent(name));
     },
 
     exAvailable(i) { return [2, 3, 4, 5].includes(i.status); },
@@ -296,6 +417,24 @@ document.addEventListener("alpine:init", () => {
       const c = r.counts || {};
       const when = r.at ? `, mis à jour ${this.relative(r.at)}` : ", pas encore téléchargées";
       return `${this.fmt(c.afnic)} termes Afnic, ${this.fmt(c.commune)} formes de noms de communes, ${this.fmt(r.manual_reserved)} marqués à la main, ${this.fmt(r.manual_ok)} remis${when}.`;
+    },
+
+    async saveWeights() {
+      try {
+        this.cfg.weights = await this.api("PUT", "/api/settings/weights", { values: this.cfg.weights.values });
+      } catch (e) {
+        this.say(e.message, "error");
+      }
+    },
+
+    async saveOrderUrl() {
+      try {
+        const res = await this.api("PUT", "/api/settings/order-url", { url: this.cfg.order_url || "" });
+        this.cfg.order_url = this.orderUrl = res.order_url;
+        this.say("Lien de réservation enregistré.");
+      } catch (e) {
+        this.say(e.message, "error");
+      }
     },
 
     async saveReservedMode(mode) {
@@ -451,6 +590,7 @@ document.addEventListener("alpine:init", () => {
     // Suppressions : noms courts, mots et noms de famille sortis des zones ICANN.
 
     async loadDrops() {
+      if (!this.orderUrl) this.api("GET", "/api/settings").then((c) => (this.orderUrl = c.order_url)).catch(() => {});
       try {
         this.dropsData = await this.api("GET", "/api/drops");
       } catch (e) {
