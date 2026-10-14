@@ -1029,7 +1029,7 @@ async def ai_pending(request: Request):
     """Liste à noter, avec la consigne : la tâche planifiée la récupère chaque nuit."""
     explorer = request.app.state.explorer
     names = ai.pending(explorer, _limit(request, ai.MAX_PENDING))
-    return {"version": ai.VERSION, "guide": ai.GUIDE, "names": names}
+    return {"version": ai.VERSION, "guide": ai.GUIDE, "format": ai.FORMAT, "names": names}
 
 
 class AiResults(BaseModel):

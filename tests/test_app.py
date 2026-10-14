@@ -397,6 +397,7 @@ def test_ai_opinions_round_trip_with_a_token(logged):
     client.app.state.explorer.touch("ciel.fr")
     pending = client.get("/api/ai/pending", params={"limit": 20}).json()
     assert pending["version"] == 2 and "revente rapide" in pending["guide"] and len(pending["names"]) == 20
+    assert pending["format"]["required"][0] == "name" and pending["format"]["additionalProperties"] is False
     first = pending["names"][0]
     assert first["name"] == "ciel.fr" and first["status"] == "Libre (vérifié)"
     assert {"categories", "ranks", "taken_elsewhere", "base"} <= set(first)
@@ -411,18 +412,29 @@ def test_ai_opinions_round_trip_with_a_token(logged):
     assert client.get("/api/ai/pending", headers=headers, params={"limit": 5}).status_code == 200
     assert client.get("/api/explore", headers=headers).status_code == 401
     good = {"name": "velo.fr", "exploit": 90, "resale": 90, "quick_low": 2000, "quick_high": 5000,
-            "final_low": 10000, "final_high": 30000, "comment": "Mot courant et commercial : vente, location, réparation."}
+            "final_low": 10000, "final_high": 30000,
+            "comment": "Mot courant et commercial. Cible : vente et location de vélos. Limite : prix d'entrée élevé."}
     sent = client.post("/api/ai/results", headers=headers, json={"results": [
         good,
         {**good, "exploit": 120},
+        {**good, "exploit": 87},
+        {**good, "exploit": "90"},
         {**good, "name": "pasunnomconnu.fr"},
         {**good, "name": "velo.xyz"},
-        {**good, "name": "mot.fr", "final_low": 900, "final_high": 100},
+        {**good, "quick_high": 1234},
+        {**good, "name": "mot.fr", "final_low": 30000, "final_high": 10000},
         {**good, "name": "mot.fr", "quick_high": 50000},
+        {**good, "note": "en trop"},
+        {**good, "comment": "Très bon nom, à acheter."},
+        {**good, "comment": "Mot courant — commercial. Cible : vélos. Limite : aucune."},
     ]}).json()
-    assert sent["saved"] == 1 and [r["reason"] for r in sent["rejected"]] == [
-        "notes hors de 0 à 100", "nom inconnu", "nom inconnu", "fourchette de prix invalide",
-        "revente rapide plus chère que l'utilisateur final"]
+    assert sent["saved"] == 1
+    reasons = [r["reason"] for r in sent["rejected"]]
+    assert reasons[:8] == ["notes : de 0 à 100, multiples de 5", "notes : de 0 à 100, multiples de 5",
+                           "notes et prix : entiers attendus", "nom inconnu", "nom inconnu", "prix hors de l'échelle",
+                           "fourchette inversée", "revente rapide plus chère que l'utilisateur final"]
+    assert reasons[8].startswith("clés attendues") and "en trop note" in reasons[8]
+    assert reasons[9].startswith("commentaire : « Ce que c'est") and reasons[10] == "commentaire : ni emoji ni tiret long"
     client.__exit__(None, None, None)
 
     client = logged()
@@ -436,3 +448,20 @@ def test_ai_opinions_round_trip_with_a_token(logged):
     status = client.get("/api/ai/status").json()
     assert status["rated"] == 1 and status["token_set"] and status["pending"] > 0
     client.__exit__(None, None, None)
+
+
+def test_exchange_script_checks_the_format_before_sending(tmp_path):
+    import subprocess
+    import sys
+    lot = tmp_path / "lot.json"
+    lot.write_text(json.dumps({"names": [{"name": "velo.fr"}, {"name": "mai.fr"}]}))
+    avis = tmp_path / "avis.json"
+    avis.write_text(json.dumps([
+        {"name": "velo.fr", "exploit": 90, "resale": 90, "quick_low": 2000, "quick_high": 5000, "final_low": 10000,
+         "final_high": 30000, "comment": "Mot courant. Cible : vélos. Limite : cher."},
+        {"name": "autre.fr", "exploit": 10, "resale": 10, "quick_low": 0, "quick_high": 0, "final_low": 0,
+         "final_high": 50, "comment": "Mot rare. Cible : personne. Limite : tout."},
+    ]))
+    out = subprocess.run([sys.executable, "scripts/ai_exchange.py", "check", str(lot), str(avis)],
+                         capture_output=True, text=True, check=True).stdout
+    assert "1 avis conformes, 2 problèmes" in out and "autre.fr : nom inconnu" in out and "mai.fr : pas d'avis" in out

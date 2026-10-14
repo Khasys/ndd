@@ -9,6 +9,7 @@ avec de la patience). Ce sont des avis, pas des cotes du marché.
 
 import hashlib
 import hmac
+import re
 import secrets
 
 from . import value, wordlists
@@ -18,7 +19,6 @@ from .checker import iso, utcnow
 VERSION = 2
 MAX_PENDING = 5000
 MAX_RESULTS = 5000
-MAX_COMMENT = 240
 MAX_PRICE = 10_000_000
 
 # Codes d'état de l'Explorer (explore.py) : libres ou bientôt libres d'abord, enregistrés en dernier.
@@ -26,36 +26,103 @@ FREE_SOON = (5, 4)        # libre vérifié, libération à venir
 MAYBE_FREE = (2, 3)       # supprimé non repris, jamais vu
 TAKEN = (1, 6, 4)         # enregistré, suspendu, libération à venir (pris ailleurs = demande)
 
+# Format imposé, le même pour chaque avis : clés, types, pas des notes et des prix, gabarit du commentaire.
+FIELDS = ("name", "exploit", "resale", "quick_low", "quick_high", "final_low", "final_high", "comment")
+SCORE_STEP = 5
+PRICE_STEPS = (0, 50, 100, 150, 200, 300, 500, 800, 1000, 1500, 2000, 3000, 5000, 8000, 10000, 15000,
+               20000, 30000, 50000, 80000, 100000, 150000, 200000, 300000, 500000, 1000000)
+COMMENT_MAX = 200
+# « Ce que c'est. Cible : à qui ça sert. Limite : ce qui freine. »
+COMMENT_SHAPE = re.compile(r"^[^\s].{2,}?\. Cible : .{3,}?\. Limite : .{3,}?\.$")
+FORBIDDEN = re.compile("[\u2013\u2014\U0001F000-\U0001FAFF\u2600-\u27BF]")  # tirets longs, emoji
+
+FORMAT = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": list(FIELDS),
+    "properties": {
+        "name": {"type": "string", "description": "nom complet reçu, tel quel (ex. velo.fr)"},
+        "exploit": {"type": "integer", "minimum": 0, "maximum": 100, "multipleOf": SCORE_STEP},
+        "resale": {"type": "integer", "minimum": 0, "maximum": 100, "multipleOf": SCORE_STEP},
+        "quick_low": {"type": "integer", "enum": list(PRICE_STEPS)},
+        "quick_high": {"type": "integer", "enum": list(PRICE_STEPS)},
+        "final_low": {"type": "integer", "enum": list(PRICE_STEPS)},
+        "final_high": {"type": "integer", "enum": list(PRICE_STEPS)},
+        "comment": {"type": "string", "maxLength": COMMENT_MAX,
+                    "pattern": "Ce que c'est. Cible : à qui ça sert. Limite : ce qui freine."},
+    },
+}
+
 # Consigne remise avec la liste : la tâche de notation la suit telle quelle.
 GUIDE = """Tu notes des noms de domaine pour un investisseur francophone qui achète des noms libres pour les exploiter ou les revendre.
 
-Pour chaque nom complet (mot + extension) :
-- exploit : potentiel d'exploitation de 0 à 100 (projet, marque, site, activité) ;
-- resale : potentiel de revente de 0 à 100 (facilité à trouver un acheteur) ;
-- quick_low, quick_high : prix de revente rapide en euros, à un investisseur ou sur une place de marché en quelques semaines ;
+Format, identique pour chaque nom, sans exception :
+- un objet JSON avec exactement ces clés : name, exploit, resale, quick_low, quick_high, final_low, final_high, comment ;
+- name : le nom complet reçu, tel quel ;
+- exploit : potentiel d'exploitation (projet, marque, site, activité), entier de 0 à 100, multiple de 5 ;
+- resale : potentiel de revente (facilité à trouver un acheteur), entier de 0 à 100, multiple de 5 ;
+- quick_low, quick_high : revente rapide en euros, à un investisseur ou une place de marché en quelques semaines ;
 - final_low, final_high : prix pour un utilisateur final, avec de la patience (mois ou années) ;
-- comment : 200 caractères au plus, en français, sans emoji ni tiret long.
+- prix : uniquement ces valeurs : 0, 50, 100, 150, 200, 300, 500, 800, 1000, 1500, 2000, 3000, 5000, 8000, 10000, 15000, 20000, 30000, 50000, 80000, 100000, 150000, 200000, 300000, 500000, 1000000 ; bas inférieur ou égal au haut ; revente rapide inférieure ou égale au prix final ;
+- comment : exactement trois phrases sur ce gabarit : « Ce que c'est. Cible : à qui ça sert. Limite : ce qui freine. » ; 200 caractères au plus ; en français ; sans emoji ni tiret long ; sans répéter les notes ni les prix.
 
 Crédibilité avant tout :
 - La plupart des noms valent peu. Une note de revente au-dessus de 70 est rare et réservée aux noms très courts ou très recherchés. Beaucoup de noms ont une revente rapide à 0.
-- Revente rapide : en général 10 à 25 % du prix utilisateur final. Sous 100 euros, elle ne couvre pas les frais : mets 0.
+- Revente rapide : en général 10 à 25 % du prix utilisateur final. Si elle ne couvre pas les frais (moins de 100 euros), mets 0 et 0.
 - Le .fr se revend moins facilement que le .com ; le .org vise les associations et les projets non commerciaux ; le .info vaut peu.
-- Un risque de marque connue fait baisser la revente : dis-le.
-- Ne recopie pas les notes dans le commentaire. Le commentaire doit suffire à comprendre la valeur : ce qu'est le nom, à qui il sert, ce qui le limite.
+- Un risque de marque connue fait baisser la revente : mets-le dans la limite.
 - N'invente rien : un nom sans sens connu le dit.
 
-Exemples de référence (exploit, resale, rapide, utilisateur final, commentaire) :
-- velo.fr : 90, 90, 2000-5000, 10000-30000. Mot courant et commercial : vente, location, réparation de vélos. Très recherché, rare en 4 lettres. Cible : enseignes, marketplaces, mobilité.
-- mai.fr : 75, 80, 800-2000, 3000-8000. 3 lettres, mot du calendrier, facile à retenir. Usage flou mais rareté forte en .fr. Cible : marque courte, événementiel.
-- lea.fr : 60, 55, 150-500, 1000-3000. Prénom très donné, 3 lettres. Intéresse surtout des particuliers et des marques prénom (cosmétique, enfant).
-- premiere.fr : 55, 50, 200-800, 2000-6000. Mot fort mais risque de marque (magazine Première). Usage possible pour un événement ou un service « première fois ».
-- oye.fr : 45, 40, 100-300, 500-2000. Court et prononçable, sans sens courant en français. Bonne base de marque inventée, valeur portée par la brièveté.
-- ciel.org : 55, 40, 50-200, 500-2000. Mot simple et poétique ; le .org vise associations et projets culturels. Marché de revente étroit.
-- sommes.fr : 30, 25, 0-100, 300-1000. Forme de « être » ou pluriel de « somme » : sens flou hors contexte. Intérêt limité, éventuellement finance.
-- qsd.fr : 15, 25, 50-200, 200-800. Suite imprononçable sans sens. Seule valeur : 3 lettres en .fr, pour un sigle ou un collectionneur.
-- kylian.org : 25, 15, 0-0, 50-200. Prénom, mais le .org ne colle pas à un usage personnel. Utile seulement à une association de ce nom.
+Exemples de référence :
+{"name": "velo.fr", "exploit": 90, "resale": 90, "quick_low": 2000, "quick_high": 5000, "final_low": 10000, "final_high": 30000, "comment": "Mot courant et commercial, rare en 4 lettres. Cible : vente, location et réparation de vélos, mobilité. Limite : prix d'entrée élevé pour un revendeur."}
+{"name": "femmes.fr", "exploit": 80, "resale": 75, "quick_low": 1000, "quick_high": 3000, "final_low": 5000, "final_high": 15000, "comment": "Thème large et porteur, au pluriel. Cible : magazine, santé, mode, emploi, associations. Limite : très générique, demande un vrai projet."}
+{"name": "mai.fr", "exploit": 75, "resale": 80, "quick_low": 800, "quick_high": 2000, "final_low": 3000, "final_high": 8000, "comment": "3 lettres, mot du calendrier, facile à retenir. Cible : marque courte, événementiel. Limite : sens vague, pas d'activité évidente."}
+{"name": "lea.fr", "exploit": 60, "resale": 55, "quick_low": 150, "quick_high": 500, "final_low": 1000, "final_high": 3000, "comment": "Prénom très donné, 3 lettres. Cible : particuliers, marques prénom (cosmétique, enfant). Limite : peu d'usage professionnel direct."}
+{"name": "premiere.fr", "exploit": 55, "resale": 50, "quick_low": 200, "quick_high": 800, "final_low": 2000, "final_high": 5000, "comment": "Mot fort et polyvalent. Cible : événement, service « première fois ». Limite : risque de marque (magazine Première)."}
+{"name": "oye.fr", "exploit": 45, "resale": 40, "quick_low": 100, "quick_high": 300, "final_low": 500, "final_high": 2000, "comment": "Court et prononçable, sans sens courant en français. Cible : marque inventée. Limite : valeur portée par la brièveté seule."}
+{"name": "ciel.org", "exploit": 55, "resale": 40, "quick_low": 50, "quick_high": 200, "final_low": 500, "final_high": 2000, "comment": "Mot simple et poétique. Cible : associations, projets culturels. Limite : marché de revente étroit en .org."}
+{"name": "sommes.fr", "exploit": 30, "resale": 25, "quick_low": 0, "quick_high": 100, "final_low": 300, "final_high": 1000, "comment": "Forme de « être » ou pluriel de « somme ». Cible : finance ou calcul, à la marge. Limite : sens flou hors contexte."}
+{"name": "qsd.fr", "exploit": 15, "resale": 25, "quick_low": 50, "quick_high": 200, "final_low": 200, "final_high": 800, "comment": "Suite de 3 lettres imprononçable, sans sens. Cible : sigle d'entreprise, collectionneur. Limite : aucun usage évident."}
+{"name": "kylian.org", "exploit": 25, "resale": 15, "quick_low": 0, "quick_high": 0, "final_low": 50, "final_high": 200, "comment": "Prénom courant. Cible : association portant ce nom. Limite : le .org ne colle pas à un usage personnel."}
 
-Réponds par une liste JSON d'objets : name, exploit, resale, quick_low, quick_high, final_low, final_high, comment."""
+Réponds par une liste JSON de ces objets, un par nom reçu, dans le même ordre, sans texte autour."""
+
+
+def check(item, known) -> str | None:
+    """Raison du refus d'un avis, ou None s'il respecte le format. Même règle pour la tâche
+    de notation (avant envoi) et pour le NAS (à l'import)."""
+    if not isinstance(item, dict):
+        return "pas un objet"
+    keys = set(item)
+    if keys != set(FIELDS):
+        missing, extra = set(FIELDS) - keys, keys - set(FIELDS)
+        return "clés attendues : " + ", ".join(FIELDS) + (f" (manque {', '.join(sorted(missing))})" if missing else "") + \
+            (f" (en trop {', '.join(sorted(extra))})" if extra else "")
+    name = item["name"]
+    if not isinstance(name, str) or not known(name):
+        return "nom inconnu"
+    numbers = [item[k] for k in FIELDS[1:7]]
+    if any(not isinstance(v, int) or isinstance(v, bool) for v in numbers):
+        return "notes et prix : entiers attendus"
+    exploit, resale, quick_low, quick_high, final_low, final_high = numbers
+    if not all(0 <= v <= 100 and v % SCORE_STEP == 0 for v in (exploit, resale)):
+        return "notes : de 0 à 100, multiples de 5"
+    if any(v not in PRICE_STEPS for v in numbers[2:]):
+        return "prix hors de l'échelle"
+    if quick_low > quick_high or final_low > final_high:
+        return "fourchette inversée"
+    if quick_high > final_high or quick_low > final_low:
+        return "revente rapide plus chère que l'utilisateur final"
+    comment = item["comment"]
+    if not isinstance(comment, str) or comment != " ".join(comment.split()):
+        return "commentaire : texte sur une ligne, sans espaces en trop"
+    if len(comment) > COMMENT_MAX:
+        return f"commentaire : {COMMENT_MAX} caractères au plus"
+    if FORBIDDEN.search(comment):
+        return "commentaire : ni emoji ni tiret long"
+    if not COMMENT_SHAPE.match(comment):
+        return "commentaire : « Ce que c'est. Cible : … Limite : … »"
+    return None
 
 
 def hash_token(token: str) -> str:
@@ -162,34 +229,15 @@ def _describe(explorer, picked, data) -> list[dict]:
     return out
 
 
-def save(conn, results: list[dict], known) -> dict:
-    """Enregistre les avis valides ; les autres sont rejetés avec la raison, sans bloquer le lot."""
+def save(conn, results: list, known) -> dict:
+    """Enregistre les avis au bon format ; les autres sont rejetés avec la raison, sans bloquer le lot."""
     now = iso(utcnow())
     saved, rejected = 0, []
     for item in results[:MAX_RESULTS]:
-        name = str(item.get("name", "")).strip().lower().rstrip(".")
-        try:
-            exploit, resale = int(item["exploit"]), int(item["resale"])
-            prices = [int(item.get(k) or 0) for k in ("quick_low", "quick_high", "final_low", "final_high")]
-        except (KeyError, TypeError, ValueError):
-            rejected.append({"name": name, "reason": "notes ou prix non numériques"})
-            continue
-        quick_low, quick_high, final_low, final_high = prices
-        comment = " ".join(str(item.get("comment", "")).split())
-        if not known(name):
-            reason = "nom inconnu"
-        elif not (0 <= exploit <= 100 and 0 <= resale <= 100):
-            reason = "notes hors de 0 à 100"
-        elif not (0 <= quick_low <= quick_high <= MAX_PRICE and 0 <= final_low <= final_high <= MAX_PRICE):
-            reason = "fourchette de prix invalide"
-        elif quick_high > final_high:
-            reason = "revente rapide plus chère que l'utilisateur final"
-        elif not comment:
-            reason = "commentaire vide"
-        else:
-            reason = None
+        reason = check(item, known)
         if reason:
-            rejected.append({"name": name, "reason": reason})
+            name = item.get("name") if isinstance(item, dict) else None
+            rejected.append({"name": str(name or ""), "reason": reason})
             continue
         conn.execute(
             """INSERT INTO domain_ai (name, exploit, resale, quick_low, quick_high, final_low, final_high,
@@ -199,7 +247,7 @@ def save(conn, results: list[dict], known) -> dict:
                  quick_low = excluded.quick_low, quick_high = excluded.quick_high,
                  final_low = excluded.final_low, final_high = excluded.final_high,
                  comment = excluded.comment, rated_at = excluded.rated_at, version = excluded.version""",
-            (name, exploit, resale, *prices, comment[:MAX_COMMENT], now, VERSION),
+            (*(item[k] for k in FIELDS), now, VERSION),
         )
         saved += 1
     return {"saved": saved, "rejected": rejected}
@@ -210,8 +258,8 @@ def known_name(explorer):
     u = explorer.universe
     tlds = set(explorer.tlds())
 
-    def check(name: str) -> bool:
+    def exists(name: str) -> bool:
         label, _, tld = name.partition(".")
         return bool(label) and tld in tlds and u.index(label) is not None
 
-    return check
+    return exists

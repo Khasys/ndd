@@ -216,7 +216,10 @@ patience) et un commentaire de 200 caractères qui explique la valeur sans rép�
 Le NAS publie la liste à noter (`GET /api/ai/pending`) : noms libres ou bientôt libres d'abord, puis
 probablement libres, puis enregistrés, les plus prometteurs d'abord, avec la consigne et des exemples
 de référence pour garder des notes cohérentes. Il réimporte les avis (`POST /api/ai/results`) après
-contrôle (notes de 0 à 100, revente rapide sous le prix final). Une tâche planifiée fait l'échange
+contrôle du format, le même pour chaque avis : exactement huit champs, notes en multiples de 5,
+prix sur une échelle fixe (0, 50, 100, 150, 200, 300, 500, 800, 1 000…), revente rapide sous le prix
+final, commentaire sur le gabarit « Ce que c'est. Cible : … Limite : … » (200 caractères, sans emoji
+ni tiret long). Le script applique le même contrôle avant l'envoi (`check`). Une tâche planifiée fait l'échange
 chaque nuit avec `scripts/ai_exchange.py` (variables `DW_URL` et `DW_AI_TOKEN`).
 
 Le jeton se crée dans Paramètres > Avis IA ; il n'est montré qu'une fois et n'ouvre que ces deux
