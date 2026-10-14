@@ -26,7 +26,7 @@ from typing import AsyncIterator, Iterable
 
 import httpx
 
-from . import digest, states, wordlists
+from . import digest, rdapinfo, states, wordlists
 from .checker import iso, parse_iso, utcnow
 from .store import Store
 
@@ -641,6 +641,7 @@ class DropWatcher:
     async def check(self, row, result=None):
         if result is None:
             result = await self.rdap.lookup(row["name"])
+            rdapinfo.save(self.conn, row["name"], result)
         self.apply(row, result, utcnow())
         return result
 

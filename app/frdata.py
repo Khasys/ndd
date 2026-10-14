@@ -24,7 +24,7 @@ from pathlib import Path
 
 import httpx
 
-from . import digest, drops, states, wordlists
+from . import digest, drops, rdapinfo, states, wordlists
 from .checker import iso, utcnow
 from .store import Store
 
@@ -488,6 +488,7 @@ class FrWatcher:
         finally:
             self.current = None
         now = utcnow()
+        rdapinfo.save(self.conn, name, result)
         limited = bool(result.error) and ("Limite" in result.error or "429" in result.error)
         outcome = "limite" if limited else "erreur" if result.error else "libre" if result.available else "enregistré"
         if not result.error and not result.available:

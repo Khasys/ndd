@@ -58,7 +58,7 @@ def shape(label: str) -> tuple[int, str | None]:
     return 2, None
 
 
-POPULAR = {"word": "mot", "surname": "nom", "firstname": "prénom"}
+POPULAR = {"word": "mot", "form": "forme", "surname": "nom", "firstname": "prénom"}
 
 
 def popularity(label: str) -> tuple[int, str | None]:
@@ -69,6 +69,8 @@ def popularity(label: str) -> tuple[int, str | None]:
         if rank is None:
             continue
         points = round(30 * (1 - math.sqrt((rank - 1) / len(ranks))))
+        if key == "form":
+            points = round(points * 0.7)  # une forme fléchie vaut moins que le mot de base
         if points > best:
             best, reason = points, f"{POPULAR[key]} n° {rank:,}".replace(",", " ")
     return best, reason
@@ -110,20 +112,38 @@ def seo(row) -> tuple[int, list[str]]:
     return min(20, points), reasons
 
 
-def score(label: str, taken: list[str], fr_row=None, seo_row=None, today: date | None = None) -> dict:
+# Poids de chaque critère, de 0 (ignoré) à 2 (doublé), réglables dans Paramètres.
+CRITERIA = {"shape": "Forme", "popularity": "Popularité", "demand": "Demande", "history": "Historique", "seo": "SEO"}
+DEFAULT_WEIGHTS = dict.fromkeys(CRITERIA, 1.0)
+
+
+def weights_from(raw: str | None) -> dict[str, float]:
+    import json
+
+    try:
+        found = json.loads(raw) if raw else {}
+    except ValueError:
+        found = {}
+    return {k: max(0.0, min(2.0, float(found.get(k, 1.0)))) for k in CRITERIA}
+
+
+def score(label: str, taken: list[str], fr_row=None, seo_row=None, today: date | None = None,
+          weights: dict[str, float] | None = None) -> dict:
     today = today or date.today()
+    weights = weights or DEFAULT_WEIGHTS
+    parts: dict[str, int] = {}
     reasons = []
-    total = 0
-    for points, reason in (shape(label), popularity(label), demand(taken)):
-        total += points
+    for key, (points, reason) in (("shape", shape(label)), ("popularity", popularity(label)), ("demand", demand(taken))):
+        parts[key] = points
         if reason:
             reasons.append(reason)
+    parts["history"] = 0
     if fr_row is not None:
         points, reason = history(fr_row["created_on"], fr_row["removed_on"], today)
-        total += points
+        parts["history"] = points
         if reason:
             reasons.append(reason)
-    points, extra = seo(seo_row)
-    total += points
+    parts["seo"], extra = seo(seo_row)
     reasons += extra
-    return {"score": min(100, total), "reasons": reasons}
+    weighted = {k: round(v * weights[k]) for k, v in parts.items()}
+    return {"score": min(100, sum(weighted.values())), "reasons": reasons, "parts": weighted}

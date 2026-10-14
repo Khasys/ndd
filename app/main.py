@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import bot, calendar_ics, db, digest, drops, explore, frdata, reserved, seo, signals, states, updates, wordlists
+from . import bot, calendar_ics, db, digest, drops, explore, frdata, rdapinfo, reserved, seo, signals, states, updates, value, wordlists
 from .auth import (
     COOKIE_NAME,
     MIN_PASSWORD_LENGTH,
@@ -601,6 +601,8 @@ async def get_settings(request: Request):
         "drops": {"keep_days": state.drops.keep_days},
         "seo": {"key_set": bool(state.seo.key)},
         "reserved": state.reserved.status(),
+        "weights": {"values": value.weights_from(store.get("score_weights")), "labels": value.CRITERIA},
+        "order_url": store.get("order_url") or DEFAULT_ORDER_URL,
         "appearance": {
             "app_name": store.get("app_name") or DEFAULT_NAME,
             "theme": store.get("theme", "system"),
@@ -737,6 +739,7 @@ async def list_drops(request: Request):
     rows = [r for r in rows if not (hide_reserved and r["name"] in reserved_names)]
     suspended = dict(conn.execute("SELECT tld, COUNT(*) FROM drops WHERE state = ? GROUP BY tld", (drops.SUSPENDED,)).fetchall())
     watched = {r[0] for r in conn.execute("SELECT name FROM domains")}
+    details = rdapinfo.load(conn, [r["name"] for r in rows])
     return {
         "configured": watcher.configured or request.app.state.fr.enabled,
         "czds": watcher.configured,
@@ -765,6 +768,7 @@ async def list_drops(request: Request):
                 "next_check_at": r["next_check_at"],
                 "watched": r["name"] in watched,
                 "reserved": r["name"] in reserved_names,
+                "rdap": details.get(r["name"]),
             }
             for r in rows
         ],
@@ -804,15 +808,27 @@ def _explore_params(request: Request) -> dict:
     try:
         length = int(p["len"]) if p.get("len") else None
         cursor = int(p.get("cursor", "-1"))
+        max_rank = int(p["rank"]) if p.get("rank") else None
+        min_score = int(p["min"]) if p.get("min") else None
     except ValueError:
         raise HTTPException(422, "Paramètre numérique invalide.") from None
+    if p.get("nat") and p["nat"] not in explore.NATURES:
+        raise HTTPException(422, "Nature inconnue.")
+    taken = p.get("taken", "")
+    if taken and taken != "any" and taken not in tlds:
+        raise HTTPException(422, "Extension inconnue.")
     mode = p.get("mode", "prefix")
     if mode not in ("prefix", "contains", "exact"):
         raise HTTPException(422, "Mode de recherche inconnu.")
     if p.get("status") and p["status"] not in explore.STATUS_FILTERS:
         raise HTTPException(422, "État inconnu.")
     return {"tld": tld, "q": p.get("q", ""), "mode": mode, "status": p.get("status", ""),
-            "category": p.get("cat", ""), "length": length, "cursor": cursor}
+            "category": p.get("cat", ""), "length": length, "cursor": cursor, "nature": p.get("nat", ""),
+            "max_rank": max_rank, "min_score": min_score, "taken": taken}
+
+
+def _facets(explorer, params: dict) -> dict:
+    return explorer.facets(params["tld"], **{k: v for k, v in params.items() if k not in ("tld", "cursor", "q")})
 
 
 def _explore_meta(explorer, tld: str) -> dict:
@@ -820,6 +836,7 @@ def _explore_meta(explorer, tld: str) -> dict:
         "tld": tld,
         "tlds": explorer.tlds(),
         "kinds": explore.KINDS,
+        "natures": explore.NATURES,
         "statuses": explore.STATUS_NAMES,
         "absent_label": explore.ABSENT_FR if tld == "fr" else explore.ABSENT_ZONE,
     }
@@ -833,7 +850,7 @@ async def explore_search(request: Request):
     limit = min(int(request.query_params.get("limit", "50") or 50), explore.MAX_LIMIT)
     result = explorer.search(**params, limit=limit)
     return {**result, **_explore_meta(explorer, params["tld"]),
-            "counts": explorer.facets(params["tld"], params["category"], params["length"])}
+            "counts": _facets(explorer, params)}
 
 
 @app.get("/api/explore/rank")
@@ -849,7 +866,7 @@ async def explore_rank(request: Request):
         raise HTTPException(422, "Tri inconnu.")
     result = explorer.rank(**params, limit=limit, sort=sort)
     return {**result, **_explore_meta(explorer, params["tld"]),
-            "counts": explorer.facets(params["tld"], params["category"], params["length"])}
+            "counts": _facets(explorer, params)}
 
 
 @app.get("/api/explore/map")
@@ -880,6 +897,54 @@ async def explore_seo(request: Request, payload: SeoNames):
 async def explore_seo_status(request: Request):
     analyzer = request.app.state.seo
     return {"running": analyzer.running, **analyzer.progress, "key_set": bool(analyzer.key)}
+
+
+# Lien « Réserver » : {domain} est remplacé par le nom. Format à vérifier chez OVH, modifiable.
+DEFAULT_ORDER_URL = "https://www.ovhcloud.com/fr/order/webcloud/?#/webCloud/domain/select?selection=~(domain~'{domain}')"
+
+
+class Weights(BaseModel):
+    values: dict[str, float]
+
+
+@app.put("/api/settings/weights")
+async def set_weights(request: Request, payload: Weights):
+    clean = {k: max(0.0, min(2.0, float(payload.values.get(k, 1.0)))) for k in value.CRITERIA}
+    request.app.state.store.set("score_weights", json.dumps(clean))
+    return {"values": clean, "labels": value.CRITERIA}
+
+
+class OrderUrl(BaseModel):
+    url: str
+
+
+@app.put("/api/settings/order-url")
+async def set_order_url(request: Request, payload: OrderUrl):
+    url = payload.url.strip()
+    if url and (not url.startswith("https://") or "{domain}" not in url):
+        raise HTTPException(422, "Adresse https:// contenant {domain} attendue.")
+    request.app.state.store.set("order_url", url)
+    return {"order_url": url or DEFAULT_ORDER_URL}
+
+
+class Views(BaseModel):
+    views: list[dict]
+
+
+@app.get("/api/explore/views")
+async def get_views(request: Request):
+    return json.loads(request.app.state.store.get("explore_views") or "[]")
+
+
+@app.put("/api/explore/views")
+async def set_views(request: Request, payload: Views):
+    keep = []
+    for view in payload.views[:30]:
+        name = str(view.get("name", "")).strip()[:60]
+        if name and isinstance(view.get("filters"), dict):
+            keep.append({"name": name, "filters": {k: str(v)[:40] for k, v in view["filters"].items()}})
+    request.app.state.store.set("explore_views", json.dumps(keep))
+    return keep
 
 
 class ReservedSettings(BaseModel):

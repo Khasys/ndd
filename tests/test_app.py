@@ -308,3 +308,16 @@ def test_explorer_and_drops_settings(logged):
     assert settings["drops"]["keep_days"] == 45 and settings["fr"]["rate"] == 5
     assert client.post("/api/drops/check", json={"name": "pas un nom"}).status_code == 422
     client.__exit__(None, None, None)
+
+
+def test_views_weights_order_url(logged):
+    client = logged()
+    views = client.put("/api/explore/views", json={"views": [{"name": "Prénoms top", "filters": {"cat": "firstname", "rank": 500}}, {"name": ""}]}).json()
+    assert views == [{"name": "Prénoms top", "filters": {"cat": "firstname", "rank": "500"}}]
+    assert client.get("/api/explore/views").json() == views
+    weights = client.put("/api/settings/weights", json={"values": {"shape": 5, "seo": 0}}).json()["values"]
+    assert weights["shape"] == 2 and weights["seo"] == 0 and weights["demand"] == 1
+    assert client.put("/api/settings/order-url", json={"url": "https://exemple.fr/"}).status_code == 422
+    assert client.put("/api/settings/order-url", json={"url": "https://exemple.fr/?d={domain}"}).json()["order_url"].endswith("{domain}")
+    assert client.get("/api/settings").json()["order_url"] == "https://exemple.fr/?d={domain}"
+    client.__exit__(None, None, None)

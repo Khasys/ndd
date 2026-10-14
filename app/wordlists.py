@@ -8,10 +8,12 @@ from functools import lru_cache
 from pathlib import Path
 
 DATA = Path(__file__).parent / "data"
-LABELS = {"word": "Mots", "surname": "Noms de famille", "firstname": "Prénoms"}
+LABELS = {"word": "Mots", "form": "Formes fléchies", "surname": "Noms de famille", "firstname": "Prénoms"}
+# Nature des mots et des formes, tirée du Lexique.
+NATURES = {"verb": "Verbes", "noun": "Noms communs", "adj": "Adjectifs", "adv": "Adverbes", "other": "Mots outils"}
 
 
-FILES = {"word": "mots.txt", "surname": "noms.txt", "firstname": "prenoms.txt"}
+FILES = {"word": "mots.txt", "form": "formes.txt", "surname": "noms.txt", "firstname": "prenoms.txt"}
 
 
 def _ordered(name: str) -> list[str]:
@@ -38,3 +40,14 @@ def watched() -> frozenset[bytes]:
 
 def categories(label: str) -> list[str]:
     return [key for key, names in lists().items() if label in names]
+
+
+@lru_cache(maxsize=1)
+def natures() -> dict[str, frozenset[str]]:
+    """Nature de chaque mot ou forme : verb, noun, adj, adv, other (un mot peut en avoir plusieurs)."""
+    found = {}
+    for line in (DATA / "natures.txt").read_text(encoding="utf-8").splitlines():
+        word, _, kinds = line.partition("\t")
+        if word:
+            found[word] = frozenset(kinds.split(","))
+    return found

@@ -59,7 +59,7 @@ def test_fr_states_and_filters(env):
     add_fr(env, "navarro")
     add_fr(env, "velo", removed="2026-01-01")
     assert env.tlds() == ["fr"]
-    counts = env.counts("fr")
+    counts = env.facets("fr")
     assert counts["registered"] == 1 and counts["maybe_free"] > 1_000_000
 
     found = env.search("fr", q="nav", mode="prefix", category="surname", status="registered")
@@ -180,7 +180,8 @@ def test_map_counts_per_extension_and_category(env):
     add_fr(env, "ab")
     found = env.map()
     assert found["tlds"] == ["fr", "com"] and "Mots" in found["rows"].values()
-    assert found["cells"]["fr"]["s3"] == found["cells"]["com"]["s3"] and found["filters"]["l4"] == {"cat": "letters", "len": 4}
+    assert found["filters"]["short"] == {"cat": "", "len": -3} and found["filters"]["l4"] == {"cat": "letters", "len": 4}
+    assert found["cells"]["fr"]["short"] == env.facets("fr", length=-3)["available"]
     assert found["cells"]["com"]["word"] == len(env.universe.by_list["word"]) - 1
 
 
@@ -203,3 +204,41 @@ def test_seo_analysis_reads_pagerank_and_wayback(env):
     add_fr(env, "velo", removed="2025-01-01")
     item = env.rank("fr", q="velo", mode="exact")["items"][0]
     assert "PageRank 3,2" in item["reasons"] and any("2004" in r for r in item["reasons"])
+
+
+def test_nature_rank_and_taken_filters(env):
+    zone(env, ["ab"], ["manger", "maison"])
+    verbs = env.rank("fr", category="word", nature="verb", sort="freq", limit=10)["items"]
+    assert verbs and all("verb" in __import__("app").wordlists.natures()[i["label"]] for i in verbs)
+    assert verbs[0]["label"] == "etre"
+    top = env.rank("fr", category="word", max_rank=100, limit=500)["items"]
+    assert top and all(i["rank"] <= 100 for i in top)
+    taken = env.rank("fr", taken="com", limit=50)["items"]
+    assert {i["label"] for i in taken} <= {"ab", "manger", "maison"} and "ab" in {i["label"] for i in taken}
+    strong = env.rank("fr", min_score=45, limit=50)["items"]
+    assert strong and all(i["score"] >= 45 for i in strong)
+
+
+def test_facets_follow_every_filter(env):
+    zone(env, ["ab"], ["manger"])
+    verbs = env.facets("fr", category="word", nature="verb")
+    assert verbs["available"] == len(env.universe.by_nature["verb"]) - len(
+        [i for i in env.universe.by_nature["verb"] if "word" not in env.universe.categories(env.universe.label(i))])
+    assert env.facets("fr", taken="com")["available"] == 2
+    assert env.facets("fr", category="firstname", max_rank=10)["available"] == 10
+
+
+def test_weights_change_the_order(env):
+    env.fr.store.set("score_weights", '{"shape": 0, "popularity": 2}')
+    first = env.rank("fr", limit=1)["items"][0]
+    assert first["parts"]["shape"] == 0 and first["parts"]["popularity"] >= 50
+
+
+def test_rdap_details_are_kept(env):
+    from datetime import datetime, timezone
+    add_fr(env, "velo")
+    env.fr.rdap = FakeRdap({"velo.fr": LookupResult(found=True, info=DomainInfo(
+        statuses=["active"], registrar="OVH", expires_at=datetime(2027, 1, 1, tzinfo=timezone.utc), nameservers=["ns1.ovh.net"]))})
+    asyncio.run(env.verify("velo.fr"))
+    item = env.search("fr", q="velo", mode="exact")["items"][0]
+    assert item["rdap"]["registrar"] == "OVH" and item["rdap"]["nameservers"] == ["ns1.ovh.net"]
