@@ -198,6 +198,8 @@ def _encoding(head: bytes) -> str:
 
 
 class FrWatcher:
+    on_change = None  # appelé avec le nom quand son état change (Explorer)
+
     def __init__(self, conn, store: Store, data_dir: Path, rdap, drops_watcher: drops.DropWatcher, http_factory=None):
         self.conn = conn
         self.store = store
@@ -537,6 +539,8 @@ class FrWatcher:
                  checked_at = excluded.checked_at, next_check_at = excluded.next_check_at""",
             (label, iso(expires), iso(now), iso(following)),
         )
+        if self.on_change:
+            self.on_change(f"{label}.fr")
 
     async def _check(self, row) -> bool:
         """False si l'Afnic limite les requêtes : la file s'arrête et se met en pause."""

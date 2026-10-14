@@ -173,8 +173,10 @@ requête : zones ICANN lues chaque jour, open data de l'Afnic, écran Suppressio
 Prononçable : modèle de trigrammes de lettres appris sur le Lexique et les listes de noms
 (`app/pronounce.py`). Seuil choisi pour garder 92 % des vrais mots de 3 et 4 lettres et
 seulement 8 % des suites de lettres tirées au hasard. La forme des 1,9 million de noms courts
-est précalculée à la construction de l'image (`app/precompute.py`) ; l'Explorer garde ses
-calculs une minute en mémoire et les prépare au démarrage.
+est précalculée à la construction de l'image (`app/precompute.py`). L'Explorer garde ses calculs
+en mémoire et les prépare au démarrage, après chaque import .fr et chaque lecture de zone. Un
+nom vérifié, marqué ou analysé (bouton ou vérification automatique) est corrigé en place : son
+octet d'état, les compteurs de ±1, la carte. Pas de recalcul d'ensemble.
 
 Score (`app/value.py`), chaque critère pondérable de 0 à 2 dans Paramètres :
 

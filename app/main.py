@@ -99,6 +99,7 @@ async def lifespan(app: FastAPI):
     async def scan_zones() -> None:
         if watcher.due(datetime.now(digest.local_zone())):
             await watcher.run()
+            app.state.explorer.warm()  # nouvelle zone : l'Explorer se prépare avant qu'on l'ouvre
 
     async def check_drops() -> None:
         await watcher.check_due(limit=20)
@@ -108,6 +109,7 @@ async def lifespan(app: FastAPI):
     async def import_fr() -> None:
         if fr.due(datetime.now(digest.local_zone())):
             await fr.import_file()
+            app.state.explorer.warm()
 
     async def tick_fr() -> None:
         await fr.tick()
@@ -116,6 +118,7 @@ async def lifespan(app: FastAPI):
         if app.state.reserved.due():
             await app.state.reserved.refresh()
             app.state.explorer.invalidate()
+            app.state.explorer.warm()
 
     now = datetime.now(timezone.utc)
     scheduler.add_job(refresh_latest, "interval", hours=24, next_run_time=now, max_instances=1, id="latest")
@@ -723,7 +726,11 @@ async def import_fr_now(request: Request):
         raise HTTPException(409, "Suivi du .fr désactivé.")
     if fr.running:
         return {"started": False}
-    request.app.state.fr_task = asyncio.create_task(fr.import_file())
+    async def run() -> None:
+        await fr.import_file()
+        request.app.state.explorer.warm()
+
+    request.app.state.fr_task = asyncio.create_task(run())
     return {"started": True}
 
 
@@ -894,14 +901,15 @@ async def explore_seo(request: Request, payload: SeoNames):
     explorer = request.app.state.explorer
     if len(names) == 1:
         rows = await analyzer.analyze(names)
-        explorer.invalidate()  # le SEO entre dans le score
+        explorer.touch(names[0])  # le SEO entre dans le score
         return {"done": True, "rows": {k: dict(v) for k, v in rows.items()}}
 
     async def analyze() -> None:
         try:
             await analyzer.analyze(names)
         finally:
-            explorer.invalidate()
+            for name in names:
+                explorer.touch(name)
 
     request.app.state.seo_task = asyncio.create_task(analyze())
     return {"done": False, "total": len(names)}
@@ -925,7 +933,7 @@ class Weights(BaseModel):
 async def set_weights(request: Request, payload: Weights):
     clean = {k: max(0.0, min(2.0, float(payload.values.get(k, 1.0)))) for k in value.CRITERIA}
     request.app.state.store.set("score_weights", json.dumps(clean))
-    request.app.state.explorer.invalidate()
+    request.app.state.explorer.refresh_settings()
     return {"values": clean, "labels": value.CRITERIA}
 
 
@@ -971,6 +979,7 @@ async def set_reserved_mode(request: Request, payload: ReservedSettings):
     if payload.mode not in ("hide", "show"):
         raise HTTPException(422, "Mode inconnu.")
     request.app.state.store.set("reserved_mode", payload.mode)
+    request.app.state.explorer.refresh_settings()
     return request.app.state.reserved.status()
 
 
@@ -981,6 +990,7 @@ async def refresh_reserved_now(request: Request):
         async def refresh() -> None:
             await lists.refresh()
             request.app.state.explorer.invalidate()
+            request.app.state.explorer.warm()
 
         request.app.state.reserved_task = asyncio.create_task(refresh())
     return {"started": not lists.running}
@@ -998,7 +1008,7 @@ async def flag_reserved(request: Request, payload: NameFlag):
     except InvalidDomain as exc:
         raise HTTPException(422, str(exc)) from None
     request.app.state.reserved.flag(name, payload.reserved)
-    request.app.state.explorer.invalidate()
+    request.app.state.explorer.touch(name)
     return {"name": name, "reserved": name in request.app.state.reserved.names()}
 
 
@@ -1046,7 +1056,11 @@ async def scan_drops(request: Request):
     if watcher.running:
         return {"started": False}
     # Référence gardée : une tâche sans référence peut être collectée en cours de route.
-    request.app.state.scan_task = asyncio.create_task(watcher.run())
+    async def run() -> None:
+        await watcher.run()
+        request.app.state.explorer.warm()
+
+    request.app.state.scan_task = asyncio.create_task(run())
     return {"started": True}
 
 

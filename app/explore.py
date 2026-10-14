@@ -85,7 +85,9 @@ MAP_ROWS = {
 }
 
 CACHE_SECONDS = 600
-MEMO_SECONDS = 60
+# Sécurité seulement : chaque nom vérifié ou marqué est corrigé en place (touch), et un import ou
+# une lecture de zone change la version des données, donc la clé.
+MEMO_SECONDS = 6 * 3600
 MAX_LIMIT = 200
 EXPORT_LIMIT = 50_000
 # Une page sans résultat ne parcourt pas plus que ceci : la suite se demande avec le curseur.
@@ -232,6 +234,9 @@ class Explorer:
         self._cache: dict[str, tuple[float, object, bytearray]] = {}
         self._memos: dict = {}
         self.generation = 0
+        # Les vérifications automatiques corrigent l'Explorer au fil de l'eau, nom par nom.
+        drops_watcher.on_change = self.touch
+        fr_watcher.on_change = self.touch
 
     @property
     def universe(self) -> Universe:
@@ -242,7 +247,8 @@ class Explorer:
         return self._universe
 
     def _memo(self, key, compute, ttl: float = MEMO_SECONDS):
-        """Résultat gardé ttl secondes, oublié dès qu'une vérification ou un marquage change les données."""
+        """Résultat gardé en mémoire. Un nom qui change est corrigé en place par touch() ;
+        un import ou une lecture de zone change la version des données, donc la clé."""
         now = time.monotonic()
         # Import .fr ou nouvelle lecture de zone : la version des données change, la mémoire aussi.
         key = (key, tuple((t, self._version(t)) for t in self.tlds()))
@@ -548,9 +554,10 @@ class Explorer:
         seo = {r["name"]: r for r in self.conn.execute("SELECT * FROM domain_seo WHERE name LIKE ?", (f"%.{tld}",))}
         w = self.weights
         # Bonus le plus haut possible avec ces données : sert à arrêter le classement au plus tôt.
-        reach = (value.demand(list(others))[0] * w["demand"] + (15 if gone else 0) * w["history"]
-                 + (20 if seo else 0) * w["seo"])
-        return {"others": others, "gone": gone, "seo": seo, "today": date.today(), "reach": reach, "weights": w}
+        parts = (value.demand(list(others))[0], 15 if gone else 0, 20)  # SEO : peut arriver à tout moment
+        reach = parts[0] * w["demand"] + parts[1] * w["history"] + parts[2] * w["seo"]
+        return {"others": others, "gone": gone, "seo": seo, "today": date.today(), "reach": reach,
+                "reach_parts": parts, "weights": w}
 
     def _value(self, tld: str, i: int, label: str, ctx: dict) -> dict:
         taken = [t for t, data in ctx["others"].items() if data[i] in TAKEN_CODES]
@@ -705,19 +712,101 @@ class Explorer:
         """Nombre de noms par état, pour les filtres choisis (recherche exclue)."""
         f = Filters.of(*args, **kwargs)
         key = ("facets", tld, f.category, f.length, f.nature, f.max_rank, f.taken, f.junk)
-        return self._memo(key, lambda: self._facets(tld, f))
+        raw = self._memo(key, lambda: self._facets(tld, f))
+        by_code = raw["by_code"]
+        # Les états réservés suivent le réglage du moment : conversion à chaque appel, sans recompter.
+        return {k: sum(by_code.get(c, 0) for c in self.codes(k)) for k in STATUS_FILTERS}
 
     def _facets(self, tld: str, f: Filters) -> dict:
+        """Comptes par octet d'état, et le masque des filtres : touch() s'en sert pour corriger de ±1."""
         data = self.status_bytes(tld)
         mask = self._mask(tld, f)
-        counts = {}
+        by_code = {}
         for c in LABELS:
             if mask is None:
-                counts[c] = data.count(c)
+                by_code[c] = data.count(c)
             else:
                 only = bytes(1 if x == c else 0 for x in range(256))
-                counts[c] = (int.from_bytes(data.translate(only), "big") & mask).bit_count()
-        return {key: sum(counts.get(c, 0) for c in self.codes(key)) for key in STATUS_FILTERS}
+                by_code[c] = (int.from_bytes(data.translate(only), "big") & mask).bit_count()
+        return {"by_code": by_code, "mask": mask}
+
+    # --- Mise à jour d'un seul nom -------------------------------------------------
+
+    def _code_for(self, tld: str, i: int, label: str) -> tuple[int, int]:
+        """(octet de base, octet affiché) d'un nom, relus en base pour ce seul nom."""
+        if tld == "fr":
+            row = self.conn.execute("SELECT removed_on FROM fr_names WHERE label = ?", (label,)).fetchone()
+            base = ABSENT if row is None else GONE if row["removed_on"] else REGISTERED
+        else:
+            base = self._base(tld)[i]
+        code = base
+        drop = self.conn.execute("SELECT state FROM drops WHERE name = ?", (f"{label}.{tld}",)).fetchone()
+        state = drop["state"] if drop else None
+        if state in drops.TRACKED:
+            code = COMING
+        elif state == states.AVAILABLE:
+            code = FREE
+        elif state == drops.SUSPENDED:
+            code = SUSPENDED
+        elif state == drops.TAKEN:
+            code = REGISTERED
+        if self.reserved is not None and f"{label}.{tld}" in self.reserved.names() and code in (GONE, ABSENT, FREE, COMING):
+            code = RESERVED
+        return base, code
+
+    def touch(self, name: str) -> None:
+        """Un nom a changé (vérification, marquage, SEO) : on corrige ce nom seulement, en place.
+        Octet d'état, compteurs (±1), historique .fr et SEO du score ; la carte se refait depuis
+        les compteurs. Aucun recalcul d'ensemble."""
+        label, _, tld = name.partition(".")
+        i = self.universe.index(label)
+        if i is None or not tld:
+            return
+        base, new = self._code_for(tld, i, label)
+        cached = self._cache.get(tld)
+        if cached:
+            cached[2][i] = base
+        changed = False
+        for key, (generation, at, value) in list(self._memos.items()):
+            kind = key[0][0]
+            if kind == "status" and key[0][1] == tld and value[i] != new:
+                old, value[i] = value[i], new
+                changed = True
+                for fkey, (_, _, raw) in self._memos.items():
+                    if fkey[0][0] == "facets" and fkey[0][1] == tld and fkey[1] == key[1]:
+                        mask = raw["mask"]
+                        if mask is None or (mask >> ((self.universe.size - 1 - i) * 8)) & 1:
+                            raw["by_code"][old] = raw["by_code"].get(old, 0) - 1
+                            raw["by_code"][new] = raw["by_code"].get(new, 0) + 1
+            elif kind == "bonus" and key[0][1] == tld:
+                if tld == "fr":
+                    row = self.conn.execute("SELECT created_on, removed_on FROM fr_names WHERE label = ?", (label,)).fetchone()
+                    if row and row["removed_on"]:
+                        value["gone"][i] = {"created_on": row["created_on"], "removed_on": row["removed_on"]}
+                    else:
+                        value["gone"].pop(i, None)
+                seo = self.conn.execute("SELECT * FROM domain_seo WHERE name = ?", (name,)).fetchone()
+                if seo is not None:
+                    value["seo"][name] = seo
+        if changed:
+            self._forget("map")
+            # Les compteurs « pris ailleurs » des autres extensions dépendent de celle-ci.
+            for key in [k for k in self._memos if k[0][0] == "facets" and k[0][1] != tld and k[0][6]]:
+                del self._memos[key]
+
+    def _forget(self, kind: str) -> None:
+        for key in [k for k in self._memos if k[0][0] == kind]:
+            del self._memos[key]
+
+    def refresh_settings(self) -> None:
+        """Barème ou mode des réservés changé : on met à jour ce qui en dépend, sans recompter."""
+        weights = self.weights
+        for key, (_, _, value) in self._memos.items():
+            if key[0][0] == "bonus":
+                value["weights"] = weights
+                value["reach"] = (value["reach_parts"][0] * weights["demand"] + value["reach_parts"][1] * weights["history"]
+                                  + value["reach_parts"][2] * weights["seo"])
+        self._forget("map")
 
     def map(self) -> dict:
         return self._memo(("map",), self._build_map)
@@ -832,7 +921,7 @@ class Explorer:
                 self.fr._sync_name(label, result, drops.TAKEN)
             elif not registered:
                 self.conn.execute("UPDATE fr_names SET checked_at = ?, next_check_at = NULL WHERE label = ?", (iso(now), label))
-        self.invalidate()
+        self.touch(name)
         i = self.universe.index(label)
         return self.describe(tld, [i])[0] if i is not None else {"name": name}
 

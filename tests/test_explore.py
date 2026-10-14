@@ -245,3 +245,32 @@ def test_rdap_details_are_kept(env):
     asyncio.run(env.verify("velo.fr"))
     item = env.search("fr", q="velo", mode="exact")["items"][0]
     assert item["rdap"]["registrar"] == "OVH" and item["rdap"]["nameservers"] == ["ns1.ovh.net"]
+
+
+def test_one_name_is_patched_in_place_and_matches_a_full_rebuild(env):
+    zone(env, ["ab"], ["maison"])
+    add_fr(env, "velo")
+    add_fr(env, "mot", removed="2025-01-01")
+    filters = [{}, {"category": "word"}, {"category": "letters", "length": 4}, {"taken": "com"}, {"length": -3}]
+    env.warm()
+    before = [env.facets("fr", **f) for f in filters]
+    env.fr.rdap = env.drops.rdap = FakeRdap({"mot.fr": LookupResult(available=True), "velo.fr": LookupResult(available=True)})
+    asyncio.run(env.verify("mot.fr"))
+    asyncio.run(env.verify("velo.fr"))
+    patched = [env.facets("fr", **f) for f in filters]
+    assert patched != before
+    status = env.status_bytes("fr")
+    assert status[env.universe.index("velo")] == explore.FREE
+    # Recalcul complet à neuf : mêmes chiffres que la correction en place.
+    env.invalidate()
+    assert [env.facets("fr", **f) for f in filters] == patched
+    assert env.map() == env._build_map()
+
+
+def test_background_checks_patch_the_explorer(env):
+    add_fr(env, "velo")
+    env.warm()
+    now = datetime.now(timezone.utc)
+    env.drops.record("fr", ["velo"], [], now)
+    env.drops.apply(env.drops.row("velo.fr"), LookupResult(available=True), now)
+    assert env.status_bytes("fr")[env.universe.index("velo")] == explore.FREE

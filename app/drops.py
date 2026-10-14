@@ -360,6 +360,8 @@ async def _prefetch(chunks: AsyncIterator[bytes], queue: asyncio.Queue) -> None:
 
 
 class DropWatcher:
+    on_change = None  # appelé avec le nom après chaque vérification (Explorer)
+
     def __init__(self, conn, store: Store, data_dir: Path, rdap, delays: dict, http_factory=None):
         self.conn = conn
         self.store = store
@@ -680,6 +682,8 @@ class DropWatcher:
                error = NULL, checked_at = ?, next_check_at = ? WHERE id = ?""",
             (state, iso(since), iso(release), available_since, iso(now), iso(self._next(state, now, release)), row["id"]),
         )
+        if self.on_change:
+            self.on_change(row["name"])
         return state
 
     def row(self, name: str):
