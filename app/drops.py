@@ -53,12 +53,13 @@ KINDS = {
 
 # États propres à cet écran, en plus de ceux de states.
 SUSPENDED = "suspended"  # hors zone mais ni en rédemption ni en suppression (hold, litige)
+TAKEN = "taken"  # renouvelé, restauré ou repris : plus rien à attendre, gardé pour l'historique
 TRACKED = (states.EXPIRED, states.REDEMPTION, states.PENDING_DELETE)
 
-KEEP_AVAILABLE_DAYS = 7
+# Un nom libre reste affiché ce nombre de jours (réglable), puis seulement dans l'Explorer.
+DEFAULT_KEEP_DAYS = 30
 # Au-delà de cette part de noms disparus en un jour, la zone est jugée anormale et ignorée.
 MAX_DAILY_REMOVED_SHARE = 0.05
-KEEP_SUSPENDED_DAYS = 45
 
 
 class CzdsError(Exception):
@@ -558,7 +559,10 @@ class DropWatcher:
                 )
             for label in added:
                 # Revenu dans la zone : renouvelé, restauré ou réenregistré. Plus rien à attendre.
-                self.conn.execute("DELETE FROM drops WHERE name = ?", (f"{label}.{tld}",))
+                self.conn.execute(
+                    "UPDATE drops SET state = ?, state_since = ?, next_check_at = NULL, release_at = NULL WHERE name = ?",
+                    (TAKEN, iso(now), f"{label}.{tld}"),
+                )
             if own_transaction:
                 self.conn.execute("COMMIT")
         except Exception:
@@ -591,7 +595,6 @@ class DropWatcher:
                         )
                         results.append(result)
             self.store.set("czds_last_run", datetime.now(digest.local_zone()).date().isoformat())
-            self.purge(utcnow())
         finally:
             self.running = False
         return results
@@ -602,33 +605,53 @@ class DropWatcher:
 
     # Vérification RDAP des noms sortis
 
-    def _next(self, state: str, now: datetime, release: datetime | None) -> datetime:
-        if state == states.PENDING_DELETE and release:
-            return max(now + timedelta(hours=1), min(release + timedelta(minutes=30), now + timedelta(hours=12)))
-        if state == states.AVAILABLE:
-            return now + timedelta(hours=12)
+    @property
+    def keep_days(self) -> int:
+        return int(self.store.get("drops_keep_days") or DEFAULT_KEEP_DAYS)
+
+    def _next(self, state: str, now: datetime, release: datetime | None) -> datetime | None:
+        """Le moins de requêtes possible : on regarde quand quelque chose doit changer."""
+        if state in (states.AVAILABLE, TAKEN):
+            return None  # Plus rien à attendre. Bouton « Revérifier » ou « Surveiller » pour la suite.
+        if state in (states.REDEMPTION, states.PENDING_DELETE):
+            if release:
+                target = release + timedelta(minutes=30)
+                if target > now + timedelta(hours=1):
+                    return target  # Une seule vérification, à la libération estimée.
+                return now + timedelta(hours=6)  # Estimation dépassée : on regarde jusqu'à la libération.
+            return now + timedelta(hours=24)  # Délais inconnus pour cette extension.
+        if state == states.EXPIRED:
+            # Le registrar peut supprimer le nom avant la fin de la période de grâce.
+            return min(release, now + timedelta(days=7)) if release and release > now else now + timedelta(days=7)
         if state == SUSPENDED:
-            return now + timedelta(days=3)
+            return now + timedelta(days=7)
         return now + timedelta(hours=24)
 
     async def check_due(self, limit: int = 20) -> int:
+        # Le .fr passe par la file de l'Afnic (frdata), sous son propre plafond.
         now = utcnow()
         rows = self.conn.execute(
-            "SELECT * FROM drops WHERE next_check_at <= ? ORDER BY next_check_at LIMIT ?", (iso(now), limit)
+            "SELECT * FROM drops WHERE tld != 'fr' AND next_check_at <= ? ORDER BY next_check_at LIMIT ?",
+            (iso(now), limit),
         ).fetchall()
         for row in rows:
             await self.check(row)
         return len(rows)
 
-    async def check(self, row) -> None:
-        result = await self.rdap.lookup(row["name"])
-        now = utcnow()
+    async def check(self, row, result=None):
+        if result is None:
+            result = await self.rdap.lookup(row["name"])
+        self.apply(row, result, utcnow())
+        return result
+
+    def apply(self, row, result, now: datetime) -> str | None:
+        """Enregistre le résultat RDAP d'un nom de l'écran Suppressions. Renvoie son état."""
         if result.error:
             self.conn.execute(
                 "UPDATE drops SET error = ?, checked_at = ?, next_check_at = ? WHERE id = ?",
                 (result.error, iso(now), iso(now + timedelta(hours=2)), row["id"]),
             )
-            return
+            return None
         expires = None
         if result.available:
             state = states.AVAILABLE
@@ -637,7 +660,9 @@ class DropWatcher:
             expires = info.expires_at
             state = states.compute_state(info.statuses, info.expires_at, now, 0)
             if state not in TRACKED:
-                state = SUSPENDED
+                # Hors zone sans être supprimé : suspendu (hold). Sinon il est de nouveau à quelqu'un.
+                held = any("hold" in s.replace(" ", "").lower() for s in info.statuses)
+                state = SUSPENDED if held else TAKEN
         since = parse_iso(row["state_since"])
         if state != row["state"]:
             since = now
@@ -654,6 +679,20 @@ class DropWatcher:
                error = NULL, checked_at = ?, next_check_at = ? WHERE id = ?""",
             (state, iso(since), iso(release), available_since, iso(now), iso(self._next(state, now, release)), row["id"]),
         )
+        return state
+
+    def row(self, name: str):
+        return self.conn.execute("SELECT * FROM drops WHERE name = ?", (name,)).fetchone()
+
+    def ensure(self, name: str, now: datetime):
+        """La ligne d'un nom, créée au besoin (vérification manuelle depuis l'Explorer)."""
+        found = self.row(name)
+        if found is None:
+            label, tld = name.split(".", 1)
+            self.record(tld, [label], [], now)
+            self.conn.execute("UPDATE drops SET next_check_at = NULL WHERE name = ?", (name,))
+            found = self.row(name)
+        return found
 
     def release(self, state, tld, expires, since, now) -> datetime | None:
         value = states.estimate_release(state, tld, expires, since, now, self.delays)
@@ -661,13 +700,3 @@ class DropWatcher:
         if value and drop:
             value = value.replace(hour=drop[0], minute=drop[1], second=0, microsecond=0)
         return value
-
-    def purge(self, now: datetime) -> None:
-        self.conn.execute(
-            "DELETE FROM drops WHERE state = ? AND available_since < ?",
-            (states.AVAILABLE, iso(now - timedelta(days=KEEP_AVAILABLE_DAYS))),
-        )
-        self.conn.execute(
-            "DELETE FROM drops WHERE state = ? AND removed_on < ?",
-            (SUSPENDED, (now - timedelta(days=KEEP_SUSPENDED_DAYS)).date().isoformat()),
-        )

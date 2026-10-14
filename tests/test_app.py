@@ -266,9 +266,14 @@ def test_drops_list_marks_watched_names(logged):
         "INSERT INTO drops (name, tld, label, kind, removed_on, state, release_at) VALUES "
         "('abcd.com', 'com', 'abcd', 'letters', '2026-10-01', 'redemption', '2026-11-05T12:00:00+00:00'),"
         "('wx12.net', 'net', 'wx12', 'mixed', '2026-10-01', 'available', NULL),"
-        "('zz99.com', 'com', 'zz99', 'mixed', '2026-10-13', NULL, NULL)"
+        "('zz99.com', 'com', 'zz99', 'mixed', '2026-10-13', NULL, NULL),"
+        "('old1.com', 'com', 'old1', 'mixed', '2026-01-01', 'available', NULL)"
     )
+    recent = (datetime.now(timezone.utc) - timedelta(days=3)).isoformat()
+    conn.execute("UPDATE drops SET available_since = ? WHERE name = 'wx12.net'", (recent,))
+    conn.execute("UPDATE drops SET available_since = '2026-01-02T00:00:00+00:00' WHERE name = 'old1.com'")
     data = client.get("/api/drops").json()
+    # Libre depuis plus que la durée d'affichage : masqué, mais toujours en base.
     assert {i["name"]: i["watched"] for i in data["items"]} == {"abcd.com": True, "wx12.net": False}
     assert data["pending_checks"] == 1
     client.__exit__(None, None, None)

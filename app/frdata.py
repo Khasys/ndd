@@ -19,12 +19,12 @@ import logging
 import re
 import unicodedata
 import zipfile
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
 
-from . import drops, states, wordlists
+from . import digest, drops, states, wordlists
 from .checker import iso, utcnow
 from .store import Store
 
@@ -38,13 +38,18 @@ RESOURCE_HINTS = ("nomsdedomaine", "nomdedomaine", "enpointfr")
 AFNIC_MONTHLY = "https://www.afnic.fr/wp-media/ftp/documentsOpenData/{month}_OPENDATA_A-NomsDeDomaineEnPointFr.zip"
 MONTHS_BACK = 4
 MONTH_IN_URL = re.compile(r"(?<!\d)(20\d{2}(?:0[1-9]|1[0-2]))(?=_OPENDATA)")
-# Plafond : 3 requêtes toutes les 5 minutes, soit 864 par jour au plus, même avec du retard.
-SWEEP_BATCH = 3
-SWEEP_EVERY_MINUTES = 5
-PAUSE_AFTER_LIMIT = timedelta(hours=24)
-RECENT_REMOVAL_DAYS = 45
+# Plafond commun à toutes les requêtes vers l'Afnic, par minute, réglable dans Paramètres.
+# L'Afnic ne publie pas de limite : on reste prudent et on recule au premier signal.
+DEFAULT_RATE = 2
+MAX_RATE = 20
+# Signal de limite (429) : pause d'une heure, doublée à chaque nouveau signal, 24 h au plus.
+FIRST_PAUSE = timedelta(hours=1)
+MAX_PAUSE = timedelta(hours=24)
+# Premier import : faute de fichier précédent, les suppressions de ces derniers jours sont vérifiées.
+BACKFILL_DAYS = 90
+KEEP_REQUEST_LOG_DAYS = 30
 # À augmenter quand la lecture du fichier change : force un nouvel import du même mois.
-READER_VERSION = 2
+READER_VERSION = 3
 
 
 class FrDataError(Exception):
@@ -203,10 +208,24 @@ class FrWatcher:
             lambda: httpx.AsyncClient(timeout=httpx.Timeout(60, read=300), follow_redirects=True)
         )
         self.running = False
+        self.current: str | None = None  # nom en cours de vérification, pour l'affichage en direct
 
     @property
     def enabled(self) -> bool:
         return self.store.get("fr_enabled") == "1"
+
+    @property
+    def rate(self) -> int:
+        try:
+            return max(1, min(MAX_RATE, int(self.store.get("fr_rate") or DEFAULT_RATE)))
+        except ValueError:
+            return DEFAULT_RATE
+
+    def paused_until(self, now: datetime | None = None) -> datetime | None:
+        value = self.store.get("fr_paused_until")
+        if value and datetime.fromisoformat(value) > (now or utcnow()):
+            return datetime.fromisoformat(value)
+        return None
 
     def status(self) -> dict:
         info = json.loads(self.store.get("fr_status") or "{}")
@@ -220,10 +239,47 @@ class FrWatcher:
                FROM fr_names""",
             (week,),
         ).fetchone()
+        paused = self.paused_until()
         info.update(total=counts["total"], registered=counts["registered"] or 0, week=counts["week"] or 0,
                     scheduled=counts["scheduled"] or 0, next_at=counts["next_at"],
-                    paused_until=self.store.get("fr_paused_until") or None)
+                    paused_until=iso(paused), rate=self.rate, work=self.work())
         return info
+
+    def _due_between(self, start: datetime, end: datetime) -> dict:
+        names = self.conn.execute(
+            """SELECT COUNT(*) FROM fr_names WHERE removed_on IS NULL AND next_check_at IS NOT NULL
+               AND next_check_at >= ? AND next_check_at < ?""",
+            (iso(start), iso(end)),
+        ).fetchone()[0]
+        removed = self.conn.execute(
+            "SELECT COUNT(*) FROM drops WHERE tld = 'fr' AND next_check_at >= ? AND next_check_at < ?",
+            (iso(start), iso(end)),
+        ).fetchone()[0]
+        return {"anniversaries": names, "removals": removed}
+
+    def work(self) -> dict:
+        """Travail du jour et du lendemain, en heure locale, et ce qui se passe en ce moment."""
+        now = utcnow()
+        midnight = datetime.now(digest.local_zone()).replace(hour=0, minute=0, second=0, microsecond=0)
+        today, tomorrow, after = (midnight.astimezone(timezone.utc) + timedelta(days=d) for d in (0, 1, 2))
+        origin = datetime(1970, 1, 1, tzinfo=timezone.utc)
+        # Une vérification faite est replanifiée plus loin : ce qui est prévu avant minuit reste à faire.
+        left = self._due_between(origin, tomorrow)
+        due_now = sum(self._due_between(origin, now).values())
+        done = self.conn.execute(
+            "SELECT source, COUNT(*) AS n FROM fr_requests WHERE at >= ? GROUP BY source", (iso(today),)
+        ).fetchall()
+        recent = self.conn.execute(
+            "SELECT at, name, source, outcome FROM fr_requests ORDER BY id DESC LIMIT 8"
+        ).fetchall()
+        return {
+            "left_today": left,
+            "tomorrow": self._due_between(tomorrow, after),
+            "done_today": {r["source"]: r["n"] for r in done},
+            "due_now": due_now,
+            "current": self.current,
+            "recent": [dict(r) for r in recent],
+        }
 
     async def _get_json(self, http: httpx.AsyncClient, url: str) -> dict | None:
         try:
@@ -322,8 +378,13 @@ class FrWatcher:
         return self.status()
 
     def _apply(self, kept: dict, now: datetime) -> None:
-        recent = (now - timedelta(days=RECENT_REMOVAL_DAYS)).date()
         today = now.date()
+        before = dict(self.conn.execute("SELECT label, removed_on FROM fr_names").fetchall())
+        # Premier import (ou import d'avant ce suivi) : pas de fichier précédent pour comparer.
+        first = not before or self.store.get("fr_backfill") != "1"
+        since = (now - timedelta(days=BACKFILL_DAYS)).date()
+        followed = {r[0] for r in self.conn.execute(
+            "SELECT label FROM drops WHERE tld = 'fr' AND state IS NOT NULL AND state != ?", (drops.TAKEN,))}
         self.conn.execute("BEGIN")
         try:
             for label, (created, removed) in kept.items():
@@ -344,13 +405,18 @@ class FrWatcher:
                            ELSE fr_names.next_check_at END""",
                     (label, created and created.isoformat(), removed and removed.isoformat(), following),
                 )
-                # Supprimé récemment d'après l'Afnic : vérification RDAP, libre ou repris.
-                if removed and removed >= recent:
+                if not removed or label in followed:
+                    continue
+                # Nouvelle suppression depuis le fichier précédent, quelle que soit sa date :
+                # le fichier arrive avec plusieurs semaines de retard.
+                new = removed >= since if first else before.get(label) != removed.isoformat()
+                if new:
                     self.drops.record("fr", [label], [], now, removed_on=removed)
             self.conn.execute("COMMIT")
         except Exception:
             self.conn.execute("ROLLBACK")
             raise
+        self.store.set("fr_backfill", "1")
 
     def due(self, now_local: datetime) -> bool:
         """Une fois par semaine : l'Afnic publie vers le milieu du mois, la date exacte varie."""
@@ -362,47 +428,134 @@ class FrWatcher:
         last = status.get("at")
         return not last or datetime.fromisoformat(last) < utcnow() - timedelta(days=7)
 
-    async def sweep(self, limit: int = SWEEP_BATCH) -> int:
-        """Vérifie en RDAP les noms .fr enregistrés dont c'est le tour."""
+    # File unique des requêtes vers l'Afnic
+
+    def _next_job(self, now: datetime):
+        """La vérification la plus en retard, suppressions et dates anniversaire confondues."""
+        removal = self.conn.execute(
+            "SELECT * FROM drops WHERE tld = 'fr' AND next_check_at <= ? ORDER BY next_check_at LIMIT 1",
+            (iso(now),),
+        ).fetchone()
+        anniversary = self.conn.execute(
+            """SELECT * FROM fr_names WHERE removed_on IS NULL AND next_check_at IS NOT NULL
+               AND next_check_at <= ? ORDER BY next_check_at LIMIT 1""",
+            (iso(now),),
+        ).fetchone()
+        if removal and (not anniversary or removal["next_check_at"] <= anniversary["next_check_at"]):
+            return "suppression", removal
+        if anniversary:
+            return "anniversaire", anniversary
+        return None
+
+    def _used_last_minute(self, now: datetime) -> int:
+        return self.conn.execute(
+            "SELECT COUNT(*) FROM fr_requests WHERE at > ?", (iso(now - timedelta(minutes=1)),)
+        ).fetchone()[0]
+
+    async def tick(self) -> int:
+        """Appelée chaque minute : autant de vérifications que le plafond le permet."""
         if not self.enabled:
             return 0
         now = utcnow()
-        paused = self.store.get("fr_paused_until")
-        if paused and datetime.fromisoformat(paused) > now:
+        if self.paused_until(now):
             return 0
-        rows = self.conn.execute(
-            """SELECT * FROM fr_names WHERE removed_on IS NULL AND next_check_at IS NOT NULL
-               AND next_check_at <= ? ORDER BY next_check_at LIMIT ?""",
-            (iso(now), limit),
-        ).fetchall()
+        self.conn.execute(
+            "DELETE FROM fr_requests WHERE at < ?", (iso(now - timedelta(days=KEEP_REQUEST_LOG_DAYS)),)
+        )
         done = 0
-        for row in rows:
+        for _ in range(max(0, self.rate - self._used_last_minute(now))):
+            job = self._next_job(utcnow())
+            if job is None:
+                break
+            source, row = job
             done += 1
-            if not await self._check(row):
+            if source == "suppression":
+                ok = await self._check_removal(row)
+            else:
+                ok = await self._check(row)
+            if not ok:
                 break
         return done
 
-    async def _check(self, row) -> bool:
-        """False si l'Afnic limite les requêtes : le balayage s'arrête et se met en pause."""
-        name = f"{row['label']}.fr"
-        result = await self.rdap.lookup(name)
+    # Conservée pour les appels existants : une passe de la file.
+    sweep = tick
+
+    async def lookup(self, name: str, source: str):
+        """Requête RDAP vers l'Afnic, journalisée. Renvoie None si l'Afnic limite (pause posée)."""
+        self.current = name
+        try:
+            result = await self.rdap.lookup(name)
+        finally:
+            self.current = None
         now = utcnow()
+        limited = bool(result.error) and ("Limite" in result.error or "429" in result.error)
+        outcome = "limite" if limited else "erreur" if result.error else "libre" if result.available else "enregistré"
+        if not result.error and not result.available:
+            state = states.compute_state(result.info.statuses, result.info.expires_at, now, 0)
+            if state in drops.TRACKED:
+                outcome = states.LABELS[state].lower()
+        self.conn.execute(
+            "INSERT INTO fr_requests (at, name, source, outcome) VALUES (?, ?, ?, ?)",
+            (iso(now.replace(microsecond=0)), name, source, outcome),
+        )
+        if limited:
+            self._pause(result.error, now)
+            return None
+        self.store.set("fr_limit_streak", "0")
+        return result
+
+    def _pause(self, error: str, now: datetime) -> None:
+        streak = int(self.store.get("fr_limit_streak") or 0) + 1
+        self.store.set("fr_limit_streak", str(streak))
+        pause = min(MAX_PAUSE, FIRST_PAUSE * (2 ** (streak - 1)))
+        asked = re.search(r"reprise dans (\d+) s", error)
+        if asked:
+            pause = max(pause, timedelta(seconds=int(asked.group(1))))
+        self.store.set("fr_paused_until", iso(now + pause))
+        log.warning("Afnic : trop de requêtes, vérifications .fr en pause %s", pause)
+
+    async def _check_removal(self, row) -> bool:
+        result = await self.lookup(row["name"], "suppression")
+        if result is None:
+            return False
+        state = self.drops.apply(row, result, utcnow())
+        self._sync_name(row["label"], result, state)
+        return True
+
+    def _sync_name(self, label: str, result, state: str | None) -> None:
+        """Un nom de l'écran Suppressions repris : il retourne dans les dates anniversaire."""
+        if state != drops.TAKEN or result.error or result.available:
+            return
+        expires = result.info.expires_at
+        now = utcnow()
+        following = _check_time(expires.date()) if expires and expires > now else now + timedelta(days=30)
+        self.conn.execute(
+            """INSERT INTO fr_names (label, removed_on, expires_at, checked_at, next_check_at)
+               VALUES (?, NULL, ?, ?, ?)
+               ON CONFLICT(label) DO UPDATE SET removed_on = NULL, expires_at = excluded.expires_at,
+                 checked_at = excluded.checked_at, next_check_at = excluded.next_check_at""",
+            (label, iso(expires), iso(now), iso(following)),
+        )
+
+    async def _check(self, row) -> bool:
+        """False si l'Afnic limite les requêtes : la file s'arrête et se met en pause."""
+        name = f"{row['label']}.fr"
+        result = await self.lookup(name, "anniversaire")
+        now = utcnow()
+        if result is None:
+            return False
         if result.error:
-            if "Limite" in result.error or "429" in result.error:
-                self.store.set("fr_paused_until", iso(now + PAUSE_AFTER_LIMIT))
-                log.warning("Afnic : trop de requêtes, vérifications .fr en pause 24 h")
-                return False
             self._schedule(row["label"], row["expires_at"], now + timedelta(days=1), now)
             return True
         if result.available:
-            self.drops.record("fr", [row["label"]], [], now)
+            self._hand_over(row["label"], result, now)
             # Libre : le suivi passe à l'écran Suppressions. Le prochain import dira s'il est repris.
             self._schedule(row["label"], None, None, now)
             return True
         info = result.info
         state = states.compute_state(info.statuses, info.expires_at, now, 0)
-        if state in (states.REDEMPTION, states.PENDING_DELETE, states.EXPIRED):
-            self.drops.record("fr", [row["label"]], [], now)
+        if state in drops.TRACKED:
+            self._hand_over(row["label"], result, now)
             self._schedule(row["label"], iso(info.expires_at), None, now)
             return True
         expires = info.expires_at
@@ -415,6 +568,11 @@ class FrWatcher:
             following = now + timedelta(days=30)
         self._schedule(row["label"], iso(expires), following, now)
         return True
+
+    def _hand_over(self, label: str, result, now: datetime) -> None:
+        """Passe le nom à l'écran Suppressions avec le résultat déjà lu : pas de seconde requête."""
+        self.drops.record("fr", [label], [], now)
+        self.drops.apply(self.drops.row(f"{label}.fr"), result, now)
 
     def _schedule(self, label: str, expires: str | None, following: datetime | None, now: datetime) -> None:
         self.conn.execute(

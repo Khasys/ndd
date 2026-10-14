@@ -141,6 +141,7 @@ def add_due(fr, label, created="2015-03-12"):
 
 
 def test_check_follows_the_real_expiry_and_hands_drops_over(fr):
+    fr.store.set("fr_rate", "10")
     now = datetime.now(timezone.utc).replace(microsecond=0)
     for label in ("navarro", "soleil", "velo"):
         add_due(fr, label)
@@ -150,39 +151,106 @@ def test_check_follows_the_real_expiry_and_hands_drops_over(fr):
         "soleil.fr": LookupResult(found=True, info=DomainInfo(statuses=["redemption period"], last_changed_at=now)),
         "velo.fr": LookupResult(available=True),
     })
-    assert asyncio.run(fr.sweep()) == 3
+    assert asyncio.run(fr.tick()) == 3
     rows = {r["label"]: r for r in fr.conn.execute("SELECT * FROM fr_names")}
     following = datetime.fromisoformat(rows["navarro"]["next_check_at"])
     assert following.date() == (expires + timedelta(days=1)).date()
     assert rows["soleil"]["next_check_at"] is None and rows["velo"]["next_check_at"] is None
-    assert sorted(r["name"] for r in fr.conn.execute("SELECT name FROM drops")) == ["soleil.fr", "velo.fr"]
-    assert asyncio.run(fr.sweep()) == 0
+    # Passés à l'écran Suppressions avec le résultat déjà lu : pas de seconde requête.
+    found = {r["name"]: r for r in fr.conn.execute("SELECT * FROM drops")}
+    assert found["soleil.fr"]["state"] == states.REDEMPTION and found["velo.fr"]["state"] == states.AVAILABLE
+    # .fr : rédemption de 30 jours, libre juste après. Vérifié une fois, à cette date.
+    release = datetime.fromisoformat(found["soleil.fr"]["release_at"])
+    assert release.date() == (now + timedelta(days=30)).date()
+    assert found["velo.fr"]["next_check_at"] is None
+    assert asyncio.run(fr.tick()) == 0
+    assert fr.conn.execute("SELECT COUNT(*) FROM fr_requests").fetchone()[0] == 3
 
 
-def test_requests_are_capped_per_run(fr):
+def test_requests_are_capped_per_minute(fr):
     for i in range(10):
         add_due(fr, f"nom{i}")
     fr.rdap = FakeRdap({f"nom{i}.fr": LookupResult(available=True) for i in range(10)})
-    assert asyncio.run(fr.sweep()) == frdata.SWEEP_BATCH == 3
+    assert asyncio.run(fr.tick()) == frdata.DEFAULT_RATE == 2
+    # Même minute : le plafond est atteint, y compris par les vérifications manuelles.
+    assert asyncio.run(fr.tick()) == 0
 
 
-def test_rate_limit_pauses_checks_for_a_day(fr):
+def test_removals_and_anniversaries_share_one_queue(fr):
+    fr.store.set("fr_rate", "10")
+    now = datetime.now(timezone.utc)
+    add_due(fr, "navarro")
+    fr.drops.record("fr", ["velo"], [], now - timedelta(hours=1))
+    fr.rdap = FakeRdap({
+        "velo.fr": LookupResult(available=True),
+        "navarro.fr": LookupResult(found=True, info=DomainInfo(statuses=["active"], expires_at=now + timedelta(days=90))),
+    })
+    asyncio.run(fr.tick())
+    sources = [r[0] for r in fr.conn.execute("SELECT source FROM fr_requests ORDER BY id")]
+    # Le plus en retard d'abord : la suppression, prévue il y a une heure.
+    assert sources == ["suppression", "anniversaire"]
+
+
+def test_rate_limit_pauses_and_backs_off(fr):
     add_due(fr, "navarro")
     add_due(fr, "dupont")
     fr.rdap = FakeRdap({
         "dupont.fr": LookupResult(error="Limite de requêtes du registre atteinte (429)"),
         "navarro.fr": LookupResult(error="Limite de requêtes du registre atteinte (429)"),
     })
-    assert asyncio.run(fr.sweep()) == 1
-    assert fr.status()["paused_until"]
-    assert asyncio.run(fr.sweep()) == 0
+    assert asyncio.run(fr.tick()) == 1
+    first = fr.paused_until()
+    assert first and timedelta(minutes=59) < first - datetime.now(timezone.utc) <= timedelta(hours=1)
+    assert asyncio.run(fr.tick()) == 0
     # Rien n'a été reporté : les deux noms seront vérifiés à la reprise.
     assert fr.conn.execute("SELECT COUNT(*) FROM fr_names WHERE checked_at IS NULL").fetchone()[0] == 2
+    # Nouveau signal à la reprise : pause doublée.
+    fr.store.set("fr_paused_until", "")
+    fr.conn.execute("DELETE FROM fr_requests")
+    asyncio.run(fr.tick())
+    assert fr.paused_until() - datetime.now(timezone.utc) > timedelta(minutes=119)
+    # Une pause demandée par l'Afnic plus longue est respectée.
+    fr._pause("Limite de requêtes du registre atteinte, reprise dans 36000 s", datetime.now(timezone.utc))
+    assert fr.paused_until() - datetime.now(timezone.utc) > timedelta(hours=9)
+
+
+def test_new_removals_are_checked_whatever_their_date(fr):
+    old = (datetime.now(timezone.utc) - timedelta(days=200)).strftime("%d-%m-%Y")
+    recent = (datetime.now(timezone.utc) - timedelta(days=60)).strftime("%d-%m-%Y")
+    serve(fr, make_zip(csv_text([
+        "navarro.fr;FR;;;;;PP;FR;;01-02-2010;",
+        f"velo.fr;FR;;;;;PP;FR;;01-02-2010;{recent}",
+        f"courir.fr;FR;;;;;PP;FR;;01-02-2010;{old}",
+    ])))
+    asyncio.run(fr.import_file())
+    # Premier import : suppressions des 90 derniers jours seulement.
+    assert [r[0] for r in fr.conn.execute("SELECT name FROM drops")] == ["velo.fr"]
+
+    # Fichier suivant : navarro supprimé il y a 70 jours (le fichier arrive en retard), vérifié quand même.
+    later = (datetime.now(timezone.utc) - timedelta(days=70)).strftime("%d-%m-%Y")
+    serve(fr, make_zip(csv_text([
+        f"navarro.fr;FR;;;;;PP;FR;;01-02-2010;{later}",
+        f"velo.fr;FR;;;;;PP;FR;;01-02-2010;{recent}",
+        f"courir.fr;FR;;;;;PP;FR;;01-02-2010;{old}",
+    ])), modified="2026-11-15T00:00:00")
+    asyncio.run(fr.import_file())
+    assert sorted(r[0] for r in fr.conn.execute("SELECT name FROM drops")) == ["navarro.fr", "velo.fr"]
+
+
+def test_work_of_the_day_is_reported(fr):
+    add_due(fr, "navarro")
+    fr.conn.execute(
+        "INSERT INTO fr_names (label, created_on, next_check_at) VALUES ('dupont', '2015-03-12', ?)",
+        ((datetime.now(timezone.utc) + timedelta(days=1, hours=12)).isoformat(),),
+    )
+    work = fr.status()["work"]
+    assert work["left_today"]["anniversaries"] >= 1 and work["due_now"] == 1
+    assert work["current"] is None and work["done_today"] == {}
 
 
 def test_disabled_fr_does_nothing(fr):
     fr.store.set("fr_enabled", "0")
-    assert asyncio.run(fr.sweep()) == 0
+    assert asyncio.run(fr.tick()) == 0
     assert not fr.due(datetime.now())
 
 

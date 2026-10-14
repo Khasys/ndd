@@ -51,6 +51,10 @@ drop_time_utc = "12:00"
 # (consulté le 2026-10-12) : délai de 30 jours pendant lequel la suppression reste réversible
 redemption = 30
 
-# pending_delete : vide. Les guides Afnic indiquent que la suppression devient
-# irréversible à la fin de la rédemption, sans préciser le délai avant que le nom
-# redevienne enregistrable. Des registrars citent des délais différents.
+# https://www.afnic.fr/wp-media/uploads/2021/03/Afnic-_Guide_Des_procedures.pdf
+# (consulté le 2026-10-13, au travers des extraits d'un moteur de recherche) : à la fin des
+# 30 jours, « la demande de suppression est irréversible. Le domaine est définitivement
+# supprimé et redevient disponible et enregistrable par un autre titulaire ».
+# Pas de période de suppression distincte : 0. L'heure n'est pas donnée ; le nom est
+# revérifié toutes les 6 h après l'estimation tant qu'il n'est pas libre.
+pending_delete = 0

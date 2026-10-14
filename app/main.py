@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import bot, calendar_ics, db, digest, drops, frdata, signals, states, updates, wordlists
+from . import bot, calendar_ics, db, digest, drops, explore, frdata, signals, states, updates, wordlists
 from .auth import (
     COOKIE_NAME,
     MIN_PASSWORD_LENGTH,
@@ -31,7 +31,7 @@ from .auth import (
 )
 from .checker import Checker, DuplicateDomain, iso, parse_iso, utcnow
 from .config import VERSION, load_settings
-from .rdap import InvalidDomain, RdapClient, tld_of
+from .rdap import InvalidDomain, RdapClient, clean_domain, tld_of
 from .store import Store
 from .telegram import Telegram, TelegramError
 
@@ -109,8 +109,8 @@ async def lifespan(app: FastAPI):
         if fr.due(datetime.now(digest.local_zone())):
             await fr.import_file()
 
-    async def sweep_fr() -> None:
-        await fr.sweep()
+    async def tick_fr() -> None:
+        await fr.tick()
 
     now = datetime.now(timezone.utc)
     scheduler.add_job(refresh_latest, "interval", hours=24, next_run_time=now, max_instances=1, id="latest")
@@ -119,7 +119,8 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(scan_zones, "interval", minutes=15, next_run_time=now + timedelta(minutes=1), max_instances=1)
     scheduler.add_job(check_drops, "interval", minutes=5, next_run_time=now + timedelta(minutes=3), max_instances=1)
     scheduler.add_job(import_fr, "interval", hours=6, next_run_time=now + timedelta(minutes=4), max_instances=1)
-    scheduler.add_job(sweep_fr, "interval", minutes=frdata.SWEEP_EVERY_MINUTES, next_run_time=now + timedelta(minutes=6), max_instances=1)
+    # File .fr : chaque minute, autant de requêtes que le plafond réglé le permet.
+    scheduler.add_job(tick_fr, "interval", minutes=1, next_run_time=now + timedelta(minutes=6), max_instances=1)
     scheduler.start()
     telegram.start()
 
@@ -127,6 +128,7 @@ async def lifespan(app: FastAPI):
     app.state.scheduler = scheduler
     app.state.drops = watcher
     app.state.fr = fr
+    app.state.explorer = explore.Explorer(conn, watcher, fr)
     app.state.store = store
     app.state.telegram = telegram
     app.state.settings = settings
@@ -586,7 +588,8 @@ async def get_settings(request: Request):
         },
         "calendar_url": _calendar_url(request),
         "czds": _czds_settings(state.drops),
-        "fr": {"enabled": state.fr.enabled, "url": state.store.get("fr_url")},
+        "fr": {"enabled": state.fr.enabled, "url": state.store.get("fr_url"), "rate": state.fr.rate},
+        "drops": {"keep_days": state.drops.keep_days},
         "appearance": {
             "app_name": store.get("app_name") or DEFAULT_NAME,
             "theme": store.get("theme", "system"),
@@ -665,6 +668,7 @@ async def set_czds_zones(request: Request, payload: CzdsZones):
 class FrSettings(BaseModel):
     enabled: bool
     url: str = ""
+    rate: int | None = None
 
 
 @app.put("/api/settings/fr")
@@ -675,7 +679,23 @@ async def set_fr(request: Request, payload: FrSettings):
         raise HTTPException(422, "Adresse du fichier : https:// attendu.")
     store.set("fr_enabled", "1" if payload.enabled else "0")
     store.set("fr_url", url)
-    return {"enabled": payload.enabled, "url": url}
+    if payload.rate is not None:
+        if not 1 <= payload.rate <= frdata.MAX_RATE:
+            raise HTTPException(422, f"Requêtes par minute : entre 1 et {frdata.MAX_RATE}.")
+        store.set("fr_rate", str(payload.rate))
+    return {"enabled": payload.enabled, "url": url, "rate": request.app.state.fr.rate}
+
+
+class DropsSettings(BaseModel):
+    keep_days: int
+
+
+@app.put("/api/settings/drops")
+async def set_drops(request: Request, payload: DropsSettings):
+    if not 1 <= payload.keep_days <= 365:
+        raise HTTPException(422, "Durée d'affichage : entre 1 et 365 jours.")
+    request.app.state.store.set("drops_keep_days", str(payload.keep_days))
+    return {"keep_days": payload.keep_days}
 
 
 @app.post("/api/drops/fr/import", status_code=202)
@@ -692,11 +712,17 @@ async def import_fr_now(request: Request):
 @app.get("/api/drops")
 async def list_drops(request: Request):
     watcher = request.app.state.drops
-    rows = request.app.state.conn.execute(
-        "SELECT * FROM drops WHERE state IS NOT NULL ORDER BY release_at IS NULL, release_at, name"
+    conn = request.app.state.conn
+    # Un nom libre reste affiché keep_days jours ; il reste en base et dans l'Explorer.
+    shown_since = iso(utcnow() - timedelta(days=watcher.keep_days))
+    rows = conn.execute(
+        """SELECT * FROM drops WHERE state IN (?, ?, ?) OR (state = ? AND available_since >= ?)
+           ORDER BY release_at IS NULL, release_at, name""",
+        (*drops.TRACKED, states.AVAILABLE, shown_since),
     ).fetchall()
-    pending = request.app.state.conn.execute("SELECT COUNT(*) FROM drops WHERE state IS NULL").fetchone()[0]
-    watched = {r[0] for r in request.app.state.conn.execute("SELECT name FROM domains")}
+    pending = conn.execute("SELECT COUNT(*) FROM drops WHERE state IS NULL").fetchone()[0]
+    suspended = dict(conn.execute("SELECT tld, COUNT(*) FROM drops WHERE state = ? GROUP BY tld", (drops.SUSPENDED,)).fetchall())
+    watched = {r[0] for r in conn.execute("SELECT name FROM domains")}
     return {
         "configured": watcher.configured or request.app.state.fr.enabled,
         "czds": watcher.configured,
@@ -708,6 +734,8 @@ async def list_drops(request: Request):
         "fr": {"enabled": request.app.state.fr.enabled, "running": request.app.state.fr.running, **request.app.state.fr.status()},
         "workers": watcher.workers,
         "pending_checks": pending,
+        "suspended": suspended,
+        "keep_days": watcher.keep_days,
         "kinds": drops.KINDS,
         "items": [
             {
@@ -720,11 +748,108 @@ async def list_drops(request: Request):
                 "release_at": r["release_at"],
                 "available_since": r["available_since"],
                 "checked_at": r["checked_at"],
+                "next_check_at": r["next_check_at"],
                 "watched": r["name"] in watched,
             }
             for r in rows
         ],
     }
+
+
+class NameCheck(BaseModel):
+    name: str
+
+
+async def _verify(request: Request, name: str) -> dict:
+    try:
+        name = clean_domain(name)
+    except InvalidDomain as exc:
+        raise HTTPException(422, str(exc)) from None
+    try:
+        return await request.app.state.explorer.verify(name)
+    except explore.VerifyError as exc:
+        raise HTTPException(409, str(exc)) from None
+
+
+@app.post("/api/drops/check")
+async def recheck_drop(request: Request, payload: NameCheck):
+    return await _verify(request, payload.name)
+
+
+# --- Explorer ---------------------------------------------------------------------------
+
+
+def _explore_params(request: Request) -> dict:
+    p = request.query_params
+    explorer = request.app.state.explorer
+    tlds = explorer.tlds()
+    tld = p.get("tld") or (tlds[0] if tlds else "")
+    if tld not in tlds:
+        raise HTTPException(404, "Extension sans données : importer le .fr ou lire les zones d'abord.")
+    try:
+        length = int(p["len"]) if p.get("len") else None
+        cursor = int(p.get("cursor", "-1"))
+    except ValueError:
+        raise HTTPException(422, "Paramètre numérique invalide.") from None
+    mode = p.get("mode", "prefix")
+    if mode not in ("prefix", "contains", "exact"):
+        raise HTTPException(422, "Mode de recherche inconnu.")
+    return {"tld": tld, "q": p.get("q", ""), "mode": mode, "status": p.get("status", ""),
+            "category": p.get("cat", ""), "length": length, "cursor": cursor}
+
+
+@app.get("/api/explore")
+async def explore_search(request: Request):
+    explorer = request.app.state.explorer
+    params = _explore_params(request)
+    limit = min(int(request.query_params.get("limit", "50") or 50), explore.MAX_LIMIT)
+    result = explorer.search(**params, limit=limit)
+    return {
+        **result,
+        "tld": params["tld"],
+        "tlds": explorer.tlds(),
+        "counts": explorer.counts(params["tld"]),
+        "kinds": drops.KINDS,
+        "statuses": {k: v for k, v in {
+            "registered": "Enregistrés",
+            "maybe_free": "Probablement libres",
+            "coming": "Libération à venir",
+            "free": "Libres vérifiés",
+            "suspended": "Suspendus",
+        }.items()},
+        "absent_label": "Jamais enregistré (open data)" if params["tld"] == "fr" else explore.ABSENT_ZONE,
+    }
+
+
+@app.get("/api/explore/export")
+async def explore_export(request: Request):
+    params = _explore_params(request)
+    params["cursor"] = -1
+    result = request.app.state.explorer.search(**params, limit=explore.EXPORT_LIMIT)
+    lines = ["nom;etat;categories;cree_le;supprime_le;echeance;verifie_le"]
+    for item in result["items"]:
+        lines.append(";".join([
+            item["name"], item["status_label"], ",".join(item["categories"]),
+            item["created_on"] or "", item["removed_on"] or "", item["expires_at"] or "", item["checked_at"] or "",
+        ]))
+    filename = f"explorer-{params['tld']}.csv"
+    return Response("\n".join(lines) + "\n", media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+@app.get("/api/explore/name")
+async def explore_name(request: Request):
+    return request.app.state.explorer.card(request.query_params.get("label", ""))
+
+
+@app.get("/api/explore/suggest")
+async def explore_suggest(request: Request):
+    return request.app.state.explorer.suggest(request.query_params.get("q", ""))
+
+
+@app.post("/api/explore/check")
+async def explore_check(request: Request, payload: NameCheck):
+    return await _verify(request, payload.name)
 
 
 @app.post("/api/drops/scan", status_code=202)

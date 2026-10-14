@@ -131,10 +131,11 @@ def test_first_scan_is_a_baseline_then_differences_are_recorded(watcher):
     row = watcher.conn.execute("SELECT * FROM drops").fetchone()
     assert (row["name"], row["kind"], row["state"]) == ("abcd.com", "letters", None)
 
-    # Revenu dans la zone le lendemain : renouvelé, il sort de la liste.
+    # Revenu dans la zone le lendemain : renouvelé, il sort des listes mais reste en base.
     icann.zones["com"] = zone(["abcd.com.\t1\tin\tns\ta.", "wxyz.com.\t1\tin\tns\ta.", "a1b2.com.\t1\tin\tns\ta."])
     asyncio.run(watcher.run())
-    assert watcher.conn.execute("SELECT COUNT(*) FROM drops").fetchone()[0] == 0
+    row = watcher.conn.execute("SELECT * FROM drops").fetchone()
+    assert (row["state"], row["next_check_at"]) == (drops.TAKEN, None)
 
 
 def test_only_enabled_zones_are_scanned(watcher):
@@ -252,15 +253,39 @@ def test_rdap_check_classifies_and_estimates_release(watcher):
     assert rows["zz99.com"]["state"] is None and "503" in rows["zz99.com"]["error"]
 
 
-def test_purge_forgets_old_available_and_suspended(watcher):
+def test_checks_only_when_something_should_change(watcher):
     now = datetime.now(timezone.utc)
-    watcher.record("com", ["aaaa", "bbbb", "cccc"], [], now - timedelta(days=60))
-    c = watcher.conn
-    c.execute("UPDATE drops SET state = 'available', available_since = ? WHERE label = 'aaaa'", ((now - timedelta(days=8)).isoformat(),))
-    c.execute("UPDATE drops SET state = 'available', available_since = ? WHERE label = 'bbbb'", ((now - timedelta(days=2)).isoformat(),))
-    c.execute("UPDATE drops SET state = 'suspended' WHERE label = 'cccc'")
-    watcher.purge(now)
-    assert [r[0] for r in c.execute("SELECT label FROM drops")] == ["bbbb"]
+    deleted = now - timedelta(days=3)
+    watcher.record("com", ["abcd", "wxyz", "a1b2", "q9q9"], [], now)
+    watcher.rdap = FakeRdap({
+        "abcd.com": LookupResult(found=True, info=DomainInfo(statuses=["redemption period"], last_changed_at=deleted)),
+        "wxyz.com": LookupResult(available=True),
+        "a1b2.com": LookupResult(found=True, info=DomainInfo(statuses=["client hold"], expires_at=now + timedelta(days=200))),
+        "q9q9.com": LookupResult(found=True, info=DomainInfo(statuses=["active"], expires_at=now + timedelta(days=200))),
+    })
+    asyncio.run(watcher.check_due())
+    rows = {r["name"]: r for r in watcher.conn.execute("SELECT * FROM drops")}
+    # Rédemption : une seule vérification, à la libération estimée.
+    following = datetime.fromisoformat(rows["abcd.com"]["next_check_at"])
+    assert following == datetime.fromisoformat(rows["abcd.com"]["release_at"]) + timedelta(minutes=30)
+    # Libre : plus de vérification automatique. Repris : idem, gardé pour l'historique.
+    assert rows["wxyz.com"]["next_check_at"] is None
+    assert (rows["q9q9.com"]["state"], rows["q9q9.com"]["next_check_at"]) == (drops.TAKEN, None)
+    # Suspendu : une fois par semaine.
+    assert datetime.fromisoformat(rows["a1b2.com"]["next_check_at"]) > now + timedelta(days=6)
+
+
+def test_overdue_release_is_watched_every_six_hours(watcher):
+    now = datetime.now(timezone.utc)
+    assert watcher._next(states.REDEMPTION, now, now - timedelta(hours=2)) == now + timedelta(hours=6)
+    assert watcher._next(states.REDEMPTION, now, None) == now + timedelta(hours=24)
+
+
+def test_fr_is_left_to_the_afnic_queue(watcher):
+    now = datetime.now(timezone.utc)
+    watcher.record("fr", ["abcd"], [], now - timedelta(minutes=1))
+    watcher.rdap = FakeRdap({})
+    assert asyncio.run(watcher.check_due()) == 0
 
 
 def test_scanner_finds_short_names_and_listed_words_only():

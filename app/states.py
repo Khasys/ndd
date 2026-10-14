@@ -67,18 +67,20 @@ def estimate_release(
     now: datetime,
     delays: dict[str, dict[str, int]],
 ) -> datetime | None:
-    tld_delays = delays.get(tld)
-    if not tld_delays or any(k not in tld_delays for k in DELAY_KEYS):
-        return None
-    grace = timedelta(days=tld_delays["auto_renew_grace"])
-    redemption = timedelta(days=tld_delays["redemption"])
-    pending = timedelta(days=tld_delays["pending_delete"])
+    tld_delays = delays.get(tld) or {}
+    # Seuls les délais utiles à l'état sont exigés : le .fr n'a pas de période de grâce sourcée.
+    def days(key: str) -> timedelta | None:
+        return timedelta(days=tld_delays[key]) if key in tld_delays else None
 
+    redemption, pending = days("redemption"), days("pending_delete")
     if state in (EXPIRING, EXPIRED) and expires_at is not None:
+        grace = days("auto_renew_grace")
+        if grace is None or redemption is None or pending is None:
+            return None
         return effective_expiry(state, expires_at, now) + grace + redemption + pending
-    if state == REDEMPTION and state_since is not None:
+    if state == REDEMPTION and state_since is not None and redemption is not None and pending is not None:
         return state_since + redemption + pending
-    if state == PENDING_DELETE and state_since is not None:
+    if state == PENDING_DELETE and state_since is not None and pending is not None:
         return state_since + pending
     return None
 
