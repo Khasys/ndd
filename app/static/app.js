@@ -229,7 +229,7 @@ document.addEventListener("alpine:init", () => {
           this.exRestore();
           this.exSeoStatus();
           this.exLoadViews();
-          if (!this.orderUrl) this.api("GET", "/api/settings").then((c) => (this.orderUrl = c.order_url)).catch(() => {});
+          this.loadOrderUrl();
           await Promise.all([this.exLoad(), this.exLoadMap()]);
         }
       } else {
@@ -241,7 +241,12 @@ document.addEventListener("alpine:init", () => {
 
     // Fiche d'un nom : la même partout (Domaines, Suppressions, Explorer).
 
+    loadOrderUrl() {
+      if (!this.orderUrl) this.api("GET", "/api/settings").then((c) => (this.orderUrl = c.order_url)).catch(() => {});
+    },
+
     async openFiche(name) {
+      this.loadOrderUrl();
       try {
         this.fiche = await this.api("GET", `/api/explore/fiche?name=${encodeURIComponent(name)}`);
       } catch (e) {
@@ -274,11 +279,14 @@ document.addEventListener("alpine:init", () => {
     },
 
     async ficheFlag() {
+      const name = this.fiche.name;
       const reserved = this.fiche.item.status !== 7;
-      await this.api("POST", "/api/reserved/flag", { name: this.fiche.name, reserved });
-      this.exItems = this.exItems.filter((x) => x.name !== this.fiche.name);
-      this.say(reserved ? `${this.fiche.name} marqué réservé.` : `${this.fiche.name} remis dans la liste.`);
+      await this.api("POST", "/api/reserved/flag", { name, reserved });
+      this.say(reserved ? `${name} marqué réservé.` : `${name} remis dans la liste.`);
       await this.ficheReload();
+      // Marqué : il quitte la liste des noms à saisir ; remis : sa ligne prend le nouvel état.
+      if (reserved) this.exItems = this.exItems.filter((x) => x.name !== name);
+      else if (this.fiche && this.fiche.item) this.exReplace(this.fiche.item);
     },
 
     openDomain(id) {
@@ -447,7 +455,10 @@ document.addEventListener("alpine:init", () => {
       const next = on.includes(t) ? on.filter((x) => x !== t) : [...on, t];
       if (!next.length) return;
       const order = this.exData ? this.exData.tlds : next;
-      return this.exSet({ tld: order.filter((x) => next.includes(x)).join(",") });
+      const patch = { tld: order.filter((x) => next.includes(x)).join(",") };
+      // « Pris en .com » n'a pas de sens si .com est dans la sélection.
+      if (next.includes(this.ex.taken)) patch.taken = "";
+      return this.exSet(patch);
     },
 
     exToggle(name) {
@@ -710,7 +721,7 @@ document.addEventListener("alpine:init", () => {
     // Suppressions : noms courts, mots et noms de famille sortis des zones ICANN.
 
     async loadDrops() {
-      if (!this.orderUrl) this.api("GET", "/api/settings").then((c) => (this.orderUrl = c.order_url)).catch(() => {});
+      this.loadOrderUrl();
       try {
         this.dropsData = await this.api("GET", "/api/drops");
       } catch (e) {
@@ -999,6 +1010,7 @@ document.addEventListener("alpine:init", () => {
       try {
         this.cfg = await this.api("GET", "/api/settings");
         this.czdsUser = this.cfg.czds.username;
+        this.orderUrl = this.cfg.order_url;
       } catch (e) {
         this.say(`Paramètres indisponibles : ${e.message}`, "error");
       }

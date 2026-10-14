@@ -818,9 +818,10 @@ def _explore_params(request: Request) -> dict:
     explorer = request.app.state.explorer
     tlds = explorer.tlds()
     # Une ou plusieurs extensions, séparées par des virgules, dans l'ordre de la liste connue.
+    # Une extension inconnue (zone retirée, vue ancienne) est ignorée plutôt que de bloquer l'écran.
     asked = {t.strip().lstrip(".") for t in (p.get("tld") or "").split(",") if t.strip()}
-    chosen = [t for t in tlds if t in asked] if asked else tlds[:1]
-    if not chosen or len(chosen) != len(asked or chosen):
+    chosen = [t for t in tlds if t in asked] or tlds[:1]
+    if not chosen:
         raise HTTPException(404, "Extension sans données : importer le .fr ou lire les zones d'abord.")
     tld = chosen[0]
     try:
@@ -834,7 +835,7 @@ def _explore_params(request: Request) -> dict:
         raise HTTPException(422, "Nature inconnue.")
     taken = p.get("taken", "")
     if taken and taken != "any" and taken not in tlds:
-        raise HTTPException(422, "Extension inconnue.")
+        taken = ""
     mode = p.get("mode", "prefix")
     if mode not in ("prefix", "contains", "exact"):
         raise HTTPException(422, "Mode de recherche inconnu.")
@@ -854,17 +855,6 @@ def _facets(explorer, params: dict) -> dict:
         for key, count in explorer.facets(tld, **rest).items():
             total[key] = total.get(key, 0) + count
     return total
-
-
-def _merge_key(explorer, sort: str, category: str):
-    """Ordre d'une liste fusionnée : le même que celui de chaque extension prise seule."""
-    if sort == "length":
-        return lambda item: (item["length"], item["label"], item["tld"])
-    if sort == "freq":
-        return lambda item: (explorer.best_rank(item["label"], category) or 10**9, item["label"], item["tld"])
-    if sort == "seo":
-        return lambda item: (-(item.get("_pr") or 0), -(item.get("_wb") or 0), -item["score"], item["name"])
-    return lambda item: (-item["score"], item["name"])
 
 
 def _explore_meta(explorer, tld: str, chosen: list[str] | None = None) -> dict:
@@ -916,7 +906,7 @@ async def explore_rank(request: Request):
             for item in items:
                 row = rows.get(item["name"])
                 item["_pr"], item["_wb"] = (row["pr"], row["wb_years"]) if row else (0, 0)
-        items.sort(key=_merge_key(explorer, sort, params["category"]))
+        items.sort(key=explorer.merge_key(sort, params["category"]))
         for item in items:
             item.pop("_pr", None)
             item.pop("_wb", None)
@@ -940,7 +930,8 @@ async def explore_seo(request: Request, payload: SeoNames):
     names = [n.strip().lower() for n in payload.names if n.strip()][:seo.MAX_NAMES]
     if not names:
         raise HTTPException(422, "Aucun nom à analyser.")
-    if analyzer.running:
+    task = getattr(request.app.state, "seo_task", None)
+    if analyzer.running or (task is not None and not task.done()):
         raise HTTPException(409, "Une analyse est déjà en cours.")
     explorer = request.app.state.explorer
     if len(names) == 1:
@@ -1016,7 +1007,8 @@ async def set_views(request: Request, payload: Views):
     for view in payload.views[:30]:
         name = str(view.get("name", "")).strip()[:60]
         if name and isinstance(view.get("filters"), dict):
-            keep.append({"name": name, "filters": {k: str(v)[:40] for k, v in view["filters"].items()}})
+            # La liste des extensions peut être longue (« Toutes ») : pas de coupure pour elle.
+            keep.append({"name": name, "filters": {str(k)[:20]: str(v)[:400 if k == "tld" else 40] for k, v in view["filters"].items()}})
     request.app.state.store.set("explore_views", json.dumps(keep))
     return keep
 
@@ -1080,8 +1072,14 @@ async def explore_export(request: Request):
     chosen = params.pop("tlds")
     params.pop("tld")
     items = []
+    explorer = request.app.state.explorer
     for tld in chosen:
-        items += request.app.state.explorer.search(tld, **params, limit=explore.EXPORT_LIMIT)["items"]
+        found = explorer.search(tld, **params, limit=explore.EXPORT_LIMIT)["items"]
+        if params["min_score"]:
+            # Même règle que la liste affichée : le score minimum s'applique aussi à l'export.
+            scores = explorer.value_of([i["name"] for i in found])
+            found = [i for i in found if scores.get(i["name"], {}).get("score", 0) >= params["min_score"]]
+        items += found
     lines = ["nom;etat;categories;cree_le;supprime_le;echeance;verifie_le"]
     for item in items[:explore.EXPORT_LIMIT]:
         lines.append(";".join([

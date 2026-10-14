@@ -11,7 +11,7 @@ import hashlib
 import itertools
 from pathlib import Path
 
-from . import drops, value, wordlists
+from . import drops, pronounce, value, wordlists
 
 DATA = Path(__file__).parent / "data"
 TARGET = DATA / "courts.bin"
@@ -24,6 +24,7 @@ def fingerprint() -> bytes:
     for name in SOURCES:
         digest.update((DATA / name).read_bytes())
     digest.update(Path(value.__file__).read_bytes())
+    digest.update(Path(pronounce.__file__).read_bytes())
     return digest.digest()
 
 

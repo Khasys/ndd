@@ -298,3 +298,9 @@ def test_seo_filter_and_sort(env):
     assert [i["label"] for i in env.rank("fr", seo="pr3", limit=10)["items"]] == ["velo"]
     assert {i["label"] for i in env.rank("fr", seo="wb5", limit=10)["items"]} == {"velo", "mer"}
     assert env.facets("fr", seo="pr1")["available"] == 2
+
+
+def test_length_sort_orders_long_names_too(env):
+    items = env.rank("fr", category="word", length=5, sort="length", limit=200)["items"]
+    lengths = [len(i["label"]) for i in items]
+    assert lengths == sorted(lengths) and lengths[0] == 5

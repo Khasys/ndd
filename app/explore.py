@@ -80,6 +80,7 @@ KINDS = {
     "letters": "Lettres",
     "digits": "Chiffres",
     "mixed": "Mélangés, tirets",
+    "hyphen": "Avec tiret",
     **wordlists.LABELS,
 }
 
@@ -98,6 +99,7 @@ CACHE_SECONDS = 600
 # Sécurité seulement : chaque nom vérifié ou marqué est corrigé en place (touch), et un import ou
 # une lecture de zone change la version des données, donc la clé.
 MEMO_SECONDS = 6 * 3600
+MEMO_FACETS = 24  # jeux de filtres gardés, environ 2 Mo chacun
 MAX_LIMIT = 200
 EXPORT_LIMIT = 50_000
 # Une page sans résultat ne parcourt pas plus que ceci : la suite se demande avec le curseur.
@@ -166,6 +168,10 @@ class Universe:
                 if i is not None:
                     best[i] = min(best.get(i, 1.0), n / len(r))
         self.by_frequency[""] = array("i", sorted(best, key=best.get))
+        # Noms de 5 caractères et plus, du plus court au plus long puis par ordre alphabétique.
+        self.by_length = array("i", sorted(range(drops.CELLS, self.size),
+                                           key=lambda i: (len(self.words[i - drops.CELLS]), self.words[i - drops.CELLS])))
+        self._positions: dict = {}
         natures = wordlists.natures()
         self.by_nature = {key: array("i", sorted(i for i in (self.index(w) for w, ks in natures.items() if key in ks)
                                                 if i is not None))
@@ -206,6 +212,14 @@ class Universe:
             self.good_int = int.from_bytes(good, "big")
             self._buckets = buckets
             return buckets
+
+    def position(self, order_key: str, i: int) -> int:
+        """Place d'un nom dans un ordre de la liste (fréquence, longueur), pour fusionner des listes."""
+        found = self._positions.get(order_key)
+        if found is None:
+            order = self.by_length if order_key == "length" else self.by_frequency[order_key]
+            found = self._positions[order_key] = {x: n for n, x in enumerate(order)}
+        return found.get(i, len(found))
 
     def index(self, label: str) -> int | None:
         if len(label) <= drops.MAX_SHORT:
@@ -267,8 +281,15 @@ class Explorer:
         if found and found[0] == self.generation and now - found[1] < ttl:
             return found[2]
         result = compute()
-        if len(self._memos) > 200:
-            self._memos.clear()
+        # Ménage : versions de données dépassées, résultats périmés, puis les plus anciens.
+        # Chaque entrée pèse quelques Mo (octets d'état, masques) : on en garde peu.
+        current = key[1]
+        for old in [k for k, (g, at, _) in self._memos.items() if k[1] != current or g != self.generation or now - at >= ttl]:
+            del self._memos[old]
+        # Les compteurs (un par jeu de filtres) sont les seuls à se multiplier : on retire les plus anciens.
+        facets = sorted((k for k in self._memos if k[0][0] == "facets"), key=lambda k: self._memos[k][1])
+        while facets and len(facets) >= MEMO_FACETS:
+            del self._memos[facets.pop(0)]
         self._memos[key] = (self.generation, now, result)
         return result
 
@@ -652,11 +673,50 @@ class Explorer:
         return {"items": [it for it in items if not f.min_score or it["score"] >= f.min_score]}
 
     def _ordered(self, tld: str, f: Filters, limit: int) -> dict:
-        found = self.search(tld, f, limit=limit * (4 if f.min_score else 1))
-        ctx = self._bonus_context(tld)
+        """Du plus court au plus long. Les noms courts sont déjà dans cet ordre dans l'univers ;
+        les mots (5 caractères et plus) y sont par ordre alphabétique : on suit by_length."""
+        need = limit * (4 if f.min_score else 1)
         u = self.universe
-        hits = [u.index(item["label"]) for item in found["items"]]
-        return {"items": self._scored(tld, f, hits, self.status_bytes(tld), ctx)["items"][:limit]}
+        data = self.status_bytes(tld)
+        lo, _ = self._range(f.length)
+        hits: list[int] = []
+        if lo < drops.CELLS:
+            found = self.search(tld, f, limit=need)["items"]
+            hits = [i for i in (u.index(item["label"]) for item in found) if i is not None and i < drops.CELLS]
+        if len(hits) < need:
+            codes = self.codes(f.status, "available")
+            others = self._others(tld, f)
+            q = self.normalize(f.q, tld)
+            candidates = self._candidates(f, q, tld)
+            allowed = set(candidates) if candidates is not None else None
+            for i in u.by_length:
+                if allowed is not None and i not in allowed:
+                    continue
+                if data[i] not in codes or not self._good_ok(i, f) or not self._taken_ok(i, others):
+                    continue
+                label = u.label(i)
+                if self._matches(label, f, q) and self._keep(label, f):
+                    hits.append(i)
+                    if len(hits) >= need:
+                        break
+        return {"items": self._scored(tld, f, hits, data, self._bonus_context(tld))["items"][:limit]}
+
+    def merge_key(self, sort: str, category: str = ""):
+        """Clé d'une liste fusionnée sur plusieurs extensions : le même ordre que rank() sur une seule."""
+        u = self.universe
+
+        def where(item) -> int:
+            i = u.index(item["label"])
+            return i if i is not None else u.size
+
+        if sort == "length":
+            return lambda item: (where(item) if where(item) < drops.CELLS else drops.CELLS + u.position("length", where(item)), item["tld"])
+        if sort == "freq":
+            key = category if category in wordlists.LABELS else ""
+            return lambda item: (u.position(key, where(item)), item["tld"])
+        if sort == "seo":
+            return lambda item: (-(item.get("_pr") or 0), -(item.get("_wb") or 0), item["tld"])
+        return lambda item: (-item["score"], where(item), item["tld"])
 
     def _by_seo(self, tld: str, f: Filters, limit: int) -> dict:
         """Meilleur PageRank d'abord, puis le plus d'années d'archives ; noms analysés seulement."""
@@ -947,10 +1007,11 @@ class Explorer:
         main = items.get(tld)
         domain = self.conn.execute("SELECT * FROM domains WHERE name = ?", (name,)).fetchone()
         rdap = (main or {}).get("rdap") or rdapinfo.load(self.conn, [name]).get(name)
-        if domain is not None and (rdap is None or (domain["last_checked_at"] or "") > (rdap.get("at") or "")):
+        fresh = domain is not None and not domain["check_error"] and domain["last_success_at"]
+        if fresh and (rdap is None or domain["last_success_at"] > (rdap.get("at") or "")):
             # Domaine surveillé : sa dernière vérification est la plus fraîche.
             rdap = {
-                "at": domain["last_checked_at"], "source": domain["source"] or "rdap",
+                "at": domain["last_success_at"], "source": domain["source"] or "rdap",
                 "available": domain["state"] == states.AVAILABLE,
                 "statuses": json.loads(domain["epp_statuses"] or "[]"), "registrar": domain["registrar"],
                 "registered_at": domain["registered_at"], "updated_at": domain["updated_at"],

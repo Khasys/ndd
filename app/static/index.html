@@ -1000,7 +1000,7 @@
         <dl x-html="rdapDl(fiche.rdap)"></dl>
         <div class="fiche-more">
           <button type="button" class="btn-ghost sm" @click="ficheSeo()" :disabled="!!exBusy[fiche.name] || exSeo.running">Analyse SEO</button>
-          <button type="button" class="btn-ghost sm" x-show="fiche.item" @click="ficheFlag()" x-text="fiche.item && fiche.item.status === 7 ? 'Pas réservé' : 'Réservé'"></button>
+          <button type="button" class="btn-ghost sm" x-show="fiche.item && ![1, 6].includes(fiche.item.status)" @click="ficheFlag()" x-text="fiche.item && fiche.item.status === 7 ? 'Pas réservé' : 'Réservé'"></button>
         </div>
         <div class="history" x-show="fiche.others.length">
           <h3>Autres extensions</h3>

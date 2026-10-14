@@ -313,7 +313,13 @@ def test_explorer_and_drops_settings(logged):
     assert {i["name"] for i in both["items"]} == {"navarro.fr", "navarro.com"}
     scores = [i["score"] for i in client.get("/api/explore/rank", params={"tld": "fr,com", "limit": 30}).json()["items"]]
     assert scores == sorted(scores, reverse=True)
-    assert client.get("/api/explore/rank", params={"tld": "fr,xyz"}).status_code == 404
+    # Extension inconnue (zone retirée, vue ancienne) : ignorée, l'écran reste utilisable.
+    assert client.get("/api/explore/rank", params={"tld": "fr,xyz"}).json()["tld"] == "fr"
+    assert client.get("/api/explore/rank", params={"tld": "xyz"}).json()["tld"] == "fr"
+    for sort in ("freq", "length"):
+        merged = client.get("/api/explore/rank", params={"tld": "fr,com", "cat": "surname", "sort": sort, "limit": 40}).json()["items"]
+        alone = client.get("/api/explore/rank", params={"tld": "fr", "cat": "surname", "sort": sort, "limit": 40}).json()["items"]
+        assert [i["label"] for i in merged if i["tld"] == "fr"] == [i["label"] for i in alone][:len([i for i in merged if i["tld"] == "fr"])]
     csv = client.get("/api/explore/export", params={"tld": "fr,com", "status": "registered", "cat": "surname"}).text
     assert "navarro.fr" in csv and "navarro.com" in csv
 
@@ -356,10 +362,13 @@ def test_fiche_is_the_same_wherever_the_name_comes_from(logged):
     client = logged()
     conn = client.app.state.conn
     conn.execute("INSERT INTO fr_names (label, created_on, removed_on) VALUES ('velo', '2010-01-01', '2025-01-01')")
-    conn.execute("INSERT INTO domains (name, added_at, state, registrar, nameservers, epp_statuses, last_checked_at) "
-                 "VALUES ('velo.fr', '2026-10-01T00:00:00+00:00', 'available', NULL, '[]', '[]', '2026-10-14T00:00:00+00:00')")
+    conn.execute("INSERT INTO domains (name, added_at, state, registrar, nameservers, epp_statuses, last_checked_at, last_success_at) "
+                 "VALUES ('velo.fr', '2026-10-01T00:00:00+00:00', 'available', NULL, '[]', '[]', '2026-10-14T00:00:00+00:00', '2026-10-14T00:00:00+00:00')")
     fiche = client.get("/api/explore/fiche", params={"name": "velo.fr"}).json()
     assert fiche["item"]["status_label"] == "Supprimé, non repris" and fiche["item"]["score"] > 0
     assert fiche["domain_id"] and fiche["rdap"]["available"] is True and "word" in fiche["categories"]
     assert client.get("/api/explore/fiche", params={"name": "pas un nom"}).status_code == 422
+    # Dernière vérification en erreur : la fiche n'invente pas un état à partir d'elle.
+    conn.execute("UPDATE domains SET check_error = 'délai dépassé', last_success_at = NULL WHERE name = 'velo.fr'")
+    assert client.get("/api/explore/fiche", params={"name": "velo.fr"}).json()["rdap"] is None
     client.__exit__(None, None, None)
