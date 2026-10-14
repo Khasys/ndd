@@ -321,3 +321,14 @@ def test_views_weights_order_url(logged):
     assert client.put("/api/settings/order-url", json={"url": "https://exemple.fr/?d={domain}"}).json()["order_url"].endswith("{domain}")
     assert client.get("/api/settings").json()["order_url"] == "https://exemple.fr/?d={domain}"
     client.__exit__(None, None, None)
+
+
+def test_weights_and_seo_refresh_the_explorer_at_once(logged):
+    client = logged()
+    conn = client.app.state.conn
+    conn.execute("INSERT INTO fr_names (label, created_on, removed_on) VALUES ('velo', '2010-01-01', '2025-01-01')")
+    first = client.get("/api/explore/rank", params={"q": "velo", "mode": "exact"}).json()["items"][0]["score"]
+    client.put("/api/settings/weights", json={"values": {"shape": 2}})
+    second = client.get("/api/explore/rank", params={"q": "velo", "mode": "exact"}).json()["items"][0]["score"]
+    assert second > first  # pas une minute d'attente
+    client.__exit__(None, None, None)

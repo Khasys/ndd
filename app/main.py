@@ -891,10 +891,19 @@ async def explore_seo(request: Request, payload: SeoNames):
         raise HTTPException(422, "Aucun nom à analyser.")
     if analyzer.running:
         raise HTTPException(409, "Une analyse est déjà en cours.")
+    explorer = request.app.state.explorer
     if len(names) == 1:
         rows = await analyzer.analyze(names)
+        explorer.invalidate()  # le SEO entre dans le score
         return {"done": True, "rows": {k: dict(v) for k, v in rows.items()}}
-    request.app.state.seo_task = asyncio.create_task(analyzer.analyze(names))
+
+    async def analyze() -> None:
+        try:
+            await analyzer.analyze(names)
+        finally:
+            explorer.invalidate()
+
+    request.app.state.seo_task = asyncio.create_task(analyze())
     return {"done": False, "total": len(names)}
 
 
@@ -916,6 +925,7 @@ class Weights(BaseModel):
 async def set_weights(request: Request, payload: Weights):
     clean = {k: max(0.0, min(2.0, float(payload.values.get(k, 1.0)))) for k in value.CRITERIA}
     request.app.state.store.set("score_weights", json.dumps(clean))
+    request.app.state.explorer.invalidate()
     return {"values": clean, "labels": value.CRITERIA}
 
 
