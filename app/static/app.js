@@ -90,6 +90,16 @@ document.addEventListener("alpine:init", () => {
     settingsOpen: false,
     dropsOpen: false,
     dropsData: null,
+    exploreOpen: false,
+    exData: null,
+    exError: "",
+    exItems: [],
+    exCursor: null,
+    exLoading: false,
+    exCard: null,
+    exSuggest: [],
+    exBusy: {},
+    ex: { tld: "", q: "", mode: "prefix", status: "", cat: "", len: "" },
     dropTld: "",
     dropKinds: [],
     dropSort: "release",
@@ -129,6 +139,9 @@ document.addEventListener("alpine:init", () => {
       this.$watch("legendOpen", () => this.lockScroll());
       this.$watch("settingsOpen", () => this.lockScroll());
       this.$watch("dropsOpen", () => this.lockScroll());
+      this.$watch("exploreOpen", () => this.lockScroll());
+      // Suppressions ouvert : le travail .fr est suivi en direct.
+      setInterval(() => { if (this.dropsOpen && document.visibilityState === "visible") this.loadDrops(); }, 15000);
       this.$watch("openId", () => this.lockScroll());
       if ("serviceWorker" in navigator && window.isSecureContext) {
         navigator.serviceWorker.register("/sw.js").catch(() => {});
@@ -138,7 +151,7 @@ document.addEventListener("alpine:init", () => {
     get mobile() { return window.matchMedia("(max-width: 640px)").matches; },
 
     lockScroll() {
-      document.body.classList.toggle("sheet-open", this.mobile && (this.legendOpen || this.settingsOpen || this.dropsOpen || this.openId !== null));
+      document.body.classList.toggle("sheet-open", this.mobile && (this.paged || this.openId !== null));
     },
 
     get selected() {
@@ -155,15 +168,17 @@ document.addEventListener("alpine:init", () => {
 
     escape() {
       if (this.openId !== null) this.openId = null;
+      else if (this.exploreOpen && this.exCard) this.exCard = null;
       else if (this.paged) this.showList();
     },
 
-    get paged() { return this.legendOpen || this.settingsOpen || this.dropsOpen; },
+    get paged() { return this.legendOpen || this.settingsOpen || this.dropsOpen || this.exploreOpen; },
 
     showList() {
       this.legendOpen = false;
       this.settingsOpen = false;
       this.dropsOpen = false;
+      this.exploreOpen = false;
       window.scrollTo({ top: 0, behavior: "smooth" });
     },
 
@@ -174,19 +189,156 @@ document.addEventListener("alpine:init", () => {
 
     async openSheet(name) {
       this.openId = null;
+      const opening = !this[`${name === "settings" ? "settings" : name}Open`];
+      this.legendOpen = false;
+      this.dropsOpen = false;
+      this.exploreOpen = false;
       if (name === "legend") {
         this.settingsOpen = false;
-        this.dropsOpen = false;
-        this.legendOpen = !this.legendOpen;
+        this.legendOpen = opening;
       } else if (name === "drops") {
         this.settingsOpen = false;
-        this.legendOpen = false;
-        this.dropsOpen = !this.dropsOpen;
-        if (this.dropsOpen) await this.loadDrops();
+        this.dropsOpen = opening;
+        if (opening) await this.loadDrops();
+      } else if (name === "explore") {
+        this.settingsOpen = false;
+        this.exploreOpen = opening;
+        if (opening && !this.exData) await this.exSearch();
       } else {
-        this.legendOpen = false;
-        this.dropsOpen = false;
         await this.toggleSettings();
+      }
+    },
+
+    // Explorer : tous les noms suivis, extension par extension.
+
+    exQuery(cursor) {
+      const params = new URLSearchParams({ q: this.ex.q.trim(), mode: this.ex.mode, status: this.ex.status, cat: this.ex.cat, len: this.ex.len, cursor: String(cursor) });
+      if (this.ex.tld) params.set("tld", this.ex.tld);
+      return params.toString();
+    },
+
+    async exSearch(reset = true) {
+      const cursor = reset ? -1 : this.exCursor;
+      const ticket = (this._exTicket = (this._exTicket || 0) + 1);
+      this.exLoading = true;
+      try {
+        const data = await this.api("GET", `/api/explore?${this.exQuery(cursor)}&limit=100`);
+        // Une frappe plus récente a déjà relancé la recherche : ce résultat est périmé.
+        if (ticket !== this._exTicket) return;
+        this.exError = "";
+        this.exData = data;
+        this.ex.tld = data.tld;
+        this.exItems = reset ? data.items : [...this.exItems, ...data.items];
+        this.exCursor = data.cursor;
+      } catch (e) {
+        if (ticket !== this._exTicket) return;
+        this.exError = e.message;
+      } finally {
+        if (ticket === this._exTicket) this.exLoading = false;
+      }
+    },
+
+    async exSuggestions() {
+      const q = this.ex.q.trim();
+      if (q.length < 2) { this.exSuggest = []; return; }
+      try {
+        this.exSuggest = await this.api("GET", `/api/explore/suggest?q=${encodeURIComponent(q)}`);
+      } catch (_) {
+        this.exSuggest = [];
+      }
+    },
+
+    async exOpenCard(label) {
+      try {
+        this.exCard = await this.api("GET", `/api/explore/name?label=${encodeURIComponent(label.trim())}`);
+        this.$nextTick(() => document.querySelector(".explore-card")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+      } catch (e) {
+        this.say(e.message, "error");
+      }
+    },
+
+    exDetail(i) {
+      const parts = [];
+      if (i.created_on) parts.push(`créé le ${this.shortDate(i.created_on)}`);
+      if (i.removed_on && i.status !== 1) parts.push(`supprimé le ${this.shortDate(i.removed_on)}`);
+      if (i.expires_at && i.status === 1) parts.push(`échéance ${this.shortDate(i.expires_at)}`);
+      if (i.release_at && i.status === 4) parts.push(`libération ~${this.shortDate(i.release_at)}`);
+      if (i.checked_at) parts.push(`vérifié ${this.relative(i.checked_at)}`);
+      if (i.next_check_at) parts.push(`prochaine vérification le ${this.shortDate(i.next_check_at)}`);
+      return parts.join(", ");
+    },
+
+    exReplace(item) {
+      for (const list of [this.exItems, this.exCard ? this.exCard.items : []]) {
+        const at = list.findIndex((x) => x.name === item.name);
+        if (at >= 0) list[at] = { ...list[at], ...item };
+      }
+    },
+
+    async verifyName(name) {
+      this.exBusy[name] = true;
+      try {
+        const item = await this.api("POST", "/api/explore/check", { name });
+        this.say(`${name} : ${item.status_label || "vérifié"}.`);
+        return item;
+      } catch (e) {
+        this.say(`${name} : ${e.message}`, "error");
+        return null;
+      } finally {
+        this.exBusy[name] = false;
+      }
+    },
+
+    async exCheck(i) {
+      const item = await this.verifyName(i.name);
+      if (item) this.exReplace(item);
+    },
+
+    async exWatch(i) {
+      this.newName = i.name;
+      await this.add();
+      if (this.domains.some((x) => x.name === i.name)) this.exReplace({ name: i.name, watched: true });
+    },
+
+    async recheckDrop(d) {
+      if (await this.verifyName(d.name)) await this.loadDrops();
+    },
+
+    fmt(n) { return (n || 0).toLocaleString("fr-FR"); },
+
+    clock(v) { return v ? new Date(v).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : ""; },
+
+    sourceLabel(s) { return { anniversaire: "date anniversaire", suppression: "suppression", manuel: "à la demande" }[s] || s; },
+
+    frNow(f) {
+      const w = f.work;
+      if (f.paused_until && new Date(f.paused_until) > new Date()) return `en pause jusqu'au ${this.exact(f.paused_until)} : l'Afnic a signalé trop de requêtes.`;
+      if (w.current) return `vérifie ${w.current}.`;
+      if (w.due_now) return `${this.fmt(w.due_now)} vérification(s) en attente, ${f.rate} par minute : environ ${this.duration(w.due_now / f.rate * 60)} de file.`;
+      return f.next_at ? `rien à faire. Prochaine vérification le ${this.exact(f.next_at)}.` : "rien à faire.";
+    },
+
+    frToday(f) {
+      const w = f.work;
+      const done = Object.values(w.done_today).reduce((a, b) => a + b, 0);
+      const left = w.left_today.anniversaries + w.left_today.removals;
+      const detail = Object.entries(w.done_today).map(([k, n]) => `${this.fmt(n)} ${this.sourceLabel(k)}`).join(", ");
+      const rest = left ? `${this.fmt(left)} restante(s) (${this.fmt(w.left_today.anniversaries)} date(s) anniversaire, ${this.fmt(w.left_today.removals)} suppression(s))` : "plus rien de prévu";
+      return `${this.fmt(done)} faite(s)${detail ? " (" + detail + ")" : ""}, ${rest}.`;
+    },
+
+    frTomorrow(f) {
+      const t = f.work.tomorrow;
+      const total = t.anniversaries + t.removals;
+      return total ? `${this.fmt(total)} prévue(s) : ${this.fmt(t.anniversaries)} date(s) anniversaire, ${this.fmt(t.removals)} suppression(s).` : "rien de prévu.";
+    },
+
+    async saveDropsSettings() {
+      try {
+        this.cfg.drops = await this.api("PUT", "/api/settings/drops", { keep_days: this.cfg.drops.keep_days });
+        this.say("Durée d'affichage enregistrée.");
+      } catch (e) {
+        this.say(e.message, "error");
       }
     },
 
@@ -221,7 +373,9 @@ document.addEventListener("alpine:init", () => {
     },
 
     get dropsSuspended() {
-      return this.dropsData ? this.dropsData.items.filter((d) => d.state === "suspended" && this.dropMatches(d)).length : 0;
+      if (!this.dropsData) return 0;
+      const counts = this.dropsData.suspended || {};
+      return this.dropTld ? counts[this.dropTld] || 0 : Object.values(counts).reduce((a, b) => a + b, 0);
     },
 
     get dropTlds() {
@@ -244,6 +398,7 @@ document.addEventListener("alpine:init", () => {
 
     duration(seconds) {
       if (seconds === null || seconds === undefined) return "";
+      if (seconds >= 5400) return `${(seconds / 3600).toFixed(1).replace(".", ",").replace(",0", "")} h`;
       return seconds >= 90 ? `${Math.round(seconds / 60)} min` : `${Math.round(seconds)} s`;
     },
 
@@ -260,13 +415,10 @@ document.addEventListener("alpine:init", () => {
       if (!f.at) return "pas encore importé : premier import dans quelques minutes.";
       const names = (f.total || 0).toLocaleString("fr-FR");
       const registered = (f.registered || 0).toLocaleString("fr-FR");
-      const pause = f.paused_until && new Date(f.paused_until) > new Date()
-        ? ` En pause jusqu'au ${this.exact(f.paused_until)} : l'Afnic a signalé trop de requêtes.` : "";
       const week = (f.week || 0).toLocaleString("fr-FR");
-      const next = f.next_at ? ` Prochaine le ${this.exact(f.next_at)}.` : "";
       const undated = f.registered && !f.scheduled
         ? ` Attention : aucune date de création lue, aucune vérification planifiée. Colonnes lues : ${Object.values(f.columns || {}).join(", ") || "aucune"}.` : "";
-      return `open data Afnic${this.fileMonth(f.file_date)}, ${names} noms suivis dont ${registered} enregistrés, ${week} à vérifier dans les 7 jours (date anniversaire).${next}${undated}${pause}`;
+      return `open data Afnic${this.fileMonth(f.file_date)}, ${names} noms suivis dont ${registered} enregistrés, ${week} à vérifier dans les 7 jours (date anniversaire).${undated}`;
     },
 
     fileMonth(v) {
@@ -293,7 +445,7 @@ document.addEventListener("alpine:init", () => {
 
     async saveFr() {
       try {
-        const res = await this.api("PUT", "/api/settings/fr", { enabled: this.cfg.fr.enabled, url: this.cfg.fr.url || "" });
+        const res = await this.api("PUT", "/api/settings/fr", { enabled: this.cfg.fr.enabled, url: this.cfg.fr.url || "", rate: this.cfg.fr.rate || null });
         this.cfg.fr = res;
         if (res.enabled) this.say("Suivi du .fr activé. Premier import dans quelques minutes.");
       } catch (e) {

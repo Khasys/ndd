@@ -277,3 +277,28 @@ def test_drops_list_marks_watched_names(logged):
     assert {i["name"]: i["watched"] for i in data["items"]} == {"abcd.com": True, "wx12.net": False}
     assert data["pending_checks"] == 1
     client.__exit__(None, None, None)
+
+
+def test_explorer_and_drops_settings(logged):
+    client = logged()
+    conn = client.app.state.conn
+    assert client.get("/api/explore").status_code == 404
+    conn.execute("INSERT INTO fr_names (label, created_on) VALUES ('navarro', '2010-02-01')")
+    data = client.get("/api/explore", params={"q": "navarro", "mode": "exact"}).json()
+    assert data["tld"] == "fr" and data["items"][0]["status_label"] == "Enregistré"
+    assert data["counts"]["registered"] == 1
+    assert client.get("/api/explore", params={"mode": "nimporte"}).status_code == 422
+    card = client.get("/api/explore/name", params={"label": "Navarro.fr"}).json()
+    assert card["known"] and card["items"][0]["name"] == "navarro.fr"
+    assert "navarro" in client.get("/api/explore/suggest", params={"q": "navar"}).json()
+    csv = client.get("/api/explore/export", params={"status": "registered"})
+    assert csv.headers["content-type"].startswith("text/csv") and "navarro.fr;Enregistré" in csv.text
+
+    assert client.put("/api/settings/drops", json={"keep_days": 0}).status_code == 422
+    assert client.put("/api/settings/drops", json={"keep_days": 45}).json() == {"keep_days": 45}
+    assert client.put("/api/settings/fr", json={"enabled": True, "rate": 50}).status_code == 422
+    assert client.put("/api/settings/fr", json={"enabled": True, "rate": 5}).json()["rate"] == 5
+    settings = client.get("/api/settings").json()
+    assert settings["drops"]["keep_days"] == 45 and settings["fr"]["rate"] == 5
+    assert client.post("/api/drops/check", json={"name": "pas un nom"}).status_code == 422
+    client.__exit__(None, None, None)

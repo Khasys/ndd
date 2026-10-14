@@ -114,20 +114,56 @@ L'appli fonctionne alors en trois temps :
    Ouverte, environ 120 Mo). Elle prend le fichier du mois le plus récent sur afnic.fr
    (`AAAAMM_OPENDATA_A-NomsDeDomaineEnPointFr.zip`), sinon le cherche sur data.gouv.fr.
    Une adresse collée dans « Adresse du fichier » qui contient un mois est suivie de mois en
-   mois. Elle ne garde que les noms
-   suivis. Les noms supprimés depuis moins de 45 jours passent directement en vérification.
+   mois. Elle ne garde que les noms suivis. Chaque nom apparu comme supprimé depuis le fichier
+   précédent est vérifié, quelle que soit sa date de suppression : le fichier arrive avec
+   plusieurs semaines de retard. Au premier import, faute de fichier précédent, les suppressions
+   des 90 derniers jours.
 2. Un nom .fr expire à la date anniversaire de sa création. L'appli le vérifie en RDAP le
    lendemain de cet anniversaire : renouvelé, la vraie échéance lue en RDAP fixe la vérification
-   suivante, un an plus tard ; en rédemption ou libre, il apparaît dans les listes de l'écran
-   Suppressions. Pas de balayage : une requête par nom et par an, soit environ 270 par jour pour
-   100 000 noms suivis. Plafond de 3 requêtes toutes les 5 minutes (864 par jour), et pause de 24 h
-   si l'Afnic répond qu'il y a trop de requêtes.
+   suivante, un an plus tard ; en rédemption ou libre, il passe dans l'écran Suppressions.
+3. Toutes les requêtes vers l'Afnic (dates anniversaire, suppressions, boutons « Vérifier »)
+   passent par une seule file, sous un plafond par minute réglable (2 par défaut, soit 2 880 par
+   jour au plus). L'Afnic ne publie pas de limite. Au premier signal de trop de requêtes, pause
+   d'une heure, doublée à chaque nouveau signal (24 h au plus), et durée demandée par l'Afnic
+   respectée. L'écran Suppressions montre en direct le nom en cours, le travail du jour et du
+   lendemain, et les dernières requêtes.
 
 Le fichier de l'Afnic ne donne pas de date d'expiration, d'où le calcul par la date de création.
 Un nom sans date de création dans le fichier n'est pas suivi. Ses colonnes
 sont repérées par leur intitulé : si l'Afnic les renomme, l'import s'arrête et affiche les colonnes
-lues. Aucune date de libération n'est estimée pour le .fr : les délais du .fr ne sont pas sourcés
-dans `app/tld_delays.toml`.
+lues. Pour le .fr, la libération est estimée à 30 jours après l'entrée en rédemption, sans période
+de suppression distincte (guide des procédures Afnic, voir `app/tld_delays.toml`).
+
+#### Revérifications
+
+Le moins de requêtes possible : un nom n'est revérifié que quand quelque chose doit changer.
+
+| État | Vérification suivante |
+|---|---|
+| Rédemption, suppression en cours | à la libération estimée, puis toutes les 6 h tant qu'il n'est pas libre |
+| Expiré (période de grâce) | une fois par semaine, ou à la date estimée si elle est plus proche |
+| Suspendu (hold) | une fois par semaine |
+| Libre, repris | jamais automatiquement : boutons « Revérifier » et « Surveiller » |
+
+Un nom libre reste affiché dans Suppressions 30 jours (réglable dans Paramètres). Rien n'est
+effacé de la base : passé ce délai, il reste visible dans l'Explorer.
+
+#### Explorer
+
+Tous les noms suivis, extension par extension : les 1 926 220 noms possibles de 1 à 4 caractères,
+puis les mots, noms de famille et prénoms. L'état vient des données déjà sur le NAS, sans aucune
+requête : zones ICANN lues chaque jour, open data de l'Afnic, écran Suppressions par-dessus.
+
+- Recherche « commence par », « contient » ou « exact », avec suggestions.
+- Filtres par état (enregistrés, probablement libres, libération à venir, libres vérifiés,
+  suspendus), catégorie et longueur. Compteurs par état.
+- Fiche d'un nom sur toutes les extensions connues.
+- « Vérifier » interroge le registre à la demande ; pour le .fr, sous le plafond de l'Afnic.
+- Export CSV de la sélection (50 000 lignes au plus).
+
+« Probablement libre » veut dire : pour le .fr, supprimé sans réenregistrement connu ou jamais
+enregistré d'après l'open data ; pour une zone ICANN, absent de la zone. Un nom enregistré sans
+serveurs DNS est absent de la zone lui aussi. Toujours vérifier avant de conclure.
 
 ### Appli sur le téléphone
 
