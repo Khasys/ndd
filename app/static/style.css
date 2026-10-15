@@ -880,7 +880,9 @@ button:disabled { cursor: default; opacity: .55; }
 
 /* Fiche d'un nom : même panneau que le détail d'un domaine, au-dessus des écrans. */
 .drawer.fiche { z-index: 47; }
-.fiche .details-grid dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 20px; margin: 0; }
+.fiche .details-grid dl { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; margin: 0; align-items: baseline; }
+/* Libellé et valeur sur la même ligne, sur téléphone aussi (pas de décalage du libellé). */
+.fiche .details-grid dt { margin-top: 0; }
 .fiche-bar { width: 160px; }
 .fiche-more { display: flex; gap: 8px; flex-wrap: wrap; }
 .fiche-other { display: flex; justify-content: space-between; align-items: center; gap: 10px; }

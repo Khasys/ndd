@@ -355,11 +355,11 @@ document.addEventListener("alpine:init", () => {
       return rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("");
     },
 
-    // Fourchette de prix d'un avis IA : « 2 000 à 6 000 € », « sans valeur » à 0.
+    // Fourchette de prix d'un avis IA : « 2 000 à 6 000 € », « 0 € » quand rien.
     priceRange(low, high) {
-      if (!high) return "sans valeur à ce stade";
+      if (!high) return "0 €";
       const n = (v) => Number(v).toLocaleString("fr-FR");
-      return low && low !== high ? `${n(low)} à ${n(high)} €` : `${n(high)} €`;
+      return low !== high ? `${n(low || 0)} à ${n(high)} €` : `${n(high)} €`;
     },
 
     // Étiquette courte dans les listes : verdict, puis revente rapide (sinon prix utilisateur final).
