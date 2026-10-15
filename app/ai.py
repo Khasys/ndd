@@ -179,31 +179,64 @@ def stats(explorer) -> dict:
             "token_set": bool(explorer.fr.store.get("ai_token_hash"))}
 
 
+# Marché francophone : à valeur égale, un .fr ou un .com passe avant un .org, puis le reste.
+TLD_WEIGHT = {"fr": 1.0, "com": 1.0, "org": 0.8}
+OTHER_TLD_WEIGHT = 0.6
+
+
+def _positions(data: bytearray, codes) -> list[int]:
+    """Positions des noms dans ces états, par saut direct (pas de boucle sur 1,9 million d'octets)."""
+    found = []
+    for code in codes:
+        at = data.find(code)
+        while at != -1:
+            found.append(at)
+            at = data.find(code, at + 1)
+    return found
+
+
 def pending(explorer, limit: int) -> list[dict]:
-    """Noms complets sans avis à jour : libres ou bientôt libres d'abord, puis probablement libres,
-    puis enregistrés ; dans chaque groupe, les plus prometteurs d'abord (score de base)."""
+    """Noms complets sans avis à jour, dans l'ordre où ils servent :
+    1. libres ou bientôt libres, du meilleur score au moins bon (extension pondérée) ;
+    2. probablement libres, puis 3. enregistrés, par score de base et extension."""
     u = explorer.universe
+    u.buckets()  # construit u.good
     done = {r[0] for r in explorer.conn.execute("SELECT name FROM domain_ai WHERE version >= ?", (VERSION,))}
-    tlds = explorer.tlds()
+    tlds = sorted(explorer.tlds(), key=lambda t: -TLD_WEIGHT.get(t, OTHER_TLD_WEIGHT))
     data = {t: explorer.status_bytes(t) for t in tlds}
     picked: list[tuple[int, str, str]] = []
     seen = set()
-    for group in (FREE_SOON, MAYBE_FREE, None):
+
+    def take(i: int, label: str, tld: str) -> bool:
+        name = f"{label}.{tld}"
+        if name in done or name in seen:
+            return False
+        seen.add(name)
+        picked.append((i, label, tld))
+        return len(picked) >= limit
+
+    # 1. Peu nombreux : on les classe tous par score complet (demande, historique, SEO compris).
+    soon = []
+    for tld in tlds:
+        ctx = explorer._bonus_context(tld)
+        for i in _positions(data[tld], FREE_SOON):
+            if u.good[i]:
+                label = u.label(i)
+                weight = TLD_WEIGHT.get(tld, OTHER_TLD_WEIGHT)
+                soon.append((explorer._value(tld, i, label, ctx)["score"] * weight, i, label, tld))
+    for _, i, label, tld in sorted(soon, key=lambda x: (-x[0], x[2], x[3])):
+        if take(i, label, tld):
+            return _describe(explorer, picked, data)
+    # 2 et 3. Trop nombreux pour tout classer : score de base, puis extension.
+    for group in (MAYBE_FREE, None):
         for score in range(70, -1, -1):
             for i in u.buckets()[score]:
                 if not u.good[i]:
                     continue
-                label = None
                 for tld in tlds:
                     if group is not None and data[tld][i] not in group:
                         continue
-                    label = label or u.label(i)
-                    name = f"{label}.{tld}"
-                    if name in done or name in seen:
-                        continue
-                    seen.add(name)
-                    picked.append((i, label, tld))
-                    if len(picked) >= limit:
+                    if take(i, u.label(i), tld):
                         return _describe(explorer, picked, data)
     return _describe(explorer, picked, data)
 

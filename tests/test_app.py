@@ -392,14 +392,17 @@ def test_ai_opinions_round_trip_with_a_token(logged):
     assert token.startswith("dw_") and client.app.state.store.get("ai_token_hash") != token
     # Un nom libre vérifié passe avant tous les autres.
     now = "2026-10-01T00:00:00+00:00"
-    client.app.state.drops.record("fr", ["ciel"], [], datetime.fromisoformat(now))
-    conn.execute("UPDATE drops SET state = 'available', available_since = ? WHERE name = 'ciel.fr'", (now,))
+    client.app.state.drops.record("fr", ["ciel", "mai"], [], datetime.fromisoformat(now))
+    conn.execute("UPDATE drops SET state = 'available', available_since = ? WHERE name IN ('ciel.fr', 'mai.fr')", (now,))
     client.app.state.explorer.touch("ciel.fr")
+    client.app.state.explorer.touch("mai.fr")
     pending = client.get("/api/ai/pending", params={"limit": 20}).json()
     assert pending["version"] == 3 and "revente rapide" in pending["guide"] and len(pending["names"]) == 20
     assert pending["format"]["required"][0] == "name" and pending["format"]["additionalProperties"] is False
+    # Entre deux libres, le meilleur score d'abord (mai : 3 lettres, mot plus fréquent).
+    assert [n["name"] for n in pending["names"][:2]] == ["mai.fr", "ciel.fr"]
     first = pending["names"][0]
-    assert first["name"] == "ciel.fr" and first["status"] == "Libre (vérifié)"
+    assert first["status"] == "Libre (vérifié)"
     assert {"categories", "ranks", "taken_elsewhere", "base"} <= set(first)
     velo = next(n for n in client.get("/api/ai/pending", params={"limit": 5000}).json()["names"] if n["name"] == "velo.fr")
     assert velo["fr_history"]["removed_on"] == "2025-01-01"
