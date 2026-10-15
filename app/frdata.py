@@ -51,7 +51,7 @@ KEEP_REQUEST_LOG_DAYS = 30
 # À augmenter quand la lecture du fichier change : force un nouvel import du même mois.
 READER_VERSION = 3
 # Échéance .fr dépassée sans rédemption : délai avant de regarder de nouveau.
-RENEWAL_LAG_DAYS = 3
+RENEWAL_LAG_DAYS = 1
 
 
 def lists_version() -> str:
@@ -546,7 +546,7 @@ class FrWatcher:
             return
         expires = result.info.expires_at
         now = utcnow()
-        # Échéance passée : renouvellement pas encore visible, on regarde de nouveau dans 3 jours.
+        # Échéance passée : renouvellement pas encore visible, on regarde de nouveau le lendemain.
         following = _check_time(expires.date()) if expires and expires > now else now + timedelta(days=RENEWAL_LAG_DAYS)
         self.conn.execute(
             """INSERT INTO fr_names (label, removed_on, expires_at, checked_at, next_check_at)
@@ -577,7 +577,8 @@ class FrWatcher:
         state = states.compute_state(info.statuses, info.expires_at, now, 0)
         if state == states.EXPIRED:
             # Pas de délai de grâce en .fr : sans rédemption, le renouvellement n'est pas encore
-            # visible (le registrar renouvelle parfois à l'échéance). On revient dans 3 jours.
+            # visible (le registrar renouvelle parfois à l'échéance). On revient le lendemain : la date
+            # d'entrée en rédemption sert à estimer la libération, mieux vaut la voir tôt.
             self._schedule(row["label"], iso(info.expires_at), now + timedelta(days=RENEWAL_LAG_DAYS), now)
             return True
         if state in drops.TRACKED:

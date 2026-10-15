@@ -169,7 +169,7 @@ def test_check_follows_the_real_expiry_and_hands_drops_over(fr):
 
 def test_a_passed_fr_expiry_without_redemption_is_a_late_renewal(fr):
     """oncle.fr : vérifié le lendemain de l'échéance, RDAP encore à l'ancienne date, statut actif.
-    Pas de délai de grâce en .fr : ce n'est pas une libération, on regarde de nouveau dans 3 jours."""
+    Pas de délai de grâce en .fr : ce n'est pas une libération, on regarde de nouveau le lendemain."""
     fr.store.set("fr_rate", "10")
     now = datetime.now(timezone.utc).replace(microsecond=0)
     add_due(fr, "oncle")
@@ -178,7 +178,7 @@ def test_a_passed_fr_expiry_without_redemption_is_a_late_renewal(fr):
     asyncio.run(fr.tick())
     assert fr.conn.execute("SELECT COUNT(*) FROM drops").fetchone()[0] == 0
     row = fr.conn.execute("SELECT * FROM fr_names WHERE label = 'oncle'").fetchone()
-    assert datetime.fromisoformat(row["next_check_at"]).date() == (now + timedelta(days=3)).date()
+    assert datetime.fromisoformat(row["next_check_at"]).date() == (now + timedelta(days=1)).date()
     # Un nom déjà passé à l'écran Suppressions pour cette raison (ancienne version) : la
     # vérification suivante le rend à son propriétaire et aux dates anniversaire.
     fr.drops.record("fr", ["oncle"], [], now)
