@@ -209,7 +209,7 @@ Tri : score, fréquence (mot, nom ou prénom du plus courant au moins courant), 
 
 #### Avis IA
 
-Pour chaque nom complet (velo.fr, ciel.org) : potentiel d'exploitation et de revente sur 100, prix
+Pour chaque nom complet en .fr, .com ou .org (velo.fr, ciel.org ; les autres extensions valent trop peu pour être notées) : potentiel d'exploitation et de revente sur 100, prix
 de revente rapide (à un investisseur, en quelques semaines), prix utilisateur final (avec de la
 patience) et un commentaire de 200 caractères qui explique la valeur sans répéter les notes.
 

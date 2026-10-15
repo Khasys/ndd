@@ -101,12 +101,14 @@ def load(conn, names: list[str]) -> dict[str, dict]:
 
 def stats(explorer) -> dict:
     rated = explorer.conn.execute("SELECT COUNT(*), MAX(rated_at) FROM domain_ai WHERE version >= ?", (VERSION,)).fetchone()
-    total = sum(explorer.universe.good) * len(explorer.tlds())
+    total = sum(explorer.universe.good) * len([t for t in explorer.tlds() if t in AI_TLDS])
     return {"rated": rated[0], "last": rated[1], "total": total, "pending": max(0, total - rated[0]),
             "token_set": bool(explorer.fr.store.get("ai_token_hash"))}
 
 
-# Marché francophone : à valeur égale, un .fr ou un .com passe avant un .org, puis le reste.
+# Extensions notées : .biz, .info et les autres valent trop peu pour dépenser la notation de nuit.
+AI_TLDS = ("fr", "com", "org")
+# Marché francophone : à valeur égale, un .fr ou un .com passe avant un .org.
 TLD_WEIGHT = {"fr": 1.0, "com": 1.0, "org": 0.8}
 OTHER_TLD_WEIGHT = 0.6
 
@@ -129,8 +131,9 @@ def pending(explorer, limit: int) -> list[dict]:
     u = explorer.universe
     u.buckets()  # construit u.good
     done = {r[0] for r in explorer.conn.execute("SELECT name FROM domain_ai WHERE version >= ?", (VERSION,))}
-    tlds = sorted(explorer.tlds(), key=lambda t: -TLD_WEIGHT.get(t, OTHER_TLD_WEIGHT))
-    data = {t: explorer.status_bytes(t) for t in tlds}
+    tlds = sorted((t for t in explorer.tlds() if t in AI_TLDS), key=lambda t: -TLD_WEIGHT.get(t, OTHER_TLD_WEIGHT))
+    # Toutes les extensions pour « pris ailleurs » (signe de demande), même celles qu'on ne note pas.
+    data = {t: explorer.status_bytes(t) for t in explorer.tlds()}
     picked: list[tuple[int, str, str]] = []
     seen = set()
 
