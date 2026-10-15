@@ -58,9 +58,9 @@ def shape(label: str) -> tuple[int, str | None]:
 
 
 POPULAR = {"word": "mot", "form": "forme", "surname": "nom", "firstname": "prénom", "english": "anglais",
-           "sector": "secteur", "trend": "tendance", "combo": "combinaison"}
+           "sector": "secteur", "trend": "tendance", "combo": "combinaison", "niche": "site de niche"}
 # Une forme fléchie vaut moins que le mot de base ; une combinaison bien moins qu'un mot seul.
-POPULAR_FACTOR = {"form": 0.7, "combo": 0.5}
+POPULAR_FACTOR = {"form": 0.7, "combo": 0.5, "niche": 0.5}
 
 
 def popularity(label: str) -> tuple[int, str | None]:

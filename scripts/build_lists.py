@@ -1,4 +1,4 @@
-"""Construit les listes anglais, secteurs, tendances et combinaisons dans app/data.
+"""Construit les listes anglais, secteurs, tendances, combinaisons et sites de niche dans app/data.
 
 Usage : python scripts/build_lists.py WORDFREQ_DIR LEXIQUE_TXT
 
@@ -133,6 +133,21 @@ def combos(sectors_fr, sectors_en, trends, english_words, genders) -> list[str]:
     return out
 
 
+def niche() -> list[str]:
+    """Format de site + thème de passion : forumdomotique, guidepotager, gardeningforum."""
+    formats = sections("formats.txt")
+    fr, en = unique(read("themes_fr.txt")), unique(read("themes_en.txt"))
+    families = [
+        ranked(fr, formats["fr"], lambda b, m: [m + b]),
+        ranked(fr, formats["fr-apres"], lambda b, m: [b + m]),
+        ranked(en, formats["en"], lambda b, m: [b + m]),
+    ]
+    out = []
+    for i in range(max(map(len, families))):
+        out += [f[i] for f in families if i < len(f)]
+    return out
+
+
 def write(name: str, words: list[str]) -> None:
     (DATA / name).write_text("\n".join(words) + "\n", encoding="utf-8")
     print(f"{name}: {len(words)}")
@@ -151,12 +166,15 @@ def main() -> None:
     for name in ("mots.txt", "formes.txt", "noms.txt", "prenoms.txt"):
         existing |= set((DATA / name).read_text(encoding="utf-8").split())
     taken = existing | set(english_words) | set(sectors) | set(trends)
+    niches = [n for n in unique(niche()) if n not in taken and n not in banned]
+    taken |= set(niches)
     combined = [c for c in unique(combos(sectors_fr, sectors_en, trends, english_words, nouns(lexique)))
                 if c not in taken and c not in banned]
     write("anglais.txt", english_words)
     write("secteurs.txt", sectors)
     write("tendances.txt", trends)
     write("combinaisons.txt", combined)
+    write("niches.txt", niches)
 
 
 if __name__ == "__main__":

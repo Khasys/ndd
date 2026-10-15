@@ -80,7 +80,8 @@ de 500 fois en France entre 1891 et 2000 (environ 21 700) et les prénoms donné
 entre 1900 et 2018 (environ 4 500). S'y ajoutent les 30 000 mots anglais les plus fréquents
 (marques connues retirées), environ 580 mots des secteurs qui paient (assurance, crédit,
 immobilier, droit, santé, travaux…), environ 200 mots en vogue et environ 35 000 combinaisons
-(monassurance, plombier-lyon, insurancehub, dallasplumber…). Une liste ajoutée n'est cherchée
+(monassurance, plombier-lyon, insurancehub, dallasplumber…) et environ 4 000 noms de sites de
+niche (forumdomotique, guidepotager, gardeningforum…). Une liste ajoutée n'est cherchée
 dans une zone qu'à la lecture suivante : d'ici là, ses noms n'apparaissent pas pour cette
 extension plutôt que d'y passer pour libres. Sources et licences des listes :
 `app/data/SOURCES.md`. Deux listes : libérés ces 7 derniers jours,

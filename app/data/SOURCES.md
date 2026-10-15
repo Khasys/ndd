@@ -85,4 +85,11 @@ Noms composés construits par scripts/build_lists.py, les meilleurs d'abord :
 Les combinaisons déjà présentes dans une autre liste sont retirées. Ordre : produit des rangs
 du mot et de l'ajout, familles en alternance.
 
-Pour reconstruire les quatre fichiers : `python scripts/build_lists.py DOSSIER_WORDFREQ LEXIQUE383_TXT`.
+## niches.txt
+
+Format de site + thème de passion ou de niche : forumdomotique, guidepotager, jardinagefacile,
+gardeningforum. Environ 110 thèmes français avec 25 formats français (pour le .fr), environ 75
+thèmes anglais avec 20 formats anglais (pour le .com), choisis et ordonnés à la main
+(scripts/lists/themes_fr.txt, themes_en.txt, formats.txt). Version collée seulement.
+
+Pour reconstruire les cinq fichiers : `python scripts/build_lists.py DOSSIER_WORDFREQ LEXIQUE383_TXT`.
