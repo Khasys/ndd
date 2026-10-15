@@ -344,7 +344,7 @@
                 <td class="drop-name">
                   <button type="button" class="link-like mono" @click="openFiche(d.name)" x-text="d.name"></button>
                   <span class="ex-bar drop-bar" :title="scoreTitle(d)"><i :style="'width:' + d.score + '%'"></i><b x-text="d.score >= 30 ? d.score : ''"></b></span>
-                  <div class="ex-reasons"><span class="ex-reason ai" :class="aiClass(d.ai)" x-show="d.ai" x-text="aiTag(d.ai)" :title="d.ai ? d.ai.comment : ''"></span><span class="ex-reason" :class="priceClass(d.price)" x-show="priceTag(d.price)" x-text="priceTag(d.price)"></span><template x-for="r in d.reasons.slice(0, 3)" :key="r"><span class="ex-reason" x-text="r"></span></template></div>
+                  <div class="ex-reasons"><span class="ex-reason ai" :class="aiClass(d.ai)" x-show="d.ai" x-text="aiTag(d.ai)" :title="d.ai ? d.ai.comment : ''"></span><template x-for="r in d.reasons.slice(0, 3)" :key="r"><span class="ex-reason" x-text="r"></span></template></div>
                 </td>
                 <td data-label="Type" x-text="d.categories.map((c) => dropsData.kinds[c]).join(', ')"></td>
                 <td data-label="Libéré" :title="exact(d.available_since)" x-text="relative(d.available_since)"></td>
@@ -376,7 +376,7 @@
                 <td class="drop-name">
                   <button type="button" class="link-like mono" @click="openFiche(d.name)" x-text="d.name"></button>
                   <span class="ex-bar drop-bar" :title="scoreTitle(d)"><i :style="'width:' + d.score + '%'"></i><b x-text="d.score >= 30 ? d.score : ''"></b></span>
-                  <div class="ex-reasons"><span class="ex-reason ai" :class="aiClass(d.ai)" x-show="d.ai" x-text="aiTag(d.ai)" :title="d.ai ? d.ai.comment : ''"></span><span class="ex-reason" :class="priceClass(d.price)" x-show="priceTag(d.price)" x-text="priceTag(d.price)"></span><template x-for="r in d.reasons.slice(0, 3)" :key="r"><span class="ex-reason" x-text="r"></span></template></div>
+                  <div class="ex-reasons"><span class="ex-reason ai" :class="aiClass(d.ai)" x-show="d.ai" x-text="aiTag(d.ai)" :title="d.ai ? d.ai.comment : ''"></span><template x-for="r in d.reasons.slice(0, 3)" :key="r"><span class="ex-reason" x-text="r"></span></template></div>
                 </td>
                 <td data-label="Type" x-text="d.categories.map((c) => dropsData.kinds[c]).join(', ')"></td>
                 <td data-label="État"><span class="badge" :class="'s-' + d.state" x-text="labels[d.state]"></span></td>
@@ -511,14 +511,6 @@
               </template>
             </div>
           </div>
-          <div class="ex-field"><span>Prix Gandi (noms vérifiés libres)</span>
-            <div class="ex-options">
-              <button type="button" class="tag" :class="{ on: !ex.price }" @click="exSet({ price: '' })">Peu importe</button>
-              <template x-for="(label, k) in exData.price_filters" :key="k">
-                <button type="button" class="tag" :class="{ on: ex.price === k }" @click="exSet({ price: ex.price === k ? '' : k })" x-text="label"></button>
-              </template>
-            </div>
-          </div>
           <h4 class="ex-group-title">Score</h4>
           <div class="ex-field"><span>Score minimum <strong class="num" x-text="ex.min || 0"></strong></span>
             <input type="range" min="0" max="90" step="5" :value="ex.min || 0" @change="exSet({ min: $event.target.value })" aria-label="Score minimum">
@@ -622,7 +614,6 @@
                   <span class="badge" :class="badgeClass(i)" x-show="i.status !== 2 && i.status !== 3" x-text="i.status_label"></span>
                   <template x-for="r in i.reserved" :key="r"><span class="ex-reason warn" x-text="r"></span></template>
                   <span class="ex-reason ai" :class="aiClass(i.ai)" x-show="i.ai" x-text="aiTag(i.ai)" :title="i.ai ? i.ai.comment : ''"></span>
-                  <span class="ex-reason" :class="priceClass(i.price)" x-show="priceTag(i.price)" x-text="priceTag(i.price)"></span>
                   <template x-for="r in i.reasons.slice(0, mobile ? 2 : 4)" :key="r"><span class="ex-reason" x-text="r"></span></template>
                   <span class="ex-reason more" x-show="i.reasons.length > (mobile ? 2 : 4)" x-text="'+' + (i.reasons.length - (mobile ? 2 : 4))"></span>
                 </span>
@@ -885,18 +876,6 @@
           </form>
         </template>
         <p class="muted small">PageRank 0 à 10 : clé gratuite sur domcop.com/openpagerank. Sans clé : archives Wayback seulement.</p>
-      </div>
-
-      <div id="set-gandi">
-        <h2>Prix Gandi</h2>
-        <template x-if="cfg">
-          <form class="inline-form" @submit.prevent="saveGandiToken()">
-            <input type="password" x-model="gandiToken" :placeholder="cfg.gandi.configured ? 'Jeton enregistré' : 'Jeton d\'accès personnel Gandi'" aria-label="Jeton Gandi" autocomplete="off">
-            <button type="submit" class="btn-ghost">Enregistrer</button>
-          </form>
-        </template>
-        <p class="muted small">account.gandi.net, Sécurité, jetons d'accès personnels : droit de lecture sur les domaines. Noms vus libres : prix de création, premium du registre, noms non réservables.</p>
-        <p class="small" x-show="cfg && cfg.gandi.configured" x-text="cfg ? gandiLine(cfg.gandi) : ''"></p>
       </div>
 
       <div>
@@ -1230,7 +1209,6 @@
         <div x-html="rdapDl(fiche.rdap)"></div>
         <div class="fiche-more">
           <button type="button" class="btn-ghost sm" @click="ficheSeo()" :disabled="!!exBusy[fiche.name] || exSeo.running">Analyse SEO</button>
-          <button type="button" class="btn-ghost sm" x-show="meta && meta.setup && meta.setup.gandi" @click="fichePrice()" :disabled="!!exBusy[fiche.name]">Prix Gandi</button>
           <button type="button" class="btn-ghost sm" x-show="fiche.item && ![1, 6].includes(fiche.item.status)" @click="ficheFlag()" x-text="fiche.item && fiche.item.status === 7 ? 'Pas réservé' : 'Réservé'"></button>
         </div>
         <div class="history" x-show="fiche.others.length">

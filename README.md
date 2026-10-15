@@ -176,11 +176,6 @@ Tous les noms suivis, extension par extension : les 1 926 220 noms possibles de 
 puis les mots, noms de famille et prénoms. L'état vient des données déjà sur le NAS, sans aucune
 requête : zones ICANN lues chaque jour, open data de l'Afnic, écran Suppressions par-dessus.
 
-- **Prix Gandi** (facultatif, jeton d'accès personnel dans Paramètres) : chaque heure, jusqu'à 60
-  noms vus libres par le registre sont vérifiés chez Gandi (relus chaque semaine), et tout nom
-  vérifié libre à la main l'est aussitôt. Premium du registre : prix de création au-delà de deux
-  fois le prix normal de l'extension (mesuré sur un nom au hasard). Non réservable : Gandi refuse
-  la création (nom exclu ou réservé). Filtre « Prix Gandi » et étiquettes dans les listes.
 - **Vues intégrées** : avis IA à prendre, revente rapide ≥ 500 €, libération à venir, libres
   vérifiés, pris en .com, 1 à 3 caractères, top 1 000 mots, top 5 000 anglais, secteurs porteurs,
   tendances, sites de niche, signal SEO.

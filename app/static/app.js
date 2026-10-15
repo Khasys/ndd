@@ -6,7 +6,7 @@ const AI_VERDICTS = { take: "À prendre", watch: "À surveiller", skip: "À lais
 const SHAPE_KINDS = ["letters", "digits", "mixed", "hyphen"];
 const DROP_FILTER_DEFAULTS = { q: "", nat: "", len: "", rank: "", min: 0, junk: false, ai: [], quick: "" };
 // Vues intégrées de l'Explorer. Chacune part de filtres vierges ; l'extension choisie reste.
-const EX_BLANK = { cat: "", nat: "", len: "", rank: "", taken: "", min: "", junk: "", seo: "", price: "", status: "available", sort: "score" };
+const EX_BLANK = { cat: "", nat: "", len: "", rank: "", taken: "", min: "", junk: "", seo: "", status: "available", sort: "score" };
 const EX_PRESETS = [
   { name: "Avis IA : à prendre", filters: { ai_v: "take", sort: "ai" } },
   { name: "Revente rapide ≥ 500 €", filters: { ai_quick_low_min: "500", sort: "ai" } },
@@ -124,7 +124,7 @@ document.addEventListener("alpine:init", () => {
     exBusy: {},
     exSeo: { running: false, done: 0, total: 0, key_set: true },
     seoKey: "",
-    ex: { tld: "", q: "", status: "available", cat: "", len: "", sort: "score", nat: "", rank: "", taken: "", min: "", junk: "", seo: "", price: "", ...AI_FILTER_DEFAULTS },
+    ex: { tld: "", q: "", status: "available", cat: "", len: "", sort: "score", nat: "", rank: "", taken: "", min: "", junk: "", seo: "", ...AI_FILTER_DEFAULTS },
     exFiltersOpen: false,
     fiche: null,
     aiToken: "",
@@ -132,7 +132,6 @@ document.addEventListener("alpine:init", () => {
     domainFiche: null,
     df: { ...DROP_FILTER_DEFAULTS },
     dfOpen: false,
-    gandiToken: "",
     welcomeHidden: (() => { try { return localStorage.getItem("dw.welcome") === "hidden"; } catch (_) { return false; } })(),
     AI_VERDICTS,
     tldFilter: "",
@@ -384,13 +383,6 @@ document.addEventListener("alpine:init", () => {
       if (item && item.release_at) past.push(["Libération", esc("~" + this.shortDate(item.release_at))]);
       if (item && item.checked_at) past.push(["Vérifié", esc(this.relative(item.checked_at))]);
       if (item && item.next_check_at) past.push(["Prochaine vérification", esc(this.relative(item.next_check_at))]);
-      if (f.price) {
-        const p = f.price;
-        const text = p.error ? `erreur (${p.error})` : p.available === false ? `non réservable (${p.status || "refusé"})`
-          : p.premium ? `premium : ${this.money(p.price)} la première année (prix normal ${this.money(p.normal)})`
-          : p.price ? `${this.money(p.price)} la première année` : "disponible";
-        past.push(["Gandi", esc(text + `, vu ${this.relative(p.at)}`)]);
-      }
       if (f.dns) past.push(["DNS .fr", esc((f.dns.present ? "délégué : nom pris" : "aucun serveur : probablement libre") + `, vu ${this.relative(f.dns.at)}`)]);
       if (f.seo) {
         const parts = [];
@@ -453,7 +445,7 @@ document.addEventListener("alpine:init", () => {
 
     exQuery(cursor) {
       const e = this.ex;
-      const params = new URLSearchParams({ q: e.q.trim(), mode: "prefix", status: e.status, cat: e.cat, len: e.len, nat: e.nat, rank: e.rank, taken: e.taken, min: e.min && e.min !== "0" ? e.min : "", junk: e.junk, seo: e.seo, price: e.price || "", cursor: String(cursor) });
+      const params = new URLSearchParams({ q: e.q.trim(), mode: "prefix", status: e.status, cat: e.cat, len: e.len, nat: e.nat, rank: e.rank, taken: e.taken, min: e.min && e.min !== "0" ? e.min : "", junk: e.junk, seo: e.seo, cursor: String(cursor) });
       if (this.ex.tld) params.set("tld", this.ex.tld);
       for (const k of Object.keys(AI_FILTER_DEFAULTS)) if (String(e[k] ?? "").trim() !== "") params.set(k, String(e[k]).trim());
       return params.toString();
@@ -547,7 +539,6 @@ document.addEventListener("alpine:init", () => {
       if (e.min && e.min !== "0") out.push({ key: "min", label: "Score ≥ " + e.min });
       if (e.junk) out.push({ key: "junk", label: "Suites et mélanges inclus" });
       if (e.seo) out.push({ key: "seo", label: this.exData.seo_filters[e.seo] });
-      if (e.price) out.push({ key: "price", label: this.exData.price_filters[e.price] });
       if (e.ai_v) out.push({ key: "ai_v", label: "IA : " + this.exAiVerdicts().map((v) => this.exData.ai_verdicts[v]).join(", ") });
       for (const f of Object.keys(this.exData.ai_fields || {})) {
         const lo = String(e[`ai_${f}_min`] ?? "").trim(), hi = String(e[`ai_${f}_max`] ?? "").trim();
@@ -561,7 +552,7 @@ document.addEventListener("alpine:init", () => {
 
     exClear(key) { return this.exSet(Object.fromEntries([].concat(key).map((k) => [k, ""]))); },
 
-    exReset() { return this.exSet({ cat: "", nat: "", len: "", rank: "", taken: "", min: "", junk: "", seo: "", price: "", status: "available", ...AI_FILTER_DEFAULTS }); },
+    exReset() { return this.exSet({ cat: "", nat: "", len: "", rank: "", taken: "", min: "", junk: "", seo: "", status: "available", ...AI_FILTER_DEFAULTS }); },
 
     exAiVerdicts() { return (this.ex.ai_v || "").split(",").filter(Boolean); },
 
@@ -790,50 +781,6 @@ document.addEventListener("alpine:init", () => {
         }, 3000);
       } catch (e) {
         this.say(e.message, "error");
-      }
-    },
-
-    async saveGandiToken() {
-      try {
-        this.cfg.gandi = await this.api("PUT", "/api/settings/gandi", { token: this.gandiToken });
-        this.gandiToken = "";
-        this.say(this.cfg.gandi.configured ? "Jeton Gandi enregistré." : "Jeton Gandi retiré.");
-      } catch (e) {
-        this.say(e.message, "error");
-      }
-    },
-
-    gandiLine(g) {
-      const parts = [`${this.fmt(g.checked)} nom(s) vérifié(s) chez Gandi`, `${this.fmt(g.premium)} premium`, `${this.fmt(g.unavailable)} non réservable(s)`];
-      if (g.error) parts.push(`dernière erreur : ${g.error}`);
-      else if (g.at) parts.push(`dernière passe ${this.relative(g.at)}`);
-      return parts.join(", ") + ".";
-    },
-
-    // Prix Gandi : premium du registre ou non réservable, sinon rien (prix standard, pas de bruit).
-    priceTag(p) {
-      if (!p || p.error) return "";
-      if (p.available === false) return "Non réservable";
-      if (p.premium && p.price) return `Premium ${this.money(p.price)}`;
-      return "";
-    },
-
-    priceClass(p) { return p && (p.available === false || p.premium) ? "warn" : ""; },
-
-    money(v) { return v >= 1000 ? `${(v / 1000).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} k€` : `${Math.round(v)} €`; },
-
-    async fichePrice() {
-      const name = this.fiche.name;
-      this.exBusy = { ...this.exBusy, [name]: true };
-      try {
-        const price = await this.api("POST", "/api/explore/price", { name });
-        if (this.fiche && this.fiche.name === name) this.fiche = { ...this.fiche, price };
-        this.exReplace({ name, price });
-      } catch (e) {
-        this.say(e.message, "error");
-      } finally {
-        const { [name]: _, ...rest } = this.exBusy;
-        this.exBusy = rest;
       }
     },
 

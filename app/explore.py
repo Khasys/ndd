@@ -22,7 +22,7 @@ from array import array
 from dataclasses import dataclass
 from datetime import date
 
-from . import ai, drops, frdns, gandi, precompute, rdapinfo, states, value, wordlists
+from . import ai, drops, frdns, precompute, rdapinfo, states, value, wordlists
 from .checker import iso, utcnow
 
 # États, un octet par nom.
@@ -167,7 +167,6 @@ class Filters:
     junk: bool = False  # True : garder aussi les suites imprononçables, les mélanges, les tirets
     seo: str = ""  # any : analysé avec signal ; pr1, pr3, pr5 : PageRank minimum ; wb5 : archivé 5 ans et plus
     ai: str = ""  # avis IA, forme canonique de ai_filter() : « v=take,watch;exploit=40-;quick_high=-500 »
-    price: str = ""  # prix Gandi : std, premium, no (gandi.FILTERS)
 
     @classmethod
     def of(cls, *args, **kwargs) -> "Filters":
@@ -579,16 +578,9 @@ class Explorer:
         found = [self.universe.index(r[0][: -len(tld) - 1]) for r in rows]
         return sorted(i for i in found if i is not None)
 
-    def _price_indices(self, tld: str, key: str) -> list[int]:
-        """Noms de cette extension dont le prix Gandi passe le filtre, dans l'ordre de l'univers."""
-        condition = gandi.FILTERS.get(key, ("", "1"))[1]
-        rows = self.conn.execute(f"SELECT name FROM name_price WHERE name LIKE ? AND {condition}", (f"%.{tld}",))
-        found = [self.universe.index(r[0][: -len(tld) - 1]) for r in rows]
-        return sorted(i for i in found if i is not None)
-
     def _restrict(self, tld: str, f: Filters) -> set[int] | None:
-        """Noms admis par les filtres SEO, avis IA et prix (les tris qui suivent leur propre ordre s'en servent)."""
-        if not (f.seo or f.ai or f.price):
+        """Noms admis par les filtres SEO et avis IA (les tris qui suivent leur propre ordre s'en servent)."""
+        if not (f.seo or f.ai):
             return None
         allowed = None
         if f.seo:
@@ -596,16 +588,18 @@ class Explorer:
         if f.ai:
             rated = set(self._ai_indices(tld, f.ai))
             allowed = rated if allowed is None else allowed & rated
-        if f.price:
-            priced = set(self._price_indices(tld, f.price))
-            allowed = priced if allowed is None else allowed & priced
         return allowed
 
     def _candidates(self, f: Filters, q: str, tld: str = ""):
         """Positions à examiner, dans l'ordre, ou None pour tout l'univers."""
         u = self.universe
-        if (f.seo or f.ai or f.price) and tld:
-            found = sorted(self._restrict(tld, f))
+        if (f.seo or f.ai) and tld:
+            found = None
+            if f.seo:
+                found = self._seo_indices(tld, f.seo)
+            if f.ai:
+                rated = self._ai_indices(tld, f.ai)
+                found = rated if found is None else sorted(set(found) & set(rated))
             return [i for i in found if self._matches(u.label(i), f, q)] if q else found
         if q:
             return self._short_matching(q, f.mode) + self._word_matching(q, f.mode)
@@ -946,8 +940,6 @@ class Explorer:
             parts.append(from_indices(self._seo_indices(tld, f.seo)))
         if f.ai:
             parts.append(from_indices(self._ai_indices(tld, f.ai)))
-        if f.price:
-            parts.append(from_indices(self._price_indices(tld, f.price)))
         if not parts:
             return None
         mask = parts[0]
@@ -960,7 +952,7 @@ class Explorer:
         f = Filters.of(*args, **kwargs)
         if self._hopeless(tld, f):
             return dict.fromkeys(STATUS_FILTERS, 0)
-        key = ("facets", tld, f.category, f.length, f.nature, f.max_rank, f.taken, f.junk, f.seo, f.ai, f.price)
+        key = ("facets", tld, f.category, f.length, f.nature, f.max_rank, f.taken, f.junk, f.seo, f.ai)
         raw = self._memo(key, lambda: self._facets(tld, f))
         by_code = raw["by_code"]
         # Les états réservés suivent le réglage du moment : conversion à chaque appel, sans recompter.
@@ -1055,11 +1047,6 @@ class Explorer:
         for key in [k for k in self._memos if k[0][0] == "facets" and k[0][9]]:
             del self._memos[key]
 
-    def price_changed(self) -> None:
-        """Nouveau prix Gandi : seuls les compteurs filtrés sur le prix sont recomptés."""
-        for key in [k for k in self._memos if k[0][0] == "facets" and k[0][10]]:
-            del self._memos[key]
-
     def _forget(self, kind: str) -> None:
         for key in [k for k in self._memos if k[0][0] == kind]:
             del self._memos[key]
@@ -1117,7 +1104,6 @@ class Explorer:
         watched = {r[0] for r in self.conn.execute("SELECT name FROM domains")}
         details = rdapinfo.load(self.conn, names)
         opinions = ai.load(self.conn, names)
-        prices = gandi.load(self.conn, names)
         items = []
         for i, label, name in zip(indices, labels, names):
             code = data[i]
@@ -1147,7 +1133,6 @@ class Explorer:
                 "rdap": details.get(name),
                 "reserved": self.reserved.why(name) if self.reserved is not None and code == RESERVED else [],
                 "ai": opinions.get(name),
-                "price": prices.get(name),
             })
         return items
 
@@ -1165,10 +1150,8 @@ class Explorer:
             item.update(natures=sorted(wordlists.natures().get(label, ())), good=bool(u.good[i]), length=len(label))
             found[name] = item
         opinions = ai.load(self.conn, list(found))
-        prices = gandi.load(self.conn, list(found))
         for name, item in found.items():
             item["ai"] = opinions.get(name)
-            item["price"] = prices.get(name)
         return found
 
     def fiche(self, name: str) -> dict:
@@ -1201,7 +1184,6 @@ class Explorer:
             "rdap": rdap,
             "ai": ai.load(self.conn, [name]).get(name),
             "dns": frdns.load(self.conn, [label]).get(label) if tld == "fr" else None,
-            "price": gandi.load(self.conn, [name]).get(name),
             "domain_id": domain["id"] if domain is not None else None,
         }
 
