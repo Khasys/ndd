@@ -36,7 +36,7 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/></svg><span>Explorer</span>
       </button>
       <button type="button" class="side-link" :class="{ on: legendOpen }" @click="openSheet('legend')">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 7.5v.5"/></svg><span>Légende</span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 7.5v.5"/></svg><span>Aide</span>
       </button>
       <button type="button" class="side-link has-badge" :class="{ on: settingsOpen }" @click="openSheet('settings')">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg><span>Paramètres</span>
@@ -55,7 +55,7 @@
   <header class="top">
     <a href="/" class="home" @click.prevent="home()" aria-label="Accueil">{{BRAND}}</a>
     <nav class="tools">
-      <button type="button" class="btn-ghost" :class="{ on: legendOpen }" @click="legendOpen = !legendOpen" :aria-expanded="legendOpen">Légende</button>
+      <button type="button" class="btn-ghost" :class="{ on: legendOpen }" @click="legendOpen = !legendOpen" :aria-expanded="legendOpen">Aide</button>
       <button type="button" class="btn-ghost has-badge" :class="{ on: settingsOpen }" @click="openSheet('settings')" :aria-expanded="settingsOpen">
         Paramètres
         <span class="update-badge" x-show="meta && meta.update_available" x-cloak title="Mise à jour disponible" aria-label="Mise à jour disponible">
@@ -74,11 +74,20 @@
   </form>
   <p class="notice" :class="[notice && notice.kind, notice ? 'shown' : '']" role="status" aria-live="polite" @click="notice = null" x-text="notice ? notice.text : ''"></p>
 
-  <section class="legend sheet" x-show="legendOpen" x-transition.opacity.duration.150ms x-cloak aria-label="Légende">
+  <section class="legend sheet" x-show="legendOpen" x-transition.opacity.duration.150ms x-cloak aria-label="Aide">
     <div class="sheet-head">
-      <h2>Légende</h2>
+      <h2>Aide</h2>
       <button type="button" class="btn-ghost" @click="legendOpen = false">Fermer</button>
     </div>
+    <nav class="help-toc small">
+      <a href="#help-states">États d'un domaine</a>
+      <a href="#help-explore">États dans l'Explorer</a>
+      <a href="#help-score">Score</a>
+      <a href="#help-ai">Avis IA</a>
+      <a href="#help-lists">Listes de noms</a>
+      <a href="#help-words">Vocabulaire</a>
+    </nav>
+    <h3 id="help-states">États d'un domaine (écrans Domaines et Suppressions)</h3>
     <table>
       <thead>
         <tr><th>État</th><th>Définition</th><th>Check</th><th>Action conseillée</th></tr>
@@ -99,6 +108,60 @@
       les délais publiés par le registre. Avant la rédemption, c'est une date au plus tard : le registrar peut
       supprimer le nom plus tôt. Aucune estimation n'est affichée pour un TLD dont les délais ne sont pas sourcés.
     </p>
+
+    <h3 id="help-explore">États dans l'Explorer</h3>
+    <dl class="help-dl">
+      <dt>Enregistré</dt><dd>Pris : dans la zone du registre, dans le fichier de l'Afnic ou vu délégué par le DNS du .fr.</dd>
+      <dt>Supprimé, non repris</dt><dd>.fr seulement : enregistré par le passé, supprimé depuis, pas repris d'après le dernier fichier de l'Afnic.</dd>
+      <dt>Jamais enregistré</dt><dd>.fr seulement : absent du fichier de l'Afnic, passé comme présent.</dd>
+      <dt>Absent de la zone, à vérifier</dt><dd>.com, .org… : pas dans la zone du jour. Souvent libre, parfois enregistré sans serveurs DNS.</dd>
+      <dt>Libération à venir</dt><dd>Expiré, en rédemption ou en suppression : suivi dans l'écran Suppressions.</dd>
+      <dt>Libre (vérifié)</dt><dd>Le registre a répondu « libre » à la dernière vérification : réservable.</dd>
+      <dt>Réservé</dt><dd>Nom bloqué par le registre (termes soumis à examen, communes) : réservable sous conditions seulement.</dd>
+    </dl>
+    <p class="small muted">« Probablement libres » regroupe « Supprimé, non repris », « Jamais enregistré » et « Absent de la zone ». Le bouton Vérifier interroge le registre et tranche.</p>
+
+    <h3 id="help-score">Score (0 à 100)</h3>
+    <p>Un barème fixe, chaque point vient d'une raison affichée sous le nom.</p>
+    <dl class="help-dl">
+      <dt>Forme, 40 au plus</dt><dd>Plus c'est court, mieux c'est. Un vrai mot vaut plus qu'un nom prononçable, qui vaut plus qu'une suite de lettres.</dd>
+      <dt>Popularité, 30 au plus</dt><dd>Rang du nom dans sa liste (mot courant, prénom, secteur…). Une combinaison compte moitié.</dd>
+      <dt>Demande, 15 au plus</dt><dd>Le même nom est pris sur d'autres extensions, le .com surtout.</dd>
+      <dt>Historique, 15 au plus</dt><dd>.fr supprimé : années de détention et suppression récente.</dd>
+      <dt>SEO, 20 au plus</dt><dd>PageRank et archives Wayback, si l'analyse a été faite.</dd>
+    </dl>
+    <p class="small muted">Poids réglables dans Paramètres, carte « Score de l'Explorer ».</p>
+
+    <h3 id="help-ai">Avis IA</h3>
+    <p>Chaque nuit, une IA note jusqu'à 1 000 noms en .fr, .com et .org, les plus prometteurs d'abord.</p>
+    <dl class="help-dl">
+      <dt>Verdict</dt><dd>« À prendre », « À surveiller » ou « À laisser », avec la raison et le type d'acheteur.</dd>
+      <dt>Exploitation et revente</dt><dd>Deux notes sur 100 : potentiel pour un projet, potentiel de revente.</dd>
+      <dt>Revente rapide</dt><dd>Prix qu'un revendeur paierait vite, nettement sous le prix utilisateur final.</dd>
+      <dt>Utilisateur final</dt><dd>Prix qu'une entreprise intéressée pourrait payer, sans garantie de vente.</dd>
+    </dl>
+    <p class="small muted">Des estimations, pas des cotes. Elles aident à trier, elles ne remplacent pas ton jugement.</p>
+
+    <h3 id="help-lists">Listes de noms</h3>
+    <dl class="help-dl">
+      <dt>Formes</dt><dd>Tous les noms de 1 à 4 caractères : lettres, chiffres, mélanges, tirets.</dd>
+      <dt>Mots, formes fléchies</dt><dd>Les 20 000 mots français les plus courants et 10 000 pluriels ou conjugaisons.</dd>
+      <dt>Noms de famille, prénoms</dt><dd>Donnés plus de 500 fois en France (Insee).</dd>
+      <dt>Mots anglais</dt><dd>Les 30 000 plus fréquents, marques connues retirées.</dd>
+      <dt>Secteurs porteurs</dt><dd>Assurance, crédit, immobilier, droit, santé, travaux… en français et en anglais.</dd>
+      <dt>Tendances</dt><dd>IA, énergie, mobilité, bien-être… à revoir chaque année.</dd>
+      <dt>Combinaisons</dt><dd>monassurance, plombier-lyon, insurancehub, dallasplumber…</dd>
+      <dt>Sites de niche</dt><dd>forumdomotique, guidepotager, gardeningforum…</dd>
+    </dl>
+
+    <h3 id="help-words">Vocabulaire</h3>
+    <dl class="help-dl">
+      <dt>Zone</dt><dd>La liste quotidienne des noms enregistrés d'une extension, publiée par le registre (CZDS de l'ICANN).</dd>
+      <dt>RDAP, WHOIS</dt><dd>Les annuaires des registres : état, dates, registrar d'un nom précis.</dd>
+      <dt>Rédemption</dt><dd>Environ 30 jours après la suppression : seul l'ancien titulaire peut récupérer le nom.</dd>
+      <dt>Backorder</dt><dd>Commande passée à l'avance chez un service qui tente de prendre le nom dès sa libération.</dd>
+      <dt>Registrar</dt><dd>Le revendeur chez qui on réserve : Gandi, OVH… Le lien « Réserver » se règle dans Paramètres.</dd>
+    </dl>
   </section>
 
 
@@ -107,6 +170,7 @@
       <h2>Suppressions</h2>
       <button type="button" class="btn-ghost" @click="dropsOpen = false">Fermer</button>
     </div>
+    <p class="sheet-intro muted">Les noms qui quittent les registres, suivis jusqu'à leur libération. En haut, les noms déjà libres ; en dessous, ceux qui se libèrent bientôt, avec la date estimée.</p>
 
     <template x-if="dropsData && !dropsData.configured">
       <div class="drops-card">
@@ -184,42 +248,97 @@
           </div>
         </div>
 
-        <h4 class="ex-group-title drops-group">Extension et catégorie</h4>
-        <div class="filters drops-filters">
-          <select class="filter-input drops-tld" x-model="dropTld" aria-label="Extension">
-            <option value="">Toutes les extensions</option>
-            <template x-for="t in dropTlds" :key="t"><option :value="t" x-text="'.' + t"></option></template>
-          </select>
-          <template x-for="(label, k) in dropsData.kinds" :key="k">
-            <button type="button" class="tag" :class="{ on: dropKinds.includes(k) }" @click="toggleDropKind(k)" x-text="label"></button>
-          </template>
-        </div>
-        <h4 class="ex-group-title drops-group">Le nom</h4>
-        <div class="ex-chips">
-          <button type="button" class="tag" :class="{ on: !df.nat }" @click="df.nat = ''">Toutes natures</button>
-          <template x-for="(label, k) in dropsData.natures" :key="k">
-            <button type="button" class="tag" :class="{ on: df.nat === k }" @click="df.nat = df.nat === k ? '' : k" x-text="label"></button>
-          </template>
-        </div>
-        <div class="ex-chips">
-          <template x-for="o in exLengths" :key="o.v">
-            <button type="button" class="tag" :class="{ on: df.len === o.v }" @click="df.len = o.v" x-text="o.v ? o.label + ' car.' : 'Toutes longueurs'"></button>
-          </template>
-          <span class="ex-sep"></span>
-          <template x-for="o in exRanks" :key="o.v">
-            <button type="button" class="tag" :class="{ on: df.rank === o.v }" @click="df.rank = o.v" x-text="o.v ? o.label : 'Toutes fréquences'"></button>
-          </template>
-        </div>
-        <h4 class="ex-group-title drops-group">Score</h4>
-        <div class="drops-more-filters">
-          <label class="small">Score minimum <strong class="num" x-text="df.min"></strong>
-            <input type="range" min="0" max="90" step="5" x-model.number="df.min" aria-label="Score minimum">
-          </label>
-          <label class="check small"><input type="checkbox" x-model="df.junk"><span>Inclure les suites imprononçables</span></label>
+        <div class="ex-sticky drops-sticky">
+          <div class="ex-searchbar">
+            <input type="search" class="filter-input ex-search" x-model="df.q" placeholder="Chercher dans les suppressions" aria-label="Chercher dans les suppressions" autocapitalize="off" autocomplete="off" spellcheck="false">
+            <button type="button" class="btn-ghost ex-filter-btn" :class="{ on: dfOpen || dropActive().length }" @click="dfOpen = !dfOpen" :aria-expanded="dfOpen"
+                    x-text="dropActive().length ? 'Filtres (' + dropActive().length + ')' : 'Filtres'"></button>
+          </div>
+          <div class="ex-chips" aria-label="Extensions">
+            <button type="button" class="tag" :class="{ on: !dropTld }" @click="dropTld = ''">Toutes</button>
+            <template x-for="t in dropTlds" :key="t">
+              <button type="button" class="tag" :class="{ on: dropTld === t }" @click="dropTld = dropTld === t ? '' : t" x-text="'.' + t"></button>
+            </template>
+          </div>
+          <div class="ex-active" x-show="dropActive().length">
+            <template x-for="a in dropActive()" :key="a.key">
+              <button type="button" class="ex-pill" @click="dropClear(a.key)"><span x-text="a.label"></span> ×</button>
+            </template>
+          </div>
         </div>
 
-        <h3 class="drops-title">Libérés <span class="num muted" x-text="dropsReleased.length"></span></h3>
-        <p class="muted small" x-show="!dropsReleased.length" x-text="'Aucun nom libéré ces ' + dropsData.keep_days + ' derniers jours.'"></p>
+        <div class="ex-panel-back" x-show="dfOpen && mobile" x-transition.opacity @click="dfOpen = false"></div>
+        <div class="ex-panel" x-show="dfOpen" x-transition>
+          <div class="ex-panel-head">
+            <strong>Filtres</strong>
+            <button type="button" class="btn-text" @click="dropReset()">Tout effacer</button>
+            <button type="button" class="btn-ghost sm" @click="dfOpen = false">OK</button>
+          </div>
+          <h4 class="ex-group-title">Le nom</h4>
+          <div class="ex-field"><span>Forme</span>
+            <div class="ex-options">
+              <template x-for="(label, k) in kindGroup(dropsData.kinds, true)" :key="k">
+                <button type="button" class="tag" :class="{ on: dropKinds.includes(k) }" @click="toggleDropKind(k)" x-text="label"></button>
+              </template>
+            </div>
+          </div>
+          <div class="ex-field"><span>Liste</span>
+            <div class="ex-options">
+              <template x-for="(label, k) in kindGroup(dropsData.kinds, false)" :key="k">
+                <button type="button" class="tag" :class="{ on: dropKinds.includes(k) }" @click="toggleDropKind(k)" x-text="label"></button>
+              </template>
+            </div>
+          </div>
+          <div class="ex-field"><span>Nature</span>
+            <div class="ex-options">
+              <button type="button" class="tag" :class="{ on: !df.nat }" @click="df.nat = ''">Toutes</button>
+              <template x-for="(label, k) in dropsData.natures" :key="k">
+                <button type="button" class="tag" :class="{ on: df.nat === k }" @click="df.nat = df.nat === k ? '' : k" x-text="label"></button>
+              </template>
+            </div>
+          </div>
+          <div class="ex-field"><span>Longueur</span>
+            <div class="ex-options">
+              <template x-for="o in exLengths" :key="o.v">
+                <button type="button" class="tag" :class="{ on: df.len === o.v }" @click="df.len = o.v" x-text="o.label"></button>
+              </template>
+            </div>
+          </div>
+          <div class="ex-field"><span>Fréquence</span>
+            <div class="ex-options">
+              <template x-for="o in exRanks" :key="o.v">
+                <button type="button" class="tag" :class="{ on: df.rank === o.v }" @click="df.rank = o.v" x-text="o.label"></button>
+              </template>
+            </div>
+          </div>
+          <label class="check ex-junk"><input type="checkbox" x-model="df.junk"><span>Inclure les suites imprononçables, les mélanges lettres-chiffres et les tirets</span></label>
+          <h4 class="ex-group-title">Score</h4>
+          <div class="ex-field"><span>Score minimum <strong class="num" x-text="df.min"></strong></span>
+            <input type="range" min="0" max="90" step="5" x-model.number="df.min" aria-label="Score minimum">
+          </div>
+          <h4 class="ex-group-title">Avis IA</h4>
+          <div class="ex-field"><span>Verdict (noms notés seulement)</span>
+            <div class="ex-options">
+              <template x-for="(label, k) in AI_VERDICTS" :key="k">
+                <button type="button" class="tag" :class="{ on: df.ai.includes(k) }" @click="df.ai = df.ai.includes(k) ? df.ai.filter((x) => x !== k) : [...df.ai, k]" x-text="label"></button>
+              </template>
+            </div>
+          </div>
+          <div class="ex-field"><span>Revente rapide au moins (€)</span>
+            <input type="number" inputmode="numeric" min="0" step="50" class="filter-input num-input" x-model.number="df.quick" aria-label="Revente rapide minimum">
+          </div>
+        </div>
+
+        <div class="drops-title-row">
+          <h3 class="drops-title">Libérés <span class="num muted" x-text="dropsReleased.length"></span></h3>
+          <select class="filter-input drops-sort" x-model="dropSortFree" aria-label="Tri des libérés">
+            <option value="date">Les plus récents</option>
+            <option value="score">Par score</option>
+            <option value="ai">Par avis IA</option>
+            <option value="name">Par nom</option>
+          </select>
+        </div>
+        <p class="muted small" x-show="!dropsReleased.length" x-text="dropActive().length || dropTld ? 'Aucun nom libéré pour ces filtres.' : 'Aucun nom libéré ces ' + dropsData.keep_days + ' derniers jours.'"></p>
         <table class="drops-table" x-show="dropsReleased.length">
           <thead><tr><th>Nom</th><th>Type</th><th>Libéré</th><th>Vu libre</th><th><span class="visually-hidden">Action</span></th></tr></thead>
           <tbody>
@@ -246,6 +365,8 @@
           <h3 class="drops-title">Libération à venir <span class="num muted" x-text="dropsComing.length"></span></h3>
           <select class="filter-input drops-sort" x-model="dropSort" aria-label="Tri">
             <option value="release">Par date de libération</option>
+            <option value="score">Par score</option>
+            <option value="ai">Par avis IA</option>
             <option value="name">Par nom</option>
           </select>
         </div>
@@ -283,6 +404,7 @@
       <h2>Explorer</h2>
       <button type="button" class="btn-ghost" @click="exploreOpen = false">Fermer</button>
     </div>
+    <p class="sheet-intro muted">Tous les noms suivis, sur chaque extension : état, score et avis IA. Le plus simple : une piste ci-dessous, ou une case de la carte.</p>
 
     <template x-if="exError">
       <div class="drops-card"><p class="muted" x-text="exError"></p></div>
@@ -312,6 +434,13 @@
             </template>
             <button type="button" class="tag" x-show="exActive().length && !exViews.some((v) => exViewOn(v))" @click="exSaveView()">+ Vue</button>
           </div>
+          <div class="ex-chips ex-presets" aria-label="Pistes">
+            <span class="ex-presets-label small muted">Pistes</span>
+            <template x-for="p in exPresets()" :key="p.name">
+              <button type="button" class="tag preset" :class="{ on: exPresetOn(p) }" :aria-pressed="exPresetOn(p)" :title="p.hint" @click="exApplyPreset(p)" x-text="p.name"></button>
+            </template>
+          </div>
+          <p class="small muted ex-preset-hint" x-show="exPresets().some((p) => exPresetOn(p))" x-text="(exPresets().find((p) => exPresetOn(p)) || {}).hint"></p>
           <div class="ex-active" x-show="exActive().length">
             <template x-for="a in exActive()" :key="String(a.key)">
               <button type="button" class="ex-pill" @click="exClear(a.key)"><span x-text="a.label"></span> ×</button>
@@ -328,10 +457,17 @@
             <button type="button" class="btn-ghost sm" @click="exFiltersOpen = false">OK</button>
           </div>
           <h4 class="ex-group-title">Le nom</h4>
-          <div class="ex-field"><span>Catégorie</span>
+          <div class="ex-field"><span>Forme</span>
             <div class="ex-options">
               <button type="button" class="tag" :class="{ on: !ex.cat }" @click="exSet({ cat: '' })">Tout</button>
-              <template x-for="(label, k) in exData.kinds" :key="k">
+              <template x-for="(label, k) in kindGroup(exData.kinds, true)" :key="k">
+                <button type="button" class="tag" :class="{ on: ex.cat === k }" @click="exSet({ cat: ex.cat === k ? '' : k })" x-text="label"></button>
+              </template>
+            </div>
+          </div>
+          <div class="ex-field"><span>Liste</span>
+            <div class="ex-options">
+              <template x-for="(label, k) in kindGroup(exData.kinds, false)" :key="k">
                 <button type="button" class="tag" :class="{ on: ex.cat === k }" @click="exSet({ cat: ex.cat === k ? '' : k })" x-text="label"></button>
               </template>
             </div>
@@ -535,7 +671,7 @@
       </dl>
     </div>
     <div class="settings-grid">
-      <div>
+      <div id="set-telegram">
         <h2>Telegram</h2>
         <template x-if="cfg && !cfg.telegram.token_set">
           <ol class="steps">
@@ -638,7 +774,7 @@
         </template>
       </div>
 
-      <div>
+      <div id="set-czds">
         <h2>Zones ICANN (CZDS)</h2>
         <template x-if="cfg">
           <div class="setting-lines">
@@ -677,7 +813,7 @@
         </template>
       </div>
 
-      <div>
+      <div id="set-fr">
         <h2>Extension .fr (Afnic)</h2>
         <template x-if="cfg">
           <div class="setting-lines">
@@ -762,7 +898,7 @@
         </template>
       </div>
 
-      <div>
+      <div id="set-ai">
         <h2>Avis IA</h2>
         <p class="small" x-show="aiStatus">
           <span x-text="aiStatus ? fmt(aiStatus.rated) + ' noms notés sur ' + fmt(aiStatus.total) : ''"></span><span x-show="aiStatus && aiStatus.last" x-text="aiStatus && aiStatus.last ? ', dernier envoi ' + relative(aiStatus.last) : ''"></span>.
@@ -835,6 +971,20 @@
       <button type="button" class="tag" :class="{ on: tagFilter === t }" @click="tagFilter = tagFilter === t ? null : t" x-text="t"></button>
     </template>
     <button type="button" class="tag" :class="{ on: abandonedOnly }" x-show="domains.some(d => d.abandoned)" @click="abandonedOnly = !abandonedOnly">Signes d'abandon</button>
+    <template x-if="domainTlds.length > 1">
+      <span class="filter-group">
+        <template x-for="t in domainTlds" :key="t">
+          <button type="button" class="tag" :class="{ on: tldFilter === t }" @click="tldFilter = tldFilter === t ? '' : t" x-text="'.' + t"></button>
+        </template>
+      </span>
+    </template>
+    <template x-if="domains.some((d) => d.ai)">
+      <span class="filter-group">
+        <template x-for="(label, k) in AI_VERDICTS" :key="k">
+          <button type="button" class="tag" :class="{ on: aiFilter.includes(k) }" @click="toggleAiFilter(k)" x-text="'IA : ' + label"></button>
+        </template>
+      </span>
+    </template>
   </div>
   <div class="active-filters list-view" x-show="activeFilters.length" x-cloak>
     <template x-for="f in activeFilters" :key="f.key">
@@ -853,10 +1003,22 @@
       </div>
     </template>
 
-    <template x-if="loaded && !loadError && !domains.length">
-      <div class="empty">
-        <p>Aucun domaine surveillé.</p>
-        <p class="muted">Saisir un nom dans le champ ci-dessus, puis Entrée. Le premier check part immédiatement.</p>
+    <template x-if="loaded && !loadError && showWelcome">
+      <div class="welcome">
+        <div class="welcome-head">
+          <h2>Pour bien démarrer</h2>
+          <button type="button" class="btn-text" x-show="domains.length" @click="hideWelcome()">Masquer</button>
+        </div>
+        <p class="muted">Trois écrans. <strong>Domaines</strong> : les noms que tu surveilles, vérifiés auprès du registre, avec une alerte à chaque changement. <strong>Suppressions</strong> : les noms qui quittent les registres, suivis jusqu'à leur libération. <strong>Explorer</strong> : des millions de noms, leur état, leur valeur et l'avis IA.</p>
+        <ol class="welcome-steps">
+          <template x-for="step in onboarding" :key="step.key">
+            <li :class="{ done: step.done }">
+              <span class="welcome-mark" aria-hidden="true" x-text="step.done ? '✓' : ''"></span>
+              <span class="welcome-text"><strong x-text="step.title"></strong> <span class="muted" x-text="step.text"></span></span>
+              <button type="button" class="btn-ghost sm" x-show="!step.done || step.always" @click="step.go()" x-text="step.action"></button>
+            </li>
+          </template>
+        </ol>
       </div>
     </template>
 
@@ -869,6 +1031,7 @@
         <tr>
           <th><button type="button" class="sort" @click="sortBy('name')" x-text="'Domaine' + arrow('name')"></button></th>
           <th><button type="button" class="sort" @click="sortBy('urgency')" x-text="'État' + arrow('urgency')"></button></th>
+          <th class="col-score"><button type="button" class="sort" @click="sortBy('score')" x-text="'Valeur' + arrow('score')"></button></th>
           <th class="num"><button type="button" class="sort" @click="sortBy('days')" x-text="'Jours restants' + arrow('days')"></button></th>
           <th><button type="button" class="sort" @click="sortBy('release')" x-text="'Libération' + arrow('release')"></button></th>
           <th class="col-registrar">Registrar</th>
@@ -893,6 +1056,10 @@
               <span class="badge" :class="'s-' + displayState(d)" :title="stateTitle(d)" x-text="stateLabel(d)"></span>
               <span class="last-known" x-show="d.check_error && d.state" x-text="'Dernier état : ' + labels[d.state]"></span>
               <span class="abandon" x-show="d.abandoned" :title="d.signals.map(s => s.label).join(', ')">Signes d'abandon</span>
+            </td>
+            <td class="col-score" data-label="Valeur">
+              <span class="ex-bar drop-bar" :title="scoreTitle(d)"><i :style="'width:' + (d.score || 0) + '%'"></i><b x-text="d.score >= 30 ? d.score : ''"></b></span>
+              <span class="ex-reason ai" :class="aiClass(d.ai)" x-show="d.ai" x-text="aiTag(d.ai)" :title="d.ai ? d.ai.comment : ''"></span>
             </td>
             <td class="num" data-label="Jours restants" :class="{ blank: daysLeft(d) === null }">
               <span x-show="daysLeft(d) !== null" :title="d.effective_expires_at ? 'Expiration le ' + exact(d.effective_expires_at) : ''" x-text="daysLeft(d)"></span>
@@ -1082,7 +1249,7 @@
     </button>
     <button type="button" :class="{ on: legendOpen }" @click="openSheet('legend')">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 7.5v.5"/></svg>
-      <span>Légende</span>
+      <span>Aide</span>
     </button>
     <button type="button" class="has-badge" :class="{ on: settingsOpen }" @click="openSheet('settings')">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>

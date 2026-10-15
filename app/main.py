@@ -461,6 +461,13 @@ async def meta(request: Request):
         "latest_version": request.app.state.latest_version,
         "version_checked_at": request.app.state.version_checked_at,
         "version_next_check": _next_version_check(request.app),
+        # Premiers pas : ce qui est déjà branché, pour l'accueil.
+        "setup": {
+            "telegram": request.app.state.telegram.configured,
+            "czds": request.app.state.drops.configured,
+            "fr": request.app.state.fr.enabled,
+            "ai": bool(request.app.state.store.get("ai_token_hash")),
+        },
     }
 
 
@@ -475,7 +482,13 @@ def _next_version_check(app_: FastAPI) -> str | None:
 async def list_domains(request: Request):
     checker = request.app.state.checker
     rows = request.app.state.conn.execute("SELECT * FROM domains ORDER BY name").fetchall()
-    return [_serialize(row, checker) for row in rows]
+    items = [_serialize(row, checker) for row in rows]
+    # Score et avis IA, mêmes calculs que l'Explorer : filtres et tri communs à tous les écrans.
+    values = request.app.state.explorer.value_of([d["name"] for d in items])
+    for d in items:
+        v = values.get(d["name"]) or {}
+        d.update(score=v.get("score", 0), reasons=v.get("reasons", []), parts=v.get("parts", {}), ai=v.get("ai"))
+    return items
 
 
 class NewDomain(BaseModel):

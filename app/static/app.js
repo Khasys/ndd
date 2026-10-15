@@ -1,6 +1,27 @@
 // Filtre « avis IA » : verdicts et bornes min/max de chaque note et de chaque prix (paramètres d'URL ai_*).
 const AI_FILTER_DEFAULTS = Object.fromEntries([["ai_v", ""], ...["exploit", "resale", "quick_low", "quick_high", "final_low", "final_high"]
   .flatMap((f) => [[`ai_${f}_min`, ""], [`ai_${f}_max`, ""]])]);
+const AI_VERDICTS = { take: "À prendre", watch: "À surveiller", skip: "À laisser" };
+// Catégories de forme ; les autres viennent des listes de noms.
+const SHAPE_KINDS = ["letters", "digits", "mixed", "hyphen"];
+const DROP_FILTER_DEFAULTS = { q: "", nat: "", len: "", rank: "", min: 0, junk: false, ai: [], quick: "" };
+// Pistes de l'Explorer : vues prêtes à l'emploi pour aller droit aux meilleurs noms.
+// Chacune part de filtres vierges ; l'extension choisie reste.
+const EX_BLANK = { cat: "", nat: "", len: "", rank: "", taken: "", min: "", junk: "", seo: "", status: "available", sort: "score" };
+const EX_PRESETS = [
+  { name: "À prendre selon l'IA", hint: "Noms notés « À prendre », meilleure revente rapide d'abord.", filters: { ai_v: "take", sort: "ai" } },
+  { name: "Revente rapide 500 € et +", hint: "Fourchette basse de revente rapide d'au moins 500 €.", filters: { ai_quick_low_min: "500", sort: "ai" } },
+  { name: "Se libèrent bientôt", hint: "Expirés, en rédemption ou en suppression : à guetter.", filters: { status: "coming" } },
+  { name: "Libres vérifiés", hint: "Vus libres par le registre : réservables tout de suite.", filters: { status: "free" } },
+  { name: "Pris en .com, libres ici", hint: "Le .com est pris : la demande existe, l'extension choisie est libre.", filters: { taken: "com", min: "30" }, needs: "com" },
+  { name: "Très courts", hint: "1 à 3 caractères, les plus rares.", filters: { len: "-3" } },
+  { name: "Mots du top 1 000", hint: "Les 1 000 mots français les plus courants.", filters: { cat: "word", rank: "1000", sort: "freq" } },
+  { name: "Mots anglais du top 5 000", hint: "Pour le .com surtout.", filters: { cat: "english", rank: "5000", sort: "freq" } },
+  { name: "Secteurs porteurs", hint: "Assurance, crédit, immobilier, droit, santé, travaux…", filters: { cat: "sector", sort: "freq" } },
+  { name: "Tendances", hint: "IA, énergie, mobilité, bien-être…", filters: { cat: "trend", sort: "freq" } },
+  { name: "Sites de niche", hint: "forumdomotique, guidepotager, gardeningforum…", filters: { cat: "niche", sort: "freq" } },
+  { name: "Historique SEO", hint: "Noms analysés avec PageRank ou archives Wayback.", filters: { seo: "any", sort: "seo" } },
+];
 const LABELS = {
   available: "Disponible",
   pending_delete: "Suppression imminente",
@@ -110,7 +131,12 @@ document.addEventListener("alpine:init", () => {
     aiToken: "",
     aiStatus: null,
     domainFiche: null,
-    df: { nat: "", len: "", rank: "", min: 0, junk: false },
+    df: { ...DROP_FILTER_DEFAULTS },
+    dfOpen: false,
+    welcomeHidden: (() => { try { return localStorage.getItem("dw.welcome") === "hidden"; } catch (_) { return false; } })(),
+    AI_VERDICTS,
+    tldFilter: "",
+    aiFilter: [],
     exOpen: null,
     exSelected: [],
     exBulkRunning: false,
@@ -122,6 +148,7 @@ document.addEventListener("alpine:init", () => {
     dropTld: "",
     dropKinds: [],
     dropSort: "release",
+    dropSortFree: "date",
     scansOpen: false,
     czdsUser: "",
     czdsPass: "",
@@ -143,8 +170,12 @@ document.addEventListener("alpine:init", () => {
 
     init() {
       this.restoreFilters();
-      for (const key of ["query", "filter", "tagFilter", "abandonedOnly", "sortKey", "sortDir"]) {
+      for (const key of ["query", "filter", "tagFilter", "abandonedOnly", "sortKey", "sortDir", "tldFilter", "aiFilter"]) {
         this.$watch(key, () => this.saveFilters());
+      }
+      this.dropRestore();
+      for (const key of ["df", "dropTld", "dropKinds", "dropSort", "dropSortFree"]) {
+        this.$watch(key, () => this.dropSave());
       }
       this.load();
       // Sur téléphone, le focus automatique ouvrirait le clavier à chaque lancement.
@@ -202,6 +233,7 @@ document.addEventListener("alpine:init", () => {
     escape() {
       if (this.fiche) this.fiche = null;
       else if (this.exploreOpen && this.exFiltersOpen) this.exFiltersOpen = false;
+      else if (this.dropsOpen && this.dfOpen) this.dfOpen = false;
       else if (this.openId !== null) this.openId = null;
       else if (this.exploreOpen && this.ex.q) { this.ex.q = ""; this.exTyped(); }
       else if (this.paged) this.showList();
@@ -548,6 +580,23 @@ document.addEventListener("alpine:init", () => {
 
     exApplyView(v) { return this.exSet({ ...v.filters, q: "" }); },
 
+    exPresets() {
+      if (!this.exData) return [];
+      const tlds = this.exTlds();
+      return EX_PRESETS.filter((p) => !p.needs || (this.exData.tlds.includes(p.needs) && !tlds.includes(p.needs)));
+    },
+
+    exPresetFilters(p) { return { ...EX_BLANK, ...AI_FILTER_DEFAULTS, ...p.filters }; },
+
+    exApplyPreset(p) {
+      if (this.exPresetOn(p)) return this.exReset();
+      return this.exSet({ ...this.exPresetFilters(p), q: "" });
+    },
+
+    exPresetOn(p) {
+      return Object.entries(this.exPresetFilters(p)).every(([k, val]) => String(this.ex[k] ?? "") === String(val ?? ""));
+    },
+
     // Vue active : tous ses filtres sont ceux du moment.
     exViewOn(v) {
       return Object.entries(v.filters).every(([k, val]) => k === "q" || String(this.ex[k] ?? "") === String(val ?? ""));
@@ -857,8 +906,12 @@ document.addEventListener("alpine:init", () => {
       const f = this.df;
       const len = f.len ? Number(f.len) : 0;
       const label = d.name.slice(0, -(d.tld.length + 1));
+      const q = f.q.trim().toLowerCase();
       return (!this.dropTld || d.tld === this.dropTld)
+        && (!q || d.name.includes(q))
         && (!this.dropKinds.length || d.categories.some((c) => this.dropKinds.includes(c)))
+        && (!f.ai.length || f.ai.includes(this.aiClass(d.ai)))
+        && (!f.quick || (d.ai && d.ai.quick_low >= Number(f.quick)))
         && (!f.nat || (d.natures || []).includes(f.nat))
         && (!len || (len < 0 ? label.length <= -len : len >= 5 ? label.length >= 5 : label.length === len))
         && (!f.rank || (d.rank && d.rank <= Number(f.rank)))
@@ -868,16 +921,76 @@ document.addEventListener("alpine:init", () => {
 
     get dropsReleased() {
       if (!this.dropsData) return [];
-      return this.dropsData.items
-        .filter((d) => d.state === "available" && this.dropMatches(d))
-        .sort((a, b) => (b.available_since || "").localeCompare(a.available_since || ""));
+      const list = this.dropsData.items.filter((d) => d.state === "available" && this.dropMatches(d));
+      const by = this.compareBy(this.dropSortFree);
+      return list.sort(by || ((a, b) => (b.available_since || "").localeCompare(a.available_since || "")));
+    },
+
+    // Tris communs aux écrans : score, avis IA (revente rapide haute), nom.
+    compareBy(key) {
+      if (key === "score") return (a, b) => (b.score || 0) - (a.score || 0) || a.name.localeCompare(b.name);
+      if (key === "ai") return (a, b) => this.aiValue(b) - this.aiValue(a) || (b.score || 0) - (a.score || 0);
+      if (key === "name") return (a, b) => a.name.localeCompare(b.name);
+      return null;
+    },
+
+    aiValue(d) { return d.ai ? d.ai.quick_high * 1000 + d.ai.resale : -1; },
+
+    kindGroup(kinds, shape) {
+      return Object.fromEntries(Object.entries(kinds || {}).filter(([k]) => SHAPE_KINDS.includes(k) === shape));
+    },
+
+    dropActive() {
+      if (!this.dropsData) return [];
+      const f = this.df, out = [];
+      if (f.q.trim()) out.push({ key: "q", label: `Nom : ${f.q.trim()}` });
+      for (const k of this.dropKinds) out.push({ key: "kind:" + k, label: this.dropsData.kinds[k] || k });
+      if (f.nat) out.push({ key: "nat", label: this.dropsData.natures[f.nat] });
+      if (f.len) out.push({ key: "len", label: this.exLengths.find((o) => o.v === f.len)?.label + " car." });
+      if (f.rank) out.push({ key: "rank", label: this.exRanks.find((o) => o.v === f.rank)?.label });
+      if (f.min) out.push({ key: "min", label: "Score ≥ " + f.min });
+      if (f.junk) out.push({ key: "junk", label: "Suites et mélanges inclus" });
+      if (f.ai.length) out.push({ key: "ai", label: "IA : " + f.ai.map((v) => AI_VERDICTS[v]).join(", ") });
+      if (f.quick) out.push({ key: "quick", label: `Revente rapide ≥ ${f.quick} €` });
+      return out;
+    },
+
+    dropClear(key) {
+      if (key.startsWith("kind:")) { this.dropKinds = this.dropKinds.filter((k) => k !== key.slice(5)); return; }
+      this.df[key] = Array.isArray(DROP_FILTER_DEFAULTS[key]) ? [] : DROP_FILTER_DEFAULTS[key];
+    },
+
+    dropReset() {
+      this.df = { ...DROP_FILTER_DEFAULTS, ai: [] };
+      this.dropKinds = [];
+    },
+
+    dropSave() {
+      try {
+        localStorage.setItem("drops.filters", JSON.stringify({
+          df: this.df, tld: this.dropTld, kinds: this.dropKinds, sort: this.dropSort, sortFree: this.dropSortFree,
+        }));
+      } catch (_) {}
+    },
+
+    dropRestore() {
+      try {
+        const saved = JSON.parse(localStorage.getItem("drops.filters") || "null");
+        if (!saved) return;
+        this.df = { ...DROP_FILTER_DEFAULTS, ...saved.df, ai: Array.isArray(saved.df?.ai) ? saved.df.ai : [] };
+        this.dropTld = saved.tld || "";
+        this.dropKinds = Array.isArray(saved.kinds) ? saved.kinds : [];
+        this.dropSort = saved.sort || "release";
+        this.dropSortFree = saved.sortFree || "date";
+      } catch (_) {}
     },
 
     get dropsComing() {
       if (!this.dropsData) return [];
       const rank = { pending_delete: 0, redemption: 1, expired: 2 };
       const list = this.dropsData.items.filter((d) => d.state in rank && this.dropMatches(d));
-      if (this.dropSort === "name") return list.sort((a, b) => a.name.localeCompare(b.name));
+      const by = this.compareBy(this.dropSort);
+      if (by) return list.sort(by);
       return list.sort((a, b) => (a.release_at || "9").localeCompare(b.release_at || "9") || rank[a.state] - rank[b.state]);
     },
 
@@ -1377,6 +1490,35 @@ document.addEventListener("alpine:init", () => {
       return [...URGENCY, "error"].filter((k) => counts[k]).map((k) => ({ key: k, label: LABELS[k], count: counts[k] }));
     },
 
+    // Accueil : ce qui reste à brancher. Masquable une fois un premier nom surveillé.
+    get onboarding() {
+      const setup = (this.meta && this.meta.setup) || {};
+      return [
+        { key: "domain", done: this.domains.length > 0, title: "Surveiller un premier nom.", text: "Tape-le dans le champ en haut, puis Entrée : il est vérifié tout de suite, puis à intervalles réguliers.", action: "Saisir un nom", go: () => this.$refs.input.focus() },
+        { key: "telegram", done: !!setup.telegram, title: "Recevoir les alertes sur Telegram.", text: "Un message à chaque changement d'état et un résumé chaque semaine.", action: "Brancher", go: () => this.openSettings("telegram") },
+        { key: "fr", done: !!setup.fr, title: "Suivre le .fr.", text: "Open data de l'Afnic, gratuit, rien à créer.", action: "Activer", go: () => this.openSettings("fr") },
+        { key: "czds", done: !!setup.czds, title: "Suivre .com, .org et les autres.", text: "Zones ICANN : compte gratuit sur czds.icann.org, accès validé en quelques jours.", action: "Configurer", go: () => this.openSettings("czds") },
+        { key: "ai", done: !!setup.ai, title: "Avoir l'avis IA chaque nuit.", text: "Facultatif : une tâche planifiée Claude note les meilleurs noms.", action: "Voir", go: () => this.openSettings("ai") },
+        { key: "explore", done: false, always: true, title: "Chercher des noms à prendre.", text: "L'Explorer propose des pistes toutes prêtes.", action: "Explorer", go: () => this.openSheet("explore") },
+      ];
+    },
+
+    get showWelcome() {
+      if (!this.domains.length) return true;
+      if (this.welcomeHidden) return false;
+      return this.onboarding.some((s) => !s.done && !s.always);
+    },
+
+    hideWelcome() {
+      this.welcomeHidden = true;
+      try { localStorage.setItem("dw.welcome", "hidden"); } catch (_) {}
+    },
+
+    async openSettings(anchor) {
+      await this.openSheet("settings");
+      this.$nextTick(() => document.getElementById(`set-${anchor}`)?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    },
+
     get legend() {
       const iv = (this.meta && this.meta.intervals) || {};
       const days = (this.meta && this.meta.expiring_days) || 30;
@@ -1403,6 +1545,9 @@ document.addEventListener("alpine:init", () => {
         case "days": { const v = this.daysLeft(d); return v === null ? Infinity : v; }
         case "release": return d.release_at ? new Date(d.release_at).getTime() : Infinity;
         case "next": return d.next_check_at ? new Date(d.next_check_at).getTime() : Infinity;
+        // Meilleur d'abord au premier clic.
+        case "score": return -(d.score || 0);
+        case "ai": return -this.aiValue(d);
         default: { const i = URGENCY.indexOf(d.state); return i < 0 ? URGENCY.length : i; }
       }
     },
@@ -1415,6 +1560,8 @@ document.addEventListener("alpine:init", () => {
         this.filter = saved.filter || null;
         this.tagFilter = saved.tagFilter || null;
         this.abandonedOnly = !!saved.abandonedOnly;
+        this.tldFilter = saved.tldFilter || "";
+        this.aiFilter = Array.isArray(saved.aiFilter) ? saved.aiFilter : [];
         if (saved.sortKey) { this.sortKey = saved.sortKey; this.sortDir = saved.sortDir || 1; }
       } catch (_) {}
     },
@@ -1424,6 +1571,7 @@ document.addEventListener("alpine:init", () => {
         localStorage.setItem("dw.filters", JSON.stringify({
           query: this.query, filter: this.filter, tagFilter: this.tagFilter,
           abandonedOnly: this.abandonedOnly, sortKey: this.sortKey, sortDir: this.sortDir,
+          tldFilter: this.tldFilter, aiFilter: this.aiFilter,
         }));
       } catch (_) {}
     },
@@ -1434,12 +1582,16 @@ document.addEventListener("alpine:init", () => {
       if (this.filter) list.push({ key: "filter", label: `État : ${LABELS[this.filter] || this.filter}` });
       if (this.tagFilter) list.push({ key: "tagFilter", label: `Tag : ${this.tagFilter}` });
       if (this.abandonedOnly) list.push({ key: "abandonedOnly", label: "Signes d'abandon" });
+      if (this.tldFilter) list.push({ key: "tldFilter", label: `Extension : .${this.tldFilter}` });
+      if (this.aiFilter.length) list.push({ key: "aiFilter", label: "IA : " + this.aiFilter.map((v) => AI_VERDICTS[v]).join(", ") });
       return list;
     },
 
     clearFilter(key) {
       if (key === "query") this.query = "";
       else if (key === "abandonedOnly") this.abandonedOnly = false;
+      else if (key === "tldFilter") this.tldFilter = "";
+      else if (key === "aiFilter") this.aiFilter = [];
       else this[key] = null;
     },
 
@@ -1448,6 +1600,16 @@ document.addEventListener("alpine:init", () => {
       this.filter = null;
       this.tagFilter = null;
       this.abandonedOnly = false;
+      this.tldFilter = "";
+      this.aiFilter = [];
+    },
+
+    get domainTlds() {
+      return [...new Set(this.domains.map((d) => d.name.split(".").pop()))].sort();
+    },
+
+    toggleAiFilter(k) {
+      this.aiFilter = this.aiFilter.includes(k) ? this.aiFilter.filter((x) => x !== k) : [...this.aiFilter, k];
     },
 
     get allTags() {
@@ -1460,6 +1622,8 @@ document.addEventListener("alpine:init", () => {
         (!this.filter || this.displayState(d) === this.filter) &&
         (!this.tagFilter || d.tags.includes(this.tagFilter)) &&
         (!this.abandonedOnly || d.abandoned) &&
+        (!this.tldFilter || d.name.endsWith("." + this.tldFilter)) &&
+        (!this.aiFilter.length || this.aiFilter.includes(this.aiClass(d.ai))) &&
         (!q || d.name.includes(q) || d.unicode_name.toLowerCase().includes(q)));
       const key = this.sortKey;
       const dir = this.sortDir;

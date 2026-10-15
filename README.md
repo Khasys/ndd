@@ -161,8 +161,11 @@ Le moins de requêtes possible : un nom n'est revérifié que quand quelque chos
 
 Un nom libre reste affiché dans Suppressions 30 jours (réglable dans Paramètres). Rien n'est
 effacé de la base : passé ce délai, il reste visible dans l'Explorer. Suppressions a les mêmes
-filtres que l'Explorer (catégorie, nature, longueur, fréquence, score minimum, suites
-imprononçables) ; chaque nom montre son score et ouvre la même fiche.
+filtres que l'Explorer (recherche, extension, forme et liste, nature, longueur, fréquence, score
+minimum, avis IA, revente rapide minimum), dans le même panneau, gardés d'une visite à l'autre.
+Les deux listes se trient par date, score, avis IA ou nom. Chaque nom ouvre la même fiche.
+Domaines a aussi une colonne Valeur (score et avis IA), triable, et des filtres par extension et
+par verdict IA.
 
 Quand les listes suivies changent (formes fléchies ajoutées, par exemple), le dernier fichier
 .fr est relu automatiquement : sans ça, les nouveaux noms passeraient pour jamais enregistrés.
@@ -173,6 +176,9 @@ Tous les noms suivis, extension par extension : les 1 926 220 noms possibles de 
 puis les mots, noms de famille et prénoms. L'état vient des données déjà sur le NAS, sans aucune
 requête : zones ICANN lues chaque jour, open data de l'Afnic, écran Suppressions par-dessus.
 
+- **Pistes** : vues prêtes à l'emploi, un appui chacune : à prendre selon l'IA, revente rapide
+  500 € et plus, se libèrent bientôt, libres vérifiés, pris en .com et libres ici, très courts,
+  top 1 000 des mots, top 5 000 anglais, secteurs, tendances, sites de niche, historique SEO.
 - **Carte** : extension × catégorie (1 à 3 caractères, 4 lettres, mots, formes fléchies, noms,
   prénoms), nombre de noms à saisir par case. Une case ouvre la liste filtrée.
 - **Liste** triée par score, par fréquence, par longueur ou par SEO. Une ligne ouvre la fiche du nom.

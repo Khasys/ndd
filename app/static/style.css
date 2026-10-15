@@ -918,3 +918,42 @@ button:disabled { cursor: default; opacity: .55; }
 .ex-group-title { margin: 6px 0 -4px; padding-top: 10px; border-top: 1px solid var(--line); color: var(--text); }
 .ex-panel-head + .ex-group-title { border-top: 0; padding-top: 0; }
 .ex-group-title.drops-group { margin: 14px 0 6px; padding-top: 0; border-top: 0; color: var(--muted); }
+
+/* Domaines : groupes de filtres et colonne Valeur. */
+.filter-group { display: inline-flex; flex-wrap: wrap; gap: 6px; padding-left: 6px; border-left: 1px solid var(--line); }
+.col-score { width: 1%; }
+.col-score .ex-bar { display: block; }
+.col-score .ex-reason.ai { display: inline-block; margin-top: 4px; white-space: nowrap; }
+.drops-sticky { margin-top: 4px; }
+/* Explorer : pistes prêtes à l'emploi. */
+.ex-presets { align-items: center; }
+.ex-presets-label { flex: none; text-transform: uppercase; letter-spacing: .04em; font-size: 11px; }
+.tag.preset { border-style: dashed; }
+.tag.preset.on { border-style: solid; }
+.ex-preset-hint { margin: -4px 0 0; }
+
+/* Accueil : premiers pas. */
+.welcome { margin: 0 0 18px; padding: 16px 18px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.welcome-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.welcome-head h2 { margin: 0; font-size: 17px; }
+.welcome > p { margin: 8px 0 12px; }
+.welcome-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.welcome-steps li { display: grid; grid-template-columns: 22px 1fr auto; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); }
+.welcome-steps li:first-child { border-top: 0; }
+.welcome-mark { width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--line); display: grid; place-items: center; font-size: 12px; color: var(--accent); }
+.welcome-steps li.done .welcome-mark { border-color: var(--accent); }
+.welcome-steps li.done .welcome-text strong { color: var(--muted); font-weight: 500; }
+.sheet-intro { margin: -4px 0 14px; font-size: 14px; }
+/* Aide */
+.help-toc { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0 0 16px; }
+.help-toc a { color: var(--accent); text-decoration: none; }
+.legend h3 { margin: 26px 0 8px; font-size: 16px; scroll-margin-top: 12px; }
+.help-dl { display: grid; grid-template-columns: minmax(10em, 14em) 1fr; gap: 6px 16px; margin: 0 0 8px; }
+.help-dl dt { font-weight: 600; }
+.help-dl dd { margin: 0; }
+@media (max-width: 640px) {
+  .help-dl { grid-template-columns: 1fr; gap: 2px; }
+  .help-dl dd { margin-bottom: 8px; }
+  .welcome-steps li { grid-template-columns: 22px 1fr; }
+  .welcome-steps li .btn-ghost { grid-column: 2; justify-self: start; }
+}
