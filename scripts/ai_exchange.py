@@ -21,7 +21,8 @@ from app.ai import check  # noqa: E402  même règle que le NAS
 def call(method: str, path: str, body: dict | None = None) -> dict:
     url = os.environ.get("DW_URL", "https://domaines.skky.fr").rstrip("/") + path
     data = json.dumps(body).encode() if body is not None else None
-    headers = {"Content-Type": "application/json"}
+    # Agent explicite : Cloudflare refuse la signature par défaut de Python (erreur 1010).
+    headers = {"Content-Type": "application/json", "User-Agent": "domain-watch-ai/1.0"}
     # Jeton en variable d'environnement ; s'il est rangé en secret réseau, le proxy l'ajoute lui-même.
     if os.environ.get("DW_AI_TOKEN"):
         headers["Authorization"] = "Bearer " + os.environ["DW_AI_TOKEN"]
