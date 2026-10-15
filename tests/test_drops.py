@@ -316,10 +316,10 @@ def test_listed_words_are_tracked_with_their_categories(watcher):
     assert result.removed == 4
     rows = {r["name"]: (r["kind"], r["lists"]) for r in watcher.conn.execute("SELECT * FROM drops")}
     assert rows == {
-        "navarro.com": ("long", "surname"),
+        "navarro.com": ("long", "surname,english"),
         "courir.com": ("long", "word"),
-        "martin.com": ("long", "word,surname,firstname"),
-        "velo.com": ("letters", "word"),
+        "martin.com": ("long", "word,surname,firstname,english"),
+        "velo.com": ("letters", "word,trend"),
     }
 
 
@@ -338,7 +338,7 @@ def test_parallel_scan_gives_the_same_result_as_a_single_process():
     from app import wordlists
 
     names = [drops.decode(i) for i in range(0, drops.CELLS, 211)] + sorted(wordlists.lists()["surname"])[:3000]
-    data = zone([f"{n}.com.\t1\tin\tns\ta." for n in names] + ["UPPER.COM.\t1\tIN\tNS\ta.", "navarro.com.\t1\tin\tns\tb."])
+    data = zone([f"{n}.com.\t1\tin\tns\ta." for n in names] + ["QZXUPPER.COM.\t1\tIN\tNS\ta.", "navarro.com.\t1\tin\tns\tb."])
     chunks = [data[i:i + 4096] for i in range(0, len(data), 4096)]
     results = []
     for workers in (1, 3):
@@ -347,7 +347,7 @@ def test_parallel_scan_gives_the_same_result_as_a_single_process():
             scanner.feed(chunk)
         results.append(scanner.finish())
     assert results[0][0] == results[1][0] and results[0][1] == results[1][1]
-    assert "navarro" in results[1][1] and "upper" not in results[1][1]
+    assert "navarro" in results[1][1] and "qzxupper" not in results[1][1]
     assert drops.count(results[1][0]) > 8000
 
 

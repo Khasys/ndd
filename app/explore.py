@@ -91,10 +91,7 @@ KINDS = {
 MAP_ROWS = {
     "short": "1 à 3 caractères",
     "l4": "4 lettres",
-    "word": "Mots",
-    "form": "Formes fléchies",
-    "surname": "Noms de famille",
-    "firstname": "Prénoms",
+    **wordlists.LABELS,
 }
 
 CACHE_SECONDS = 600
@@ -236,7 +233,7 @@ class Universe:
             good = bytearray(self.size)
             good[drops.CELLS:] = b"\x01" * (self.size - drops.CELLS)  # noms des listes de 5 caractères et plus
             listed = set(self.listed_sorted_labels)
-            for label in listed:
+            for label in sorted(listed):  # ordre stable d'un démarrage à l'autre
                 i = self.index(label)
                 if i is not None:
                     buckets[value.base(label)].append(i)
@@ -377,6 +374,16 @@ class Explorer:
         found = self.drops._load_words(tld) or set()
         status += bytes(REGISTERED if w in found else ABSENT for w in u.words)
         u.apply_valid(status)
+        # Liste ajoutée après la dernière lecture : ses noms ne sont pas encore cherchés dans la
+        # zone. Masqués jusqu'à la prochaine lecture plutôt qu'affichés « libres » à tort.
+        lists = wordlists.lists()
+        covered = self.drops.covered(tld)
+        known = set().union(*(lists[k] for k in covered)) if covered else set()
+        for key in set(lists) - covered:
+            for w in lists[key] - known:
+                i = u.index(w)
+                if i is not None and status[i] == ABSENT and i >= drops.CELLS:
+                    status[i] = INVALID
         return status
 
     def _build_fr(self) -> bytearray:

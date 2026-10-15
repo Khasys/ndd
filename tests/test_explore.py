@@ -332,11 +332,13 @@ def test_fr_dns_marks_delegated_names_as_taken(env, monkeypatch):
         return {"velo": True, "maison": False}.get(label, None if label == "chat" else False)
 
     checker.query = query
-    labels = checker.pending(5_000)
+    labels = checker.pending(1_000_000)
     assert "velo" in labels and "maison" in labels and "navarro" not in labels
     assert not any(len(x) <= 2 for x in labels)  # formats réservés
     env.warm()
-    stats = asyncio.run(checker.run(limit=5_000))
+    chosen = ["velo", "maison", "chat", "lampe"]
+    checker.pending = lambda limit, now=None: chosen
+    stats = asyncio.run(checker.run(limit=4))
     assert stats["newly_taken"] == 1 and stats["skipped"] == (1 if "chat" in asked else 0)
     status = env.status_bytes("fr")
     assert status[env.universe.index("velo")] == explore.REGISTERED
@@ -347,8 +349,25 @@ def test_fr_dns_marks_delegated_names_as_taken(env, monkeypatch):
     env.invalidate()
     assert env.facets("fr") == patched
     # Revu le lendemain seulement ; un nom repris par le DNS reste dans la file s'il en sort.
-    assert "maison" not in checker.pending(5_000)
+    del checker.pending
+    assert "maison" not in checker.pending(1_000_000)
     env.conn.execute("UPDATE name_dns SET checked_at = '2000-01-01T00:00:00Z'")
-    assert "velo" in checker.pending(5_000)
+    assert "velo" in checker.pending(1_000_000)
     # Une passe par jour.
     assert not checker.due(datetime.now(timezone.utc))
+
+
+def test_new_lists_wait_for_the_next_zone_read(env):
+    from app import wordlists
+
+    zone(env, [], ["maison"])
+    assert {"insurance", "maison"} <= wordlists.lists()["english"] | wordlists.lists()["word"]
+    u = env.universe
+    assert env.status_bytes("com")[u.index("insurance")] == explore.ABSENT
+    # Lecture faite avant l'ajout des nouvelles listes : leurs noms sont masqués, pas « libres ».
+    env.drops.store.set("zone_lists_com", "")
+    env.invalidate("com")
+    status = env.status_bytes("com")
+    assert status[u.index("insurance")] == explore.INVALID
+    assert status[u.index("maison")] == explore.REGISTERED and status[u.index("courir")] == explore.ABSENT
+    assert env.drops.covered("com") == set(wordlists.LEGACY)

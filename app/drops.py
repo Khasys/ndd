@@ -422,6 +422,15 @@ class DropWatcher:
         path = self._path(tld, "words")
         return set(path.read_text().split()) if path.exists() else None
 
+    def covered(self, tld: str) -> set[str]:
+        """Listes que la dernière lecture de la zone a cherchées. Lecture d'avant ce suivi :
+        les quatre listes d'origine. Une liste ajoutée depuis attend la prochaine lecture."""
+        raw = self.store.get(f"zone_lists_{tld}")
+        if not raw:
+            return set(wordlists.LEGACY)
+        seen = json.loads(raw)
+        return {key for key, fp in wordlists.fingerprints().items() if seen.get(key) == fp}
+
     def _write(self, path: Path, data: bytes) -> None:
         self.dir.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(path.suffix + ".tmp")
@@ -431,6 +440,7 @@ class DropWatcher:
     def _save(self, tld: str, bits: bytes, words: set[str]) -> None:
         self._write(self._path(tld, "short"), bytes(bits))
         self._write(self._path(tld, "words"), "\n".join(sorted(words)).encode())
+        self.store.set(f"zone_lists_{tld}", json.dumps(wordlists.fingerprints()))
         # Carte de la v0.5.0 (4 caractères seulement), devenue inutile.
         self._path(tld, "bits").unlink(missing_ok=True)
 

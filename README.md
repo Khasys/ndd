@@ -77,7 +77,12 @@ Menu Suppressions : les noms qui quittent les zones des extensions génériques,
 libération. Sont suivis tous les noms de 1 à 4 caractères (lettres, chiffres, tiret), les 20 000
 mots français les plus courants (forme de base, sans accents), les noms de famille donnés plus
 de 500 fois en France entre 1891 et 2000 (environ 21 700) et les prénoms donnés plus de 500 fois
-entre 1900 et 2018 (environ 4 500). Sources et licences des listes :
+entre 1900 et 2018 (environ 4 500). S'y ajoutent les 30 000 mots anglais les plus fréquents
+(marques connues retirées), environ 580 mots des secteurs qui paient (assurance, crédit,
+immobilier, droit, santé, travaux…), environ 200 mots en vogue et environ 35 000 combinaisons
+(monassurance, plombier-lyon, insurancehub, dallasplumber…). Une liste ajoutée n'est cherchée
+dans une zone qu'à la lecture suivante : d'ici là, ses noms n'apparaissent pas pour cette
+extension plutôt que d'y passer pour libres. Sources et licences des listes :
 `app/data/SOURCES.md`. Deux listes : libérés ces 7 derniers jours,
 et libération à venir avec la date estimée. Un bouton Surveiller les ajoute à la liste principale.
 

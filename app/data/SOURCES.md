@@ -51,3 +51,38 @@ reconnaître un vrai mot parmi les noms courts. Même normalisation, même sourc
 Fréquences des suites de trois lettres (avec début et fin de mot) dans les formes de Lexique
 3.83 et les listes de noms et prénoms, chaque mot compté une fois. Sert à juger si un nom court
 se prononce en français. Dérivé de Lexique 3.83 (CC BY-SA 4.0) et des fichiers Insee.
+
+## anglais.txt
+
+Les 30 000 mots anglais les plus fréquents de wordfreq 3.1.1 (liste « large » en anglais),
+en lettres seules, 2 lettres au moins. Marques connues retirées (scripts/lists/marques.txt,
+liste non exhaustive ; les marques qui sont aussi des mots courants restent). Contient aussi des
+prénoms et des lieux anglophones, utiles en .com.
+
+Source : wordfreq, R. Speer, github.com/rspeer/wordfreq, données sous licence CC BY-SA 4.0.
+Ce fichier dérivé est diffusé sous la même licence.
+
+## secteurs.txt
+
+Mots des secteurs où les annonceurs paient cher (assurance, crédit, immobilier, droit, santé,
+travaux, auto, voyage, emploi, formation, énergie, commerce), en français et en anglais en
+alternance. Listes choisies et ordonnées à la main (scripts/lists/secteurs_fr.txt et
+sectors_en.txt) : jugement, pas de données de coût par clic.
+
+## tendances.txt
+
+Mots en vogue en octobre 2026 (IA, énergie, mobilité, santé, consommation responsable…),
+français et anglais, choisis et ordonnés à la main (scripts/lists/tendances.txt). À revoir
+chaque année.
+
+## combinaisons.txt
+
+Noms composés construits par scripts/build_lists.py, les meilleurs d'abord :
+- « mon / ma » et « le / la » + nom commun, selon le genre donné par Lexique 3.83 ;
+- mot de secteur + préfixe ou suffixe (sos, allo, pascher, pro, direct, my, get, hq, hub…) ;
+- métier + grande ville française, collé et avec tiret (plombierlyon, plombier-lyon) ;
+- service + grande ville américaine, dans les deux sens (plumberdallas, dallasplumber).
+Les combinaisons déjà présentes dans une autre liste sont retirées. Ordre : produit des rangs
+du mot et de l'ajout, familles en alternance.
+
+Pour reconstruire les quatre fichiers : `python scripts/build_lists.py DOSSIER_WORDFREQ LEXIQUE383_TXT`.

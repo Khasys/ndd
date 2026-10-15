@@ -5,7 +5,7 @@ Barème fixe et lisible plutôt qu'un modèle : chaque point vient d'une raison 
 - Forme (40 au plus) : plus c'est court, mieux c'est ; lettres avant chiffres, chiffres avant
   mélanges, tiret en dernier. En lettres : un vrai mot (même rare, d'après le Lexique) vaut plus
   qu'un nom prononçable, qui vaut bien plus qu'une suite de lettres (pronounce.py).
-- Popularité (30 au plus) : rang du mot, du nom de famille ou du prénom dans sa liste.
+- Popularité (30 au plus) : rang du nom dans sa liste (mot, nom, prénom, anglais, secteur…).
 - Demande (15 au plus) : le même nom est pris sur d'autres extensions, .com surtout.
 - Historique (15 au plus) : pour un .fr supprimé, années de détention et suppression récente.
 - SEO (20 au plus) : Open PageRank et archives Wayback, si l'analyse a été faite.
@@ -57,7 +57,10 @@ def shape(label: str) -> tuple[int, str | None]:
     return 2, None
 
 
-POPULAR = {"word": "mot", "form": "forme", "surname": "nom", "firstname": "prénom"}
+POPULAR = {"word": "mot", "form": "forme", "surname": "nom", "firstname": "prénom", "english": "anglais",
+           "sector": "secteur", "trend": "tendance", "combo": "combinaison"}
+# Une forme fléchie vaut moins que le mot de base ; une combinaison bien moins qu'un mot seul.
+POPULAR_FACTOR = {"form": 0.7, "combo": 0.5}
 
 
 def popularity(label: str) -> tuple[int, str | None]:
@@ -68,8 +71,7 @@ def popularity(label: str) -> tuple[int, str | None]:
         if rank is None:
             continue
         points = round(30 * (1 - math.sqrt((rank - 1) / len(ranks))))
-        if key == "form":
-            points = round(points * 0.7)  # une forme fléchie vaut moins que le mot de base
+        points = round(points * POPULAR_FACTOR.get(key, 1))
         if points > best:
             best, reason = points, f"{POPULAR[key]} n° {rank:,}".replace(",", " ")
     return best, reason
