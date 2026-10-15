@@ -415,7 +415,7 @@
                 <div class="ex-cell">
                   <div class="ex-cell-top">
                     <span class="mono" x-text="'.' + i.tld"></span>
-                    <span class="badge" :class="'x-' + i.status" x-text="i.status_label"></span>
+                    <span class="badge" :class="badgeClass(i)" x-text="i.status_label"></span>
                   </div>
                   <div class="ex-bar" x-show="exAvailable(i)" :title="scoreTitle(i)"><i :style="'width:' + i.score + '%'"></i><b x-text="i.score"></b></div>
                                     <template x-if="i.rdap"><dl class="ex-rdap" x-html="rdapHtml(i.rdap)"></dl></template>
@@ -479,7 +479,7 @@
                 <input type="checkbox" class="ex-pick" :checked="exSelected.includes(i.name)" @click.stop="exToggle(i.name)" :aria-label="'Sélectionner ' + i.name">
                 <span class="mono ex-name" x-text="i.name"></span>
                 <span class="ex-tags">
-                  <span class="badge" :class="'x-' + i.status" x-show="i.status !== 2 && i.status !== 3" x-text="i.status_label"></span>
+                  <span class="badge" :class="badgeClass(i)" x-show="i.status !== 2 && i.status !== 3" x-text="i.status_label"></span>
                   <template x-for="r in i.reserved" :key="r"><span class="ex-reason warn" x-text="r"></span></template>
                   <span class="ex-reason ai" :class="aiClass(i.ai)" x-show="i.ai" x-text="aiTag(i.ai)" :title="i.ai ? i.ai.comment : ''"></span>
                   <template x-for="r in i.reasons.slice(0, mobile ? 2 : 4)" :key="r"><span class="ex-reason" x-text="r"></span></template>
@@ -995,7 +995,7 @@
                 <template x-for="o in (domainFiche ? domainFiche.others : [])" :key="o.name">
                   <li class="fiche-other">
                     <button type="button" class="link-like mono" @click="openFiche(o.name)" x-text="o.name"></button>
-                    <span class="badge" :class="'x-' + o.status" x-text="o.status_label"></span>
+                    <span class="badge" :class="badgeClass(o)" x-text="o.status_label"></span>
                   </li>
                 </template>
               </ol>
@@ -1028,7 +1028,7 @@
         <button type="button" class="btn-ghost fiche-close" @click="fiche = null">Fermer</button>
       </div>
       <div class="drawer-state">
-        <span class="badge" :class="'x-' + (fiche.item ? fiche.item.status : 0)" x-text="fiche.item ? fiche.item.status_label : 'Hors des listes suivies'"></span>
+        <span class="badge" :class="badgeClass(fiche.item)" x-text="fiche.item ? fiche.item.status_label : 'Hors des listes suivies'"></span>
         <template x-for="r in (fiche.item ? fiche.item.reserved : [])" :key="r"><span class="ex-reason warn" x-text="r"></span></template>
       </div>
       <div class="drawer-actions">
@@ -1050,7 +1050,7 @@
             <template x-for="o in fiche.others" :key="o.name">
               <li class="fiche-other">
                 <button type="button" class="link-like mono" @click="openFiche(o.name)" x-text="o.name"></button>
-                <span class="badge" :class="'x-' + o.status" x-text="o.status_label"></span>
+                <span class="badge" :class="badgeClass(o)" x-text="o.status_label"></span>
               </li>
             </template>
           </ol>

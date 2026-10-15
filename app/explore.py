@@ -40,6 +40,8 @@ LABELS = {
 # Pour une zone ICANN, l'absence veut seulement dire « pas dans la zone » : un nom enregistré
 # sans serveurs DNS n'y figure pas non plus. Pour le .fr, l'open data liste aussi l'historique.
 ABSENT_ZONE = "Absent de la zone, à vérifier"
+# Libération à venir : l'état précis, avec les libellés de la légende de l'écran Domaines.
+DROP_LABELS = {"expired": "Expiré", "redemption": "En rédemption", "pending_delete": "Suppression imminente"}
 ABSENT_FR = "Jamais enregistré"
 
 STATUS_FILTERS = {
@@ -1093,7 +1095,9 @@ class Explorer:
                 "length": len(label),
                 "categories": u.categories(label),
                 "status": code,
-                "status_label": (ABSENT_FR if tld == "fr" else ABSENT_ZONE) if code == ABSENT else LABELS.get(code, ""),
+                "status_label": ((ABSENT_FR if tld == "fr" else ABSENT_ZONE) if code == ABSENT
+                                 else DROP_LABELS.get(drop["state"], LABELS[code]) if code == COMING and drop
+                                 else LABELS.get(code, "")),
                 "created_on": fr["created_on"] if fr else None,
                 # Une sortie de zone repérée puis démentie (nom repris) n'est pas une suppression.
                 "removed_on": (fr["removed_on"] if fr and fr["removed_on"]

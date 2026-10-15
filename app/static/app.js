@@ -350,6 +350,8 @@ document.addEventListener("alpine:init", () => {
       if (f.rank) name.push(["Fréquence", `n° ${esc(this.fmt(f.rank))} de sa liste`]);
       if (item && item.created_on) past.push(["Open data .fr", esc(`créé le ${this.shortDate(item.created_on)}` + (item.removed_on ? `, supprimé le ${this.shortDate(item.removed_on)}` : ""))]);
       if (item && item.release_at) past.push(["Libération", esc("~" + this.shortDate(item.release_at))]);
+      if (item && item.checked_at) past.push(["Vérifié", esc(this.relative(item.checked_at))]);
+      if (item && item.next_check_at) past.push(["Prochaine vérification", esc(this.relative(item.next_check_at))]);
       if (f.seo) {
         const parts = [];
         if (f.seo.pr) parts.push(`PageRank ${String(f.seo.pr).replace(".", ",")}`);
@@ -357,7 +359,13 @@ document.addEventListener("alpine:init", () => {
         past.push(["SEO", esc(parts.join(", ") || "aucun signal") + `, analysé ${esc(this.relative(f.seo.checked_at))}`]);
       }
       return this.ficheSection("Avis IA", ai) + this.ficheSection("Score", score)
-        + this.ficheSection("Le nom", name) + this.ficheSection("Historique et SEO", past);
+        + this.ficheSection("Le nom", name) + this.ficheSection("Historique, suivi et SEO", past);
+    },
+
+    // Badge d'un nom : l'état précis de la légende (couleurs de l'écran Domaines) quand il se libère.
+    badgeClass(i) {
+      if (!i) return "x-0";
+      return i.status === 4 && i.drop_state ? "s-" + i.drop_state : "x-" + i.status;
     },
 
     // Une section de fiche : titre puis lignes libellé / valeur (valeurs déjà échappées).

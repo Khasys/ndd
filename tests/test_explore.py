@@ -305,3 +305,14 @@ def test_length_sort_orders_long_names_too(env):
     items = env.rank("fr", category="word", length=5, sort="length", limit=200)["items"]
     lengths = [len(i["label"]) for i in items]
     assert lengths == sorted(lengths) and lengths[0] == 5
+
+
+def test_coming_names_use_the_legend_labels(env):
+    # « Libération à venir » regroupe trois états : la ligne montre le bon, comme l'écran Domaines.
+    add_fr(env, "velo")
+    now = datetime.now(timezone.utc)
+    env.drops.record("fr", ["velo"], [], now)
+    env.conn.execute("UPDATE drops SET state = ? WHERE name = 'velo.fr'", (states.REDEMPTION,))
+    env.touch("velo.fr")
+    item = env.search("fr", q="velo", mode="exact", status="coming")["items"][0]
+    assert item["status"] == explore.COMING and item["status_label"] == "En rédemption"
