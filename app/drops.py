@@ -361,6 +361,7 @@ async def _prefetch(chunks: AsyncIterator[bytes], queue: asyncio.Queue) -> None:
 
 class DropWatcher:
     on_change = None  # appelé avec le nom après chaque vérification (Explorer)
+    on_fr_taken = None  # .fr de nouveau à quelqu'un : retour dans les dates anniversaire (frdata)
 
     def __init__(self, conn, store: Store, data_dir: Path, rdap, delays: dict, http_factory=None):
         self.conn = conn
@@ -662,6 +663,10 @@ class DropWatcher:
             info = result.info
             expires = info.expires_at
             state = states.compute_state(info.statuses, info.expires_at, now, 0)
+            if state == states.EXPIRED and row["tld"] == "fr":
+                # Le .fr n'a pas de délai de grâce : un nom non renouvelé passe en rédemption.
+                # Échéance dépassée sans rédemption = renouvellement pas encore visible à l'Afnic.
+                state = TAKEN
             if state not in TRACKED:
                 # Hors zone sans être supprimé : suspendu (hold). Sinon il est de nouveau à quelqu'un.
                 held = any("hold" in s.replace(" ", "").lower() for s in info.statuses)
@@ -682,6 +687,8 @@ class DropWatcher:
                error = NULL, checked_at = ?, next_check_at = ? WHERE id = ?""",
             (state, iso(since), iso(release), available_since, iso(now), iso(self._next(state, now, release)), row["id"]),
         )
+        if state == TAKEN and row["tld"] == "fr" and self.on_fr_taken:
+            self.on_fr_taken(row["label"], result)
         if self.on_change:
             self.on_change(row["name"])
         return state

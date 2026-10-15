@@ -167,6 +167,29 @@ def test_check_follows_the_real_expiry_and_hands_drops_over(fr):
     assert fr.conn.execute("SELECT COUNT(*) FROM fr_requests").fetchone()[0] == 3
 
 
+def test_a_passed_fr_expiry_without_redemption_is_a_late_renewal(fr):
+    """oncle.fr : vérifié le lendemain de l'échéance, RDAP encore à l'ancienne date, statut actif.
+    Pas de délai de grâce en .fr : ce n'est pas une libération, on regarde de nouveau dans 3 jours."""
+    fr.store.set("fr_rate", "10")
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    add_due(fr, "oncle")
+    late = LookupResult(found=True, info=DomainInfo(statuses=["active"], expires_at=now - timedelta(hours=20)))
+    fr.rdap = fr.drops.rdap = FakeRdap({"oncle.fr": late})
+    asyncio.run(fr.tick())
+    assert fr.conn.execute("SELECT COUNT(*) FROM drops").fetchone()[0] == 0
+    row = fr.conn.execute("SELECT * FROM fr_names WHERE label = 'oncle'").fetchone()
+    assert datetime.fromisoformat(row["next_check_at"]).date() == (now + timedelta(days=3)).date()
+    # Un nom déjà passé à l'écran Suppressions pour cette raison (ancienne version) : la
+    # vérification suivante le rend à son propriétaire et aux dates anniversaire.
+    fr.drops.record("fr", ["oncle"], [], now)
+    fr.conn.execute("UPDATE drops SET state = ? WHERE name = 'oncle.fr'", (states.EXPIRED,))
+    fr.conn.execute("UPDATE fr_names SET next_check_at = NULL WHERE label = 'oncle'")
+    state = fr.drops.apply(fr.drops.row("oncle.fr"), late, now)
+    assert state == drops.TAKEN
+    row = fr.conn.execute("SELECT * FROM fr_names WHERE label = 'oncle'").fetchone()
+    assert row["removed_on"] is None and row["next_check_at"] is not None
+
+
 def test_requests_are_capped_per_minute(fr):
     for i in range(10):
         add_due(fr, f"nom{i}")

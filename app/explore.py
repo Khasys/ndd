@@ -1095,7 +1095,9 @@ class Explorer:
                 "status": code,
                 "status_label": (ABSENT_FR if tld == "fr" else ABSENT_ZONE) if code == ABSENT else LABELS.get(code, ""),
                 "created_on": fr["created_on"] if fr else None,
-                "removed_on": (fr["removed_on"] if fr and fr["removed_on"] else drop["removed_on"] if drop else None),
+                # Une sortie de zone repérée puis démentie (nom repris) n'est pas une suppression.
+                "removed_on": (fr["removed_on"] if fr and fr["removed_on"]
+                               else drop["removed_on"] if drop and drop["state"] != drops.TAKEN else None),
                 "expires_at": fr["expires_at"] if fr else None,
                 "checked_at": max(filter(None, [fr["checked_at"] if fr else None, drop["checked_at"] if drop else None]), default=None),
                 "next_check_at": (drop["next_check_at"] if drop and drop["next_check_at"] else fr["next_check_at"] if fr else None),
