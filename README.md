@@ -357,13 +357,16 @@ Les durées acceptent `30s`, `5m`, `6h`, `7d`, ou un nombre de secondes.
   chaque TLD les délais publiés par le registre avec leur source. Si un délai manque, aucune
   estimation n'est affichée pour ce TLD.
 
-État des délais au 2026-10-12 :
+État des délais au 2026-10-15 :
 
 | TLD | Grâce après expiration | Rédemption | Suppression | Estimation |
 |---|---|---|---|---|
 | .com | 45 j | 30 j | 5 j | oui |
 | .net | 45 j | 30 j | 5 j | oui |
-| .fr | non fixé par l'Afnic | 30 j | non trouvé | non |
+| .org | 45 j | 30 j | 5 j | oui |
+| .info | 45 j | 30 j | 5 j | oui |
+| .biz | 45 j | 30 j | 5 j | oui |
+| .fr | non fixé par l'Afnic | 30 j | aucune (libre à la fin de la rédemption) | oui |
 
 Pour ajouter un TLD, compléter `tld_delays.toml` avec la source et la date de consultation, puis
 publier une nouvelle version.

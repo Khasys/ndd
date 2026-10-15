@@ -11,7 +11,7 @@
 # Une clé absente signifie « valeur introuvable ou ambiguë ». Dans ce cas l'appli
 # n'affiche aucune estimation de libération pour ce TLD.
 #
-# Consultation : 2026-10-12. Les pages ont été lues au travers des extraits d'un
+# Consultation : 2026-10-12 (.com, .net, .fr), 2026-10-15 (.org, .info, .biz). Les pages ont été lues au travers des extraits d'un
 # moteur de recherche, l'accès direct aux sites ICANN et Afnic étant bloqué depuis
 # l'environnement de développement. À relire sur les documents d'origine.
 
@@ -40,6 +40,39 @@ pending_delete = 5
 # https://domainnamewire.com/2026/09/09/verisign-changes-drop-time-for-com-and-net-domains/
 # (consulté le 2026-10-12) : à partir du 1er octobre, début des suppressions vers 12:00 UTC.
 drop_time_utc = "12:00"
+
+[org]
+# https://www.icann.org/en/registry-agreements/org/org-agreement-appendix-7--functional-specifications--22-august-2013-22-8-2013-en
+# et https://www.icann.org/en/registry-agreements/org/org-agreement-appendix-7-1-3-2012-en
+# (consultés le 2026-10-15) : « The current value of the Auto-Renew Grace Period is 45 calendar days »
+auto_renew_grace = 45
+# https://pir.org/for-orgs/faq/ (consulté le 2026-10-15) : « 30-day Redemption Grace Period »
+redemption = 30
+# Même page PIR : « 5-day Pending Delete Period »
+pending_delete = 5
+# drop_time_utc : absent. Seules des heures relevées sur des forums ont été trouvées, aucune du registre.
+
+[info]
+# https://www.icann.org/en/registry-agreements/info/info-agreement-appendix-7--functional-specifications--22-august-2013-22-8-2013-en
+# (consulté le 2026-10-15) : Auto-Renew Grace Period de 45 jours calendaires, confirmé par le registre :
+# https://identity.digital/help-articles/grace-periods-explained (« 45 calendar days following the completion of the auto-renewal »)
+auto_renew_grace = 45
+# Même appendice ICANN : « The current length of this Redemption Period is 30 calendar days »
+redemption = 30
+# Même appendice : période de suppression de cinq jours après la rédemption. La page d'aide d'Identity Digital
+# emploie « Pending Delete » pour les 30 jours de rédemption : le contrat ICANN fait foi ici.
+pending_delete = 5
+# drop_time_utc : absent (aucune source du registre).
+
+[biz]
+# https://www.icann.org/en/registry-agreements/biz/biz-agreement-appendix-7--functional-specifications--22-august-2013-22-8-2013-en
+# (consulté le 2026-10-15) : « The current value of the Auto-Renew Grace Period is 45 calendar days »
+auto_renew_grace = 45
+# Même appendice : Redemption Grace Period de 30 jours
+redemption = 30
+# Même appendice : période de suppression de cinq jours après la rédemption
+pending_delete = 5
+# drop_time_utc : absent (aucune source du registre).
 
 [fr]
 # auto_renew_grace : vide. L'Afnic renouvelle tacitement le nom à l'expiration ;
