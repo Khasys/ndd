@@ -119,3 +119,23 @@ def test_excluded_two_letter_names_never_show_as_free(env):
     assert not ex.search("fr", q="pm", mode="exact", status="available")["items"]
     lists.flag("pm.fr", False)
     assert "pm.fr" not in lists.names()
+
+
+def test_one_or_two_characters_in_generic_zones_are_held_by_the_registry(env):
+    lists, ex = env
+    lists.store.set("czds_approved", '["org"]')
+    bits = bytearray(drops.BITMAP_BYTES)
+    for label in ("ab", "abc"):
+        i = drops.encode(label)
+        bits[i // 8] |= 1 << (i % 8)
+    ex.drops._save("org", bits, set())
+    status = ex.status_bytes("org")
+    u = ex.universe
+    assert status[u.index("sk")] == explore.RESERVED and status[u.index("x")] == explore.RESERVED
+    assert status[u.index("ab")] == explore.REGISTERED and status[u.index("abd")] == explore.ABSENT
+    item = ex.search("org", q="sk", mode="exact", status="")["items"][0]
+    assert item["reserved"] == ["Réservé par le registre (1 ou 2 caractères)"]
+    # Cas réellement ouvert : la correction à la main l'emporte.
+    lists.flag("sk.org", False)
+    ex.invalidate("org")
+    assert ex.status_bytes("org")[u.index("sk")] == explore.ABSENT

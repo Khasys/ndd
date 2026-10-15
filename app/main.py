@@ -779,7 +779,8 @@ async def list_drops(request: Request):
     pending = conn.execute("SELECT COUNT(*) FROM drops WHERE state IS NULL").fetchone()[0]
     reserved_names = request.app.state.reserved.names()
     hide_reserved = request.app.state.reserved.mode == "hide"
-    rows = [r for r in rows if not (hide_reserved and r["name"] in reserved_names)]
+    held = request.app.state.reserved
+    rows = [r for r in rows if not (hide_reserved and (r["name"] in reserved_names or held.short_reserved(r["name"])))]
     suspended = dict(conn.execute("SELECT tld, COUNT(*) FROM drops WHERE state = ? GROUP BY tld", (drops.SUSPENDED,)).fetchall())
     watched = {r[0] for r in conn.execute("SELECT name FROM domains")}
     details = rdapinfo.load(conn, [r["name"] for r in rows])

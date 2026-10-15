@@ -118,6 +118,7 @@ document.addEventListener("alpine:init", () => {
     exError: "",
     exItems: [],
     exLimit: 50,
+    exNoMore: false,
     exLoading: false,
     exCard: null,
     exMap: null,
@@ -443,6 +444,13 @@ document.addEventListener("alpine:init", () => {
       return `<section class="fiche-sec"><h3>Registre (RDAP / WHOIS)</h3><dl>${body}</dl></section>`;
     },
 
+    // Bouton « 50 de plus » : liste pleine, ou compteur de l'état plus grand que la liste
+    // (un score minimum peut écourter une page sans que la liste soit finie).
+    get exHasMore() {
+      if (this.exNoMore || !this.exData) return false;
+      return this.exItems.length >= this.exLimit || (this.exData.counts?.[this.ex.status] || 0) > this.exItems.length;
+    },
+
     exQuery(cursor) {
       const e = this.ex;
       const params = new URLSearchParams({ q: e.q.trim(), mode: "prefix", status: e.status, cat: e.cat, len: e.len, nat: e.nat, rank: e.rank, taken: e.taken, min: e.min && e.min !== "0" ? e.min : "", junk: e.junk, seo: e.seo, cursor: String(cursor) });
@@ -452,7 +460,8 @@ document.addEventListener("alpine:init", () => {
     },
 
     async exLoad(reset = true) {
-      if (reset) this.exLimit = 50;
+      if (reset) { this.exLimit = 50; this.exNoMore = false; }
+      const before = this.exItems.length;
       const ticket = (this._exTicket = (this._exTicket || 0) + 1);
       this.exLoading = true;
       try {
@@ -463,6 +472,8 @@ document.addEventListener("alpine:init", () => {
         this.exData = data;
         this.ex.tld = data.tld;
         this.exItems = data.items;
+        // « 50 de plus » sans rien de nouveau : fin de la liste pour ces filtres.
+        if (!reset && data.items.length <= before) this.exNoMore = true;
       } catch (e) {
         if (ticket !== this._exTicket) return;
         // Extension mémorisée qui n'existe plus : retour à l'extension par défaut, une fois.

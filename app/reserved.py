@@ -31,7 +31,7 @@ log = logging.getLogger(__name__)
 AFNIC_PDF = "https://www.afnic.fr/wp-media/uploads/2021/01/Termes-soumis-a%CC%80-examen-pre%CC%81alable-version-2021.pdf"
 COMMUNES_API = "https://geo.api.gouv.fr/communes?fields=nom&format=json"
 SOURCES = {"afnic": "Examen préalable Afnic", "commune": "Nom de commune", "exclu": "Exclu par l'Afnic",
-           "manuel": "Marqué à la main"}
+           "court": "Réservé par le registre (1 ou 2 caractères)", "manuel": "Marqué à la main"}
 # Exclus de l'ouverture des noms à un et deux caractères : codes de territoires français, fr, et tm
 # (ancienne zone des marques). Charte de nommage Afnic, version de décembre 2014 pour pm, re, tf,
 # wf, yt ; les autres d'après un relevé à confirmer dans la charte en vigueur.
@@ -76,6 +76,7 @@ class Reserved:
         self._http_factory = http_factory or (lambda: httpx.AsyncClient(timeout=60, follow_redirects=True,
                                                                       headers={"User-Agent": "domain-watch"}))
         self.running = False
+        self._unflagged: frozenset[str] | None = None
         self._names: frozenset[str] | None = None
         self._indices: dict[str, list[int]] = {}
 
@@ -100,11 +101,25 @@ class Reserved:
             self._indices[tld] = [i for i in found if i is not None]
         return self._indices[tld]
 
+    def short_reserved(self, name: str) -> bool:
+        """Extension générique (.com, .org…) : les noms d'un ou deux caractères absents de la zone
+        sont gardés par le registre (codes pays, lettres seules). Le RDAP les dit inconnus, comme un
+        nom libre. Un marquage « pas réservé » corrige un cas réellement ouvert."""
+        label, _, tld = name.partition(".")
+        return tld != "fr" and len(label) <= 2 and name not in self.unflagged()
+
+    def unflagged(self) -> frozenset[str]:
+        if self._unflagged is None:
+            self._unflagged = frozenset(r[0] for r in self.conn.execute("SELECT name FROM name_flags WHERE reserved = 0"))
+        return self._unflagged
+
     def why(self, name: str) -> list[str]:
         flag = self.conn.execute("SELECT reserved FROM name_flags WHERE name = ?", (name,)).fetchone()
         if flag is not None:
             return [SOURCES["manuel"]] if flag[0] else []
         found = [SOURCES[r[0]] for r in self.conn.execute("SELECT source FROM reserved_names WHERE name = ?", (name,))]
+        if self.short_reserved(name):
+            found.append(SOURCES["court"])
         return ([SOURCES["exclu"]] if name in EXCLUDED else []) + found
 
     @property
@@ -132,6 +147,7 @@ class Reserved:
                 (name, 1 if reserved else 0, iso(utcnow())),
             )
         self._names = None
+        self._unflagged = None
         self._indices = {}
 
     def _replace(self, source: str, names: set[str]) -> None:

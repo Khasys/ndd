@@ -623,7 +623,7 @@
           </template>
         </ol>
         <div class="explore-more">
-          <button type="button" class="btn-ghost" x-show="exItems.length >= exLimit" @click="exLimit += 50; exLoad(false)" :disabled="exLoading" x-text="exLoading ? 'Chargement' : 'Afficher 50 de plus'"></button>
+          <button type="button" class="btn-ghost" x-show="exHasMore" @click="exLimit += 50; exLoad(false)" :disabled="exLoading" x-text="exLoading ? 'Chargement' : 'Afficher 50 de plus'"></button>
         </div>
 
         <div class="ex-bulk" x-show="exSelected.length" x-transition>

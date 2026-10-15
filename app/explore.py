@@ -431,6 +431,12 @@ class Explorer:
             for i in self.reserved.indices(tld, u):
                 if status[i] in (GONE, ABSENT, FREE, COMING):
                     status[i] = RESERVED
+            if tld != "fr":
+                # 1 ou 2 caractères absents de la zone : gardés par le registre (voir reserved.short_reserved).
+                unflagged = self.reserved.unflagged()
+                for i in range(drops.OFFSETS[2]):
+                    if status[i] in (ABSENT, FREE) and f"{u.label(i)}.{tld}" not in unflagged:
+                        status[i] = RESERVED
         return status
 
     def codes(self, status: str, default: str = "") -> tuple[int, ...]:
@@ -996,6 +1002,8 @@ class Explorer:
         elif state == drops.TAKEN:
             code = REGISTERED
         if self.reserved is not None and f"{label}.{tld}" in self.reserved.names() and code in (GONE, ABSENT, FREE, COMING):
+            code = RESERVED
+        elif self.reserved is not None and code in (ABSENT, FREE) and self.reserved.short_reserved(f"{label}.{tld}"):
             code = RESERVED
         return base, code
 
