@@ -154,17 +154,29 @@ def pending(explorer, limit: int) -> list[dict]:
     for _, i, label, tld in sorted(soon, key=lambda x: (-x[0], x[2], x[3])):
         if take(i, label, tld):
             return _describe(explorer, picked, data)
-    # 2 et 3. Trop nombreux pour tout classer : score de base, puis extension.
+    # 2 et 3. Trop nombreux pour tout classer : par paliers d'extension (.fr et .com, puis .org,
+    # puis le reste), et dans chaque palier par score de base. Un nom de 1 ou 2 caractères jamais
+    # vu n'est pas « probablement libre » : les registres réservent ces formats. On ne le note pas.
+    from .explore import ABSENT  # import local : explore importe ce module
+
+    tiers: dict[float, list[str]] = {}
+    for tld in tlds:
+        tiers.setdefault(TLD_WEIGHT.get(tld, OTHER_TLD_WEIGHT), []).append(tld)
     for group in (MAYBE_FREE, None):
-        for score in range(70, -1, -1):
-            for i in u.buckets()[score]:
-                if not u.good[i]:
-                    continue
-                for tld in tlds:
-                    if group is not None and data[tld][i] not in group:
+        for weight in sorted(tiers, reverse=True):
+            for score in range(70, -1, -1):
+                for i in u.buckets()[score]:
+                    if not u.good[i]:
                         continue
-                    if take(i, u.label(i), tld):
-                        return _describe(explorer, picked, data)
+                    for tld in tiers[weight]:
+                        code = data[tld][i]
+                        if group is not None and code not in group:
+                            continue
+                        label = u.label(i)
+                        if code == ABSENT and len(label) <= 2:
+                            continue
+                        if take(i, label, tld):
+                            return _describe(explorer, picked, data)
     return _describe(explorer, picked, data)
 
 

@@ -404,7 +404,10 @@ def test_ai_opinions_round_trip_with_a_token(logged):
     first = pending["names"][0]
     assert first["status"] == "Libre (vérifié)"
     assert {"categories", "ranks", "taken_elsewhere", "base"} <= set(first)
-    velo = next(n for n in client.get("/api/ai/pending", params={"limit": 5000}).json()["names"] if n["name"] == "velo.fr")
+    many = client.get("/api/ai/pending", params={"limit": 5000}).json()["names"]
+    # Les formats que les registres réservent (1 ou 2 caractères jamais vus) ne sont pas notés.
+    assert not [n for n in many if len(n["name"].split(".")[0]) <= 2 and n["status"].startswith(("Jamais", "Absent"))]
+    velo = next(n for n in many if n["name"] == "velo.fr")
     assert velo["fr_history"]["removed_on"] == "2025-01-01"
 
     # Hors session : seul le jeton ouvre l'échange, et rien d'autre.
