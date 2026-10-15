@@ -111,56 +111,54 @@
 
     <h3 id="help-explore">États dans l'Explorer</h3>
     <dl class="help-dl">
-      <dt>Enregistré</dt><dd>Pris : dans la zone du registre, dans le fichier de l'Afnic ou vu délégué par le DNS du .fr.</dd>
-      <dt>Supprimé, non repris</dt><dd>.fr seulement : enregistré par le passé, supprimé depuis, pas repris d'après le dernier fichier de l'Afnic.</dd>
-      <dt>Jamais enregistré</dt><dd>.fr seulement : absent du fichier de l'Afnic, passé comme présent.</dd>
-      <dt>Absent de la zone, à vérifier</dt><dd>.com, .org… : pas dans la zone du jour. Souvent libre, parfois enregistré sans serveurs DNS.</dd>
-      <dt>Libération à venir</dt><dd>Expiré, en rédemption ou en suppression : suivi dans l'écran Suppressions.</dd>
-      <dt>Libre (vérifié)</dt><dd>Le registre a répondu « libre » à la dernière vérification : réservable.</dd>
-      <dt>Réservé</dt><dd>Nom bloqué par le registre (termes soumis à examen, communes) : réservable sous conditions seulement.</dd>
+      <dt>Enregistré</dt><dd>Dans la zone, dans le fichier de l'Afnic ou délégué dans le DNS du .fr.</dd>
+      <dt>Supprimé, non repris</dt><dd>.fr : supprimé, non repris dans le dernier fichier de l'Afnic.</dd>
+      <dt>Jamais enregistré</dt><dd>.fr : absent du fichier de l'Afnic.</dd>
+      <dt>Absent de la zone, à vérifier</dt><dd>.com, .org… : absent de la zone du jour. Libre, ou enregistré sans serveurs DNS.</dd>
+      <dt>Libération à venir</dt><dd>Expiré, en rédemption ou en suppression imminente.</dd>
+      <dt>Libre (vérifié)</dt><dd>Libre à la dernière vérification auprès du registre.</dd>
+      <dt>Réservé</dt><dd>Bloqué par le registre (termes soumis à examen, communes). Enregistrable sous conditions.</dd>
     </dl>
-    <p class="small muted">« Probablement libres » regroupe « Supprimé, non repris », « Jamais enregistré » et « Absent de la zone ». Le bouton Vérifier interroge le registre et tranche.</p>
+    <p class="small muted">Probablement libres : Supprimé non repris, Jamais enregistré, Absent de la zone. Vérifier interroge le registre.</p>
 
     <h3 id="help-score">Score (0 à 100)</h3>
-    <p>Un barème fixe, chaque point vient d'une raison affichée sous le nom.</p>
     <dl class="help-dl">
-      <dt>Forme, 40 au plus</dt><dd>Plus c'est court, mieux c'est. Un vrai mot vaut plus qu'un nom prononçable, qui vaut plus qu'une suite de lettres.</dd>
-      <dt>Popularité, 30 au plus</dt><dd>Rang du nom dans sa liste (mot courant, prénom, secteur…). Une combinaison compte moitié.</dd>
-      <dt>Demande, 15 au plus</dt><dd>Le même nom est pris sur d'autres extensions, le .com surtout.</dd>
-      <dt>Historique, 15 au plus</dt><dd>.fr supprimé : années de détention et suppression récente.</dd>
-      <dt>SEO, 20 au plus</dt><dd>PageRank et archives Wayback, si l'analyse a été faite.</dd>
+      <dt>Forme, 40 au plus</dt><dd>Longueur, puis vrai mot, nom prononçable ou suite de lettres.</dd>
+      <dt>Popularité, 30 au plus</dt><dd>Rang dans sa liste. Combinaisons et sites de niche : moitié.</dd>
+      <dt>Demande, 15 au plus</dt><dd>Pris sur d'autres extensions, .com en tête.</dd>
+      <dt>Historique, 15 au plus</dt><dd>.fr supprimé : durée de détention, suppression récente.</dd>
+      <dt>SEO, 20 au plus</dt><dd>PageRank et archives Wayback, après analyse.</dd>
     </dl>
     <p class="small muted">Poids réglables dans Paramètres, carte « Score de l'Explorer ».</p>
 
     <h3 id="help-ai">Avis IA</h3>
-    <p>Chaque nuit, une IA note jusqu'à 1 000 noms en .fr, .com et .org, les plus prometteurs d'abord.</p>
+    <p>1 000 noms notés par nuit, en .fr, .com et .org, par score décroissant.</p>
     <dl class="help-dl">
-      <dt>Verdict</dt><dd>« À prendre », « À surveiller » ou « À laisser », avec la raison et le type d'acheteur.</dd>
-      <dt>Exploitation et revente</dt><dd>Deux notes sur 100 : potentiel pour un projet, potentiel de revente.</dd>
-      <dt>Revente rapide</dt><dd>Prix qu'un revendeur paierait vite, nettement sous le prix utilisateur final.</dd>
-      <dt>Utilisateur final</dt><dd>Prix qu'une entreprise intéressée pourrait payer, sans garantie de vente.</dd>
+      <dt>Verdict</dt><dd>À prendre, À surveiller ou À laisser, suivi de la raison et du type d'acheteur.</dd>
+      <dt>Exploitation, revente</dt><dd>Notes sur 100.</dd>
+      <dt>Revente rapide</dt><dd>Fourchette de prix en vente à un revendeur.</dd>
+      <dt>Utilisateur final</dt><dd>Fourchette de prix en vente à un utilisateur final. Estimation.</dd>
     </dl>
-    <p class="small muted">Des estimations, pas des cotes. Elles aident à trier, elles ne remplacent pas ton jugement.</p>
 
     <h3 id="help-lists">Listes de noms</h3>
     <dl class="help-dl">
-      <dt>Formes</dt><dd>Tous les noms de 1 à 4 caractères : lettres, chiffres, mélanges, tirets.</dd>
-      <dt>Mots, formes fléchies</dt><dd>Les 20 000 mots français les plus courants et 10 000 pluriels ou conjugaisons.</dd>
+      <dt>Formes</dt><dd>Tous les noms de 1 à 4 caractères.</dd>
+      <dt>Mots, formes fléchies</dt><dd>20 000 mots français les plus fréquents, 10 000 formes fléchies.</dd>
       <dt>Noms de famille, prénoms</dt><dd>Donnés plus de 500 fois en France (Insee).</dd>
-      <dt>Mots anglais</dt><dd>Les 30 000 plus fréquents, marques connues retirées.</dd>
+      <dt>Mots anglais</dt><dd>30 000 plus fréquents, hors marques connues.</dd>
       <dt>Secteurs porteurs</dt><dd>Assurance, crédit, immobilier, droit, santé, travaux… en français et en anglais.</dd>
-      <dt>Tendances</dt><dd>IA, énergie, mobilité, bien-être… à revoir chaque année.</dd>
+      <dt>Tendances</dt><dd>IA, énergie, mobilité, bien-être…</dd>
       <dt>Combinaisons</dt><dd>monassurance, plombier-lyon, insurancehub, dallasplumber…</dd>
       <dt>Sites de niche</dt><dd>forumdomotique, guidepotager, gardeningforum…</dd>
     </dl>
 
     <h3 id="help-words">Vocabulaire</h3>
     <dl class="help-dl">
-      <dt>Zone</dt><dd>La liste quotidienne des noms enregistrés d'une extension, publiée par le registre (CZDS de l'ICANN).</dd>
-      <dt>RDAP, WHOIS</dt><dd>Les annuaires des registres : état, dates, registrar d'un nom précis.</dd>
-      <dt>Rédemption</dt><dd>Environ 30 jours après la suppression : seul l'ancien titulaire peut récupérer le nom.</dd>
-      <dt>Backorder</dt><dd>Commande passée à l'avance chez un service qui tente de prendre le nom dès sa libération.</dd>
-      <dt>Registrar</dt><dd>Le revendeur chez qui on réserve : Gandi, OVH… Le lien « Réserver » se règle dans Paramètres.</dd>
+      <dt>Zone</dt><dd>Liste quotidienne des noms enregistrés d'une extension (CZDS de l'ICANN).</dd>
+      <dt>RDAP, WHOIS</dt><dd>Annuaires des registres : état, dates, registrar d'un nom.</dd>
+      <dt>Rédemption</dt><dd>Période après suppression (30 jours en général) où seul l'ancien titulaire peut restaurer le nom.</dd>
+      <dt>Backorder</dt><dd>Commande d'un nom avant sa libération, chez un service spécialisé.</dd>
+      <dt>Registrar</dt><dd>Revendeur de noms (Gandi, OVH…). Lien « Réserver » réglable dans Paramètres.</dd>
     </dl>
   </section>
 
@@ -170,7 +168,6 @@
       <h2>Suppressions</h2>
       <button type="button" class="btn-ghost" @click="dropsOpen = false">Fermer</button>
     </div>
-    <p class="sheet-intro muted">Les noms qui quittent les registres, suivis jusqu'à leur libération. En haut, les noms déjà libres ; en dessous, ceux qui se libèrent bientôt, avec la date estimée.</p>
 
     <template x-if="dropsData && !dropsData.configured">
       <div class="drops-card">
@@ -404,7 +401,6 @@
       <h2>Explorer</h2>
       <button type="button" class="btn-ghost" @click="exploreOpen = false">Fermer</button>
     </div>
-    <p class="sheet-intro muted">Tous les noms suivis, sur chaque extension : état, score et avis IA. Le plus simple : une piste ci-dessous, ou une case de la carte.</p>
 
     <template x-if="exError">
       <div class="drops-card"><p class="muted" x-text="exError"></p></div>
@@ -434,13 +430,12 @@
             </template>
             <button type="button" class="tag" x-show="exActive().length && !exViews.some((v) => exViewOn(v))" @click="exSaveView()">+ Vue</button>
           </div>
-          <div class="ex-chips ex-presets" aria-label="Pistes">
-            <span class="ex-presets-label small muted">Pistes</span>
+          <div class="ex-chips ex-presets" aria-label="Vues intégrées">
+            <span class="ex-presets-label small muted">Vues</span>
             <template x-for="p in exPresets()" :key="p.name">
-              <button type="button" class="tag preset" :class="{ on: exPresetOn(p) }" :aria-pressed="exPresetOn(p)" :title="p.hint" @click="exApplyPreset(p)" x-text="p.name"></button>
+              <button type="button" class="tag preset" :class="{ on: exPresetOn(p) }" :aria-pressed="exPresetOn(p)" @click="exApplyPreset(p)" x-text="p.name"></button>
             </template>
           </div>
-          <p class="small muted ex-preset-hint" x-show="exPresets().some((p) => exPresetOn(p))" x-text="(exPresets().find((p) => exPresetOn(p)) || {}).hint"></p>
           <div class="ex-active" x-show="exActive().length">
             <template x-for="a in exActive()" :key="String(a.key)">
               <button type="button" class="ex-pill" @click="exClear(a.key)"><span x-text="a.label"></span> ×</button>
@@ -1006,16 +1001,15 @@
     <template x-if="loaded && !loadError && showWelcome">
       <div class="welcome">
         <div class="welcome-head">
-          <h2>Pour bien démarrer</h2>
+          <h2>Configuration</h2>
           <button type="button" class="btn-text" x-show="domains.length" @click="hideWelcome()">Masquer</button>
         </div>
-        <p class="muted">Trois écrans. <strong>Domaines</strong> : les noms que tu surveilles, vérifiés auprès du registre, avec une alerte à chaque changement. <strong>Suppressions</strong> : les noms qui quittent les registres, suivis jusqu'à leur libération. <strong>Explorer</strong> : des millions de noms, leur état, leur valeur et l'avis IA.</p>
         <ol class="welcome-steps">
           <template x-for="step in onboarding" :key="step.key">
             <li :class="{ done: step.done }">
               <span class="welcome-mark" aria-hidden="true" x-text="step.done ? '✓' : ''"></span>
-              <span class="welcome-text"><strong x-text="step.title"></strong> <span class="muted" x-text="step.text"></span></span>
-              <button type="button" class="btn-ghost sm" x-show="!step.done || step.always" @click="step.go()" x-text="step.action"></button>
+              <span class="welcome-text"><strong x-text="step.title"></strong><span class="muted" x-show="step.text" x-text="' · ' + step.text"></span></span>
+              <button type="button" class="btn-ghost sm" x-show="!step.done" @click="step.go()" x-text="step.action"></button>
             </li>
           </template>
         </ol>

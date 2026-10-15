@@ -176,9 +176,9 @@ Tous les noms suivis, extension par extension : les 1 926 220 noms possibles de 
 puis les mots, noms de famille et prénoms. L'état vient des données déjà sur le NAS, sans aucune
 requête : zones ICANN lues chaque jour, open data de l'Afnic, écran Suppressions par-dessus.
 
-- **Pistes** : vues prêtes à l'emploi, un appui chacune : à prendre selon l'IA, revente rapide
-  500 € et plus, se libèrent bientôt, libres vérifiés, pris en .com et libres ici, très courts,
-  top 1 000 des mots, top 5 000 anglais, secteurs, tendances, sites de niche, historique SEO.
+- **Vues intégrées** : avis IA à prendre, revente rapide ≥ 500 €, libération à venir, libres
+  vérifiés, pris en .com, 1 à 3 caractères, top 1 000 mots, top 5 000 anglais, secteurs porteurs,
+  tendances, sites de niche, signal SEO.
 - **Carte** : extension × catégorie (1 à 3 caractères, 4 lettres, mots, formes fléchies, noms,
   prénoms), nombre de noms à saisir par case. Une case ouvre la liste filtrée.
 - **Liste** triée par score, par fréquence, par longueur ou par SEO. Une ligne ouvre la fiche du nom.

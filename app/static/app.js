@@ -5,22 +5,21 @@ const AI_VERDICTS = { take: "À prendre", watch: "À surveiller", skip: "À lais
 // Catégories de forme ; les autres viennent des listes de noms.
 const SHAPE_KINDS = ["letters", "digits", "mixed", "hyphen"];
 const DROP_FILTER_DEFAULTS = { q: "", nat: "", len: "", rank: "", min: 0, junk: false, ai: [], quick: "" };
-// Pistes de l'Explorer : vues prêtes à l'emploi pour aller droit aux meilleurs noms.
-// Chacune part de filtres vierges ; l'extension choisie reste.
+// Vues intégrées de l'Explorer. Chacune part de filtres vierges ; l'extension choisie reste.
 const EX_BLANK = { cat: "", nat: "", len: "", rank: "", taken: "", min: "", junk: "", seo: "", status: "available", sort: "score" };
 const EX_PRESETS = [
-  { name: "À prendre selon l'IA", hint: "Noms notés « À prendre », meilleure revente rapide d'abord.", filters: { ai_v: "take", sort: "ai" } },
-  { name: "Revente rapide 500 € et +", hint: "Fourchette basse de revente rapide d'au moins 500 €.", filters: { ai_quick_low_min: "500", sort: "ai" } },
-  { name: "Se libèrent bientôt", hint: "Expirés, en rédemption ou en suppression : à guetter.", filters: { status: "coming" } },
-  { name: "Libres vérifiés", hint: "Vus libres par le registre : réservables tout de suite.", filters: { status: "free" } },
-  { name: "Pris en .com, libres ici", hint: "Le .com est pris : la demande existe, l'extension choisie est libre.", filters: { taken: "com", min: "30" }, needs: "com" },
-  { name: "Très courts", hint: "1 à 3 caractères, les plus rares.", filters: { len: "-3" } },
-  { name: "Mots du top 1 000", hint: "Les 1 000 mots français les plus courants.", filters: { cat: "word", rank: "1000", sort: "freq" } },
-  { name: "Mots anglais du top 5 000", hint: "Pour le .com surtout.", filters: { cat: "english", rank: "5000", sort: "freq" } },
-  { name: "Secteurs porteurs", hint: "Assurance, crédit, immobilier, droit, santé, travaux…", filters: { cat: "sector", sort: "freq" } },
-  { name: "Tendances", hint: "IA, énergie, mobilité, bien-être…", filters: { cat: "trend", sort: "freq" } },
-  { name: "Sites de niche", hint: "forumdomotique, guidepotager, gardeningforum…", filters: { cat: "niche", sort: "freq" } },
-  { name: "Historique SEO", hint: "Noms analysés avec PageRank ou archives Wayback.", filters: { seo: "any", sort: "seo" } },
+  { name: "Avis IA : à prendre", filters: { ai_v: "take", sort: "ai" } },
+  { name: "Revente rapide ≥ 500 €", filters: { ai_quick_low_min: "500", sort: "ai" } },
+  { name: "Libération à venir", filters: { status: "coming" } },
+  { name: "Libres vérifiés", filters: { status: "free" } },
+  { name: "Pris en .com", filters: { taken: "com", min: "30" }, needs: "com" },
+  { name: "1 à 3 caractères", filters: { len: "-3" } },
+  { name: "Top 1 000 mots", filters: { cat: "word", rank: "1000", sort: "freq" } },
+  { name: "Top 5 000 anglais", filters: { cat: "english", rank: "5000", sort: "freq" } },
+  { name: "Secteurs porteurs", filters: { cat: "sector", sort: "freq" } },
+  { name: "Tendances", filters: { cat: "trend", sort: "freq" } },
+  { name: "Sites de niche", filters: { cat: "niche", sort: "freq" } },
+  { name: "Signal SEO", filters: { seo: "any", sort: "seo" } },
 ];
 const LABELS = {
   available: "Disponible",
@@ -1490,23 +1489,22 @@ document.addEventListener("alpine:init", () => {
       return [...URGENCY, "error"].filter((k) => counts[k]).map((k) => ({ key: k, label: LABELS[k], count: counts[k] }));
     },
 
-    // Accueil : ce qui reste à brancher. Masquable une fois un premier nom surveillé.
+    // Accueil : réglages restant à faire. Masquable une fois un domaine surveillé.
     get onboarding() {
       const setup = (this.meta && this.meta.setup) || {};
       return [
-        { key: "domain", done: this.domains.length > 0, title: "Surveiller un premier nom.", text: "Tape-le dans le champ en haut, puis Entrée : il est vérifié tout de suite, puis à intervalles réguliers.", action: "Saisir un nom", go: () => this.$refs.input.focus() },
-        { key: "telegram", done: !!setup.telegram, title: "Recevoir les alertes sur Telegram.", text: "Un message à chaque changement d'état et un résumé chaque semaine.", action: "Brancher", go: () => this.openSettings("telegram") },
-        { key: "fr", done: !!setup.fr, title: "Suivre le .fr.", text: "Open data de l'Afnic, gratuit, rien à créer.", action: "Activer", go: () => this.openSettings("fr") },
-        { key: "czds", done: !!setup.czds, title: "Suivre .com, .org et les autres.", text: "Zones ICANN : compte gratuit sur czds.icann.org, accès validé en quelques jours.", action: "Configurer", go: () => this.openSettings("czds") },
-        { key: "ai", done: !!setup.ai, title: "Avoir l'avis IA chaque nuit.", text: "Facultatif : une tâche planifiée Claude note les meilleurs noms.", action: "Voir", go: () => this.openSettings("ai") },
-        { key: "explore", done: false, always: true, title: "Chercher des noms à prendre.", text: "L'Explorer propose des pistes toutes prêtes.", action: "Explorer", go: () => this.openSheet("explore") },
+        { key: "domain", done: this.domains.length > 0, title: "Domaine surveillé", text: "", action: "Ajouter", go: () => this.$refs.input.focus() },
+        { key: "telegram", done: !!setup.telegram, title: "Telegram", text: "alertes et résumé", action: "Configurer", go: () => this.openSettings("telegram") },
+        { key: "fr", done: !!setup.fr, title: "Extension .fr", text: "open data Afnic", action: "Activer", go: () => this.openSettings("fr") },
+        { key: "czds", done: !!setup.czds, title: "Zones ICANN", text: ".com, .org, .net…", action: "Configurer", go: () => this.openSettings("czds") },
+        { key: "ai", done: !!setup.ai, title: "Avis IA", text: "facultatif", action: "Configurer", go: () => this.openSettings("ai") },
       ];
     },
 
     get showWelcome() {
       if (!this.domains.length) return true;
       if (this.welcomeHidden) return false;
-      return this.onboarding.some((s) => !s.done && !s.always);
+      return this.onboarding.some((s) => !s.done);
     },
 
     hideWelcome() {
