@@ -225,7 +225,8 @@ chaque nuit avec `scripts/ai_exchange.py` (variables `DW_URL` et `DW_AI_TOKEN`).
 
 Le jeton se crée dans Paramètres > Avis IA ; il n'est montré qu'une fois et n'ouvre que ces deux
 adresses. L'avis s'affiche dans la fiche et les listes, avec un tri « Par avis IA » (revente
-rapide). Les prix sont des avis, pas des cotes du marché.
+rapide) et un filtre dans le panneau de l'Explorer : verdicts, et bornes min et max de chaque note
+(exploitation, revente) et de chaque prix (revente rapide bas et haut, prix final bas et haut). Les prix sont des avis, pas des cotes du marché.
 
 #### Noms réservés (.fr)
 

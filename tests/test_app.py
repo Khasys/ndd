@@ -455,6 +455,16 @@ def test_ai_opinions_round_trip_with_a_token(logged):
     assert len(ranked) == 50  # un tri ne filtre pas : les noms sans avis suivent, par score
     names = [n["name"] for n in client.get("/api/ai/pending", params={"limit": 5000}).json()["names"]]
     assert "velo.fr" not in names
+    # Filtres sur l'avis : verdict, bornes de chaque note et de chaque prix ; compteurs cohérents.
+    def rated(**params):
+        data = client.get("/api/explore/rank", params={"status": "", **params}).json()
+        return [i["name"] for i in data["items"]], sum(data["counts"][k] for k in ("available", "registered", "suspended"))
+    assert rated(ai_v="take")[0] == ["velo.fr"]
+    assert rated(ai_v="take", ai_quick_high_min="5000", ai_final_high_max="30000", sort="freq")[0] == ["velo.fr"]
+    assert rated(ai_v="skip")[0] == [] and rated(ai_exploit_max="50")[0] == []
+    assert rated(ai_quick_low_min="3000")[0] == [] and rated(ai_resale_min="90", sort="length")[0] == ["velo.fr"]
+    assert client.get("/api/explore/rank", params={"ai_v": "peut-etre"}).status_code == 422
+    assert client.get("/api/explore/rank", params={"ai_exploit_min": "beaucoup"}).status_code == 422
     status = client.get("/api/ai/status").json()
     assert status["rated"] == 1 and status["token_set"] and status["pending"] > 0
     client.__exit__(None, None, None)

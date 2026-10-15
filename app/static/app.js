@@ -1,3 +1,6 @@
+// Filtre « avis IA » : verdicts et bornes min/max de chaque note et de chaque prix (paramètres d'URL ai_*).
+const AI_FILTER_DEFAULTS = Object.fromEntries([["ai_v", ""], ...["exploit", "resale", "quick_low", "quick_high", "final_low", "final_high"]
+  .flatMap((f) => [[`ai_${f}_min`, ""], [`ai_${f}_max`, ""]])]);
 const LABELS = {
   available: "Disponible",
   pending_delete: "Suppression imminente",
@@ -101,7 +104,7 @@ document.addEventListener("alpine:init", () => {
     exBusy: {},
     exSeo: { running: false, done: 0, total: 0, key_set: true },
     seoKey: "",
-    ex: { tld: "", q: "", status: "available", cat: "", len: "", sort: "score", nat: "", rank: "", taken: "", min: "", junk: "", seo: "" },
+    ex: { tld: "", q: "", status: "available", cat: "", len: "", sort: "score", nat: "", rank: "", taken: "", min: "", junk: "", seo: "", ...AI_FILTER_DEFAULTS },
     exFiltersOpen: false,
     fiche: null,
     aiToken: "",
@@ -396,6 +399,7 @@ document.addEventListener("alpine:init", () => {
       const e = this.ex;
       const params = new URLSearchParams({ q: e.q.trim(), mode: "prefix", status: e.status, cat: e.cat, len: e.len, nat: e.nat, rank: e.rank, taken: e.taken, min: e.min && e.min !== "0" ? e.min : "", junk: e.junk, seo: e.seo, cursor: String(cursor) });
       if (this.ex.tld) params.set("tld", this.ex.tld);
+      for (const k of Object.keys(AI_FILTER_DEFAULTS)) if (String(e[k] ?? "").trim() !== "") params.set(k, String(e[k]).trim());
       return params.toString();
     },
 
@@ -487,12 +491,28 @@ document.addEventListener("alpine:init", () => {
       if (e.min && e.min !== "0") out.push({ key: "min", label: "Score ≥ " + e.min });
       if (e.junk) out.push({ key: "junk", label: "Suites et mélanges inclus" });
       if (e.seo) out.push({ key: "seo", label: this.exData.seo_filters[e.seo] });
+      if (e.ai_v) out.push({ key: "ai_v", label: "IA : " + this.exAiVerdicts().map((v) => this.exData.ai_verdicts[v]).join(", ") });
+      for (const f of Object.keys(this.exData.ai_fields || {})) {
+        const lo = String(e[`ai_${f}_min`] ?? "").trim(), hi = String(e[`ai_${f}_max`] ?? "").trim();
+        if (lo === "" && hi === "") continue;
+        const name = this.exData.ai_fields[f];
+        const text = lo !== "" && hi !== "" ? `${lo} à ${hi}` : lo !== "" ? `≥ ${lo}` : `≤ ${hi}`;
+        out.push({ key: [`ai_${f}_min`, `ai_${f}_max`], label: `IA ${name.toLowerCase()} ${text}` });
+      }
       return out;
     },
 
-    exClear(key) { return this.exSet({ [key]: "" }); },
+    exClear(key) { return this.exSet(Object.fromEntries([].concat(key).map((k) => [k, ""]))); },
 
-    exReset() { return this.exSet({ cat: "", nat: "", len: "", rank: "", taken: "", min: "", junk: "", seo: "", status: "available" }); },
+    exReset() { return this.exSet({ cat: "", nat: "", len: "", rank: "", taken: "", min: "", junk: "", seo: "", status: "available", ...AI_FILTER_DEFAULTS }); },
+
+    exAiVerdicts() { return (this.ex.ai_v || "").split(",").filter(Boolean); },
+
+    exToggleVerdict(k) {
+      const on = this.exAiVerdicts();
+      const next = on.includes(k) ? on.filter((x) => x !== k) : [...on, k];
+      return this.exSet({ ai_v: next.join(",") });
+    },
 
     async exLoadViews() {
       try { this.exViews = await this.api("GET", "/api/explore/views"); } catch (_) {}

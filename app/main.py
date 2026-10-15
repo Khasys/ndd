@@ -853,7 +853,26 @@ def _explore_params(request: Request) -> dict:
     return {"tld": tld, "tlds": chosen, "q": p.get("q", ""), "mode": mode, "status": p.get("status", ""),
             "category": p.get("cat", ""), "length": length, "cursor": cursor, "nature": p.get("nat", ""),
             "max_rank": max_rank, "min_score": min_score, "taken": taken, "junk": p.get("junk") == "1",
-            "seo": p.get("seo", "") if p.get("seo", "") in explore.SEO_FILTERS else ""}
+            "seo": p.get("seo", "") if p.get("seo", "") in explore.SEO_FILTERS else "",
+            "ai": _ai_param(p)}
+
+
+def _ai_param(p) -> str:
+    """Filtre avis IA : ai_v=take,watch et, pour chaque champ, ai_<champ>_min / ai_<champ>_max."""
+    verdicts = [v for v in (p.get("ai_v") or "").split(",") if v]
+    if any(v not in explore.AI_VERDICTS for v in verdicts):
+        raise HTTPException(422, "Verdict inconnu.")
+    ranges = {}
+    for field in explore.AI_FIELDS:
+        bounds = []
+        for side in ("min", "max"):
+            raw = (p.get(f"ai_{field}_{side}") or "").strip()
+            try:
+                bounds.append(int(raw) if raw else None)
+            except ValueError:
+                raise HTTPException(422, "Paramètre numérique invalide.") from None
+        ranges[field] = tuple(bounds)
+    return explore.ai_filter(verdicts, ranges)
 
 
 def _limit(request: Request, most: int) -> int:
@@ -884,6 +903,8 @@ def _explore_meta(explorer, tld: str, chosen: list[str] | None = None) -> dict:
         "kinds": explore.KINDS,
         "natures": explore.NATURES,
         "seo_filters": {k: v[0] for k, v in explore.SEO_FILTERS.items()},
+        "ai_verdicts": explore.AI_VERDICTS,
+        "ai_fields": explore.AI_FIELDS,
         "statuses": explore.STATUS_NAMES,
         "absent_label": explore.ABSENT_FR if chosen == ["fr"] else explore.ABSENT_ZONE,
     }
@@ -1041,7 +1062,9 @@ async def ai_results(request: Request, payload: AiResults):
     if len(payload.results) > ai.MAX_RESULTS:
         raise HTTPException(422, f"{ai.MAX_RESULTS} avis au plus par envoi.")
     explorer = request.app.state.explorer
-    return ai.save(request.app.state.conn, payload.results, ai.known_name(explorer))
+    saved = ai.save(request.app.state.conn, payload.results, ai.known_name(explorer))
+    explorer.ai_changed()  # compteurs filtrés sur l'avis
+    return saved
 
 
 @app.get("/api/ai/status")

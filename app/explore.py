@@ -114,6 +114,46 @@ def _words() -> list[str]:
     return sorted({w for names in wordlists.lists().values() for w in names if len(w) > drops.MAX_SHORT})
 
 
+# Filtre sur l'avis IA : verdicts et bornes (basse, haute) de chaque note et de chaque prix.
+AI_VERDICTS = {"take": "À prendre", "watch": "À surveiller", "skip": "À laisser"}
+AI_FIELDS = {"exploit": "Exploitation", "resale": "Revente", "quick_low": "Revente rapide bas",
+             "quick_high": "Revente rapide haut", "final_low": "Prix final bas", "final_high": "Prix final haut"}
+
+
+def ai_filter(verdicts: list[str], ranges: dict[str, tuple[int | None, int | None]]) -> str:
+    """Forme canonique et stable (clé de mémoire) ; vide si aucun critère."""
+    parts = []
+    picked = [v for v in AI_VERDICTS if v in verdicts]
+    if picked:
+        parts.append("v=" + ",".join(picked))
+    for field in AI_FIELDS:
+        lo, hi = ranges.get(field, (None, None))
+        if lo is not None or hi is not None:
+            parts.append(f"{field}={'' if lo is None else lo}-{'' if hi is None else hi}")
+    return ";".join(parts)
+
+
+def ai_condition(spec: str) -> tuple[str, list]:
+    """Condition SQL sur domain_ai pour un filtre canonique (valeurs passées en paramètres)."""
+    where, args = [], []
+    for part in filter(None, spec.split(";")):
+        key, _, val = part.partition("=")
+        if key == "v":
+            verdicts = [AI_VERDICTS[v] for v in val.split(",") if v in AI_VERDICTS]
+            if verdicts:
+                where.append("(" + " OR ".join("comment LIKE ?" for _ in verdicts) + ")")
+                args += [f"{v}.%" for v in verdicts]
+        elif key in AI_FIELDS:
+            lo, _, hi = val.partition("-")
+            if lo:
+                where.append(f"{key} >= ?")
+                args.append(int(lo))
+            if hi:
+                where.append(f"{key} <= ?")
+                args.append(int(hi))
+    return " AND ".join(where) or "1", args
+
+
 @dataclass
 class Filters:
     q: str = ""
@@ -127,6 +167,7 @@ class Filters:
     min_score: int | None = None
     junk: bool = False  # True : garder aussi les suites imprononçables, les mélanges, les tirets
     seo: str = ""  # any : analysé avec signal ; pr1, pr3, pr5 : PageRank minimum ; wb5 : archivé 5 ans et plus
+    ai: str = ""  # avis IA, forme canonique de ai_filter() : « v=take,watch;exploit=40-;quick_high=-500 »
 
     @classmethod
     def of(cls, *args, **kwargs) -> "Filters":
@@ -511,11 +552,35 @@ class Explorer:
         found = [i for i in found if i is not None]
         return found if order else sorted(found)
 
+    def _ai_indices(self, tld: str, spec: str) -> list[int]:
+        """Noms de cette extension dont l'avis IA passe le filtre, dans l'ordre de l'univers."""
+        condition, args = ai_condition(spec)
+        rows = self.conn.execute(f"SELECT name FROM domain_ai WHERE name LIKE ? AND {condition}", (f"%.{tld}", *args))
+        found = [self.universe.index(r[0][: -len(tld) - 1]) for r in rows]
+        return sorted(i for i in found if i is not None)
+
+    def _restrict(self, tld: str, f: Filters) -> set[int] | None:
+        """Noms admis par les filtres SEO et avis IA (les tris qui suivent leur propre ordre s'en servent)."""
+        if not (f.seo or f.ai):
+            return None
+        allowed = None
+        if f.seo:
+            allowed = set(self._seo_indices(tld, f.seo))
+        if f.ai:
+            rated = set(self._ai_indices(tld, f.ai))
+            allowed = rated if allowed is None else allowed & rated
+        return allowed
+
     def _candidates(self, f: Filters, q: str, tld: str = ""):
         """Positions à examiner, dans l'ordre, ou None pour tout l'univers."""
         u = self.universe
-        if f.seo and tld:
-            found = self._seo_indices(tld, f.seo)
+        if (f.seo or f.ai) and tld:
+            found = None
+            if f.seo:
+                found = self._seo_indices(tld, f.seo)
+            if f.ai:
+                rated = self._ai_indices(tld, f.ai)
+                found = rated if found is None else sorted(set(found) & set(rated))
             return [i for i in found if self._matches(u.label(i), f, q)] if q else found
         if q:
             return self._short_matching(q, f.mode) + self._word_matching(q, f.mode)
@@ -746,7 +811,10 @@ class Explorer:
         u = self.universe
         q = self.normalize(f.q, tld)
         hits = []
+        allowed = self._restrict(tld, f)
         for i in self._seo_indices(tld, f.seo or "any", order=True):
+            if allowed is not None and i not in allowed:
+                continue
             label = u.label(i)
             if (data[i] in codes and self._good_ok(i, f) and self._taken_ok(i, others)
                     and self._matches(label, f, q) and self._keep(label, f)):
@@ -763,9 +831,12 @@ class Explorer:
         hits = []
         rows = self.conn.execute("SELECT name FROM domain_ai WHERE name LIKE ? ORDER BY quick_high DESC, resale DESC, "
                                  "final_high DESC, name", (f"%.{tld}",))
+        allowed = self._restrict(tld, f)
         for (name,) in rows:
             label = name[: -len(tld) - 1]
             i = u.index(label)
+            if allowed is not None and i not in allowed:
+                continue
             if (i is not None and data[i] in codes and self._good_ok(i, f) and self._taken_ok(i, others)
                     and self._matches(label, f, q) and self._keep(label, f)):
                 hits.append(i)
@@ -781,10 +852,13 @@ class Explorer:
         ctx = self._bonus_context(tld)
         order = u.by_frequency.get(f.category if f.category in wordlists.LABELS else "", u.by_frequency[""])
         q = self.normalize(f.q, tld)
+        allowed = self._restrict(tld, f)
         items = []
         for chunk_start in range(0, len(order), 2000):
             hits = []
             for i in order[chunk_start:chunk_start + 2000]:
+                if allowed is not None and i not in allowed:
+                    continue
                 if data[i] not in codes or not self._good_ok(i, f) or not self._taken_ok(i, others):
                     continue
                 label = u.label(i)
@@ -845,6 +919,8 @@ class Explorer:
             parts.append(u.good_int)
         if f.seo:
             parts.append(from_indices(self._seo_indices(tld, f.seo)))
+        if f.ai:
+            parts.append(from_indices(self._ai_indices(tld, f.ai)))
         if not parts:
             return None
         mask = parts[0]
@@ -857,7 +933,7 @@ class Explorer:
         f = Filters.of(*args, **kwargs)
         if self._hopeless(tld, f):
             return dict.fromkeys(STATUS_FILTERS, 0)
-        key = ("facets", tld, f.category, f.length, f.nature, f.max_rank, f.taken, f.junk, f.seo)
+        key = ("facets", tld, f.category, f.length, f.nature, f.max_rank, f.taken, f.junk, f.seo, f.ai)
         raw = self._memo(key, lambda: self._facets(tld, f))
         by_code = raw["by_code"]
         # Les états réservés suivent le réglage du moment : conversion à chaque appel, sans recompter.
@@ -942,6 +1018,11 @@ class Explorer:
             # Les compteurs « pris ailleurs » des autres extensions dépendent de celle-ci.
             for key in [k for k in self._memos if k[0][0] == "facets" and k[0][1] != tld and k[0][6]]:
                 del self._memos[key]
+
+    def ai_changed(self) -> None:
+        """Nouveaux avis IA : les compteurs filtrés sur l'avis sont recomptés, rien d'autre."""
+        for key in [k for k in self._memos if k[0][0] == "facets" and k[0][9]]:
+            del self._memos[key]
 
     def _forget(self, kind: str) -> None:
         for key in [k for k in self._memos if k[0][0] == kind]:

@@ -309,7 +309,7 @@
             <button type="button" class="tag" x-show="exActive().length && !exViews.some((v) => exViewOn(v))" @click="exSaveView()">+ Vue</button>
           </div>
           <div class="ex-active" x-show="exActive().length">
-            <template x-for="a in exActive()" :key="a.key">
+            <template x-for="a in exActive()" :key="String(a.key)">
               <button type="button" class="ex-pill" @click="exClear(a.key)"><span x-text="a.label"></span> ×</button>
             </template>
           </div>
@@ -375,7 +375,24 @@
             </div>
           </div>
           <div class="ex-field"><span>Score minimum <strong class="num" x-text="ex.min || 0"></strong></span>
-            <input type="range" min="0" max="90" step="5" x-model="ex.min" @change="exSet({})" aria-label="Score minimum">
+            <input type="range" min="0" max="90" step="5" :value="ex.min || 0" @change="exSet({ min: $event.target.value })" aria-label="Score minimum">
+          </div>
+          <div class="ex-field ex-ai"><span>Avis IA (noms notés)</span>
+            <div class="ex-options">
+              <template x-for="(label, k) in exData.ai_verdicts" :key="k">
+                <button type="button" class="tag" :class="{ on: exAiVerdicts().includes(k) }" @click="exToggleVerdict(k)" x-text="label"></button>
+              </template>
+            </div>
+            <div class="ex-ai-grid">
+              <span></span><span class="small muted">min</span><span class="small muted">max</span>
+              <template x-for="(label, k) in exData.ai_fields" :key="k">
+                <div class="ex-ai-row">
+                  <span class="small" x-text="label + (k.includes('_') ? ' (€)' : '')"></span>
+                  <input type="number" inputmode="numeric" min="0" class="filter-input num-input" :aria-label="label + ' minimum'" x-model="ex['ai_' + k + '_min']" @change="exSet({})">
+                  <input type="number" inputmode="numeric" min="0" class="filter-input num-input" :aria-label="label + ' maximum'" x-model="ex['ai_' + k + '_max']" @change="exSet({})">
+                </div>
+              </template>
+            </div>
           </div>
         </div>
 
