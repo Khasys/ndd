@@ -19,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import ai, bot, calendar_ics, db, digest, drops, explore, frdata, frdns, rdapinfo, reserved, seo, signals, states, updates, value, wordlists
+from . import ai, bot, calendar_ics, db, digest, drops, explore, frdata, frdns, gandi, rdapinfo, reserved, seo, signals, states, updates, value, wordlists
 from .auth import (
     COOKIE_NAME,
     MIN_PASSWORD_LENGTH,
@@ -116,6 +116,9 @@ async def lifespan(app: FastAPI):
     async def tick_fr() -> None:
         await fr.tick()
 
+    async def check_prices() -> None:
+        await app.state.gandi.run()
+
     async def check_fr_dns() -> None:
         if fr_dns.due(datetime.now(digest.local_zone())):
             await fr_dns.run()
@@ -138,6 +141,8 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(tick_fr, "interval", minutes=1, next_run_time=now + timedelta(minutes=6), max_instances=1)
     # DNS .fr : une passe par nuit, à partir de minuit.
     scheduler.add_job(check_fr_dns, "interval", minutes=10, next_run_time=now + timedelta(minutes=8), max_instances=1)
+    # Prix Gandi des noms vus libres : par petits lots, chaque heure.
+    scheduler.add_job(check_prices, "interval", hours=1, next_run_time=now + timedelta(minutes=9), max_instances=1)
     scheduler.start()
     telegram.start()
 
@@ -149,6 +154,7 @@ async def lifespan(app: FastAPI):
     app.state.explorer = explore.Explorer(conn, watcher, fr, app.state.reserved)
     fr_dns = frdns.FrDns(conn, store, app.state.explorer, digest.local_zone())
     app.state.fr_dns = fr_dns
+    app.state.gandi = gandi.Gandi(conn, store, app.state.explorer)
     app.state.seo = seo.Seo(conn, store)
     # Explorer : univers et classement préparés hors requête (thread), puis états et carte en mémoire.
     async def warm_explorer() -> None:
@@ -467,6 +473,7 @@ async def meta(request: Request):
             "czds": request.app.state.drops.configured,
             "fr": request.app.state.fr.enabled,
             "ai": bool(request.app.state.store.get("ai_token_hash")),
+            "gandi": request.app.state.gandi.configured,
         },
     }
 
@@ -635,6 +642,7 @@ async def get_settings(request: Request):
                "dns": state.store.get("fr_dns_enabled", "1") == "1"},
         "drops": {"keep_days": state.drops.keep_days},
         "seo": {"key_set": bool(state.seo.key)},
+        "gandi": state.gandi.status(),
         "reserved": state.reserved.status(),
         "weights": {"values": value.weights_from(store.get("score_weights")), "labels": value.CRITERIA},
         "order_url": _order_url(store),
@@ -832,9 +840,17 @@ async def _verify(request: Request, name: str) -> dict:
     except InvalidDomain as exc:
         raise HTTPException(422, str(exc)) from None
     try:
-        return await request.app.state.explorer.verify(name)
+        item = await request.app.state.explorer.verify(name)
     except explore.VerifyError as exc:
         raise HTTPException(409, str(exc)) from None
+    # Vu libre par le registre : le registrar dit s'il est vraiment réservable, et à quel prix.
+    prices = request.app.state.gandi
+    if item.get("status") == explore.FREE and prices.configured:
+        try:
+            item["price"] = await prices.check(name)
+        except PermissionError as exc:
+            item["price_error"] = str(exc)
+    return item
 
 
 @app.post("/api/drops/check")
@@ -881,7 +897,7 @@ def _explore_params(request: Request) -> dict:
             "category": p.get("cat", ""), "length": length, "cursor": cursor, "nature": p.get("nat", ""),
             "max_rank": max_rank, "min_score": min_score, "taken": taken, "junk": p.get("junk") == "1",
             "seo": p.get("seo", "") if p.get("seo", "") in explore.SEO_FILTERS else "",
-            "ai": _ai_param(p)}
+            "ai": _ai_param(p), "price": p.get("price", "") if p.get("price", "") in gandi.FILTERS else ""}
 
 
 def _ai_param(p) -> str:
@@ -931,6 +947,7 @@ def _explore_meta(explorer, tld: str, chosen: list[str] | None = None) -> dict:
         "natures": explore.NATURES,
         "seo_filters": {k: v[0] for k, v in explore.SEO_FILTERS.items()},
         "ai_verdicts": explore.AI_VERDICTS,
+        "price_filters": {k: v[0] for k, v in gandi.FILTERS.items()},
         "ai_fields": explore.AI_FIELDS,
         "statuses": explore.STATUS_NAMES,
         "absent_label": explore.ABSENT_FR if chosen == ["fr"] else explore.ABSENT_ZONE,
@@ -1173,6 +1190,32 @@ async def flag_reserved(request: Request, payload: NameFlag):
 
 class SeoKey(BaseModel):
     key: str
+
+
+class GandiToken(BaseModel):
+    token: str
+
+
+@app.put("/api/settings/gandi")
+async def set_gandi_token(request: Request, payload: GandiToken):
+    # Le jeton n'est jamais renvoyé à l'écran : seulement s'il est enregistré.
+    request.app.state.store.set("gandi_token", payload.token.strip())
+    return request.app.state.gandi.status()
+
+
+@app.post("/api/explore/price")
+async def explore_price(request: Request, payload: NameCheck):
+    prices = request.app.state.gandi
+    if not prices.configured:
+        raise HTTPException(409, "Jeton Gandi non configuré (Paramètres).")
+    try:
+        name = clean_domain(payload.name)
+    except InvalidDomain as exc:
+        raise HTTPException(422, str(exc)) from None
+    try:
+        return await prices.check(name)
+    except PermissionError as exc:
+        raise HTTPException(409, f"Gandi : {exc}.") from None
 
 
 @app.put("/api/settings/seo")
