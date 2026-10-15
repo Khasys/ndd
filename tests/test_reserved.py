@@ -106,3 +106,16 @@ def test_frequency_order(env):
     assert found[:3] == ["jean", "marie", "jeanne"]
     by_length = [i["length"] for i in ex.rank("fr", sort="length", limit=40)["items"]]
     assert by_length == sorted(by_length)
+
+
+def test_excluded_two_letter_names_never_show_as_free(env):
+    lists, ex = env
+    ex.conn.execute("INSERT INTO fr_names (label, created_on) VALUES ('zz', '2010-01-01')")
+    # Le RDAP répond « inconnu » : vu libre. La liste d'exclusion l'emporte.
+    ex.conn.execute("INSERT INTO drops (name, tld, label, kind, lists, state, removed_on) VALUES ('pm.fr', 'fr', 'pm', 'letters', '', ?, '2026-10-01')",
+                    (states.AVAILABLE,))
+    item = ex.search("fr", q="pm", mode="exact", status="")["items"][0]
+    assert item["status"] == explore.RESERVED and item["reserved"] == ["Exclu par l'Afnic"]
+    assert not ex.search("fr", q="pm", mode="exact", status="available")["items"]
+    lists.flag("pm.fr", False)
+    assert "pm.fr" not in lists.names()

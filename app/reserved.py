@@ -7,6 +7,9 @@
   correspond à aucun nom suivi, et un nom marqué à tort se corrige à la main.
 - Noms de communes : protégés par l'Afnic sous forme canonique (sans espaces, tirets, accents
   ni apostrophes, avec et sans l'article). Liste officielle via geo.api.gouv.fr.
+- Noms à deux caractères exclus de l'enregistrement : codes des territoires et cas historiques
+  (liste fixe ci-dessous). Le RDAP de l'Afnic répond « inconnu » pour ces noms, comme pour un
+  nom libre : sans cette liste, ils passeraient pour réservables.
 - Marquages manuels : réservé, ou pas réservé (corrige une liste automatique).
 
 Téléchargés depuis le NAS une fois par semaine ; rien n'est appelé au fil de la navigation.
@@ -27,7 +30,12 @@ log = logging.getLogger(__name__)
 
 AFNIC_PDF = "https://www.afnic.fr/wp-media/uploads/2021/01/Termes-soumis-a%CC%80-examen-pre%CC%81alable-version-2021.pdf"
 COMMUNES_API = "https://geo.api.gouv.fr/communes?fields=nom&format=json"
-SOURCES = {"afnic": "Examen préalable Afnic", "commune": "Nom de commune", "manuel": "Marqué à la main"}
+SOURCES = {"afnic": "Examen préalable Afnic", "commune": "Nom de commune", "exclu": "Exclu par l'Afnic",
+           "manuel": "Marqué à la main"}
+# Exclus de l'ouverture des noms à un et deux caractères : codes de territoires français, fr, et tm
+# (ancienne zone des marques). Charte de nommage Afnic, version de décembre 2014 pour pm, re, tf,
+# wf, yt ; les autres d'après un relevé à confirmer dans la charte en vigueur.
+EXCLUDED = frozenset(f"{c}.fr" for c in ("fr", "tm", "pm", "re", "tf", "wf", "yt", "nc", "gf", "gp", "mq", "mf", "bl"))
 ARTICLES = ("les ", "le ", "la ", "l'", "l’")
 
 
@@ -78,7 +86,8 @@ class Reserved:
         if self._names is None:
             auto = {r[0] for r in self.conn.execute("SELECT DISTINCT name FROM reserved_names")}
             flags = dict(self.conn.execute("SELECT name, reserved FROM name_flags").fetchall())
-            self._names = frozenset((auto | {n for n, r in flags.items() if r}) - {n for n, r in flags.items() if not r})
+            self._names = frozenset((auto | EXCLUDED | {n for n, r in flags.items() if r})
+                                    - {n for n, r in flags.items() if not r})
             self._indices = {}
         return self._names
 
@@ -95,7 +104,8 @@ class Reserved:
         flag = self.conn.execute("SELECT reserved FROM name_flags WHERE name = ?", (name,)).fetchone()
         if flag is not None:
             return [SOURCES["manuel"]] if flag[0] else []
-        return [SOURCES[r[0]] for r in self.conn.execute("SELECT source FROM reserved_names WHERE name = ?", (name,))]
+        found = [SOURCES[r[0]] for r in self.conn.execute("SELECT source FROM reserved_names WHERE name = ?", (name,))]
+        return ([SOURCES["exclu"]] if name in EXCLUDED else []) + found
 
     @property
     def mode(self) -> str:
