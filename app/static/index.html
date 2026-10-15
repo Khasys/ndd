@@ -183,6 +183,7 @@
           </div>
         </div>
 
+        <h4 class="ex-group-title drops-group">Extension et catégorie</h4>
         <div class="filters drops-filters">
           <select class="filter-input drops-tld" x-model="dropTld" aria-label="Extension">
             <option value="">Toutes les extensions</option>
@@ -192,6 +193,7 @@
             <button type="button" class="tag" :class="{ on: dropKinds.includes(k) }" @click="toggleDropKind(k)" x-text="label"></button>
           </template>
         </div>
+        <h4 class="ex-group-title drops-group">Le nom</h4>
         <div class="ex-chips">
           <button type="button" class="tag" :class="{ on: !df.nat }" @click="df.nat = ''">Toutes natures</button>
           <template x-for="(label, k) in dropsData.natures" :key="k">
@@ -207,6 +209,7 @@
             <button type="button" class="tag" :class="{ on: df.rank === o.v }" @click="df.rank = o.v" x-text="o.v ? o.label : 'Toutes fréquences'"></button>
           </template>
         </div>
+        <h4 class="ex-group-title drops-group">Score</h4>
         <div class="drops-more-filters">
           <label class="small">Score minimum <strong class="num" x-text="df.min"></strong>
             <input type="range" min="0" max="90" step="5" x-model.number="df.min" aria-label="Score minimum">
@@ -323,6 +326,7 @@
             <button type="button" class="btn-text" @click="exReset()">Tout effacer</button>
             <button type="button" class="btn-ghost sm" @click="exFiltersOpen = false">OK</button>
           </div>
+          <h4 class="ex-group-title">Le nom</h4>
           <div class="ex-field"><span>Catégorie</span>
             <div class="ex-options">
               <button type="button" class="tag" :class="{ on: !ex.cat }" @click="exSet({ cat: '' })">Tout</button>
@@ -353,6 +357,7 @@
               </template>
             </div>
           </div>
+          <h4 class="ex-group-title">Marché et SEO</h4>
           <div class="ex-field"><span>Pris ailleurs</span>
             <div class="ex-options">
               <button type="button" class="tag" :class="{ on: !ex.taken }" @click="exSet({ taken: '' })">Peu importe</button>
@@ -374,10 +379,12 @@
               </template>
             </div>
           </div>
+          <h4 class="ex-group-title">Score</h4>
           <div class="ex-field"><span>Score minimum <strong class="num" x-text="ex.min || 0"></strong></span>
             <input type="range" min="0" max="90" step="5" :value="ex.min || 0" @change="exSet({ min: $event.target.value })" aria-label="Score minimum">
           </div>
-          <div class="ex-field ex-ai"><span>Avis IA (noms notés)</span>
+          <h4 class="ex-group-title">Avis IA</h4>
+          <div class="ex-field ex-ai"><span>Verdict (noms notés seulement)</span>
             <div class="ex-options">
               <template x-for="(label, k) in exData.ai_verdicts" :key="k">
                 <button type="button" class="tag" :class="{ on: exAiVerdicts().includes(k) }" @click="exToggleVerdict(k)" x-text="label"></button>
@@ -981,7 +988,7 @@
         </dl>
         <template x-if="domainFiche && domainFiche.name === shown.name">
           <div>
-            <dl x-html="valueHtml(domainFiche)"></dl>
+            <div x-html="valueHtml(domainFiche)"></div>
             <div class="history" x-show="domainFiche && domainFiche.others.length">
               <h3>Autres extensions</h3>
               <ol>
@@ -1031,8 +1038,8 @@
         <button type="button" class="btn-ghost" x-show="fiche.domain_id" @click="openDomain(fiche.domain_id)">Voir dans Domaines</button>
       </div>
       <div class="details-grid">
-        <dl x-html="valueHtml(fiche)"></dl>
-        <dl x-html="rdapDl(fiche.rdap)"></dl>
+        <div x-html="valueHtml(fiche)"></div>
+        <div x-html="rdapDl(fiche.rdap)"></div>
         <div class="fiche-more">
           <button type="button" class="btn-ghost sm" @click="ficheSeo()" :disabled="!!exBusy[fiche.name] || exSeo.running">Analyse SEO</button>
           <button type="button" class="btn-ghost sm" x-show="fiche.item && ![1, 6].includes(fiche.item.status)" @click="ficheFlag()" x-text="fiche.item && fiche.item.status === 7 ? 'Pas réservé' : 'Réservé'"></button>

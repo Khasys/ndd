@@ -325,37 +325,45 @@ document.addEventListener("alpine:init", () => {
       this.openId = id;
     },
 
+    // Fiche d'un nom, en sections : avis IA, score, le nom, historique et SEO.
     valueHtml(f) {
       const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
       if (!f) return "";
-      const rows = [];
       const item = f.item;
       const opinion = f.ai || (item && item.ai);
+      const ai = [], score = [], name = [], past = [];
       if (opinion) {
-        rows.push(["Avis IA", `<span class="ai-notes">Exploitation <b>${Number(opinion.exploit)}</b> · revente <b>${Number(opinion.resale)}</b></span>`]);
-        rows.push(["Revente rapide", esc(this.priceRange(opinion.quick_low, opinion.quick_high))]);
-        rows.push(["Utilisateur final", esc(this.priceRange(opinion.final_low, opinion.final_high))]);
-        rows.push(["Commentaire", `<span class="ai-comment">${esc(opinion.comment)}</span>`]);
+        ai.push(["Verdict", `<span class="ai-comment">${esc(opinion.comment)}</span>`]);
+        ai.push(["Notes", `<span class="ai-notes">Exploitation <b>${Number(opinion.exploit)}</b> · revente <b>${Number(opinion.resale)}</b></span>`]);
+        ai.push(["Revente rapide", esc(this.priceRange(opinion.quick_low, opinion.quick_high))]);
+        ai.push(["Utilisateur final", esc(this.priceRange(opinion.final_low, opinion.final_high))]);
       }
       if (item && item.score !== undefined) {
-        rows.push(["Score", `<span class="ex-bar fiche-bar"><i style="width:${Number(item.score)}%"></i><b>${Number(item.score)}</b></span>`]);
-        rows.push(["Détail", esc(this.scoreTitle(item).replace(/^Score \d+ : /, "")) || "—"]);
-        if (item.reasons && item.reasons.length) rows.push(["Raisons", item.reasons.map((r) => `<span class="ex-reason">${esc(r)}</span>`).join(" ")]);
+        score.push(["Total", `<span class="ex-bar fiche-bar"><i style="width:${Number(item.score)}%"></i><b>${Number(item.score)}</b></span>`]);
+        score.push(["Détail", esc(this.scoreTitle(item).replace(/^Score \d+ : /, "")) || "—"]);
+        if (item.reasons && item.reasons.length) score.push(["Raisons", item.reasons.map((r) => `<span class="ex-reason">${esc(r)}</span>`).join(" ")]);
       }
       const kinds = (this.exData && this.exData.kinds) || (this.dropsData && this.dropsData.kinds) || {};
-      if (f.categories && f.categories.length) rows.push(["Catégories", esc(f.categories.map((c) => kinds[c] || c).join(", "))]);
+      if (f.categories && f.categories.length) name.push(["Catégories", esc(f.categories.map((c) => kinds[c] || c).join(", "))]);
       const natures = (this.exData && this.exData.natures) || (this.dropsData && this.dropsData.natures) || {};
-      if (f.natures && f.natures.length) rows.push(["Nature", esc(f.natures.map((n) => natures[n] || n).join(", "))]);
-      if (f.rank) rows.push(["Fréquence", `n° ${esc(this.fmt(f.rank))} de sa liste`]);
-      if (item && item.created_on) rows.push(["Open data .fr", esc(`créé le ${this.shortDate(item.created_on)}` + (item.removed_on ? `, supprimé le ${this.shortDate(item.removed_on)}` : ""))]);
-      if (item && item.release_at) rows.push(["Libération", esc("~" + this.shortDate(item.release_at))]);
+      if (f.natures && f.natures.length) name.push(["Nature", esc(f.natures.map((n) => natures[n] || n).join(", "))]);
+      if (f.rank) name.push(["Fréquence", `n° ${esc(this.fmt(f.rank))} de sa liste`]);
+      if (item && item.created_on) past.push(["Open data .fr", esc(`créé le ${this.shortDate(item.created_on)}` + (item.removed_on ? `, supprimé le ${this.shortDate(item.removed_on)}` : ""))]);
+      if (item && item.release_at) past.push(["Libération", esc("~" + this.shortDate(item.release_at))]);
       if (f.seo) {
         const parts = [];
         if (f.seo.pr) parts.push(`PageRank ${String(f.seo.pr).replace(".", ",")}`);
         if (f.seo.wb_first) parts.push(`archivé depuis ${f.seo.wb_first.slice(0, 4)}` + (f.seo.wb_years ? ` (${f.seo.wb_years} ans)` : ""));
-        rows.push(["SEO", esc(parts.join(", ") || "aucun signal") + `, analysé ${esc(this.relative(f.seo.checked_at))}`]);
+        past.push(["SEO", esc(parts.join(", ") || "aucun signal") + `, analysé ${esc(this.relative(f.seo.checked_at))}`]);
       }
-      return rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("");
+      return this.ficheSection("Avis IA", ai) + this.ficheSection("Score", score)
+        + this.ficheSection("Le nom", name) + this.ficheSection("Historique et SEO", past);
+    },
+
+    // Une section de fiche : titre puis lignes libellé / valeur (valeurs déjà échappées).
+    ficheSection(title, rows) {
+      if (!rows.length) return "";
+      return `<section class="fiche-sec"><h3>${title}</h3><dl>${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl></section>`;
     },
 
     // Fourchette de prix d'un avis IA : « 2 000 à 6 000 € », « 0 € » quand rien.
@@ -391,8 +399,8 @@ document.addEventListener("alpine:init", () => {
     },
 
     rdapDl(r) {
-      if (!r) return "<dt>RDAP</dt><dd>Pas encore lu : « Vérifier ».</dd>";
-      return this.rdapHtml(r);
+      const body = r ? this.rdapHtml(r) : "<dt>RDAP</dt><dd>Pas encore lu : « Vérifier ».</dd>";
+      return `<section class="fiche-sec"><h3>Registre (RDAP / WHOIS)</h3><dl>${body}</dl></section>`;
     },
 
     exQuery(cursor) {
