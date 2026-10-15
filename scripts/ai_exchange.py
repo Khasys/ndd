@@ -19,12 +19,13 @@ from app.ai import check  # noqa: E402  même règle que le NAS
 
 
 def call(method: str, path: str, body: dict | None = None) -> dict:
-    url = os.environ["DW_URL"].rstrip("/") + path
+    url = os.environ.get("DW_URL", "https://domaines.skky.fr").rstrip("/") + path
     data = json.dumps(body).encode() if body is not None else None
-    request = urllib.request.Request(url, data=data, method=method, headers={
-        "Authorization": "Bearer " + os.environ["DW_AI_TOKEN"],
-        "Content-Type": "application/json",
-    })
+    headers = {"Content-Type": "application/json"}
+    # Jeton en variable d'environnement ; s'il est rangé en secret réseau, le proxy l'ajoute lui-même.
+    if os.environ.get("DW_AI_TOKEN"):
+        headers["Authorization"] = "Bearer " + os.environ["DW_AI_TOKEN"]
+    request = urllib.request.Request(url, data=data, method=method, headers=headers)
     with urllib.request.urlopen(request, timeout=120) as response:
         return json.loads(response.read())
 
