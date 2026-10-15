@@ -15,7 +15,7 @@ import sys
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from app.ai import check  # noqa: E402  même règle que le NAS
+from app.ai_format import check  # noqa: E402  même règle que le NAS, sans dépendance
 
 
 def call(method: str, path: str, body: dict | None = None) -> dict:
