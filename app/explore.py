@@ -22,7 +22,7 @@ from array import array
 from dataclasses import dataclass
 from datetime import date
 
-from . import ai, drops, precompute, rdapinfo, states, value, wordlists
+from . import ai, drops, frdns, precompute, rdapinfo, states, value, wordlists
 from .checker import iso, utcnow
 
 # États, un octet par nom.
@@ -394,9 +394,19 @@ class Explorer:
         Gardés en mémoire une minute : chaque écran en demande plusieurs fois."""
         return self._memo(("status", tld), lambda: self._status_bytes(tld))
 
+    def base_bytes(self, tld: str) -> bytearray:
+        """Octets tirés des seuls fichiers (zone ou open data), sans les vérifications."""
+        return self._base(tld)
+
     def _status_bytes(self, tld: str) -> bytearray:
         status = bytearray(self._base(tld))
         u = self.universe
+        if tld == "fr":
+            # DNS plus frais que l'open data : un nom délégué est pris.
+            for label in frdns.present(self.conn):
+                i = u.index(label)
+                if i is not None and status[i] in (GONE, ABSENT):
+                    status[i] = REGISTERED
         for label, state in self.conn.execute("SELECT label, state FROM drops WHERE tld = ? AND state IS NOT NULL", (tld,)):
             i = u.index(label)
             if i is None:
@@ -964,6 +974,10 @@ class Explorer:
         else:
             base = self._base(tld)[i]
         code = base
+        if tld == "fr" and code in (GONE, ABSENT):
+            seen = self.conn.execute("SELECT present FROM name_dns WHERE label = ?", (label,)).fetchone()
+            if seen and seen["present"]:
+                code = REGISTERED
         drop = self.conn.execute("SELECT state FROM drops WHERE name = ?", (f"{label}.{tld}",)).fetchone()
         state = drop["state"] if drop else None
         if state in drops.TRACKED:
@@ -1162,6 +1176,7 @@ class Explorer:
             "seo": dict(seo) if seo else None,
             "rdap": rdap,
             "ai": ai.load(self.conn, [name]).get(name),
+            "dns": frdns.load(self.conn, [label]).get(label) if tld == "fr" else None,
             "domain_id": domain["id"] if domain is not None else None,
         }
 

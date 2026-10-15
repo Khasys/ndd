@@ -352,6 +352,7 @@ document.addEventListener("alpine:init", () => {
       if (item && item.release_at) past.push(["Libération", esc("~" + this.shortDate(item.release_at))]);
       if (item && item.checked_at) past.push(["Vérifié", esc(this.relative(item.checked_at))]);
       if (item && item.next_check_at) past.push(["Prochaine vérification", esc(this.relative(item.next_check_at))]);
+      if (f.dns) past.push(["DNS .fr", esc((f.dns.present ? "délégué : nom pris" : "aucun serveur : probablement libre") + `, vu ${this.relative(f.dns.at)}`)]);
       if (f.seo) {
         const parts = [];
         if (f.seo.pr) parts.push(`PageRank ${String(f.seo.pr).replace(".", ",")}`);
@@ -815,6 +816,17 @@ document.addEventListener("alpine:init", () => {
       return `${this.fmt(done)} faite(s)${detail ? " (" + detail + ")" : ""}, ${rest}.`;
     },
 
+    frDns(d) {
+      if (!d || !d.enabled) return "désactivé.";
+      if (d.running) return "passe en cours.";
+      if (d.error) return `erreur à la dernière passe : ${d.error}`;
+      if (!d.finished_at) return "première passe cette nuit, à partir de minuit.";
+      const parts = [`${this.fmt(d.checked)} nom(s) interrogé(s) ${this.relative(d.finished_at)}`];
+      parts.push(`${this.fmt(d.newly_taken)} nouvellement pris`);
+      if (d.skipped) parts.push(`${this.fmt(d.skipped)} sans réponse`);
+      return parts.join(", ") + ".";
+    },
+
     frTomorrow(f) {
       const t = f.work.tomorrow;
       const total = t.anniversaries + t.removals;
@@ -942,7 +954,7 @@ document.addEventListener("alpine:init", () => {
 
     async saveFr() {
       try {
-        const res = await this.api("PUT", "/api/settings/fr", { enabled: this.cfg.fr.enabled, url: this.cfg.fr.url || "", rate: this.cfg.fr.rate || null });
+        const res = await this.api("PUT", "/api/settings/fr", { enabled: this.cfg.fr.enabled, url: this.cfg.fr.url || "", rate: this.cfg.fr.rate || null, dns: this.cfg.fr.dns });
         this.cfg.fr = res;
         if (res.enabled) this.say("Suivi du .fr activé. Premier import dans quelques minutes.");
       } catch (e) {

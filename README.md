@@ -127,6 +127,14 @@ L'appli fonctionne alors en trois temps :
    d'une heure, doublée à chaque nouveau signal (24 h au plus), et durée demandée par l'Afnic
    respectée. L'écran Suppressions montre en direct le nom en cours, le travail du jour et du
    lendemain, et les dernières requêtes.
+4. Chaque nuit à partir de minuit, l'appli demande directement aux serveurs DNS du .fr si les
+   noms « probablement libres » y sont délégués (30 000 par nuit au plus, environ 3 requêtes par
+   seconde, ralenti dès que l'Afnic ne répond plus). Ordre : meilleur score de base d'abord ;
+   score de base 40 et plus revu chaque nuit, les autres chaque semaine. Un nom délégué passe en
+   « Enregistré » dans l'Explorer sans attendre le fichier mensuel. Pas de résolveur
+   intermédiaire : seule l'Afnic voit les requêtes. Aucun quota RDAP consommé. Limite : un nom
+   enregistré sans serveurs DNS passe pour libre ; le bouton « Vérifier » (RDAP) tranche.
+   Désactivable : case « Interroger le DNS du .fr chaque nuit ».
 
 Le fichier de l'Afnic ne donne pas de date d'expiration, d'où le calcul par la date de création.
 Un nom sans date de création dans le fichier n'est pas suivi. Ses colonnes

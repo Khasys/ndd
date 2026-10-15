@@ -316,3 +316,39 @@ def test_coming_names_use_the_legend_labels(env):
     env.touch("velo.fr")
     item = env.search("fr", q="velo", mode="exact", status="coming")["items"][0]
     assert item["status"] == explore.COMING and item["status_label"] == "En rédemption"
+
+
+def test_fr_dns_marks_delegated_names_as_taken(env, monkeypatch):
+    from app import frdns
+
+    monkeypatch.setattr(frdns, "RATE", 1_000_000.0)
+    add_fr(env, "velo", removed="2025-01-01")
+    add_fr(env, "navarro")
+    checker = frdns.FrDns(env.conn, env.fr.store, env, timezone.utc)
+    asked = []
+
+    async def query(label):
+        asked.append(label)
+        return {"velo": True, "maison": False}.get(label, None if label == "chat" else False)
+
+    checker.query = query
+    labels = checker.pending(5_000)
+    assert "velo" in labels and "maison" in labels and "navarro" not in labels
+    assert not any(len(x) <= 2 for x in labels)  # formats réservés
+    env.warm()
+    stats = asyncio.run(checker.run(limit=5_000))
+    assert stats["newly_taken"] == 1 and stats["skipped"] == (1 if "chat" in asked else 0)
+    status = env.status_bytes("fr")
+    assert status[env.universe.index("velo")] == explore.REGISTERED
+    assert status[env.universe.index("maison")] == explore.ABSENT
+    assert env.fiche("velo.fr")["dns"]["present"] is True
+    # Correction en place identique au recalcul complet.
+    patched = env.facets("fr")
+    env.invalidate()
+    assert env.facets("fr") == patched
+    # Revu le lendemain seulement ; un nom repris par le DNS reste dans la file s'il en sort.
+    assert "maison" not in checker.pending(5_000)
+    env.conn.execute("UPDATE name_dns SET checked_at = '2000-01-01T00:00:00Z'")
+    assert "velo" in checker.pending(5_000)
+    # Une passe par jour.
+    assert not checker.due(datetime.now(timezone.utc))

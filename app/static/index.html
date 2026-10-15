@@ -135,6 +135,7 @@
                     <p><strong>En ce moment</strong> <span x-text="frNow(dropsData.fr)"></span></p>
                     <p><strong>Aujourd'hui</strong> <span x-text="frToday(dropsData.fr)"></span></p>
                     <p><strong>Demain</strong> <span x-text="frTomorrow(dropsData.fr)"></span></p>
+                    <p><strong>DNS de nuit</strong> <span x-text="frDns(dropsData.fr.dns)"></span></p>
                     <details x-show="dropsData.fr.work.recent.length">
                       <summary class="muted">Dernières requêtes</summary>
                       <ul class="fr-recent">
@@ -691,6 +692,11 @@
               <button type="submit" class="btn-ghost">Enregistrer</button>
             </form>
             <p class="muted small" x-text="((cfg.fr.rate || 2) * 1440).toLocaleString('fr-FR') + ' par jour au plus. Pause automatique si l\'Afnic limite.'"></p>
+            <label class="check">
+              <input type="checkbox" x-model="cfg.fr.dns" @change="saveFr()">
+              <span>Interroger le DNS du .fr chaque nuit</span>
+            </label>
+            <p class="muted small">Les .fr probablement libres les mieux notés, dès minuit : un nom délégué passe en « Enregistré ». Seule l'Afnic voit les requêtes. Aucun quota RDAP consommé.</p>
             <details class="fr-advanced">
               <summary class="small muted">Adresse du fichier (facultatif)</summary>
               <form class="inline-form" @submit.prevent="saveFr()">
