@@ -401,3 +401,23 @@ def test_names_added_after_a_zone_read_wait_for_the_next_one(env):
     u = env.universe
     assert status[u.index("insurance")] == explore.INVALID
     assert status[u.index("courir")] == explore.ABSENT and status[u.index("maison")] == explore.REGISTERED
+
+
+def test_fr_dns_slows_down_then_recovers(env, monkeypatch):
+    from app import frdns
+
+    monkeypatch.setattr(frdns, "RATE", 1_000_000.0)
+    monkeypatch.setattr(frdns, "MIN_RATE", 1000.0)
+    checker = frdns.FrDns(env.conn, env.fr.store, env, timezone.utc)
+    labels = [f"nom{i}" for i in range(200)]
+    checker.pending = lambda limit, now=None: labels
+    calls = []
+
+    async def query(label):
+        calls.append(label)
+        return None if label in ("nom0", "nom1", "nom2") else False
+
+    checker.query = query
+    stats = asyncio.run(checker.run(limit=200))
+    # Trois silences au début, puis tout répond : la passe va au bout sans rester au ralenti.
+    assert stats["skipped"] == 3 and stats["checked"] == 197 and len(calls) == 200

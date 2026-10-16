@@ -136,7 +136,7 @@ L'appli fonctionne alors en trois temps :
    lendemain, et les dernières requêtes.
 4. Chaque nuit à partir de minuit, l'appli demande directement aux serveurs DNS du .fr si les
    noms « probablement libres » y sont délégués (30 000 par nuit au plus, environ 3 requêtes par
-   seconde, ralenti dès que l'Afnic ne répond plus). Ordre : meilleur score de base d'abord ;
+   seconde, ralenti quand l'Afnic ne répond pas puis réaccéléré, arrêt à 6 h). Ordre : meilleur score de base d'abord ;
    score de base 40 et plus revu chaque nuit, les autres chaque semaine. Un nom délégué passe en
    « Enregistré » dans l'Explorer sans attendre le fichier mensuel. Pas de résolveur
    intermédiaire : seule l'Afnic voit les requêtes. Aucun quota RDAP consommé. Limite : un nom

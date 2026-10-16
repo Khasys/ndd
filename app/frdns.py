@@ -33,6 +33,8 @@ NIGHTLY = 30_000          # noms par nuit
 RATE = 3.0                # requêtes par seconde au départ (divisé par deux si l'Afnic ralentit)
 MIN_RATE = 0.5
 START_HOUR = 0            # heure locale de départ : bien avant la lecture des zones (3 h) et la notation IA (5 h)
+END_HOUR = 6              # au-delà, la passe s'arrête ; le reste attend la nuit suivante
+RECOVER_AFTER = 50        # réponses sans accroc avant de réaccélérer
 FRESH_DAYS_TOP = 1        # noms à fort score de base : revus chaque nuit
 FRESH_DAYS_OTHER = 7      # les autres : chaque semaine
 TOP_BASE = 40
@@ -65,7 +67,7 @@ class FrDns:
     # --- File ---------------------------------------------------------------------
 
     def due(self, now_local: datetime) -> bool:
-        return (self.store.get("fr_dns_enabled", "1") == "1" and now_local.hour >= START_HOUR
+        return (self.store.get("fr_dns_enabled", "1") == "1" and START_HOUR <= now_local.hour < END_HOUR
                 and self.store.get("fr_dns_last") != now_local.date().isoformat() and "fr" in self.explorer.tlds())
 
     def pending(self, limit: int, now: datetime | None = None) -> list[str]:
@@ -149,13 +151,25 @@ class FrDns:
             stats["queued"] = len(labels)
             before = load(self.conn, labels)
             rate = RATE
+            streak = 0
+            # Passe de nuit : elle s'arrête à l'heure de fin. Une passe lancée à la main va au bout.
+            night = START_HOUR <= datetime.now(self.local_zone).hour < END_HOUR
             for label in labels:
+                if night and datetime.now(self.local_zone).hour >= END_HOUR:
+                    stats["stopped"] = "heure de fin atteinte"
+                    break
                 started = asyncio.get_running_loop().time()
                 present = await self.query(label)
                 if present is None:
+                    # Pas de réponse : on ralentit un peu, puis on réaccélère quand tout repasse.
                     stats["skipped"] += 1
-                    rate = max(MIN_RATE, rate / 2)
+                    rate = max(MIN_RATE, rate * 0.7)
+                    streak = 0
                 else:
+                    streak += 1
+                    if streak >= RECOVER_AFTER and rate < RATE:
+                        rate = min(RATE, rate * 1.25)
+                        streak = 0
                     now = iso(utcnow())
                     self.conn.execute(
                         "INSERT INTO name_dns (label, present, checked_at) VALUES (?, ?, ?) "
