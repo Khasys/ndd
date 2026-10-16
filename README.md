@@ -250,8 +250,12 @@ ni tiret long). Le verdict est « À prendre » (note d'au moins 60), « À surv
 (notes de 45 au plus) ; il apparaît en tête de l'étiquette dans les listes. Le script applique le même contrôle avant l'envoi (`check`). Une tâche planifiée fait l'échange
 chaque nuit avec `scripts/ai_exchange.py` (variables `DW_URL` et `DW_AI_TOKEN`).
 
-Le jeton se crée dans Paramètres > Avis IA ; il n'est montré qu'une fois et n'ouvre que ces deux
-adresses. L'avis s'affiche dans la fiche et les listes, avec un tri « Par avis IA » (revente
+Le jeton se crée dans Paramètres > Avis IA ; il n'est montré qu'une fois. Il ouvre l'échange des
+avis et, en lecture seule (GET), le diagnostic `/api/diag` (version, mémoire, zones, .fr, DNS, avis
+IA, compteurs, tâches planifiées, dernières erreurs du journal), les écrans (Domaines, Suppressions,
+Explorer, Top, fiches) et `/api/ai/rated` (avis enregistrés, filtres `verdict` et `tld`). Jamais
+les réglages, les secrets ni une écriture. Lecture depuis une session Claude :
+`python3 scripts/read_api.py /api/diag`. L'avis s'affiche dans la fiche et les listes, avec un tri « Par avis IA » (revente
 rapide) et un filtre dans le panneau de l'Explorer : verdicts, et bornes min et max de chaque note
 (exploitation, revente) et de chaque prix (revente rapide bas et haut, prix final bas et haut). Les prix sont des avis, pas des cotes du marché.
 

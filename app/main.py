@@ -38,10 +38,37 @@ from .telegram import Telegram, TelegramError
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("domain-watch")
+STARTED_AT = datetime.now(timezone.utc)
+
+
+class _Recent(logging.Handler):
+    """Derniers avertissements et erreurs du journal, gardés en mémoire pour le diagnostic."""
+
+    def __init__(self, size: int = 50):
+        super().__init__(logging.WARNING)
+        self.records: list[dict] = []
+        self.size = size
+
+    def emit(self, record: logging.LogRecord) -> None:
+        # Rien qui touche à l'authentification : ces lignes citent parfois le début d'un réglage.
+        if "AUTH_" in str(record.msg):
+            return
+        try:
+            self.records.append({"at": iso(datetime.fromtimestamp(record.created, timezone.utc)),
+                                 "level": record.levelname, "logger": record.name, "message": record.getMessage()[:500]})
+            del self.records[:-self.size]
+        except Exception:  # noqa: BLE001  un journal ne doit jamais casser l'appli
+            pass
+
+
+RECENT = _Recent()
+logging.getLogger().addHandler(RECENT)
 
 STATIC = Path(__file__).parent / "static"
 PWA_PATHS = {"/manifest.webmanifest", "/sw.js", "/offline"}
 AI_PATHS = {"/api/ai/pending", "/api/ai/results"}
+# Lecture seule avec le même jeton : de quoi observer et analyser, jamais modifier ni lire un réglage.
+READ_PATHS = re.compile(r"^/api/(meta|diag|domains|domains/\d+/history|drops|explore(/[a-z]+)?|ai/(status|rated))$")
 PUBLIC_PATHS = {"/login", "/health", "/favicon.svg", "/logo", *PWA_PATHS}
 SETUP_PATHS = {"/setup", "/health", "/favicon.svg", "/logo"}
 BCRYPT_HASH = re.compile(r"\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}")
@@ -206,6 +233,9 @@ async def require_session(request: Request, call_next):
         return await call_next(request)
     # Tâche de notation IA : jeton d'accès, limité à l'échange de la liste et des avis.
     if path in AI_PATHS and ai.token_ok(state.store, request.headers.get("authorization")):
+        return await call_next(request)
+    if (request.method == "GET" and READ_PATHS.match(path)
+            and ai.token_ok(state.store, request.headers.get("authorization"))):
         return await call_next(request)
     if path.startswith("/api/"):
         return JSONResponse({"detail": "Session expirée."}, status_code=401)
@@ -1142,6 +1172,62 @@ async def ai_results(request: Request, payload: AiResults):
 @app.get("/api/ai/status")
 async def ai_status(request: Request):
     return ai.stats(request.app.state.explorer)
+
+
+@app.get("/api/ai/rated")
+async def ai_rated(request: Request):
+    """Avis IA enregistrés, meilleure revente rapide d'abord ; verdict et extension en option."""
+    conn = request.app.state.conn
+    limit = _limit(request, 5000)
+    where, args = ["1"], []
+    verdict = request.query_params.get("verdict", "")
+    if verdict in explore.AI_VERDICTS:
+        where.append("comment LIKE ?")
+        args.append(explore.AI_VERDICTS[verdict] + ".%")
+    tld = request.query_params.get("tld", "")
+    if tld:
+        where.append("name LIKE ?")
+        args.append(f"%.{tld}")
+    rows = conn.execute(f"SELECT * FROM domain_ai WHERE {' AND '.join(where)} ORDER BY quick_high DESC, resale DESC, name "
+                        "LIMIT ?", (*args, limit)).fetchall()
+    return [{"name": r["name"], **ai.public(r)} for r in rows]
+
+
+@app.get("/api/diag")
+async def diag(request: Request):
+    """État de l'appli en une lecture : pour suivre les nuits et analyser, sans aucun secret."""
+    state = request.app.state
+    memory = None
+    try:
+        for line in Path("/proc/self/status").read_text().splitlines():
+            if line.startswith("VmRSS:"):
+                memory = int(line.split()[1]) // 1024
+    except OSError:
+        pass
+    conn = state.conn
+    watcher = state.drops
+    explorer = state.explorer
+    drops_by_state = dict(conn.execute("SELECT COALESCE(state, 'à vérifier'), COUNT(*) FROM drops GROUP BY 1").fetchall())
+    return {
+        "version": VERSION,
+        "started_at": iso(STARTED_AT),
+        "now": iso(utcnow()),
+        "memory_mb": memory,
+        "zones": {t: watcher.status(t) for t in watcher.enabled()} if watcher.configured else {},
+        "zone_last_run": watcher.last_run(),
+        "czds_error": state.store.get("czds_error") or None,
+        "fr": {"enabled": state.fr.enabled, **state.fr.status()},
+        "fr_dns": state.fr_dns.status(),
+        "ai": ai.stats(explorer),
+        "reserved": state.reserved.status(),
+        "lists": {k: len(v) for k, v in wordlists.lists().items()},
+        "domains": dict(conn.execute("SELECT COALESCE(state, 'inconnu'), COUNT(*) FROM domains GROUP BY 1").fetchall()),
+        "drops": drops_by_state,
+        "map": explorer.map(),
+        "jobs": [{"id": j.id, "name": j.name, "next": iso(j.next_run_time) if j.next_run_time else None}
+                 for j in state.scheduler.get_jobs()],
+        "recent_errors": list(RECENT.records),
+    }
 
 
 @app.post("/api/settings/ai-token")

@@ -416,7 +416,15 @@ def test_ai_opinions_round_trip_with_a_token(logged):
     assert client.get("/api/ai/pending", headers={"Authorization": "Bearer faux"}).status_code == 401
     headers = {"Authorization": f"Bearer {token}"}
     assert client.get("/api/ai/pending", headers=headers, params={"limit": 5}).status_code == 200
-    assert client.get("/api/explore", headers=headers).status_code == 401
+    # Lecture seule : écrans et diagnostic oui ; réglages, écritures et secrets jamais.
+    assert client.get("/api/explore", headers=headers).status_code == 200
+    diag = client.get("/api/diag", headers=headers).json()
+    assert diag["lists"]["firstname"] > 4000 and "recent_errors" in diag and "memory_mb" in diag
+    assert token not in json.dumps(diag) and "AUTH_" not in json.dumps(diag)
+    assert client.get("/api/settings", headers=headers).status_code == 401
+    assert client.post("/api/domains", headers=headers, json={"name": "exemple.fr"}).status_code == 401
+    assert client.post("/api/explore/check", headers=headers, json={"name": "velo.fr"}).status_code == 401
+    assert client.get("/api/explore", headers={"Authorization": "Bearer faux"}).status_code == 401
     good = {"name": "velo.fr", "exploit": 90, "resale": 90, "quick_low": 2000, "quick_high": 5000,
             "final_low": 10000, "final_high": 30000,
             "comment": "À prendre. Mot que tout le monde tape, rare en 4 lettres. Acheteur type : enseigne vélo."}
