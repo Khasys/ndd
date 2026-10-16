@@ -371,3 +371,13 @@ def test_new_lists_wait_for_the_next_zone_read(env):
     assert status[u.index("insurance")] == explore.INVALID
     assert status[u.index("maison")] == explore.REGISTERED and status[u.index("courir")] == explore.ABSENT
     assert env.drops.covered("com") == set(wordlists.LEGACY)
+
+
+def test_language_filter(env):
+    add_fr(env, "zz")
+    fr = [i["label"] for i in env.rank("fr", lang="fr", limit=200)["items"]]
+    en = [i["label"] for i in env.rank("fr", lang="en", category="sector", limit=200, sort="freq")["items"]]
+    assert fr and all(l in __import__("app.wordlists", fromlist=["x"]).languages()["fr"] for l in fr)
+    assert "insurance" in en and "mutuelle" not in en
+    counts = env.facets("fr", lang="en")
+    assert 0 < counts["available"] < env.facets("fr")["available"]

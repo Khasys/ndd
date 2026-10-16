@@ -4,9 +4,9 @@ const AI_FILTER_DEFAULTS = Object.fromEntries([["ai_v", ""], ...["exploit", "res
 const AI_VERDICTS = { take: "À prendre", watch: "À surveiller", skip: "À laisser" };
 // Catégories de forme ; les autres viennent des listes de noms.
 const SHAPE_KINDS = ["letters", "digits", "mixed", "hyphen"];
-const DROP_FILTER_DEFAULTS = { q: "", nat: "", len: "", rank: "", min: 0, junk: false, ai: [], quick: "" };
+const DROP_FILTER_DEFAULTS = { q: "", nat: "", lang: "", len: "", rank: "", min: 0, junk: false, ai: [], quick: "" };
 // Vues intégrées de l'Explorer. Chacune part de filtres vierges ; l'extension choisie reste.
-const EX_BLANK = { cat: "", nat: "", len: "", rank: "", taken: "", min: "", junk: "", seo: "", status: "available", sort: "score" };
+const EX_BLANK = { cat: "", nat: "", lang: "", len: "", rank: "", taken: "", min: "", junk: "", seo: "", status: "available", sort: "score" };
 const EX_PRESETS = [
   { name: "Avis IA : à prendre", filters: { ai_v: "take", sort: "ai" } },
   { name: "Revente rapide ≥ 500 €", filters: { ai_quick_low_min: "500", sort: "ai" } },
@@ -119,13 +119,16 @@ document.addEventListener("alpine:init", () => {
     exItems: [],
     exLimit: 50,
     exNoMore: false,
+    exTopOpen: false,
+    top: { cat: "sector", n: 50 },
+    topData: null,
     exLoading: false,
     exCard: null,
     exMap: null,
     exBusy: {},
     exSeo: { running: false, done: 0, total: 0, key_set: true },
     seoKey: "",
-    ex: { tld: "", q: "", status: "available", cat: "", len: "", sort: "score", nat: "", rank: "", taken: "", min: "", junk: "", seo: "", ...AI_FILTER_DEFAULTS },
+    ex: { tld: "", q: "", status: "available", cat: "", len: "", sort: "score", nat: "", rank: "", taken: "", min: "", junk: "", seo: "", lang: "", ...AI_FILTER_DEFAULTS },
     exFiltersOpen: false,
     fiche: null,
     aiToken: "",
@@ -364,6 +367,12 @@ document.addEventListener("alpine:init", () => {
       const item = f.item;
       const opinion = f.ai || (item && item.ai);
       const ai = [], score = [], name = [], past = [];
+      if (!opinion && f.ai_eta) {
+        const e = f.ai_eta;
+        ai.push(["Notation", e.position
+          ? esc(`nuit du ${this.shortDate(e.night)}, ${this.fmt(e.position)}e de la file (${this.fmt(e.per_night)} par nuit)`)
+          : esc(`pas dans les ${e.horizon} prochaines nuits : d'autres noms passent avant`)]);
+      }
       if (opinion) {
         ai.push(["Verdict", `<span class="ai-comment">${esc(opinion.comment)}</span>`]);
         ai.push(["Notes", `<span class="ai-notes">Exploitation <b>${Number(opinion.exploit)}</b> · revente <b>${Number(opinion.resale)}</b></span>`]);
@@ -384,7 +393,12 @@ document.addEventListener("alpine:init", () => {
       if (item && item.release_at) past.push(["Libération", esc("~" + this.shortDate(item.release_at))]);
       if (item && item.checked_at) past.push(["Vérifié", esc(this.relative(item.checked_at))]);
       if (item && item.next_check_at) past.push(["Prochaine vérification", esc(this.relative(item.next_check_at))]);
-      if (f.dns) past.push(["DNS .fr", esc((f.dns.present ? "délégué : nom pris" : "aucun serveur : probablement libre") + `, vu ${this.relative(f.dns.at)}`)]);
+      if (f.dns_eta) {
+        const d = f.dns_eta;
+        past.push(["DNS .fr, prochaine", esc(d.queued ? `nuit prochaine dès minuit (${this.fmt(d.position)}e sur ${this.fmt(d.nightly)} au plus)` : `pas la nuit prochaine : ${d.why}`)]);
+      }
+      if (f.dns) past.push(["DNS .fr, dernière", esc((f.dns.present ? "délégué : nom pris" : "aucun serveur : probablement libre") + `, ${this.relative(f.dns.at)}`)]);
+      else if (f.tld === "fr") past.push(["DNS .fr, dernière", "jamais interrogé"]);
       if (f.seo) {
         const parts = [];
         if (f.seo.pr) parts.push(`PageRank ${String(f.seo.pr).replace(".", ",")}`);
@@ -453,7 +467,7 @@ document.addEventListener("alpine:init", () => {
 
     exQuery(cursor) {
       const e = this.ex;
-      const params = new URLSearchParams({ q: e.q.trim(), mode: "prefix", status: e.status, cat: e.cat, len: e.len, nat: e.nat, rank: e.rank, taken: e.taken, min: e.min && e.min !== "0" ? e.min : "", junk: e.junk, seo: e.seo, cursor: String(cursor) });
+      const params = new URLSearchParams({ q: e.q.trim(), mode: "prefix", status: e.status, cat: e.cat, len: e.len, nat: e.nat, rank: e.rank, taken: e.taken, min: e.min && e.min !== "0" ? e.min : "", junk: e.junk, seo: e.seo, lang: e.lang || "", cursor: String(cursor) });
       if (this.ex.tld) params.set("tld", this.ex.tld);
       for (const k of Object.keys(AI_FILTER_DEFAULTS)) if (String(e[k] ?? "").trim() !== "") params.set(k, String(e[k]).trim());
       return params.toString();
@@ -544,6 +558,7 @@ document.addEventListener("alpine:init", () => {
       const out = [];
       if (e.cat) out.push({ key: "cat", label: this.exData.kinds[e.cat] });
       if (e.nat) out.push({ key: "nat", label: this.exData.natures[e.nat] });
+      if (e.lang) out.push({ key: "lang", label: this.exData.langs[e.lang] });
       if (e.len) out.push({ key: "len", label: this.exLengths.find((o) => o.v === e.len)?.label + " car." });
       if (e.rank) out.push({ key: "rank", label: this.exRanks.find((o) => o.v === e.rank)?.label });
       if (e.taken) out.push({ key: "taken", label: e.taken === "any" ? "Pris ailleurs" : "Pris en ." + e.taken });
@@ -563,7 +578,7 @@ document.addEventListener("alpine:init", () => {
 
     exClear(key) { return this.exSet(Object.fromEntries([].concat(key).map((k) => [k, ""]))); },
 
-    exReset() { return this.exSet({ cat: "", nat: "", len: "", rank: "", taken: "", min: "", junk: "", seo: "", status: "available", ...AI_FILTER_DEFAULTS }); },
+    exReset() { return this.exSet({ cat: "", nat: "", lang: "", len: "", rank: "", taken: "", min: "", junk: "", seo: "", status: "available", ...AI_FILTER_DEFAULTS }); },
 
     exAiVerdicts() { return (this.ex.ai_v || "").split(",").filter(Boolean); },
 
@@ -590,6 +605,20 @@ document.addEventListener("alpine:init", () => {
 
     exApplyView(v) { return this.exSet({ ...v.filters, q: "" }); },
 
+    exToggleTop() {
+      this.exTopOpen = !this.exTopOpen;
+      if (this.exTopOpen) this.exLoadTop();
+    },
+
+    async exLoadTop() {
+      this.topData = null;
+      try {
+        this.topData = await this.api("GET", `/api/explore/top?cat=${this.top.cat}&n=${this.top.n}`);
+      } catch (e) {
+        this.say(e.message, "error");
+      }
+    },
+
     exPresets() {
       if (!this.exData) return [];
       const tlds = this.exTlds();
@@ -599,6 +628,7 @@ document.addEventListener("alpine:init", () => {
     exPresetFilters(p) { return { ...EX_BLANK, ...AI_FILTER_DEFAULTS, ...p.filters }; },
 
     exApplyPreset(p) {
+      this.exTopOpen = false;
       if (this.exPresetOn(p)) return this.exReset();
       return this.exSet({ ...this.exPresetFilters(p), q: "" });
     },
@@ -880,7 +910,8 @@ document.addEventListener("alpine:init", () => {
       if (d.running) return "passe en cours.";
       if (d.error) return `erreur à la dernière passe : ${d.error}`;
       if (!d.finished_at) return "première passe cette nuit, à partir de minuit.";
-      const parts = [`${this.fmt(d.checked)} nom(s) interrogé(s) ${this.relative(d.finished_at)}`];
+      const parts = [`dernière passe ${this.relative(d.finished_at)} : ${this.fmt(d.checked)} nom(s) interrogé(s)` + (d.queued ? ` sur ${this.fmt(d.queued)} prévus` : "")];
+      parts.push(`${this.fmt(d.present || 0)} avec serveurs (pris)`);
       parts.push(`${this.fmt(d.newly_taken)} nouvellement pris`);
       if (d.skipped) parts.push(`${this.fmt(d.skipped)} sans réponse`);
       return parts.join(", ") + ".";
@@ -923,6 +954,7 @@ document.addEventListener("alpine:init", () => {
         && (!f.ai.length || f.ai.includes(this.aiClass(d.ai)))
         && (!f.quick || (d.ai && d.ai.quick_low >= Number(f.quick)))
         && (!f.nat || (d.natures || []).includes(f.nat))
+        && (!f.lang || (d.langs || []).includes(f.lang))
         && (!len || (len < 0 ? label.length <= -len : len >= 5 ? label.length >= 5 : label.length === len))
         && (!f.rank || (d.rank && d.rank <= Number(f.rank)))
         && (!f.min || d.score >= f.min)
@@ -956,6 +988,7 @@ document.addEventListener("alpine:init", () => {
       if (f.q.trim()) out.push({ key: "q", label: `Nom : ${f.q.trim()}` });
       for (const k of this.dropKinds) out.push({ key: "kind:" + k, label: this.dropsData.kinds[k] || k });
       if (f.nat) out.push({ key: "nat", label: this.dropsData.natures[f.nat] });
+      if (f.lang) out.push({ key: "lang", label: f.lang === "fr" ? "Français" : "Anglais" });
       if (f.len) out.push({ key: "len", label: this.exLengths.find((o) => o.v === f.len)?.label + " car." });
       if (f.rank) out.push({ key: "rank", label: this.exRanks.find((o) => o.v === f.rank)?.label });
       if (f.min) out.push({ key: "min", label: "Score ≥ " + f.min });

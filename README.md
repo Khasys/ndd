@@ -176,6 +176,12 @@ Tous les noms suivis, extension par extension : les 1 926 220 noms possibles de 
 puis les mots, noms de famille et prénoms. L'état vient des données déjà sur le NAS, sans aucune
 requête : zones ICANN lues chaque jour, open data de l'Afnic, écran Suppressions par-dessus.
 
+- **Top** : les 10, 50, 100, 200 ou 500 premiers d'une liste (secteurs, tendances, sites de niche,
+  mots, anglais, prénoms, noms…), pris ou non, avec l'état sur chaque extension. Un état ouvre la fiche.
+- **Langue** : filtre Français / Anglais (Explorer et Suppressions). Listes mêlées : langue relevée à
+  la construction (app/data/langues.txt) ; jargon des tendances absent des deux listes : les deux.
+- **Fiche** : nuit prévue pour l'avis IA (place dans la file, 1 000 noms par nuit, horizon de 30
+  nuits) et, pour un .fr, la prochaine interrogation DNS et la dernière réponse.
 - **Vues intégrées** : avis IA à prendre, revente rapide ≥ 500 €, libération à venir, libres
   vérifiés, pris en .com, 1 à 3 caractères, top 1 000 mots, top 5 000 anglais, secteurs porteurs,
   tendances, sites de niche, signal SEO.

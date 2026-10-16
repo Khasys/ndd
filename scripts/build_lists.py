@@ -18,6 +18,8 @@ ROOT = Path(__file__).resolve().parent.parent
 LISTS = ROOT / "scripts" / "lists"
 DATA = ROOT / "app" / "data"
 ENGLISH_SIZE = 30_000
+# Langue de chaque nom des listes mêlées (secteurs, tendances, combinaisons, sites de niche).
+LANG: dict[str, set[str]] = {"fr": set(), "en": set()}
 TOP_NOUNS = 1_500
 
 
@@ -120,12 +122,17 @@ def combos(sectors_fr, sectors_en, trends, english_words, genders) -> list[str]:
         ranked(sectors_fr, mods["fr-apres"], lambda b, m: [b + m]),
         ranked(read("metiers_fr.txt"), read("villes_fr.txt"), lambda b, m: [b + m.replace("-", ""), f"{b}-{m}"]),
     ]
+    for family in families:
+        LANG["fr"].update(family)
     en_bases = unique(sectors_en + [t for t in trends if t in english_set])
-    families += [
+    english_families = [
         ranked(en_bases, mods["en-before"], lambda b, m: [m + b]),
         ranked(en_bases, mods["en-after"], lambda b, m: [b + m]),
         ranked(read("trades_en.txt"), read("cities_us.txt"), lambda b, m: [b + m, m + b]),
     ]
+    for family in english_families:
+        LANG["en"].update(family)
+    families += english_families
     # Les familles se partagent les premiers rangs : une à une, chacune dans son ordre.
     out = []
     for i in range(max(map(len, families))):
@@ -142,6 +149,8 @@ def niche() -> list[str]:
         ranked(fr, formats["fr-apres"], lambda b, m: [b + m]),
         ranked(en, formats["en"], lambda b, m: [b + m]),
     ]
+    LANG["fr"].update(families[0] + families[1])
+    LANG["en"].update(families[2])
     out = []
     for i in range(max(map(len, families))):
         out += [f[i] for f in families if i < len(f)]
@@ -175,6 +184,22 @@ def main() -> None:
     write("tendances.txt", trends)
     write("combinaisons.txt", combined)
     write("niches.txt", niches)
+    # Tendances : anglais si le mot est dans la liste anglaise, français s'il est dans le Lexique.
+    french = existing | set(nouns(lexique))
+    LANG["fr"].update(sectors_fr + [t for t in trends if t in french])
+    LANG["en"].update(sectors_en + [t for t in trends if t in set(english_words)])
+    # Jargon des tendances absent des deux listes (fintech, padel, web3…) : employé dans les deux langues.
+    for t in trends:
+        if t not in LANG["fr"] and t not in LANG["en"]:
+            LANG["fr"].add(t)
+            LANG["en"].add(t)
+    mixed = set(sectors) | set(trends) | set(combined) | set(niches)
+    lines = []
+    for name in sorted(mixed):
+        langs = [k for k in ("fr", "en") if name in LANG[k]]
+        if langs:
+            lines.append(f"{name}\t{','.join(langs)}")
+    write("langues.txt", lines)
 
 
 if __name__ == "__main__":

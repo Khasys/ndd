@@ -124,10 +124,35 @@ def _positions(data: bytearray, codes) -> list[int]:
     return found
 
 
+PER_NIGHT = 1000   # noms notés par la tâche de nuit
+HORIZON_NIGHTS = 30
+_eta_cache: dict = {}
+
+
 def pending(explorer, limit: int) -> list[dict]:
-    """Noms complets sans avis à jour, dans l'ordre où ils servent :
-    1. libres ou bientôt libres, du meilleur score au moins bon (extension pondérée) ;
-    2. probablement libres, puis 3. enregistrés, par score de base et extension."""
+    """Noms complets sans avis à jour, dans l'ordre où ils servent."""
+    picked, data = _queue(explorer, limit)
+    return _describe(explorer, picked, data)
+
+
+def queue_position(explorer, name: str) -> int | None:
+    """Place d'un nom dans la file de notation (0 : premier noté la nuit prochaine), None au-delà
+    de l'horizon ou hors file. File recalculée au plus une fois par heure."""
+    import time
+
+    key = explorer.generation
+    cached = _eta_cache.get("positions")
+    if not cached or cached[0] != key or time.monotonic() - cached[1] > 3600:
+        picked, _ = _queue(explorer, PER_NIGHT * HORIZON_NIGHTS)
+        cached = (key, time.monotonic(), {f"{label}.{tld}": n for n, (_, label, tld) in enumerate(picked)})
+        _eta_cache["positions"] = cached
+    return cached[2].get(name)
+
+
+def _queue(explorer, limit: int):
+    """1. libres ou bientôt libres, du meilleur score au moins bon (extension pondérée) ;
+    2. probablement libres, puis 3. enregistrés, par score de base et extension.
+    Ni les noms réservés ni ceux encore masqués (liste pas encore cherchée dans la zone)."""
     u = explorer.universe
     u.buckets()  # construit u.good
     done = {r[0] for r in explorer.conn.execute("SELECT name FROM domain_ai WHERE version >= ?", (VERSION,))}
@@ -156,11 +181,11 @@ def pending(explorer, limit: int) -> list[dict]:
                 soon.append((explorer._value(tld, i, label, ctx)["score"] * weight, i, label, tld))
     for _, i, label, tld in sorted(soon, key=lambda x: (-x[0], x[2], x[3])):
         if take(i, label, tld):
-            return _describe(explorer, picked, data)
+            return picked, data
     # 2 et 3. Trop nombreux pour tout classer : par paliers d'extension (.fr et .com, puis .org,
     # puis le reste), et dans chaque palier par score de base. Un nom de 1 ou 2 caractères jamais
     # vu n'est pas « probablement libre » : les registres réservent ces formats. On ne le note pas.
-    from .explore import ABSENT  # import local : explore importe ce module
+    from .explore import ABSENT, INVALID, RESERVED  # import local : explore importe ce module
 
     tiers: dict[float, list[str]] = {}
     for tld in tlds:
@@ -173,14 +198,14 @@ def pending(explorer, limit: int) -> list[dict]:
                         continue
                     for tld in tiers[weight]:
                         code = data[tld][i]
-                        if group is not None and code not in group:
+                        if (group is not None and code not in group) or code in (INVALID, RESERVED):
                             continue
                         label = u.label(i)
                         if code == ABSENT and len(label) <= 2:
                             continue
                         if take(i, label, tld):
-                            return _describe(explorer, picked, data)
-    return _describe(explorer, picked, data)
+                            return picked, data
+    return picked, data
 
 
 def _describe(explorer, picked, data) -> list[dict]:

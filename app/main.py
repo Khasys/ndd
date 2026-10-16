@@ -882,7 +882,7 @@ def _explore_params(request: Request) -> dict:
             "category": p.get("cat", ""), "length": length, "cursor": cursor, "nature": p.get("nat", ""),
             "max_rank": max_rank, "min_score": min_score, "taken": taken, "junk": p.get("junk") == "1",
             "seo": p.get("seo", "") if p.get("seo", "") in explore.SEO_FILTERS else "",
-            "ai": _ai_param(p)}
+            "ai": _ai_param(p), "lang": p.get("lang", "") if p.get("lang", "") in wordlists.LANGS else ""}
 
 
 def _ai_param(p) -> str:
@@ -932,6 +932,7 @@ def _explore_meta(explorer, tld: str, chosen: list[str] | None = None) -> dict:
         "natures": explore.NATURES,
         "seo_filters": {k: v[0] for k, v in explore.SEO_FILTERS.items()},
         "ai_verdicts": explore.AI_VERDICTS,
+        "langs": wordlists.LANGS,
         "ai_fields": explore.AI_FIELDS,
         "statuses": explore.STATUS_NAMES,
         "absent_label": explore.ABSENT_FR if chosen == ["fr"] else explore.ABSENT_ZONE,
@@ -987,6 +988,40 @@ async def explore_rank(request: Request):
         result = {"items": items[:limit]}
     return {**result, **_explore_meta(explorer, params["tld"], chosen),
             "counts": _facets(explorer, params)}
+
+
+TOP_SIZES = (10, 50, 100, 200, 500)
+# État court pour le tableau Top : pris ou pas, d'un coup d'œil.
+TOP_STATES = {explore.REGISTERED: "pris", explore.SUSPENDED: "pris", explore.GONE: "libre ?", explore.ABSENT: "libre ?",
+              explore.COMING: "à venir", explore.FREE: "libre", explore.RESERVED: "réservé", explore.INVALID: "pas lu"}
+
+
+@app.get("/api/explore/top")
+async def explore_top(request: Request):
+    """Les N premiers d'une liste, pris ou non, avec leur état sur chaque extension."""
+    explorer = request.app.state.explorer
+    category = request.query_params.get("cat", "sector")
+    if category not in wordlists.LABELS:
+        raise HTTPException(422, "Liste inconnue.")
+    try:
+        size = int(request.query_params.get("n", "50"))
+    except ValueError:
+        raise HTTPException(422, "Taille invalide.") from None
+    if size not in TOP_SIZES:
+        raise HTTPException(422, "Taille invalide.")
+    u = explorer.universe
+    tlds = explorer.tlds()
+    data = {t: explorer.status_bytes(t) for t in tlds}
+    order = list(u.by_frequency[category][:size])
+    opinions = ai.load(explorer.conn, [f"{u.label(i)}.{t}" for i in order for t in tlds])
+    items = []
+    for rank, i in enumerate(order, 1):
+        label = u.label(i)
+        cells = {t: {"code": data[t][i], "state": TOP_STATES.get(data[t][i], ""), "ai": opinions.get(f"{label}.{t}")}
+                 for t in tlds}
+        items.append({"rank": rank, "label": label, "cells": cells})
+    return {"category": category, "size": size, "tlds": tlds, "items": items,
+            "lists": wordlists.LABELS, "sizes": TOP_SIZES}
 
 
 @app.get("/api/explore/map")
@@ -1220,7 +1255,41 @@ async def explore_fiche(request: Request):
         name = clean_domain(request.query_params.get("name", ""))
     except InvalidDomain as exc:
         raise HTTPException(422, str(exc)) from None
-    return request.app.state.explorer.fiche(name)
+    explorer = request.app.state.explorer
+    found = explorer.fiche(name)
+    found["ai_eta"] = await _ai_eta(explorer, found)
+    if found.get("tld") == "fr":
+        found["dns_eta"] = await _dns_eta(request.app.state.fr_dns, found)
+    return found
+
+
+async def _dns_eta(fr_dns, fiche: dict) -> dict:
+    """Prochaine interrogation DNS d'un .fr : la nuit prochaine, ou pourquoi pas."""
+    if not fr_dns.status().get("enabled"):
+        return {"queued": False, "why": "désactivée"}
+    position = await asyncio.get_running_loop().run_in_executor(None, fr_dns.position, fiche["label"])
+    if position is not None:
+        return {"queued": True, "position": position + 1, "nightly": frdns.NIGHTLY}
+    item = fiche.get("item") or {}
+    why = "déjà enregistré d'après l'Afnic" if item.get("status") == explore.REGISTERED and not fiche.get("dns") else \
+        "vu récemment, revu plus tard" if fiche.get("dns") else "hors des noms suivis ou peu prioritaire"
+    return {"queued": False, "why": why}
+
+
+async def _ai_eta(explorer, fiche: dict) -> dict | None:
+    """Nuit prévue pour l'avis IA d'un nom pas encore noté, d'après sa place dans la file."""
+    if fiche.get("tld") not in ai.AI_TLDS or fiche.get("ai"):
+        return None
+    position = await asyncio.get_running_loop().run_in_executor(None, ai.queue_position, explorer, fiche["name"])
+    if position is None:
+        return {"position": None, "horizon": ai.HORIZON_NIGHTS}
+    zone = digest.local_zone()
+    now = datetime.now(zone)
+    first = now.replace(hour=5, minute=0, second=0, microsecond=0)
+    if now >= first:
+        first += timedelta(days=1)
+    night = first + timedelta(days=position // ai.PER_NIGHT)
+    return {"position": position + 1, "night": night.date().isoformat(), "per_night": ai.PER_NIGHT}
 
 
 @app.post("/api/explore/check")

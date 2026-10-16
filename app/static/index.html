@@ -197,6 +197,15 @@
                     <p><strong>Aujourd'hui</strong> <span x-text="frToday(dropsData.fr)"></span></p>
                     <p><strong>Demain</strong> <span x-text="frTomorrow(dropsData.fr)"></span></p>
                     <p><strong>DNS de nuit</strong> <span x-text="frDns(dropsData.fr.dns)"></span></p>
+                    <details x-show="dropsData.fr.dns && ((dropsData.fr.dns.taken_names || []).length || (dropsData.fr.dns.freed_names || []).length)">
+                      <summary class="muted">Changements vus par le DNS</summary>
+                      <p x-show="(dropsData.fr.dns.taken_names || []).length"><span class="muted">Pris :</span>
+                        <template x-for="n in (dropsData.fr.dns.taken_names || [])" :key="n"><button type="button" class="link-like mono dns-name" @click="openFiche(n)" x-text="n"></button></template>
+                      </p>
+                      <p x-show="(dropsData.fr.dns.freed_names || []).length"><span class="muted">Sortis du DNS :</span>
+                        <template x-for="n in (dropsData.fr.dns.freed_names || [])" :key="n"><button type="button" class="link-like mono dns-name" @click="openFiche(n)" x-text="n"></button></template>
+                      </p>
+                    </details>
                     <details x-show="dropsData.fr.work.recent.length">
                       <summary class="muted">Dernières requêtes</summary>
                       <ul class="fr-recent">
@@ -283,6 +292,14 @@
             <div class="ex-options">
               <template x-for="(label, k) in kindGroup(dropsData.kinds, false)" :key="k">
                 <button type="button" class="tag" :class="{ on: dropKinds.includes(k) }" @click="toggleDropKind(k)" x-text="label"></button>
+              </template>
+            </div>
+          </div>
+          <div class="ex-field"><span>Langue</span>
+            <div class="ex-options">
+              <button type="button" class="tag" :class="{ on: !df.lang }" @click="df.lang = ''">Toutes</button>
+              <template x-for="(label, k) in { fr: 'Français', en: 'Anglais' }" :key="k">
+                <button type="button" class="tag" :class="{ on: df.lang === k }" @click="df.lang = df.lang === k ? '' : k" x-text="label"></button>
               </template>
             </div>
           </div>
@@ -432,6 +449,7 @@
           </div>
           <div class="ex-chips ex-presets" aria-label="Vues intégrées">
             <span class="ex-presets-label small muted">Vues</span>
+            <button type="button" class="tag preset" :class="{ on: exTopOpen }" :aria-pressed="exTopOpen" @click="exToggleTop()">Top</button>
             <template x-for="p in exPresets()" :key="p.name">
               <button type="button" class="tag preset" :class="{ on: exPresetOn(p) }" :aria-pressed="exPresetOn(p)" @click="exApplyPreset(p)" x-text="p.name"></button>
             </template>
@@ -464,6 +482,14 @@
             <div class="ex-options">
               <template x-for="(label, k) in kindGroup(exData.kinds, false)" :key="k">
                 <button type="button" class="tag" :class="{ on: ex.cat === k }" @click="exSet({ cat: ex.cat === k ? '' : k })" x-text="label"></button>
+              </template>
+            </div>
+          </div>
+          <div class="ex-field"><span>Langue</span>
+            <div class="ex-options">
+              <button type="button" class="tag" :class="{ on: !ex.lang }" @click="exSet({ lang: '' })">Toutes</button>
+              <template x-for="(label, k) in exData.langs" :key="k">
+                <button type="button" class="tag" :class="{ on: ex.lang === k }" @click="exSet({ lang: ex.lang === k ? '' : k })" x-text="label"></button>
               </template>
             </div>
           </div>
@@ -535,6 +561,41 @@
           </div>
         </div>
 
+        <!-- Top : les N premiers d'une liste, pris ou non, sur chaque extension. -->
+        <template x-if="exTopOpen">
+          <div class="ex-top">
+            <div class="ex-chips">
+              <template x-for="k in ['sector', 'trend', 'niche', 'word', 'english', 'firstname', 'surname', 'combo', 'form'].filter((x) => exData.kinds[x])" :key="k">
+                <button type="button" class="tag" :class="{ on: top.cat === k }" @click="top.cat = k; exLoadTop()" x-text="exData.kinds[k]"></button>
+              </template>
+            </div>
+            <div class="ex-chips">
+              <template x-for="n in [10, 50, 100, 200, 500]" :key="n">
+                <button type="button" class="tag" :class="{ on: top.n === n }" @click="top.n = n; exLoadTop()" x-text="'Top ' + n"></button>
+              </template>
+            </div>
+            <p class="muted small" x-show="!topData">Chargement…</p>
+            <template x-if="topData">
+              <div class="ex-top-scroll">
+                <table class="ex-top-table">
+                  <thead><tr><th>#</th><th>Nom</th><template x-for="t in topData.tlds" :key="t"><th class="mono" x-text="'.' + t"></th></template></tr></thead>
+                  <tbody>
+                    <template x-for="r in topData.items" :key="r.label">
+                      <tr>
+                        <td class="num muted" x-text="r.rank"></td>
+                        <td class="mono" x-text="r.label"></td>
+                        <template x-for="t in topData.tlds" :key="t">
+                          <td><button type="button" class="top-cell" :class="'top-' + r.cells[t].code" @click="openFiche(r.label + '.' + t)" :title="r.label + '.' + t" x-text="r.cells[t].state + (r.cells[t].ai ? ' · ' + aiVerdict(r.cells[t].ai).replace('À ', '') : '')"></button></td>
+                        </template>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+            </template>
+          </div>
+        </template>
+
         <!-- La recherche : le nom sur toutes les extensions. -->
         <template x-if="ex.q.trim() && exCard && exCard.known">
           <div class="ex-card">
@@ -562,7 +623,7 @@
           </div>
         </template>
 
-        <template x-if="!ex.q.trim() && exMap && !exActive().length">
+        <template x-if="!exTopOpen && !ex.q.trim() && exMap && !exActive().length">
           <div class="ex-map">
             <table class="ex-map-table">
               <thead><tr><th></th><template x-for="t in exMap.tlds" :key="t"><th class="mono" x-text="'.' + t"></th></template></tr></thead>
@@ -580,16 +641,16 @@
           </div>
         </template>
 
-        <div class="ex-chips ex-status" aria-label="État">
+        <div class="ex-chips ex-status" aria-label="État" x-show="!exTopOpen">
           <template x-for="(label, k) in exData.statuses" :key="k">
             <button type="button" class="tag" :class="{ on: ex.status === k }" @click="exSet({ status: k })" x-show="exData.counts[k] || ex.status === k">
               <span x-text="label"></span> <span class="num" x-text="fmt(exData.counts[k])"></span>
             </button>
           </template>
         </div>
-        <p class="muted small ex-note" x-show="ex.min && ex.min !== '0'">Compteurs sans le score minimum : il ne s'applique qu'à la liste.</p>
+        <p class="muted small ex-note" x-show="!exTopOpen && ex.min && ex.min !== '0'">Compteurs sans le score minimum : il ne s'applique qu'à la liste.</p>
 
-        <div class="ex-list-head">
+        <div class="ex-list-head" x-show="!exTopOpen">
           <select class="filter-input ex-sort" x-model="ex.sort" @change="exSet({})" aria-label="Tri">
             <option value="score">Par score</option>
             <option value="freq">Par fréquence</option>
@@ -603,8 +664,8 @@
           </div>
         </div>
 
-        <p class="muted small" x-show="!exLoading && !exItems.length">Aucun nom.</p>
-        <ol class="ex-list" :class="{ loading: exLoading }">
+        <p class="muted small" x-show="!exTopOpen && !exLoading && !exItems.length">Aucun nom.</p>
+        <ol class="ex-list" :class="{ loading: exLoading }" x-show="!exTopOpen">
           <template x-for="i in exItems" :key="i.name">
             <li class="ex-row" :class="{ open: fiche && fiche.name === i.name, picked: exSelected.includes(i.name) }">
               <div class="ex-line" @click="openFiche(i.name)">
@@ -622,7 +683,7 @@
             </li>
           </template>
         </ol>
-        <div class="explore-more">
+        <div class="explore-more" x-show="!exTopOpen">
           <button type="button" class="btn-ghost" x-show="exHasMore" @click="exLimit += 50; exLoad(false)" :disabled="exLoading" x-text="exLoading ? 'Chargement' : 'Afficher 50 de plus'"></button>
         </div>
 

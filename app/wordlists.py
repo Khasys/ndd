@@ -67,3 +67,26 @@ def natures() -> dict[str, frozenset[str]]:
         if word:
             found[word] = frozenset(kinds.split(","))
     return found
+
+
+LANGS = {"fr": "Français", "en": "Anglais"}
+
+
+@lru_cache(maxsize=1)
+def languages() -> dict[str, frozenset[str]]:
+    """Noms par langue : mots et formes en français, mots anglais en anglais, et pour les listes
+    mêlées (secteurs, tendances, combinaisons, sites de niche) la langue relevée à la construction.
+    Noms de famille et prénoms : sans langue."""
+    found = {"fr": set(lists()["word"]) | set(lists()["form"]), "en": set(lists()["english"])}
+    path = DATA / "langues.txt"
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            name, _, langs = line.partition("\t")
+            for lang in langs.split(","):
+                if lang in found:
+                    found[lang].add(name)
+    return {k: frozenset(v) for k, v in found.items()}
+
+
+def langs_of(label: str) -> list[str]:
+    return [k for k, names in languages().items() if label in names]

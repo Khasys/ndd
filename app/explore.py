@@ -167,6 +167,7 @@ class Filters:
     junk: bool = False  # True : garder aussi les suites imprononçables, les mélanges, les tirets
     seo: str = ""  # any : analysé avec signal ; pr1, pr3, pr5 : PageRank minimum ; wb5 : archivé 5 ans et plus
     ai: str = ""  # avis IA, forme canonique de ai_filter() : « v=take,watch;exploit=40-;quick_high=-500 »
+    lang: str = ""  # fr ou en (wordlists.LANGS)
 
     @classmethod
     def of(cls, *args, **kwargs) -> "Filters":
@@ -216,6 +217,8 @@ class Universe:
         self.by_nature = {key: array("i", sorted(i for i in (self.index(w) for w, ks in natures.items() if key in ks)
                                                 if i is not None))
                           for key in wordlists.NATURES}
+        self.by_lang = {key: array("i", sorted(i for i in (self.index(w) for w in names) if i is not None))
+                        for key, names in wordlists.languages().items()}
 
     def buckets(self) -> list[array]:
         """Noms qui peuvent valoir quelque chose, rangés par score de base (0 à 70).
@@ -534,6 +537,8 @@ class Explorer:
                     return False
         if f.nature and f.nature not in wordlists.natures().get(label, ()):
             return False
+        if f.lang and label not in wordlists.languages().get(f.lang, ()):
+            return False
         if f.max_rank:
             rank = self.best_rank(label, f.category)
             if rank is None or rank > f.max_rank:
@@ -613,6 +618,8 @@ class Explorer:
             return u.by_nature.get(f.nature, [])
         if f.category in wordlists.LABELS:
             return u.by_list[f.category]
+        if f.lang:
+            return u.by_lang.get(f.lang, [])
         if f.max_rank:
             return u.listed
         return None
@@ -931,6 +938,8 @@ class Explorer:
             parts.append(int.from_bytes(mask, "big"))
         if f.nature:
             parts.append(from_indices(u.by_nature.get(f.nature, [])))
+        if f.lang:
+            parts.append(from_indices(u.by_lang.get(f.lang, [])))
         if f.max_rank:
             parts.append(from_indices(i for i in u.listed if (self.best_rank(u.label(i), f.category) or 10**9) <= f.max_rank))
         others = self._others(tld, f)
@@ -958,7 +967,7 @@ class Explorer:
         f = Filters.of(*args, **kwargs)
         if self._hopeless(tld, f):
             return dict.fromkeys(STATUS_FILTERS, 0)
-        key = ("facets", tld, f.category, f.length, f.nature, f.max_rank, f.taken, f.junk, f.seo, f.ai)
+        key = ("facets", tld, f.category, f.length, f.nature, f.max_rank, f.taken, f.junk, f.seo, f.ai, f.lang)
         raw = self._memo(key, lambda: self._facets(tld, f))
         by_code = raw["by_code"]
         # Les états réservés suivent le réglage du moment : conversion à chaque appel, sans recompter.
@@ -1155,7 +1164,8 @@ class Explorer:
                 found[name] = {"score": 0, "reasons": [], "parts": {}, "natures": [], "rank": None, "good": False}
                 continue
             item = self._value(tld, i, label, self._bonus_context(tld))
-            item.update(natures=sorted(wordlists.natures().get(label, ())), good=bool(u.good[i]), length=len(label))
+            item.update(natures=sorted(wordlists.natures().get(label, ())), good=bool(u.good[i]), length=len(label),
+                        langs=wordlists.langs_of(label))
             found[name] = item
         opinions = ai.load(self.conn, list(found))
         for name, item in found.items():

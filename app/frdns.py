@@ -141,7 +141,8 @@ class FrDns:
         if self.running:
             return {"started": False}
         self.running = True
-        stats = {"checked": 0, "present": 0, "newly_taken": 0, "skipped": 0, "started_at": iso(utcnow())}
+        stats = {"checked": 0, "present": 0, "newly_taken": 0, "skipped": 0, "started_at": iso(utcnow()),
+                 "taken_names": [], "freed_names": []}
         try:
             # Parcours de l'univers hors de la boucle : l'appli reste réactive.
             labels = await asyncio.get_running_loop().run_in_executor(None, self.pending, limit)
@@ -167,6 +168,10 @@ class FrDns:
                     if present != was and (present or was):
                         if present:
                             stats["newly_taken"] += 1
+                            if len(stats["taken_names"]) < 100:
+                                stats["taken_names"].append(f"{label}.fr")
+                        elif len(stats["freed_names"]) < 100:
+                            stats["freed_names"].append(f"{label}.fr")
                         self.explorer.touch(f"{label}.fr")  # le nom change d'état dans l'Explorer
                 wait = 1 / rate - (asyncio.get_running_loop().time() - started)
                 if wait > 0:
@@ -180,6 +185,17 @@ class FrDns:
             self.store.set("fr_dns_status", json.dumps(stats))
             self.store.set("fr_dns_last", datetime.now(self.local_zone).date().isoformat())
         return stats
+
+    def position(self, label: str) -> int | None:
+        """Place d'un nom dans la prochaine passe (0 : le premier), None s'il n'y est pas.
+        File recalculée au plus une fois par heure."""
+        import time
+
+        cached = getattr(self, "_queue", None)
+        if not cached or time.monotonic() - cached[0] > 3600:
+            cached = (time.monotonic(), {name: n for n, name in enumerate(self.pending(NIGHTLY))})
+            self._queue = cached
+        return cached[1].get(label)
 
     def status(self) -> dict:
         info = json.loads(self.store.get("fr_dns_status") or "{}")

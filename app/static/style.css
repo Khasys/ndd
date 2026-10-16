@@ -481,7 +481,7 @@ button:disabled { cursor: default; opacity: .55; }
 
   .sheet {
     position: fixed; z-index: 35; left: 0; right: 0; top: 0; bottom: var(--tabbar);
-    margin: 0; border: 0; border-radius: 0; overflow-y: auto; overscroll-behavior: contain;
+    margin: 0; border: 0; border-radius: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain;
     padding: calc(8px + env(safe-area-inset-top)) 16px 32px;
     background: var(--bg);
   }
@@ -830,7 +830,7 @@ button:disabled { cursor: default; opacity: .55; }
 .ex-bar b { position: relative; display: block; padding: 0 8px; font-size: 11.5px; line-height: 16px; text-align: right; font-variant-numeric: tabular-nums; }
 .ex-more { display: grid; gap: 8px; padding: 0 12px 12px 40px; }
 .ex-more p { margin: 0; }
-.ex-rdap { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 0; font-size: 12.5px; }
+.ex-rdap { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 12px; margin: 0; font-size: 12.5px; }
 .ex-rdap dt { color: var(--muted); }
 .ex-rdap dd { margin: 0; overflow-wrap: anywhere; }
 .ex-actions { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -845,7 +845,7 @@ button:disabled { cursor: default; opacity: .55; }
 @media (max-width: 640px) {
   .ex-sticky { margin: 0 -16px; padding: 6px 16px 8px; }
   .ex-panel { position: fixed; z-index: 45; left: 0; right: 0; bottom: var(--tabbar); max-height: 75vh; overflow-y: auto; margin: 0; border-radius: 16px 16px 0 0; padding: 14px 16px 18px; }
-  .ex-line { grid-template-columns: auto 1fr 64px; grid-template-areas: "pick name bar" "pick tags tags"; row-gap: 6px; padding: 10px 12px; }
+  .ex-line { grid-template-columns: auto minmax(0, 1fr) 64px; grid-template-areas: "pick name bar" "pick tags tags"; row-gap: 6px; padding: 10px 12px; }
   .ex-pick { grid-area: pick; align-self: start; margin-top: 3px; }
   .ex-name { grid-area: name; font-size: 17px; }
   .ex-tags { grid-area: tags; }
@@ -954,3 +954,23 @@ button:disabled { cursor: default; opacity: .55; }
   .welcome-steps li { grid-template-columns: 22px 1fr; }
   .welcome-steps li .btn-ghost { grid-column: 2; justify-self: start; }
 }
+
+/* Mobile : rien ne déborde à droite, la page ne se décale plus. */
+@media (max-width: 640px) {
+  .page { overflow-x: clip; }
+  .ex-card, .ex-cell, .ex-list, .drops-table { max-width: 100%; }
+  .ex-cell dd, .details dd, .ex-name { overflow-wrap: anywhere; min-width: 0; }
+  .ex-tags { min-width: 0; flex-wrap: wrap; }
+}
+.dns-name { margin-right: 10px; }
+/* Explorer : Top N d'une liste, état par extension. */
+.ex-top { display: grid; gap: 8px; margin: 4px 0 12px; }
+.ex-top-scroll { overflow-x: auto; }
+.ex-top-table { border-collapse: collapse; font-size: 13.5px; }
+.ex-top-table th, .ex-top-table td { padding: 4px 6px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.top-cell { border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 2px 8px; font: inherit; font-size: 12.5px; cursor: pointer; color: var(--muted); }
+.top-cell.top-1, .top-cell.top-6 { color: var(--muted); }
+.top-cell.top-2, .top-cell.top-3 { color: var(--text); border-color: var(--line-strong); }
+.top-cell.top-4 { color: #9a5b00; border-color: #e0b56a; }
+.top-cell.top-5 { color: #1d7a3a; border-color: #7cc596; font-weight: 600; }
+.top-cell.top-7 { text-decoration: line-through; }
