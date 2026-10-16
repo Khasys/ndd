@@ -575,6 +575,7 @@
                 <button type="button" class="tag" :class="{ on: top.n === n }" @click="top.n = n; exLoadTop()" x-text="'Top ' + n"></button>
               </template>
             </div>
+            <p class="muted small" x-show="ex.lang && ['surname', 'firstname'].includes(top.cat)">Langue ignorée : les prénoms et les noms n'en ont pas.</p>
             <p class="muted small" x-show="!topData">Chargement…</p>
             <template x-if="topData">
               <div class="ex-top-scroll">

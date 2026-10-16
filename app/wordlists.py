@@ -70,6 +70,8 @@ def natures() -> dict[str, frozenset[str]]:
 
 
 LANGS = {"fr": "Français", "en": "Anglais"}
+# Listes sans langue : le filtre de langue ne s'y applique pas.
+NO_LANG = ("surname", "firstname")
 
 
 @lru_cache(maxsize=1)

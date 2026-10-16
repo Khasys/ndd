@@ -882,7 +882,8 @@ def _explore_params(request: Request) -> dict:
             "category": p.get("cat", ""), "length": length, "cursor": cursor, "nature": p.get("nat", ""),
             "max_rank": max_rank, "min_score": min_score, "taken": taken, "junk": p.get("junk") == "1",
             "seo": p.get("seo", "") if p.get("seo", "") in explore.SEO_FILTERS else "",
-            "ai": _ai_param(p), "lang": p.get("lang", "") if p.get("lang", "") in wordlists.LANGS else ""}
+            "ai": _ai_param(p),
+            "lang": p.get("lang", "") if p.get("lang", "") in wordlists.LANGS and p.get("cat", "") not in wordlists.NO_LANG else ""}
 
 
 def _ai_param(p) -> str:
@@ -1017,7 +1018,7 @@ async def explore_top(request: Request):
     data = {t: explorer.status_bytes(t) for t in tlds}
     lang = request.query_params.get("lang", "")
     order = u.by_frequency[category]
-    if lang in wordlists.LANGS:
+    if lang in wordlists.LANGS and category not in wordlists.NO_LANG:
         names = wordlists.languages()[lang]
         order = [i for i in order if u.label(i) in names]
     order = list(order[:size])

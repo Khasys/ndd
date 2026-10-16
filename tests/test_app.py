@@ -497,3 +497,11 @@ def test_top_follows_language_and_extensions(logged):
     assert "mutuelle" in labels and "loans" not in labels and french["tlds"] == ["fr"]
     assert french["items"][0]["cells"]["fr"]["state"] == "pris"
     assert client.get("/api/explore/top", params={"cat": "nope"}).status_code == 422
+
+
+def test_language_is_ignored_for_first_names(logged):
+    client = logged()
+    client.app.state.conn.execute("INSERT INTO fr_names (label, created_on) VALUES ('zz', '2001-01-01')")
+    every = client.get("/api/explore/top", params={"cat": "firstname", "n": 500}).json()
+    french = client.get("/api/explore/top", params={"cat": "firstname", "n": 500, "lang": "fr"}).json()
+    assert len(every["items"]) == len(french["items"]) == 500
