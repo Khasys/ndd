@@ -9,12 +9,20 @@ Un .fr enregistré a presque toujours des serveurs DNS : on demande directement 
 
 Limite : un nom enregistré sans serveurs DNS passe pour libre ; le RDAP (bouton Vérifier) tranche.
 Pas de quota RDAP consommé. Rythme bas et adaptatif pour ne déclencher aucune limite côté Afnic.
+
+Chaque échec est journalisé avec sa cause (délai dépassé, réponse tronquée, refus, code d'erreur, réseau)
+et le serveur interrogé. Garde-fous contre un blocage :
+- un refus explicite (REFUSED) arrête la passe aussitôt ;
+- FAIL_STOP échecs d'affilée l'arrêtent aussi (un serveur qui ignore les requêtes ne répond plus rien) ;
+- dans les deux cas le plafond de rythme est divisé par deux pour les nuits suivantes, une alerte part
+  sur Telegram, et le plafond ne remonte que de 25 % par nuit sans incident.
 """
 
 import asyncio
 import json
 import logging
 import random
+from typing import NamedTuple
 from datetime import datetime, timedelta
 
 import dns.asyncquery
@@ -40,6 +48,20 @@ FRESH_DAYS_TOP = 1        # noms à fort score de base : revus chaque nuit
 FRESH_DAYS_OTHER = 7      # les autres : chaque semaine
 TOP_BASE = 40
 TIMEOUT = 3.0
+FAIL_STOP = 20            # échecs d'affilée avant d'arrêter la passe
+FAIL_LOG = 30             # échecs gardés dans l'état de la passe (les plus récents)
+
+TIMED_OUT = "délai dépassé"
+TRUNCATED = "réponse tronquée"   # le serveur limite le débit (RRL) : premier signe à surveiller
+REFUSED = "refusé"
+NETWORK = "erreur réseau"
+SILENT = "sans réponse"
+
+
+class Failure(NamedTuple):
+    reason: str
+    server: str = ""
+    detail: str = ""
 
 
 def present(conn) -> list[str]:
@@ -56,8 +78,9 @@ def load(conn, labels: list[str]) -> dict[str, dict]:
 
 
 class FrDns:
-    def __init__(self, conn, store, explorer, local_zone):
+    def __init__(self, conn, store, explorer, local_zone, notify=None):
         self.conn = conn
+        self.notify = notify  # async (texte) -> motif d'échec ou None : Telegram
         self.store = store
         self.explorer = explorer
         self.local_zone = local_zone
@@ -120,23 +143,44 @@ class FrDns:
         self.servers = addresses
         return addresses
 
-    async def _query(self, label: str) -> bool | None:
-        """True : délégué ; False : inconnu ; None : pas de réponse exploitable (on réessaiera)."""
+    async def _query(self, label: str) -> bool | Failure:
+        """True : délégué ; False : inconnu ; Failure : pas de réponse exploitable (on réessaiera)."""
         servers = await self._servers()
+        server = random.choice(servers)
         message = dns.message.make_query(f"{label}.fr.", dns.rdatatype.NS)
         message.flags &= ~dns.flags.RD  # question directe au serveur du .fr, pas de récursion
         try:
-            answer = await dns.asyncquery.udp(message, random.choice(servers), timeout=TIMEOUT)
-        except (dns.exception.DNSException, OSError):
-            return None
+            answer = await dns.asyncquery.udp(message, server, timeout=TIMEOUT)
+        except dns.exception.Timeout:
+            return Failure(TIMED_OUT, server)
+        except (dns.exception.DNSException, OSError) as exc:
+            return Failure(NETWORK, server, f"{type(exc).__name__}: {exc}"[:200])
         if answer.flags & dns.flags.TC:
-            return None  # réponse tronquée : signe de limitation, on ralentit
+            return Failure(TRUNCATED, server)
         code = answer.rcode()
         if code == dns.rcode.NXDOMAIN:
             return False
         if code == dns.rcode.NOERROR:
             return True
-        return None
+        if code == dns.rcode.REFUSED:
+            return Failure(REFUSED, server)
+        return Failure(f"code {dns.rcode.to_text(code)}", server)
+
+    # --- Plafond de rythme ------------------------------------------------------------
+
+    def cap(self) -> float:
+        """Rythme maximal autorisé : abaissé après un refus ou un silence prolongé."""
+        try:
+            return min(MAX_RATE, float(self.store.get("fr_dns_cap") or MAX_RATE))
+        except ValueError:
+            return MAX_RATE
+
+    async def _alert(self, text: str) -> None:
+        if self.notify:
+            try:
+                await self.notify(text)
+            except Exception as exc:  # noqa: BLE001  une alerte ratée ne doit pas casser la passe
+                log.warning("DNS .fr : alerte non envoyée (%s)", exc)
 
     # --- Passe de nuit ----------------------------------------------------------------
 
@@ -145,14 +189,18 @@ class FrDns:
             return {"started": False}
         self.running = True
         stats = {"checked": 0, "present": 0, "newly_taken": 0, "skipped": 0, "started_at": iso(utcnow()),
-                 "taken_names": [], "freed_names": []}
+                 "taken_names": [], "freed_names": [], "failures": {}, "failure_log": []}
+        cap = self.cap()
+        stats["cap"] = cap
+        halted = None
         try:
             # Parcours de l'univers hors de la boucle : l'appli reste réactive.
             labels = await asyncio.get_running_loop().run_in_executor(None, self.pending, limit)
             stats["queued"] = len(labels)
             before = load(self.conn, labels)
-            rate = RATE
+            rate = RATE if cap >= MAX_RATE else min(RATE, cap)
             streak = 0
+            fails = 0
             # Passe de nuit : elle s'arrête à l'heure de fin. Une passe lancée à la main va au bout.
             night = START_HOUR <= datetime.now(self.local_zone).hour < END_HOUR
             for label in labels:
@@ -161,15 +209,33 @@ class FrDns:
                     break
                 started = asyncio.get_running_loop().time()
                 present = await self.query(label)
-                if present is None:
-                    # Pas de réponse : on ralentit un peu, puis on réaccélère quand tout repasse.
+                if not isinstance(present, bool):
+                    # Pas de réponse : on note la cause, on ralentit, puis on réaccélère quand tout repasse.
+                    failure = present if isinstance(present, Failure) else Failure(SILENT)
                     stats["skipped"] += 1
+                    fails += 1
+                    first = failure.reason not in stats["failures"]
+                    stats["failures"][failure.reason] = stats["failures"].get(failure.reason, 0) + 1
+                    stats["failure_log"] = (stats["failure_log"] + [{
+                        "at": iso(utcnow()), "name": f"{label}.fr", "server": failure.server,
+                        "reason": failure.reason, "detail": failure.detail, "rate": round(rate, 1)}])[-FAIL_LOG:]
+                    (log.warning if first else log.info)(
+                        "DNS .fr : %s pour %s.fr (serveur %s, rythme %.1f/s)%s", failure.reason, label,
+                        failure.server or "?", rate, f" : {failure.detail}" if failure.detail else "")
+                    if failure.reason == REFUSED:
+                        halted = f"refus du serveur {failure.server}"
+                    elif fails >= FAIL_STOP:
+                        halted = f"{FAIL_STOP} échecs d'affilée ({failure.reason})"
+                    if halted:
+                        stats["stopped"] = halted
+                        break
                     rate = max(MIN_RATE, rate * 0.7)
                     streak = 0
                 else:
+                    fails = 0
                     streak += 1
-                    if streak >= RECOVER_AFTER and rate < MAX_RATE:
-                        rate = min(MAX_RATE, rate * 1.25)
+                    if streak >= RECOVER_AFTER and rate < cap:
+                        rate = min(cap, rate * 1.25)
                         streak = 0
                     now = iso(utcnow())
                     self.conn.execute(
@@ -198,8 +264,24 @@ class FrDns:
             self.running = False
             stats["finished_at"] = iso(utcnow())
             stats["rate"] = round(rate, 1) if "rate" in locals() else None
+            if halted:
+                new_cap = max(MIN_RATE, round(min(cap, stats["rate"] or cap) / 2, 1))
+            elif "error" not in stats and cap < MAX_RATE:
+                new_cap = min(MAX_RATE, round(cap * 1.25, 1))  # nuit sans incident : on remonte doucement
+            else:
+                new_cap = cap
+            if new_cap != cap:
+                self.store.set("fr_dns_cap", str(new_cap))
+            stats["next_cap"] = new_cap
+            if stats["failures"]:
+                log.warning("DNS .fr : %d échec(s) sur la passe : %s", stats["skipped"],
+                            ", ".join(f"{n} {r}" for r, n in stats["failures"].items()))
             self.store.set("fr_dns_status", json.dumps(stats))
             self.store.set("fr_dns_last", datetime.now(self.local_zone).date().isoformat())
+        if halted:
+            log.warning("DNS .fr : passe arrêtée, %s ; plafond ramené à %s requêtes par seconde", halted, new_cap)
+            await self._alert(f"DNS .fr : passe arrêtée ({halted}). Plafond ramené à {new_cap} requêtes par seconde. "
+                              f"Échecs : {', '.join(f'{n} {r}' for r, n in stats['failures'].items())}.")
         return stats
 
     def position(self, label: str) -> int | None:

@@ -920,10 +920,19 @@ document.addEventListener("alpine:init", () => {
       const parts = [`dernière passe ${this.relative(d.finished_at)} : ${this.fmt(d.checked)} nom(s) interrogé(s)` + (d.queued ? ` sur ${this.fmt(d.queued)} prévus` : "")];
       parts.push(`${this.fmt(d.present || 0)} avec serveurs (pris)`);
       parts.push(`${this.fmt(d.newly_taken)} nouvellement pris`);
-      if (d.skipped) parts.push(`${this.fmt(d.skipped)} sans réponse`);
-      if (d.rate) parts.push(`rythme final ${String(d.rate).replace(".", ",")} par seconde`);
-      if (d.stopped) parts.push("arrêtée à 6 h, la suite la nuit prochaine");
+      if (d.skipped) {
+        const why = Object.entries(d.failures || {}).map(([r, n]) => `${this.fmt(n)} ${r}`).join(", ");
+        parts.push(`${this.fmt(d.skipped)} sans réponse` + (why ? ` (${why})` : ""));
+      }
+      if (d.rate) parts.push(`rythme final ${this.perSecond(d.rate)} par seconde`);
+      if (d.stopped === "heure de fin atteinte") parts.push("arrêtée à 6 h, la suite la nuit prochaine");
+      else if (d.stopped) parts.push(`arrêtée : ${d.stopped}`);
+      if (d.next_cap && d.next_cap < 10) parts.push(`plafond la nuit prochaine ${this.perSecond(d.next_cap)} par seconde`);
       return parts.join(", ") + ".";
+    },
+
+    perSecond(n) {
+      return String(n).replace(".", ",");
     },
 
     frTomorrow(f) {

@@ -421,3 +421,39 @@ def test_fr_dns_slows_down_then_recovers(env, monkeypatch):
     stats = asyncio.run(checker.run(limit=200))
     # Trois silences au début, puis tout répond : la passe va au bout sans rester au ralenti.
     assert stats["skipped"] == 3 and stats["checked"] == 197 and len(calls) == 200
+
+
+def test_fr_dns_stops_on_refusal_and_lowers_the_cap(env, monkeypatch):
+    from app import frdns
+
+    monkeypatch.setattr(frdns, "RATE", 1_000_000.0)
+    alerts = []
+
+    async def notify(text):
+        alerts.append(text)
+
+    checker = frdns.FrDns(env.conn, env.fr.store, env, timezone.utc, notify=notify)
+    checker.pending = lambda limit, now=None: [f"nom{i}" for i in range(50)]
+
+    async def query(label):
+        if label == "nom3":
+            return frdns.Failure(frdns.TIMED_OUT, "192.0.2.1")
+        return frdns.Failure(frdns.REFUSED, "192.0.2.2") if label == "nom5" else False
+
+    checker.query = query
+    stats = asyncio.run(checker.run(limit=50))
+    # Le refus arrête la passe : on n'insiste pas, la cause et le serveur sont gardés.
+    assert stats["checked"] == 4 and stats["stopped"] == "refus du serveur 192.0.2.2"
+    assert stats["failures"] == {frdns.TIMED_OUT: 1, frdns.REFUSED: 1}
+    assert stats["failure_log"][-1]["server"] == "192.0.2.2" and stats["failure_log"][-1]["name"] == "nom5.fr"
+    assert checker.cap() < frdns.MAX_RATE and alerts and "refus" in alerts[0]
+
+    # Un serveur muet : arrêt après FAIL_STOP échecs d'affilée.
+    async def silent(label):
+        return frdns.Failure(frdns.TIMED_OUT, "192.0.2.1")
+
+    checker.query = silent
+    env.fr.store.set("fr_dns_cap", "")
+    monkeypatch.setattr(frdns, "MIN_RATE", 1000.0)
+    stats = asyncio.run(checker.run(limit=50))
+    assert stats["skipped"] == frdns.FAIL_STOP and "d'affilée" in stats["stopped"]

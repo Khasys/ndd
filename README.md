@@ -141,6 +141,11 @@ L'appli fonctionne alors en trois temps :
    « Enregistré » dans l'Explorer sans attendre le fichier mensuel. Pas de résolveur
    intermédiaire : seule l'Afnic voit les requêtes. Aucun quota RDAP consommé. Limite : un nom
    enregistré sans serveurs DNS passe pour libre ; le bouton « Vérifier » (RDAP) tranche.
+   Chaque échec est journalisé avec sa cause (délai dépassé, réponse tronquée, refusé, code
+   d'erreur, erreur réseau) et le serveur interrogé ; les 30 derniers sont visibles dans l'écran
+   Suppressions. Un refus du serveur ou 20 échecs d'affilée arrêtent la passe, divisent par deux
+   le plafond de rythme des nuits suivantes et envoient une alerte Telegram. Le plafond remonte
+   de 25 % par nuit sans incident.
    Désactivable : case « Interroger le DNS du .fr chaque nuit ».
 
 Le fichier de l'Afnic ne donne pas de date d'expiration, d'où le calcul par la date de création.

@@ -207,6 +207,14 @@
                         <template x-for="n in (dropsData.fr.dns.freed_names || [])" :key="n"><button type="button" class="link-like mono dns-name" @click="openFiche(n)" x-text="n"></button></template>
                       </p>
                     </details>
+                    <details x-show="dropsData.fr.dns && (dropsData.fr.dns.failure_log || []).length">
+                      <summary class="muted">Échecs DNS de la dernière passe</summary>
+                      <ul class="fr-recent">
+                        <template x-for="f in ((dropsData.fr.dns && dropsData.fr.dns.failure_log) || [])" :key="f.at + f.name">
+                          <li><span class="muted" x-text="clock(f.at)"></span> <span class="mono" x-text="f.name"></span> <span x-text="f.reason"></span> <span class="muted mono" x-text="f.server"></span> <span class="muted" x-text="perSecond(f.rate) + '/s'"></span> <span class="muted" x-text="f.detail"></span></li>
+                        </template>
+                      </ul>
+                    </details>
                     <details x-show="dropsData.fr.work.recent.length">
                       <summary class="muted">Dernières requêtes</summary>
                       <ul class="fr-recent">

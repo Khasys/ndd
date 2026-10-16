@@ -174,7 +174,7 @@ async def lifespan(app: FastAPI):
     app.state.fr = fr
     app.state.reserved = reserved.Reserved(conn, store)
     app.state.explorer = explore.Explorer(conn, watcher, fr, app.state.reserved)
-    fr_dns = frdns.FrDns(conn, store, app.state.explorer, digest.local_zone())
+    fr_dns = frdns.FrDns(conn, store, app.state.explorer, digest.local_zone(), notify=telegram.send)
     app.state.fr_dns = fr_dns
     app.state.seo = seo.Seo(conn, store)
     # Explorer : univers et classement préparés hors requête (thread), puis états et carte en mémoire.
