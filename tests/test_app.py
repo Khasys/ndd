@@ -485,3 +485,15 @@ def test_exchange_script_checks_the_format_before_sending(tmp_path):
     out = subprocess.run([sys.executable, "scripts/ai_exchange.py", "check", str(lot), str(avis)],
                          capture_output=True, text=True, check=True).stdout
     assert "1 avis conformes, 2 problèmes" in out and "autre.fr : nom inconnu" in out and "mai.fr : pas d'avis" in out
+
+
+def test_top_follows_language_and_extensions(logged):
+    client = logged()
+    client.app.state.conn.execute("INSERT INTO fr_names (label, created_on) VALUES ('assurance', '2001-01-01')")
+    every = client.get("/api/explore/top", params={"cat": "sector", "n": 10}).json()
+    assert [i["label"] for i in every["items"]][:2] == ["assurance", "insurance"]
+    french = client.get("/api/explore/top", params={"cat": "sector", "n": 10, "lang": "fr", "tld": "fr"}).json()
+    labels = [i["label"] for i in french["items"]]
+    assert "mutuelle" in labels and "loans" not in labels and french["tlds"] == ["fr"]
+    assert french["items"][0]["cells"]["fr"]["state"] == "pris"
+    assert client.get("/api/explore/top", params={"cat": "nope"}).status_code == 422

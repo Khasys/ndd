@@ -547,6 +547,7 @@ document.addEventListener("alpine:init", () => {
       this.exSelected = [];
       this.exOpen = null;
       try { localStorage.setItem("explorer", JSON.stringify({ ...this.ex, q: "" })); } catch (_) {}
+      if (this.exTopOpen) this.exLoadTop();
       await this.exLoad();
     },
 
@@ -618,7 +619,8 @@ document.addEventListener("alpine:init", () => {
     async exLoadTop() {
       this.topData = null;
       try {
-        this.topData = await this.api("GET", `/api/explore/top?cat=${this.top.cat}&n=${this.top.n}`);
+        const params = new URLSearchParams({ cat: this.top.cat, n: String(this.top.n), tld: this.exTlds().join(","), lang: this.ex.lang || "" });
+        this.topData = await this.api("GET", `/api/explore/top?${params}`);
       } catch (e) {
         this.say(e.message, "error");
       }

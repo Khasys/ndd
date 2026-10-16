@@ -1010,9 +1010,17 @@ async def explore_top(request: Request):
     if size not in TOP_SIZES:
         raise HTTPException(422, "Taille invalide.")
     u = explorer.universe
-    tlds = explorer.tlds()
+    known = explorer.tlds()
+    # Extensions choisies dans l'Explorer (toutes si aucune), langue du filtre.
+    chosen = [t for t in request.query_params.get("tld", "").split(",") if t in known]
+    tlds = chosen or known
     data = {t: explorer.status_bytes(t) for t in tlds}
-    order = list(u.by_frequency[category][:size])
+    lang = request.query_params.get("lang", "")
+    order = u.by_frequency[category]
+    if lang in wordlists.LANGS:
+        names = wordlists.languages()[lang]
+        order = [i for i in order if u.label(i) in names]
+    order = list(order[:size])
     opinions = ai.load(explorer.conn, [f"{u.label(i)}.{t}" for i in order for t in tlds])
     items = []
     for rank, i in enumerate(order, 1):
