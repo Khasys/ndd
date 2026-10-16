@@ -11,14 +11,14 @@ from pathlib import Path
 DATA = Path(__file__).parent / "data"
 LABELS = {"word": "Mots", "form": "Formes fléchies", "surname": "Noms de famille", "firstname": "Prénoms",
           "english": "Mots anglais", "sector": "Secteurs porteurs", "trend": "Tendances", "combo": "Combinaisons",
-          "niche": "Sites de niche"}
+          "niche": "Sites de niche", "expr": "Expressions"}
 # Nature des mots et des formes, tirée du Lexique.
 NATURES = {"verb": "Verbes", "noun": "Noms communs", "adj": "Adjectifs", "adv": "Adverbes", "other": "Mots outils"}
 
 
 FILES = {"word": "mots.txt", "form": "formes.txt", "surname": "noms.txt", "firstname": "prenoms.txt",
          "english": "anglais.txt", "sector": "secteurs.txt", "trend": "tendances.txt", "combo": "combinaisons.txt",
-         "niche": "niches.txt"}
+         "niche": "niches.txt", "expr": "expressions.txt"}
 # Listes d'avant les mots anglais, secteurs, tendances et combinaisons : ce que couvrent les
 # lectures de zone faites avant leur ajout.
 LEGACY = ("word", "form", "surname", "firstname")

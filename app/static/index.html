@@ -150,6 +150,7 @@
       <dt>Tendances</dt><dd>IA, énergie, mobilité, bien-être…</dd>
       <dt>Combinaisons</dt><dd>monassurance, plombier-lyon, insurancehub, dallasplumber…</dd>
       <dt>Sites de niche</dt><dd>forumdomotique, guidepotager, gardeningforum…</dd>
+      <dt>Expressions</dt><dd>bonplan, faitmaison, coupdecoeur, goodvibes, homesweethome…</dd>
     </dl>
 
     <h3 id="help-words">Vocabulaire</h3>
@@ -565,7 +566,7 @@
         <template x-if="exTopOpen">
           <div class="ex-top">
             <div class="ex-chips">
-              <template x-for="k in ['sector', 'trend', 'niche', 'word', 'english', 'firstname', 'surname', 'combo', 'form'].filter((x) => exData.kinds[x])" :key="k">
+              <template x-for="k in ['sector', 'trend', 'expr', 'niche', 'word', 'english', 'firstname', 'surname', 'combo', 'form'].filter((x) => exData.kinds[x])" :key="k">
                 <button type="button" class="tag" :class="{ on: top.cat === k }" @click="top.cat = k; exLoadTop()" x-text="exData.kinds[k]"></button>
               </template>
             </div>

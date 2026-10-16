@@ -92,4 +92,16 @@ gardeningforum. Environ 110 thèmes français avec 25 formats français (pour le
 thèmes anglais avec 20 formats anglais (pour le .com), choisis et ordonnés à la main
 (scripts/lists/themes_fr.txt, themes_en.txt, formats.txt). Version collée seulement.
 
-Pour reconstruire les cinq fichiers : `python scripts/build_lists.py DOSSIER_WORDFREQ LEXIQUE383_TXT`.
+## expressions.txt
+
+Expressions courantes collées, environ 1 000, françaises (bonplan, faitmaison, coupdecoeur…) et
+anglaises (goodvibes, homesweethome, dealoftheday…) en alternance, rédigées et ordonnées à la main
+(scripts/lists/expressions_fr.txt et expressions_en.txt). Slogans de marques retirés. Les
+expressions déjà présentes dans une autre liste sont retirées.
+
+## langues.txt
+
+Langue (fr, en ou les deux) de chaque nom des listes mêlées : secteurs, tendances, combinaisons,
+sites de niche, expressions. Relevée à la construction.
+
+Pour reconstruire les fichiers : `python scripts/build_lists.py DOSSIER_WORDFREQ LEXIQUE383_TXT`.

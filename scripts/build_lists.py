@@ -8,6 +8,7 @@ Les listes choisies à la main sont dans scripts/lists ; sources et licences : a
 """
 
 import gzip
+import itertools
 import sys
 import unicodedata
 from pathlib import Path
@@ -184,6 +185,14 @@ def main() -> None:
     write("tendances.txt", trends)
     write("combinaisons.txt", combined)
     write("niches.txt", niches)
+    # Expressions courantes, rédigées à la main : français et anglais en alternance.
+    expr_fr, expr_en = unique(read("expressions_fr.txt")), unique(read("expressions_en.txt"))
+    LANG["fr"].update(expr_fr)
+    LANG["en"].update(expr_en)
+    taken |= set(combined)
+    expressions = [e for e in unique(x for pair in itertools.zip_longest(expr_fr, expr_en) for x in pair if x)
+                   if e not in taken and e not in banned]
+    write("expressions.txt", expressions)
     # Tendances : anglais si le mot est dans la liste anglaise, français s'il est dans le Lexique.
     french = existing | set(nouns(lexique))
     LANG["fr"].update(sectors_fr + [t for t in trends if t in french])
@@ -193,7 +202,7 @@ def main() -> None:
         if t not in LANG["fr"] and t not in LANG["en"]:
             LANG["fr"].add(t)
             LANG["en"].add(t)
-    mixed = set(sectors) | set(trends) | set(combined) | set(niches)
+    mixed = set(sectors) | set(trends) | set(combined) | set(niches) | set(expressions)
     lines = []
     for name in sorted(mixed):
         langs = [k for k in ("fr", "en") if name in LANG[k]]
