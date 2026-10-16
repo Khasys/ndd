@@ -381,3 +381,10 @@ def test_language_filter(env):
     assert "insurance" in en and "mutuelle" not in en
     counts = env.facets("fr", lang="en")
     assert 0 < counts["available"] < env.facets("fr")["available"]
+
+
+def test_fiche_tells_when_rdap_is_next_read(env):
+    add_fr(env, "velo")
+    env.conn.execute("UPDATE fr_names SET next_check_at = '2027-01-02T12:00:00Z' WHERE label = 'velo'")
+    assert env.fiche("velo.fr")["rdap_next"] == {"at": "2027-01-02T12:00:00Z", "why": "lendemain de la date anniversaire"}
+    assert env.fiche("zzqx.fr")["rdap_next"]["at"] is None

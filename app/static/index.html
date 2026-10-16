@@ -1268,7 +1268,7 @@
       </div>
       <div class="details-grid">
         <div x-html="valueHtml(fiche)"></div>
-        <div x-html="rdapDl(fiche.rdap)"></div>
+        <div x-html="rdapDl(fiche.rdap, fiche.rdap_next)"></div>
         <div class="fiche-more">
           <button type="button" class="btn-ghost sm" @click="ficheSeo()" :disabled="!!exBusy[fiche.name] || exSeo.running">Analyse SEO</button>
           <button type="button" class="btn-ghost sm" x-show="fiche.item && ![1, 6].includes(fiche.item.status)" @click="ficheFlag()" x-text="fiche.item && fiche.item.status === 7 ? 'Pas réservé' : 'Réservé'"></button>

@@ -1203,7 +1203,25 @@ class Explorer:
             "ai": ai.load(self.conn, [name]).get(name),
             "dns": frdns.load(self.conn, [label]).get(label) if tld == "fr" else None,
             "domain_id": domain["id"] if domain is not None else None,
+            "rdap_next": self._rdap_next(name, tld, domain),
         }
+
+    def _rdap_next(self, name: str, tld: str, domain) -> dict:
+        """Prochaine lecture RDAP prévue pour ce nom, et pourquoi ; sinon, pourquoi aucune."""
+        if domain is not None:
+            return {"at": domain["next_check_at"], "why": "domaine surveillé"}
+        drop = self.conn.execute("SELECT state, next_check_at FROM drops WHERE name = ?", (name,)).fetchone()
+        if drop is not None and drop["next_check_at"]:
+            return {"at": drop["next_check_at"], "why": "suppression suivie"}
+        if tld == "fr":
+            row = self.conn.execute("SELECT next_check_at, removed_on FROM fr_names WHERE label = ?",
+                                    (name.partition(".")[0],)).fetchone()
+            if row is not None and row["next_check_at"]:
+                return {"at": row["next_check_at"], "why": "lendemain de la date anniversaire"}
+            if row is not None and row["removed_on"]:
+                return {"at": None, "why": "supprimé d'après l'Afnic : vérification à la demande"}
+            return {"at": None, "why": "jamais enregistré d'après l'Afnic : vérification à la demande"}
+        return {"at": None, "why": "aucune lecture automatique : vérification à la demande ou en le surveillant"}
 
     def card(self, label: str) -> dict:
         """Un nom sur toutes les extensions connues."""

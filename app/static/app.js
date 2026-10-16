@@ -392,7 +392,7 @@ document.addEventListener("alpine:init", () => {
       if (item && item.created_on) past.push(["Open data .fr", esc(`créé le ${this.shortDate(item.created_on)}` + (item.removed_on ? `, supprimé le ${this.shortDate(item.removed_on)}` : ""))]);
       if (item && item.release_at) past.push(["Libération", esc("~" + this.shortDate(item.release_at))]);
       if (item && item.checked_at) past.push(["Vérifié", esc(this.relative(item.checked_at))]);
-      if (item && item.next_check_at) past.push(["Prochaine vérification", esc(this.relative(item.next_check_at))]);
+      if (item && item.next_check_at && !f.rdap_next) past.push(["Prochaine vérification", esc(this.relative(item.next_check_at))]);
       if (f.dns_eta) {
         const d = f.dns_eta;
         past.push(["DNS .fr, prochaine", esc(d.queued ? `nuit prochaine dès minuit (${this.fmt(d.position)}e sur ${this.fmt(d.nightly)} au plus)` : `pas la nuit prochaine : ${d.why}`)]);
@@ -453,8 +453,13 @@ document.addEventListener("alpine:init", () => {
       try { this.aiStatus = await this.api("GET", "/api/ai/status"); } catch (_) {}
     },
 
-    rdapDl(r) {
-      const body = r ? this.rdapHtml(r) : "<dt>RDAP</dt><dd>Pas encore lu : « Vérifier ».</dd>";
+    rdapDl(r, next) {
+      const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+      let body = r ? this.rdapHtml(r) : "<dt>RDAP</dt><dd>Pas encore lu.</dd>";
+      if (next) {
+        const when = next.at ? `${this.relative(next.at)} (${this.exact(next.at)}), ${next.why}` : `non prévue : ${next.why}`;
+        body += `<dt>Prochaine lecture</dt><dd>${esc(when)}</dd>`;
+      }
       return `<section class="fiche-sec"><h3>Registre (RDAP / WHOIS)</h3><dl>${body}</dl></section>`;
     },
 
