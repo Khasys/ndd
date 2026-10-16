@@ -177,7 +177,7 @@ Tous les noms suivis, extension par extension : les 1 926 220 noms possibles de 
 puis les mots, noms de famille et prénoms. L'état vient des données déjà sur le NAS, sans aucune
 requête : zones ICANN lues chaque jour, open data de l'Afnic, écran Suppressions par-dessus.
 
-- **Top** : les 10, 50, 100, 200 ou 500 premiers d'une liste (secteurs, tendances, sites de niche,
+- **Top** : les 10, 50, 100, 200, 500 ou 1 000 premiers d'une liste (secteurs, tendances, sites de niche,
   mots, anglais, prénoms, noms…), pris ou non, avec l'état sur chaque extension. Un état ouvre la fiche.
 - **Langue** : filtre Français / Anglais (Explorer et Suppressions). Listes mêlées : langue relevée à
   la construction (app/data/langues.txt) ; jargon des tendances absent des deux listes : les deux.

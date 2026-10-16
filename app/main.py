@@ -990,7 +990,7 @@ async def explore_rank(request: Request):
             "counts": _facets(explorer, params)}
 
 
-TOP_SIZES = (10, 50, 100, 200, 500)
+TOP_SIZES = (10, 50, 100, 200, 500, 1000)
 # État court pour le tableau Top : pris ou pas, d'un coup d'œil.
 TOP_STATES = {explore.REGISTERED: "pris", explore.SUSPENDED: "pris", explore.GONE: "libre ?", explore.ABSENT: "libre ?",
               explore.COMING: "à venir", explore.FREE: "libre", explore.RESERVED: "réservé", explore.INVALID: "pas lu"}
