@@ -921,6 +921,7 @@ document.addEventListener("alpine:init", () => {
       parts.push(`${this.fmt(d.present || 0)} avec serveurs (pris)`);
       parts.push(`${this.fmt(d.newly_taken)} nouvellement pris`);
       if (d.skipped) parts.push(`${this.fmt(d.skipped)} sans réponse`);
+      if (d.rate) parts.push(`rythme final ${String(d.rate).replace(".", ",")} par seconde`);
       if (d.stopped) parts.push("arrêtée à 6 h, la suite la nuit prochaine");
       return parts.join(", ") + ".";
     },

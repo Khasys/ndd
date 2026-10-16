@@ -29,8 +29,9 @@ from .checker import iso, utcnow
 
 log = logging.getLogger(__name__)
 
-NIGHTLY = 30_000          # noms par nuit
-RATE = 3.0                # requêtes par seconde au départ (divisé par deux si l'Afnic ralentit)
+NIGHTLY = 150_000         # noms par nuit au plus (la fenêtre de minuit à 6 h borne aussi la passe)
+RATE = 3.0                # requêtes par seconde au départ
+MAX_RATE = 10.0           # plafond atteint par paliers tant que tout répond
 MIN_RATE = 0.5
 START_HOUR = 0            # heure locale de départ : bien avant la lecture des zones (3 h) et la notation IA (5 h)
 END_HOUR = 6              # au-delà, la passe s'arrête ; le reste attend la nuit suivante
@@ -167,8 +168,8 @@ class FrDns:
                     streak = 0
                 else:
                     streak += 1
-                    if streak >= RECOVER_AFTER and rate < RATE:
-                        rate = min(RATE, rate * 1.25)
+                    if streak >= RECOVER_AFTER and rate < MAX_RATE:
+                        rate = min(MAX_RATE, rate * 1.25)
                         streak = 0
                     now = iso(utcnow())
                     self.conn.execute(
@@ -196,6 +197,7 @@ class FrDns:
         finally:
             self.running = False
             stats["finished_at"] = iso(utcnow())
+            stats["rate"] = round(rate, 1) if "rate" in locals() else None
             self.store.set("fr_dns_status", json.dumps(stats))
             self.store.set("fr_dns_last", datetime.now(self.local_zone).date().isoformat())
         return stats
