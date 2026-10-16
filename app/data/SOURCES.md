@@ -35,8 +35,9 @@ Source : Insee, fichier des noms, données publiques. Lu dans le dépôt github.
 
 ## prenoms.txt
 
-Prénoms donnés plus de 500 fois en France entre 1900 et 2018 (hors Mayotte), filles et garçons
-réunis. En minuscules, sans accents ; les prénoms composés gardent leur tiret (« jean-pierre »).
+Prénoms donnés plus de 100 fois en France entre 1900 et 2018 (hors Mayotte), filles et garçons
+réunis, environ 10 000. D'abord les 4 264 donnés plus de 500 fois, dans leur ordre d'origine,
+puis les autres, filles et garçons en alternance du plus au moins donné. En minuscules, sans accents ; les prénoms composés gardent leur tiret (« jean-pierre »).
 
 Source : Insee, fichier des prénoms, données publiques. Lu dans le même dépôt
 github.com/cnovel/prenoms (fichiers dist.prenoms.f.all.txt et dist.prenoms.m.all.txt).

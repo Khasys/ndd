@@ -366,6 +366,7 @@ def test_new_lists_wait_for_the_next_zone_read(env):
     assert env.status_bytes("com")[u.index("insurance")] == explore.ABSENT
     # Lecture faite avant l'ajout des nouvelles listes : leurs noms sont masqués, pas « libres ».
     env.drops.store.set("zone_lists_com", "")
+    env.drops._path("com", "searched").unlink()
     env.invalidate("com")
     status = env.status_bytes("com")
     assert status[u.index("insurance")] == explore.INVALID
@@ -388,3 +389,15 @@ def test_fiche_tells_when_rdap_is_next_read(env):
     env.conn.execute("UPDATE fr_names SET next_check_at = '2027-01-02T12:00:00Z' WHERE label = 'velo'")
     assert env.fiche("velo.fr")["rdap_next"] == {"at": "2027-01-02T12:00:00Z", "why": "lendemain de la date anniversaire"}
     assert env.fiche("zzqx.fr")["rdap_next"]["at"] is None
+
+
+
+def test_names_added_after_a_zone_read_wait_for_the_next_one(env):
+    zone(env, [], ["maison"])
+    # Lecture faite avec une liste sans « insurance » : il attend la lecture suivante.
+    env.drops._write(env.drops._path("com", "searched"), b"maison\ncourir")
+    env.invalidate("com")
+    status = env.status_bytes("com")
+    u = env.universe
+    assert status[u.index("insurance")] == explore.INVALID
+    assert status[u.index("courir")] == explore.ABSENT and status[u.index("maison")] == explore.REGISTERED

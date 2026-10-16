@@ -437,10 +437,18 @@ class DropWatcher:
         tmp.write_bytes(data)
         tmp.replace(path)
 
-    def _save(self, tld: str, bits: bytes, words: set[str]) -> None:
+    def _save(self, tld: str, bits: bytes, words: set[str], watched=None) -> None:
         self._write(self._path(tld, "short"), bytes(bits))
         self._write(self._path(tld, "words"), "\n".join(sorted(words)).encode())
+        # Noms cherchés à cette lecture : un nom ajouté depuis aux listes attend la suivante.
+        searched = sorted(w.decode() if isinstance(w, bytes) else w for w in (watched or wordlists.watched()))
+        self._write(self._path(tld, "searched"), "\n".join(searched).encode())
         self.store.set(f"zone_lists_{tld}", json.dumps(wordlists.fingerprints()))
+
+    def searched(self, tld: str) -> set[str] | None:
+        """Noms des listes cherchés à la dernière lecture de la zone ; None pour une lecture plus ancienne."""
+        path = self._path(tld, "searched")
+        return set(path.read_text().split()) if path.exists() else None
         # Carte de la v0.5.0 (4 caractères seulement), devenue inutile.
         self._path(tld, "bits").unlink(missing_ok=True)
 
@@ -515,7 +523,7 @@ class DropWatcher:
             added += added_words
             result.removed, result.added = len(removed), len(added)
             self.record(tld, removed, added, utcnow())
-        self._save(tld, bits, words)
+        self._save(tld, bits, words, scanner.watched)
         self._set_status(tld, result, started, scanner.bytes_in)
         return result
 

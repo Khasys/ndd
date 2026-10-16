@@ -380,13 +380,15 @@ class Explorer:
         # Liste ajoutée après la dernière lecture : ses noms ne sont pas encore cherchés dans la
         # zone. Masqués jusqu'à la prochaine lecture plutôt qu'affichés « libres » à tort.
         lists = wordlists.lists()
-        covered = self.drops.covered(tld)
-        known = set().union(*(lists[k] for k in covered)) if covered else set()
-        for key in set(lists) - covered:
-            for w in lists[key] - known:
-                i = u.index(w)
-                if i is not None and status[i] == ABSENT and i >= drops.CELLS:
-                    status[i] = INVALID
+        searched = self.drops.searched(tld)
+        if searched is None:
+            # Lecture d'avant ce relevé : on se fie aux empreintes des listes.
+            covered = self.drops.covered(tld)
+            searched = set().union(*(lists[k] for k in covered)) if covered else set()
+        for w in set().union(*lists.values()) - searched:
+            i = u.index(w)
+            if i is not None and status[i] == ABSENT and i >= drops.CELLS:
+                status[i] = INVALID
         return status
 
     def _build_fr(self) -> bytearray:

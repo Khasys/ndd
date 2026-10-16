@@ -76,8 +76,8 @@ estimées, avec un rappel la veille. Elle s'ouvre sans mot de passe : la changer
 Menu Suppressions : les noms qui quittent les zones des extensions génériques, suivis jusqu'à leur
 libération. Sont suivis tous les noms de 1 à 4 caractères (lettres, chiffres, tiret), les 20 000
 mots français les plus courants (forme de base, sans accents), les noms de famille donnés plus
-de 500 fois en France entre 1891 et 2000 (environ 21 700) et les prénoms donnés plus de 500 fois
-entre 1900 et 2018 (environ 4 500). S'y ajoutent les 30 000 mots anglais les plus fréquents
+de 500 fois en France entre 1891 et 2000 (environ 21 700) et les prénoms donnés plus de 100 fois
+entre 1900 et 2018 (environ 10 000). S'y ajoutent les 30 000 mots anglais les plus fréquents
 (marques connues retirées), environ 580 mots des secteurs qui paient (assurance, crédit,
 immobilier, droit, santé, travaux…), environ 200 mots en vogue et environ 35 000 combinaisons
 (monassurance, plombier-lyon, insurancehub, dallasplumber…) et environ 4 000 noms de sites de
