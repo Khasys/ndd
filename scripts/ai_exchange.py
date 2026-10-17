@@ -66,7 +66,11 @@ def main() -> None:
         print(f"{len(found['names'])} noms à noter (consigne v{found['version']}) dans {target}")
     elif action == "requested":
         target = sys.argv[2]
-        found = call("GET", "/api/ai/pending?requested=1")
+        found = call("GET", "/api/ai/pending?requested=1&limit=50")
+        # NAS d'avant cette fonction : il renverrait la file de nuit. On ne note alors rien.
+        if any(not n.get("requested") for n in found["names"]):
+            print("DEMANDES 0 (NAS pas à jour)")
+            return
         with open(target, "w", encoding="utf-8") as f:
             json.dump(found, f, ensure_ascii=False, indent=1)
         # Première ligne lue par la tâche horaire : à 0, elle s'arrête sans rien faire d'autre.
