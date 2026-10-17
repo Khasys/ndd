@@ -7,9 +7,11 @@ import math
 import logging
 import re
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlencode
 
 import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -239,6 +241,9 @@ async def require_session(request: Request, call_next):
         return await call_next(request)
     if path.startswith("/api/"):
         return JSONResponse({"detail": "Session expirée."}, status_code=401)
+    # Lien ouvert sans session (notification Telegram) : retour à la même page après connexion.
+    if path == "/" and request.url.query:
+        return RedirectResponse(f"/login?{urlencode({'next': '/?' + request.url.query})}", status_code=303)
     return RedirectResponse("/login", status_code=303)
 
 
@@ -339,18 +344,23 @@ async def setup_hash(request: Request, password: str = Form(""), confirm: str = 
 
 
 @app.get("/login", response_class=HTMLResponse)
-async def login_page():
-    return _page("login.html", ERROR="")
+async def login_page(next: str = ""):
+    return _page("login.html", ERROR="", NEXT=_safe_next(next))
+
+
+def _safe_next(target: str) -> str:
+    """Page de retour après connexion : chemin local seulement, jamais un autre site."""
+    return target if target.startswith("/") and not target.startswith(("//", "/\\")) and "\n" not in target else "/"
 
 
 @app.post("/login")
-async def login(request: Request, username: str = Form(""), password: str = Form("")):
+async def login(request: Request, username: str = Form(""), password: str = Form(""), next: str = Form("/")):
     state = request.app.state
     client = request.client.host if request.client else "unknown"
     locked = state.guard.locked_for(client)
     if locked:
         minutes = (locked + 59) // 60
-        return _page("login.html", ERROR=f"Trop d'échecs. Nouvel essai possible dans {minutes} min.")
+        return _page("login.html", ERROR=f"Trop d'échecs. Nouvel essai possible dans {minutes} min.", NEXT=_safe_next(next))
     ok = await run_in_threadpool(
         verify_credentials, username, password, state.settings.username, state.settings.password_hash
     )
@@ -365,10 +375,10 @@ async def login(request: Request, username: str = Form(""), password: str = Form
         )
         if state.guard.locked_for(client):
             minutes = (state.settings.login_lock_seconds + 59) // 60
-            return _page("login.html", ERROR=f"Trop d'échecs. Nouvel essai possible dans {minutes} min.")
-        return _page("login.html", ERROR="Identifiant ou mot de passe incorrect.")
+            return _page("login.html", ERROR=f"Trop d'échecs. Nouvel essai possible dans {minutes} min.", NEXT=_safe_next(next))
+        return _page("login.html", ERROR="Identifiant ou mot de passe incorrect.", NEXT=_safe_next(next))
     state.guard.success(client)
-    response = RedirectResponse("/", status_code=303)
+    response = RedirectResponse(_safe_next(next), status_code=303)
     _set_session(response, state)
     return response
 
@@ -379,7 +389,9 @@ def _set_session(response: Response, state) -> None:
         state.sessions.create(state.settings.username),
         max_age=state.settings.session_max_age,
         httponly=True,
-        samesite="strict",
+        # « lax » : la session suit un lien ouvert depuis Telegram ; les envois (POST, PUT) d'un autre site
+        # restent sans cookie.
+        samesite="lax",
         secure=state.settings.cookie_secure,
     )
 
@@ -970,6 +982,16 @@ def _explore_meta(explorer, tld: str, chosen: list[str] | None = None) -> dict:
     }
 
 
+# Calculs de l'Explorer hors de la boucle d'événements : un parcours de plusieurs secondes
+# (nouvelle extension, filtres larges) ne bloque plus le reste de l'appli ni la connexion.
+# Un seul fil : les calculs de l'écran passent l'un après l'autre, comme avant.
+_EXPLORER_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="explorer")
+
+
+async def _off(fn, *args):
+    return await asyncio.get_running_loop().run_in_executor(_EXPLORER_POOL, fn, *args)
+
+
 @app.get("/api/explore")
 async def explore_search(request: Request):
     """Liste par ordre des noms (et export) : la vue « par nom »."""
@@ -977,16 +999,20 @@ async def explore_search(request: Request):
     params = _explore_params(request)
     chosen = params.pop("tlds")
     limit = _limit(request, explore.MAX_LIMIT)
-    if len(chosen) == 1:
-        result = explorer.search(**params, limit=limit)
-    else:
-        # Plusieurs extensions : une page par extension, sans curseur commun.
-        rest = {k: v for k, v in params.items() if k != "tld"}
-        items = [i for tld in chosen for i in explorer.search(tld, **rest, limit=limit)["items"]]
-        result = {"items": items[:limit], "cursor": None}
-    params["tlds"] = chosen
-    return {**result, **_explore_meta(explorer, params["tld"], chosen),
-            "counts": _facets(explorer, params)}
+
+    def run():
+        if len(chosen) == 1:
+            result = explorer.search(**params, limit=limit)
+        else:
+            # Plusieurs extensions : une page par extension, sans curseur commun.
+            rest = {k: v for k, v in params.items() if k != "tld"}
+            items = [i for tld in chosen for i in explorer.search(tld, **rest, limit=limit)["items"]]
+            result = {"items": items[:limit], "cursor": None}
+        params["tlds"] = chosen
+        return {**result, **_explore_meta(explorer, params["tld"], chosen),
+                "counts": _facets(explorer, params)}
+
+    return await _off(run)
 
 
 @app.get("/api/explore/rank")
@@ -1002,6 +1028,10 @@ async def explore_rank(request: Request):
         raise HTTPException(422, "Tri inconnu.")
     chosen = params["tlds"]
     rest = {k: v for k, v in params.items() if k not in ("tld", "tlds")}
+    return await _off(_rank, explorer, params, chosen, rest, limit, sort)
+
+
+def _rank(explorer, params, chosen, rest, limit, sort):
     if len(chosen) == 1:
         result = explorer.rank(chosen[0], **rest, limit=limit, sort=sort)
     else:
@@ -1040,13 +1070,17 @@ async def explore_top(request: Request):
         raise HTTPException(422, "Taille invalide.") from None
     if size not in TOP_SIZES:
         raise HTTPException(422, "Taille invalide.")
+    return await _off(_top, explorer, category, size, request.query_params.get("tld", ""),
+                      request.query_params.get("lang", ""))
+
+
+def _top(explorer, category, size, wanted, lang):
     u = explorer.universe
     known = explorer.tlds()
     # Extensions choisies dans l'Explorer (toutes si aucune), langue du filtre.
-    chosen = [t for t in request.query_params.get("tld", "").split(",") if t in known]
+    chosen = [t for t in wanted.split(",") if t in known]
     tlds = chosen or known
     data = {t: explorer.status_bytes(t) for t in tlds}
-    lang = request.query_params.get("lang", "")
     order = u.by_frequency[category]
     if lang in wordlists.LANGS and category not in wordlists.NO_LANG:
         names = wordlists.languages()[lang]
@@ -1065,7 +1099,7 @@ async def explore_top(request: Request):
 
 @app.get("/api/explore/map")
 async def explore_map(request: Request):
-    return request.app.state.explorer.map()
+    return await _off(request.app.state.explorer.map)
 
 
 class SeoNames(BaseModel):
@@ -1151,7 +1185,11 @@ class Views(BaseModel):
 async def ai_pending(request: Request):
     """Liste à noter, avec la consigne : la tâche planifiée la récupère chaque nuit."""
     explorer = request.app.state.explorer
-    names = ai.pending(explorer, _limit(request, ai.MAX_PENDING))
+    if request.query_params.get("requested") == "1":
+        # Tâche horaire : seulement les analyses demandées depuis une fiche (souvent aucune).
+        names = await _off(ai.requested, explorer)
+    else:
+        names = ai.pending(explorer, _limit(request, ai.MAX_PENDING))
     return {"version": ai.VERSION, "guide": ai.GUIDE, "format": ai.FORMAT, "names": names}
 
 
@@ -1164,9 +1202,56 @@ async def ai_results(request: Request, payload: AiResults):
     if len(payload.results) > ai.MAX_RESULTS:
         raise HTTPException(422, f"{ai.MAX_RESULTS} avis au plus par envoi.")
     explorer = request.app.state.explorer
-    saved = ai.save(request.app.state.conn, payload.results, ai.known_name(explorer))
+    conn = request.app.state.conn
+    known = ai.known_name(explorer)
+    asked = {r["name"] for r in ai.requests(conn)["pending"]}
+    saved = ai.save(conn, payload.results, lambda name: name in asked or known(name))
     explorer.ai_changed()  # compteurs filtrés sur l'avis
+    for name in ai.finish(conn, saved.pop("names")):
+        await _notify_ai_done(request, name)
     return saved
+
+
+async def _notify_ai_done(request: Request, name: str) -> None:
+    """Analyse demandée prête : message Telegram avec le lien direct vers la fiche."""
+    opinion = ai.load(request.app.state.conn, [name]).get(name) or {}
+    base = request.app.state.settings.app_url or request.app.state.store.get("public_url") or ""
+    link = f"{base}/?{urlencode({'fiche': name, 'ai': '1'})}" if base else ""
+    text = "\n".join(x for x in (f"Analyse IA prête : {name}", opinion.get("comment", ""), link) if x)
+    try:
+        await request.app.state.telegram.send(text)
+    except Exception as exc:  # noqa: BLE001  la notification dans l'appli reste
+        log.warning("Analyse IA : message Telegram non envoyé (%s)", exc)
+
+
+class AiAsk(BaseModel):
+    name: str
+
+
+@app.post("/api/ai/request")
+async def ai_request(request: Request, payload: AiAsk):
+    """Demande d'analyse IA d'un nom, traitée par la tâche horaire."""
+    try:
+        name = clean_domain(payload.name)
+    except InvalidDomain as exc:
+        raise HTTPException(422, str(exc)) from None
+    # Adresse publique de l'appli, vue du navigateur : sert au lien du message Telegram.
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+    if host and not request.app.state.settings.app_url:
+        scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
+        request.app.state.store.set("public_url", f"{scheme}://{host}")
+    return ai.request(request.app.state.conn, name)
+
+
+@app.get("/api/ai/requests")
+async def ai_requests(request: Request):
+    return ai.requests(request.app.state.conn)
+
+
+@app.post("/api/ai/requests/seen")
+async def ai_request_seen(request: Request, payload: AiAsk):
+    ai.seen(request.app.state.conn, payload.name.strip().lower())
+    return ai.requests(request.app.state.conn)
 
 
 @app.get("/api/ai/status")
@@ -1318,15 +1403,8 @@ async def explore_export(request: Request):
     params["cursor"] = -1
     chosen = params.pop("tlds")
     params.pop("tld")
-    items = []
     explorer = request.app.state.explorer
-    for tld in chosen:
-        found = explorer.search(tld, **params, limit=explore.EXPORT_LIMIT)["items"]
-        if params["min_score"]:
-            # Même règle que la liste affichée : le score minimum s'applique aussi à l'export.
-            scores = explorer.value_of([i["name"] for i in found])
-            found = [i for i in found if scores.get(i["name"], {}).get("score", 0) >= params["min_score"]]
-        items += found
+    items = await _off(_export_items, explorer, params, chosen)
     lines = ["nom;etat;categories;cree_le;supprime_le;echeance;verifie_le"]
     for item in items[:explore.EXPORT_LIMIT]:
         lines.append(";".join([
@@ -1339,9 +1417,21 @@ async def explore_export(request: Request):
                     headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
+def _export_items(explorer, params, chosen):
+    items = []
+    for tld in chosen:
+        found = explorer.search(tld, **params, limit=explore.EXPORT_LIMIT)["items"]
+        if params["min_score"]:
+            # Même règle que la liste affichée : le score minimum s'applique aussi à l'export.
+            scores = explorer.value_of([i["name"] for i in found])
+            found = [i for i in found if scores.get(i["name"], {}).get("score", 0) >= params["min_score"]]
+        items += found
+    return items
+
+
 @app.get("/api/explore/name")
 async def explore_name(request: Request):
-    return request.app.state.explorer.card(request.query_params.get("label", ""))
+    return await _off(request.app.state.explorer.card, request.query_params.get("label", ""))
 
 
 @app.get("/api/explore/fiche")
@@ -1351,8 +1441,9 @@ async def explore_fiche(request: Request):
     except InvalidDomain as exc:
         raise HTTPException(422, str(exc)) from None
     explorer = request.app.state.explorer
-    found = explorer.fiche(name)
+    found = await _off(explorer.fiche, name)
     found["ai_eta"] = await _ai_eta(explorer, found)
+    found["ai_request"] = ai.request_state(request.app.state.conn, name)
     if found.get("tld") == "fr":
         found["dns_eta"] = await _dns_eta(request.app.state.fr_dns, found)
     return found

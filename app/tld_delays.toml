@@ -11,7 +11,7 @@
 # Une clé absente signifie « valeur introuvable ou ambiguë ». Dans ce cas l'appli
 # n'affiche aucune estimation de libération pour ce TLD.
 #
-# Consultation : 2026-10-12 (.com, .net, .fr), 2026-10-15 (.org, .info, .biz). Les pages ont été lues au travers des extraits d'un
+# Consultation : 2026-10-12 (.com, .net, .fr), 2026-10-15 (.org, .info, .biz), 2026-10-17 (.app, .dev, .xyz). Les pages ont été lues au travers des extraits d'un
 # moteur de recherche, l'accès direct aux sites ICANN et Afnic étant bloqué depuis
 # l'environnement de développement. À relire sur les documents d'origine.
 
@@ -71,6 +71,37 @@ auto_renew_grace = 45
 # Même appendice : Redemption Grace Period de 30 jours
 redemption = 30
 # Même appendice : période de suppression de cinq jours après la rédemption
+pending_delete = 5
+# drop_time_utc : absent (aucune source du registre).
+
+[app]
+# https://registry.google/policies/pricing/app (consulté le 2026-10-17) : renouvellement automatique d'un an
+# à l'expiration ; « For 45 days after a domain expires, Registrars can delete the domain »
+auto_renew_grace = 45
+# Même page : « For 30 days after a domain is deleted, a Registrar may redeem the domain »
+redemption = 30
+# Durée non écrite par Google Registry. Cinq jours : période de suppression du contrat type ICANN
+# des nouvelles extensions, reprise par les registrars. À confirmer.
+pending_delete = 5
+# drop_time_utc : absent (aucune source du registre).
+
+[dev]
+# https://registry.google/policies/pricing/dev (consulté le 2026-10-17) : mêmes règles que .app,
+# 45 jours après l'expiration pour supprimer sans payer le renouvellement
+auto_renew_grace = 45
+# Même page : 30 jours de rédemption après la suppression
+redemption = 30
+# Comme .app : cinq jours, non écrit par le registre. À confirmer.
+pending_delete = 5
+# drop_time_utc : absent (aucune source du registre).
+
+[xyz]
+# auto_renew_grace : absent. Aucune page du registre XYZ trouvée ; 45 jours est l'usage courant,
+# pas une règle publiée. Sans cette valeur, pas d'estimation tant que le nom est seulement expiré.
+# Rédemption de 30 jours puis cinq jours de suppression : période de rédemption ICANN imposée
+# aux nouvelles extensions, décrite ici (consulté le 2026-10-17) :
+# https://archive.icann.org/registrars/redemption-supplement-20feb02.htm
+redemption = 30
 pending_delete = 5
 # drop_time_utc : absent (aucune source du registre).
 

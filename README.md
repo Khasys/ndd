@@ -255,6 +255,15 @@ ni tiret long). Le verdict est « À prendre » (note d'au moins 60), « À surv
 (notes de 45 au plus) ; il apparaît en tête de l'étiquette dans les listes. Le script applique le même contrôle avant l'envoi (`check`). Une tâche planifiée fait l'échange
 chaque nuit avec `scripts/ai_exchange.py` (variables `DW_URL` et `DW_AI_TOKEN`).
 
+Analyse à la demande : bouton « Analyse IA » dans la fiche de n'importe quel nom, même hors des
+listes ou des extensions notées la nuit. Une tâche planifiée passe toutes les heures
+(`scripts/ai_exchange.py requested`) et s'arrête aussitôt s'il n'y a aucune demande. Une fois
+l'avis reçu : message Telegram avec le lien direct vers la fiche (adresse `APP_URL`, sinon celle vue
+par le navigateur au moment de la demande), et bandeau « Analyse IA prête » dans l'appli. Le
+bandeau disparaît quand on l'ouvre ou quand on suit le lien Telegram ; l'avis est alors encadré
+dans la fiche, puis affiché normalement aux visites suivantes. Lien ouvert sans session :
+connexion, puis retour sur la fiche.
+
 Le jeton se crée dans Paramètres > Avis IA ; il n'est montré qu'une fois. Il ouvre l'échange des
 avis et, en lecture seule (GET), le diagnostic `/api/diag` (version, mémoire, zones, .fr, DNS, avis
 IA, compteurs, tâches planifiées, dernières erreurs du journal), les écrans (Domaines, Suppressions,

@@ -66,6 +66,14 @@
     </nav>
   </header>
 
+  <div class="ai-ready" x-show="aiReq.done.length" x-cloak role="status">
+    <template x-for="r in aiReq.done" :key="r.name">
+      <button type="button" class="ai-ready-item" @click="openFiche(r.name, true)">
+        <span>Analyse IA prête</span> <span class="mono" x-text="r.name"></span>
+      </button>
+    </template>
+  </div>
+
   <form class="add list-view" @submit.prevent="add()">
     <label class="visually-hidden" for="new-domain">Domaine à surveiller</label>
     <input id="new-domain" x-ref="input" x-model="newName" type="text" inputmode="url" autocomplete="off"
@@ -1274,6 +1282,7 @@
         <a class="btn-ghost" :href="orderLink(fiche.name)" target="_blank" rel="noopener" x-text="registrarName ? 'Réserver chez ' + registrarName : 'Réserver'"></a>
         <button type="button" class="btn-ghost" x-show="!fiche.domain_id" @click="ficheWatch()">Surveiller</button>
         <button type="button" class="btn-ghost" x-show="fiche.domain_id" @click="openDomain(fiche.domain_id)">Voir dans Domaines</button>
+        <button type="button" class="btn-ghost" @click="ficheAskAi()" :disabled="fiche.ai_request && !fiche.ai_request.done_at" x-text="aiAskLabel(fiche)"></button>
       </div>
       <div class="details-grid">
         <div x-html="valueHtml(fiche)"></div>

@@ -52,7 +52,7 @@ def test_login_flow_with_generated_secret(client_factory, tmp_path):
         response = client.post("/login", data={"username": "moi", "password": PASSWORD})
         assert response.status_code == 303
         cookie = response.headers["set-cookie"].lower()
-        assert "httponly" in cookie and "samesite=strict" in cookie
+        assert "httponly" in cookie and "samesite=lax" in cookie
         assert client.get("/api/domains").json() == []
     secret = (tmp_path / "secret_key").read_text()
     assert len(secret) > 40
@@ -513,3 +513,47 @@ def test_language_is_ignored_for_first_names(logged):
     every = client.get("/api/explore/top", params={"cat": "firstname", "n": 500}).json()
     french = client.get("/api/explore/top", params={"cat": "firstname", "n": 500, "lang": "fr"}).json()
     assert len(every["items"]) == len(french["items"]) == 500
+
+
+def test_ai_analysis_on_request(logged):
+    client = logged()
+    token = client.post("/api/settings/ai-token").json()["token"]
+    sent = []
+
+    async def send(text, chat_id=None):
+        sent.append(text)
+
+    client.app.state.telegram.send = send
+    # Demande depuis la fiche, même pour un nom hors des listes.
+    asked = client.post("/api/ai/request", json={"name": "MonProjet.io"}, headers={"host": "domaines.exemple.fr"}).json()
+    assert asked["name"] == "monprojet.io" and asked["done_at"] is None
+    assert client.get("/api/explore/fiche", params={"name": "monprojet.io"}).json()["ai_request"]["done_at"] is None
+    assert [r["name"] for r in client.get("/api/ai/requests").json()["pending"]] == ["monprojet.io"]
+
+    headers = {"Authorization": f"Bearer {token}"}
+    lot = client.get("/api/ai/pending", params={"requested": "1"}, headers=headers).json()
+    assert [n["name"] for n in lot["names"]] == ["monprojet.io"] and lot["names"][0]["requested"]
+    opinion = {"name": "monprojet.io", "exploit": 40, "resale": 30, "quick_low": 0, "quick_high": 0,
+               "final_low": 100, "final_high": 300,
+               "comment": "À laisser. Composé générique en .io. Acheteur type : start-up du même nom."}
+    assert client.post("/api/ai/results", json={"results": [opinion]}, headers=headers).json()["saved"] == 1
+    # Telegram : le verdict et le lien direct vers la fiche.
+    assert len(sent) == 1 and "monprojet.io" in sent[0] and "À laisser" in sent[0]
+    assert "/?fiche=monprojet.io&ai=1" in sent[0] and "domaines.exemple.fr" in sent[0]
+    assert client.get("/api/ai/pending", params={"requested": "1"}, headers=headers).json()["names"] == []
+    # Notification dans l'appli jusqu'à l'ouverture de la fiche.
+    done = client.get("/api/ai/requests").json()["done"]
+    assert [d["name"] for d in done] == ["monprojet.io"] and done[0]["comment"].startswith("À laisser")
+    assert client.post("/api/ai/requests/seen", json={"name": "monprojet.io"}).json() == {"pending": [], "done": []}
+
+    # Lien ouvert sans session : connexion, puis retour sur la fiche.
+    client.cookies.clear()
+    login = client.get("/?fiche=monprojet.io&ai=1", follow_redirects=False)
+    assert login.headers["location"] == "/login?next=%2F%3Ffiche%3Dmonprojet.io%26ai%3D1"
+    back = client.post("/login", data={"username": "moi", "password": PASSWORD, "next": "/?fiche=monprojet.io&ai=1"},
+                       follow_redirects=False)
+    assert back.headers["location"] == "/?fiche=monprojet.io&ai=1"
+    evil = client.post("/login", data={"username": "moi", "password": PASSWORD, "next": "//evil.example"},
+                       follow_redirects=False)
+    assert evil.headers["location"] == "/"
+    client.__exit__(None, None, None)

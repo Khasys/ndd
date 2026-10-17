@@ -1,6 +1,7 @@
 """Échange avec le NAS pour la notation IA (utilisé par la tâche planifiée).
 
   python scripts/ai_exchange.py pull 1000 lot.json      # liste à noter + consigne + format
+  python scripts/ai_exchange.py requested lot.json      # analyses demandées depuis l'appli (tâche horaire)
   python scripts/ai_exchange.py check lot.json avis.json # contrôle le format, sans rien envoyer
   python scripts/ai_exchange.py push lot.json avis.json  # contrôle puis envoie les avis conformes
 
@@ -63,6 +64,13 @@ def main() -> None:
         with open(target, "w", encoding="utf-8") as f:
             json.dump(found, f, ensure_ascii=False, indent=1)
         print(f"{len(found['names'])} noms à noter (consigne v{found['version']}) dans {target}")
+    elif action == "requested":
+        target = sys.argv[2]
+        found = call("GET", "/api/ai/pending?requested=1")
+        with open(target, "w", encoding="utf-8") as f:
+            json.dump(found, f, ensure_ascii=False, indent=1)
+        # Première ligne lue par la tâche horaire : à 0, elle s'arrête sans rien faire d'autre.
+        print(f"DEMANDES {len(found['names'])}")
     elif action in ("check", "push"):
         good, problems = verify(sys.argv[2], sys.argv[3])
         print(f"{len(good)} avis conformes, {len(problems)} problèmes")
@@ -78,7 +86,7 @@ def main() -> None:
             for r in rejected[:20]:
                 print(f"  {r['name']} : {r['reason']}")
     else:
-        sys.exit("Usage : pull <nombre> <lot.json> | check <lot.json> <avis.json> | push <lot.json> <avis.json>")
+        sys.exit("Usage : pull <nombre> <lot.json> | requested <lot.json> | check <lot.json> <avis.json> | push <lot.json> <avis.json>")
 
 
 if __name__ == "__main__":

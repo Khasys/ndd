@@ -11,7 +11,7 @@ import hashlib
 import hmac
 import secrets
 
-from . import value, wordlists
+from . import rdapinfo, value, wordlists
 from .checker import iso, utcnow
 
 # Version de la consigne : la monter fait renoter tous les noms, petit à petit.
@@ -247,7 +247,7 @@ def _describe(explorer, picked, data) -> list[dict]:
 def save(conn, results: list, known) -> dict:
     """Enregistre les avis au bon format ; les autres sont rejetés avec la raison, sans bloquer le lot."""
     now = iso(utcnow())
-    saved, rejected = 0, []
+    saved, rejected, names = 0, [], []
     for item in results[:MAX_RESULTS]:
         reason = check(item, known)
         if reason:
@@ -265,7 +265,8 @@ def save(conn, results: list, known) -> dict:
             (*(item[k] for k in FIELDS), now, VERSION),
         )
         saved += 1
-    return {"saved": saved, "rejected": rejected}
+        names.append(item["name"])
+    return {"saved": saved, "rejected": rejected, "names": names}
 
 
 def known_name(explorer):
@@ -278,3 +279,73 @@ def known_name(explorer):
         return bool(label) and tld in tlds and u.index(label) is not None
 
     return exists
+
+
+# --- Analyses demandées depuis la fiche -------------------------------------------------
+
+def request(conn, name: str) -> dict:
+    """Demande (ou redemande) l'analyse d'un nom : la tâche horaire la traite."""
+    conn.execute(
+        """INSERT INTO ai_requests (name, requested_at) VALUES (?, ?)
+           ON CONFLICT(name) DO UPDATE SET requested_at = excluded.requested_at, done_at = NULL, seen_at = NULL""",
+        (name, iso(utcnow())),
+    )
+    return request_state(conn, name)
+
+
+def request_state(conn, name: str) -> dict | None:
+    row = conn.execute("SELECT * FROM ai_requests WHERE name = ?", (name,)).fetchone()
+    return dict(row) if row else None
+
+
+def requests(conn) -> dict:
+    """En attente, et traitées pas encore vues : la cloche de l'appli."""
+    rows = [dict(r) for r in conn.execute(
+        "SELECT * FROM ai_requests WHERE done_at IS NULL OR seen_at IS NULL ORDER BY requested_at DESC")]
+    done = [r for r in rows if r["done_at"]]
+    opinions = load(conn, [r["name"] for r in done])
+    for r in done:
+        r["comment"] = (opinions.get(r["name"]) or {}).get("comment", "")
+    return {"pending": [r for r in rows if not r["done_at"]], "done": done}
+
+
+def seen(conn, name: str) -> None:
+    conn.execute("UPDATE ai_requests SET seen_at = ? WHERE name = ? AND done_at IS NOT NULL AND seen_at IS NULL",
+                 (iso(utcnow()), name))
+
+
+def requested(explorer) -> list[dict]:
+    """Noms demandés à analyser, décrits comme ceux de la file de nuit quand ils y sont connus."""
+    names = [r[0] for r in explorer.conn.execute(
+        "SELECT name FROM ai_requests WHERE done_at IS NULL ORDER BY requested_at")]
+    u = explorer.universe
+    tlds = explorer.tlds()
+    data = {t: explorer.status_bytes(t) for t in tlds}
+    rdap = rdapinfo.load(explorer.conn, names)
+    out = []
+    for name in names:
+        label, _, tld = name.partition(".")
+        i = u.index(label)
+        if i is not None and tld in data:
+            item = _describe(explorer, [(i, label, tld)], data)[0]
+        else:
+            # Hors des listes ou extension sans zone : on dit ce qu'on sait, sans inventer.
+            item = {"name": name, "status": "hors des listes suivies", "categories": [], "natures": [], "ranks": {},
+                    "taken_elsewhere": [t for t in data if i is not None and data[t][i] in TAKEN], "base": value.base(label)}
+        r = rdap.get(name)
+        if r is not None:
+            item["rdap"] = {k: r[k] for k in ("at", "available", "statuses", "registered_at", "expires_at")}
+        item["requested"] = True
+        out.append(item)
+    return out
+
+
+def finish(conn, names: list[str]) -> list[str]:
+    """Marque traitées les demandes dont l'avis vient d'arriver ; renvoie ces noms."""
+    now = iso(utcnow())
+    done = []
+    for name in names:
+        cur = conn.execute("UPDATE ai_requests SET done_at = ? WHERE name = ? AND done_at IS NULL", (now, name))
+        if cur.rowcount:
+            done.append(name)
+    return done

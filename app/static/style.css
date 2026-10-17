@@ -974,3 +974,14 @@ button:disabled { cursor: default; opacity: .55; }
 .top-cell.top-4 { color: #9a5b00; border-color: #e0b56a; }
 .top-cell.top-5 { color: #1d7a3a; border-color: #7cc596; font-weight: 600; }
 .top-cell.top-7 { text-decoration: line-through; }
+
+/* Analyses IA demandées et prêtes : bandeau au-dessus de tout, disparaît à l'ouverture. */
+.ai-ready { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 8px); left: 50%; transform: translateX(-50%);
+  z-index: 60; display: flex; flex-direction: column; gap: 6px; width: min(420px, calc(100% - 32px)); }
+.ai-ready-item { display: flex; gap: 8px; align-items: center; justify-content: center; width: 100%; padding: 10px 14px;
+  border: 0; border-radius: 10px; background: var(--accent); color: var(--accent-text); font: inherit; font-weight: 500;
+  cursor: pointer; box-shadow: 0 4px 16px rgba(0, 0, 0, .18); }
+.ai-ready-item .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Avis IA ouvert depuis la notification : encadré, pour le voir tout de suite. */
+.fiche-sec.fiche-hot { padding: 10px 12px; border: 2px solid var(--accent); border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent); }

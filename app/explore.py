@@ -1225,6 +1225,9 @@ class Explorer:
             if row is not None:
                 return {"at": None, "why": "aucune lecture prévue : vérification à la demande"}
             return {"at": None, "why": "jamais enregistré d'après l'Afnic : vérification à la demande"}
+        if tld in self.tlds():
+            return {"at": None, "why": f"pas de lecture RDAP : la zone .{tld}, lue chaque nuit, signale le jour où il en sort ; "
+                                      "le surveiller pour suivre son échéance"}
         return {"at": None, "why": "aucune lecture automatique : vérification à la demande ou en le surveillant"}
 
     def card(self, label: str) -> dict:

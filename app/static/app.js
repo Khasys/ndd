@@ -131,6 +131,7 @@ document.addEventListener("alpine:init", () => {
     ex: { tld: "", q: "", status: "available", cat: "", len: "", sort: "score", nat: "", rank: "", taken: "", min: "", junk: "", seo: "", lang: "", ...AI_FILTER_DEFAULTS },
     exFiltersOpen: false,
     fiche: null,
+    aiReq: { pending: [], done: [] },
     aiToken: "",
     aiStatus: null,
     domainFiche: null,
@@ -181,10 +182,17 @@ document.addEventListener("alpine:init", () => {
         this.$watch(key, () => this.dropSave());
       }
       this.load();
+      this.loadAiRequests();
+      // Lien direct vers une fiche (message Telegram d'une analyse prête) : ouverte, puis adresse nettoyée.
+      const linked = new URLSearchParams(window.location.search);
+      if (linked.get("fiche")) {
+        this.openFiche(linked.get("fiche"), linked.get("ai") === "1");
+        history.replaceState(null, "", "/");
+      }
       // Sur téléphone, le focus automatique ouvrirait le clavier à chaque lancement.
       if (!this.mobile) this.$nextTick(() => this.$refs.input.focus());
       setInterval(() => (this.now = Date.now()), 30000);
-      setInterval(() => this.load(true), 60000);
+      setInterval(() => { this.load(true); this.loadAiRequests(); }, 60000);
       // Appli installée : retour au premier plan après une pause, données à rafraîchir.
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible") { this.now = Date.now(); this.load(true); }
@@ -309,14 +317,49 @@ document.addEventListener("alpine:init", () => {
       if (!this.orderUrl) this.api("GET", "/api/settings").then((c) => (this.orderUrl = c.order_url)).catch(() => {});
     },
 
-    async openFiche(name) {
+    // hot : ouverte depuis une notification d'analyse prête ; l'avis IA est mis en avant, une fois.
+    async openFiche(name, hot = false) {
       this.loadOrderUrl();
       if (!this.fiche) this.remember();
       try {
-        this.fiche = await this.api("GET", `/api/explore/fiche?name=${encodeURIComponent(name)}`);
+        const fiche = await this.api("GET", `/api/explore/fiche?name=${encodeURIComponent(name)}`);
+        fiche.hot = hot;
+        this.fiche = fiche;
+        if (hot) this.aiSeen(fiche.name);
       } catch (e) {
         this.say(`${name} : ${e.message}`, "error");
       }
+    },
+
+    // Analyses IA demandées : en attente, et prêtes pas encore ouvertes (bandeau).
+    async loadAiRequests() {
+      try {
+        this.aiReq = await this.api("GET", "/api/ai/requests");
+      } catch (_) {}
+    },
+
+    async aiSeen(name) {
+      this.aiReq.done = this.aiReq.done.filter((r) => r.name !== name);
+      try {
+        this.aiReq = await this.api("POST", "/api/ai/requests/seen", { name });
+      } catch (_) {}
+    },
+
+    async ficheAskAi() {
+      const name = this.fiche.name;
+      try {
+        this.fiche.ai_request = await this.api("POST", "/api/ai/request", { name });
+        this.loadAiRequests();
+        this.say(`Analyse IA demandée pour ${name}. Traitement dans l'heure.`);
+      } catch (e) {
+        this.say(`${name} : ${e.message}`, "error");
+      }
+    },
+
+    aiAskLabel(f) {
+      const r = f.ai_request;
+      if (r && !r.done_at) return "Analyse IA demandée";
+      return f.ai || (f.item && f.item.ai) ? "Relancer l'analyse IA" : "Analyse IA";
     },
 
     async ficheReload() {
@@ -367,7 +410,9 @@ document.addEventListener("alpine:init", () => {
       const item = f.item;
       const opinion = f.ai || (item && item.ai);
       const ai = [], score = [], name = [], past = [];
-      if (!opinion && f.ai_eta) {
+      const req = f.ai_request;
+      if (req && !req.done_at) ai.push(["Demande", esc(`envoyée ${this.relative(req.requested_at)}, traitée dans l'heure`)]);
+      if (!opinion && f.ai_eta && !(req && !req.done_at)) {
         const e = f.ai_eta;
         ai.push(["Notation", e.position
           ? esc(`nuit du ${this.shortDate(e.night)}, ${this.fmt(e.position)}e de la file (${this.fmt(e.per_night)} par nuit)`)
@@ -405,7 +450,7 @@ document.addEventListener("alpine:init", () => {
         if (f.seo.wb_first) parts.push(`archivé depuis ${f.seo.wb_first.slice(0, 4)}` + (f.seo.wb_years ? ` (${f.seo.wb_years} ans)` : ""));
         past.push(["SEO", esc(parts.join(", ") || "aucun signal") + `, analysé ${esc(this.relative(f.seo.checked_at))}`]);
       }
-      return this.ficheSection("Avis IA", ai) + this.ficheSection("Score", score)
+      return this.ficheSection("Avis IA", ai, f.hot && opinion ? "fiche-hot" : "") + this.ficheSection("Score", score)
         + this.ficheSection("Le nom", name) + this.ficheSection("Historique, suivi et SEO", past);
     },
 
@@ -416,9 +461,9 @@ document.addEventListener("alpine:init", () => {
     },
 
     // Une section de fiche : titre puis lignes libellé / valeur (valeurs déjà échappées).
-    ficheSection(title, rows) {
+    ficheSection(title, rows, extra = "") {
       if (!rows.length) return "";
-      return `<section class="fiche-sec"><h3>${title}</h3><dl>${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl></section>`;
+      return `<section class="fiche-sec ${extra}"><h3>${title}</h3><dl>${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl></section>`;
     },
 
     // Fourchette de prix d'un avis IA : « 2 000 à 6 000 € », « 0 € » quand rien.
