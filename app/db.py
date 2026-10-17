@@ -1,5 +1,6 @@
 import logging
 import sqlite3
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -7,14 +8,43 @@ log = logging.getLogger(__name__)
 
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 KEEP_BACKUPS = 10
+# Attente d'un autre fil qui écrit, en secondes. Les écritures sont courtes : c'est un filet.
+BUSY_TIMEOUT = 30
 
 
-def connect(path: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
+def _open(path: Path) -> sqlite3.Connection:
+    conn = sqlite3.connect(path, check_same_thread=False, isolation_level=None, timeout=BUSY_TIMEOUT)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
     return conn
+
+
+class ThreadConnections:
+    """Une connexion SQLite par fil, derrière un seul objet.
+
+    La boucle principale, le fil de l'Explorer et les fils des run_in_executor travaillent en même
+    temps. Une connexion partagée mêle leurs requêtes et leurs transactions (« bad parameter or other
+    API misuse », tâches planifiées qui plantent). Chacun a donc la sienne ; en WAL, les lectures se
+    font en parallèle et les écritures passent l'une après l'autre."""
+
+    def __init__(self, path: Path):
+        self._path = path
+        self._local = threading.local()
+        self._conn()  # erreur d'ouverture tout de suite, pas à la première requête
+
+    def _conn(self) -> sqlite3.Connection:
+        conn = getattr(self._local, "conn", None)
+        if conn is None:
+            conn = self._local.conn = _open(self._path)
+        return conn
+
+    def __getattr__(self, name):
+        return getattr(self._conn(), name)
+
+
+def connect(path: Path) -> ThreadConnections:
+    return ThreadConnections(path)
 
 
 def _migrations() -> list[tuple[int, Path]]:

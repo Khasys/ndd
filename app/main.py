@@ -3,6 +3,7 @@ import hmac
 import html
 import secrets
 import time
+import traceback
 import json
 import math
 import logging
@@ -44,6 +45,24 @@ log = logging.getLogger("domain-watch")
 STARTED_AT = datetime.now(timezone.utc)
 
 
+# Jetons possibles dans un message d'erreur (URL de bot Telegram, en-têtes, paramètres) : masqués,
+# le diagnostic est lisible avec le jeton en lecture seule.
+_SECRETS = re.compile(r"(bot)\d+:[\w-]+|(Bearer\s+)\S+|((?:token|key|password|secret)=)[^&\s]+", re.I)
+
+
+def _redact(text: str) -> str:
+    return _SECRETS.sub(lambda m: (m.group(1) or m.group(2) or m.group(3)) + "<masqué>", text)
+
+
+def _exception_line(exc: BaseException) -> str:
+    """Type, message et dernière ligne de l'appli dans la pile : de quoi savoir où ça casse."""
+    where = ""
+    for frame in traceback.extract_tb(exc.__traceback__):
+        if "/app/" in frame.filename:
+            where = f" ({Path(frame.filename).name}:{frame.lineno})"
+    return f"{exc.__class__.__name__}: {exc}{where}"
+
+
 class _Recent(logging.Handler):
     """Derniers avertissements et erreurs du journal, gardés en mémoire pour le diagnostic."""
 
@@ -57,8 +76,11 @@ class _Recent(logging.Handler):
         if "AUTH_" in str(record.msg):
             return
         try:
+            message = record.getMessage()
+            if record.exc_info and record.exc_info[1] is not None:
+                message += " : " + _exception_line(record.exc_info[1])
             self.records.append({"at": iso(datetime.fromtimestamp(record.created, timezone.utc)),
-                                 "level": record.levelname, "logger": record.name, "message": record.getMessage()[:500]})
+                                 "level": record.levelname, "logger": record.name, "message": _redact(message)[:500]})
             del self.records[:-self.size]
         except Exception:  # noqa: BLE001  un journal ne doit jamais casser l'appli
             pass
@@ -130,8 +152,9 @@ async def lifespan(app: FastAPI):
 
     async def remind_renewals() -> None:
         if telegram.configured:
-            for text in portfolio.reminders(conn, utcnow()):
-                await telegram.send("Renouvellement : " + text)
+            for item_id, key, text in portfolio.due_reminders(conn, utcnow()):
+                if await telegram.send("Renouvellement : " + text) is None:
+                    portfolio.mark_reminded(conn, item_id, key)
 
     async def check_health() -> None:
         if not telegram.configured:
@@ -152,7 +175,7 @@ async def lifespan(app: FastAPI):
     async def scan_zones() -> None:
         if watcher.due(datetime.now(digest.local_zone())):
             await watcher.run()
-            app.state.explorer.warm()  # nouvelle zone : l'Explorer se prépare avant qu'on l'ouvre
+            await _off(app.state.explorer.warm)  # nouvelle zone : l'Explorer se prépare avant qu'on l'ouvre
 
     async def check_drops() -> None:
         await watcher.check_due(limit=20)
@@ -162,27 +185,40 @@ async def lifespan(app: FastAPI):
     async def import_fr() -> None:
         if fr.due(datetime.now(digest.local_zone())):
             await fr.import_file()
-            app.state.explorer.warm()
+            await _off(app.state.explorer.warm)
 
     async def tick_fr() -> None:
         await fr.tick()
 
+    # Une passe DNS dure des heures : elle tourne à part, la tâche planifiée rend la main tout de suite
+    # (sinon chaque déclenchement suivant est « sauté » et remplit le journal).
+    passes: set[asyncio.Task] = set()
+
+    def start_pass(checker) -> None:
+        if checker.running or not checker.due(datetime.now(digest.local_zone())):
+            return
+        task = asyncio.create_task(checker.run())
+        passes.add(task)
+
+        def done(t: asyncio.Task) -> None:
+            passes.discard(t)
+            if not t.cancelled() and t.exception() is not None:
+                log.error("Passe DNS .%s interrompue", checker.tld, exc_info=t.exception())
+        task.add_done_callback(done)
+
     async def check_fr_dns() -> None:
-        if fr_dns.due(datetime.now(digest.local_zone())):
-            await fr_dns.run()
+        start_pass(fr_dns)
 
     def cc_job(tld):
         async def check() -> None:
-            checker = app.state.cc_dns[tld]
-            if checker.due(datetime.now(digest.local_zone())):
-                await checker.run()
+            start_pass(app.state.cc_dns[tld])
         return check
 
     async def refresh_reserved() -> None:
         if app.state.reserved.due():
             await app.state.reserved.refresh()
             app.state.explorer.invalidate()
-            app.state.explorer.warm()
+            await _off(app.state.explorer.warm)
 
     now = datetime.now(timezone.utc)
     scheduler.add_job(refresh_latest, "interval", hours=24, next_run_time=now, max_instances=1, id="latest")
@@ -221,7 +257,7 @@ async def lifespan(app: FastAPI):
     # Explorer : univers et classement préparés hors requête (thread), puis états et carte en mémoire.
     async def warm_explorer() -> None:
         await asyncio.get_running_loop().run_in_executor(None, lambda: explore.shared_universe().buckets())
-        app.state.explorer.warm()
+        await _off(app.state.explorer.warm)
 
     app.state.explorer_warm = asyncio.create_task(warm_explorer())
     app.state.store = store
@@ -600,7 +636,7 @@ async def list_domains(request: Request):
     rows = request.app.state.conn.execute("SELECT * FROM domains ORDER BY name").fetchall()
     items = [_serialize(row, checker) for row in rows]
     # Score et avis IA, mêmes calculs que l'Explorer : filtres et tri communs à tous les écrans.
-    values = request.app.state.explorer.value_of([d["name"] for d in items])
+    values = await _off(request.app.state.explorer.value_of, [d["name"] for d in items])
     for d in items:
         v = values.get(d["name"]) or {}
         d.update(score=v.get("score", 0), reasons=v.get("reasons", []), parts=v.get("parts", {}), ai=v.get("ai"))
@@ -623,7 +659,13 @@ async def add_domain(request: Request, payload: NewDomain):
     return _serialize(row, checker)
 
 
+# Plus grand entier SQLite : au-delà, la requête lèverait OverflowError (erreur 500).
+MAX_ID = 2**63 - 1
+
+
 def _get_row(request: Request, domain_id: int) -> sqlite3.Row:
+    if not 0 < domain_id <= MAX_ID:
+        raise HTTPException(404, "Domaine introuvable.")
     row = request.app.state.conn.execute("SELECT * FROM domains WHERE id = ?", (domain_id,)).fetchone()
     if row is None:
         raise HTTPException(404, "Domaine introuvable.")
@@ -908,14 +950,16 @@ async def set_premium(request: Request, payload: PremiumSettings):
     store.set("premium_devalue", "1" if payload.devalue else "0")
     store.set("premium_prices", json.dumps(clean))
     explorer = request.app.state.explorer
+    recount = False
     if payload.off is not None:
         off = sorted({t.strip().lower().lstrip(".") for t in payload.off if re.fullmatch(r"\.?[a-z]{2,20}", t.strip().lower())})
         if set(off) != explorer.premium_tlds_off():
             store.set("premium_off", json.dumps(off))
             explorer.invalidate()  # l'état « premium probable » change : états recalculés
-            explorer.warm()
-    else:
-        explorer.refresh_settings()
+            request.app.state.explorer_warm = asyncio.create_task(_off(explorer.warm))
+            recount = True
+    if not recount:
+        explorer.refresh_settings()  # dévaluation cochée ou non : scores mis à jour sans recompter
     return {"devalue": payload.devalue, "prices": clean, "off": sorted(explorer.premium_tlds_off())}
 
 
@@ -928,7 +972,8 @@ async def hide_drops(request: Request, payload: DropNames):
     """Écarte des noms de l'écran Suppressions (ils restent dans l'Explorer)."""
     conn = request.app.state.conn
     now = iso(utcnow())
-    names = [n.strip().lower() for n in payload.names[:1000] if n.strip()]
+    # Noms de domaine seulement (lettres, chiffres, tirets, points ; 253 caractères au plus).
+    names = [n for n in (x.strip().lower() for x in payload.names[:20000]) if re.fullmatch(r"[a-z0-9.-]{3,253}", n) and "." in n]
     conn.executemany("INSERT OR IGNORE INTO drop_hidden (name, hidden_at) VALUES (?, ?)", [(n, now) for n in names])
     return {"hidden": conn.execute("SELECT COUNT(*) FROM drop_hidden").fetchone()[0]}
 
@@ -948,7 +993,7 @@ async def import_fr_now(request: Request):
         return {"started": False}
     async def run() -> None:
         await fr.import_file()
-        request.app.state.explorer.warm()
+        await _off(request.app.state.explorer.warm)
 
     request.app.state.fr_task = asyncio.create_task(run())
     return {"started": True}
@@ -1080,6 +1125,8 @@ def _explore_params(request: Request) -> dict:
         raise HTTPException(422, "Mode de recherche inconnu.")
     if p.get("status") and p["status"] not in explore.STATUS_FILTERS:
         raise HTTPException(422, "État inconnu.")
+    if p.get("level") and p["level"] not in ("good", "gem"):
+        raise HTTPException(422, "Niveau inconnu.")
     return {"tld": tld, "tlds": chosen, "q": p.get("q", ""), "mode": mode, "status": p.get("status", ""),
             "category": p.get("cat", ""), "length": length, "cursor": cursor, "nature": p.get("nat", ""),
             "max_rank": max_rank, "min_score": min_score, "taken": taken, "junk": p.get("junk") == "1",
@@ -1101,9 +1148,12 @@ def _ai_param(p) -> str:
         for side in ("min", "max"):
             raw = (p.get(f"ai_{field}_{side}") or "").strip()
             try:
-                bounds.append(int(raw) if raw else None)
+                value = int(raw) if raw else None
             except ValueError:
                 raise HTTPException(422, "Paramètre numérique invalide.") from None
+            if value is not None and not 0 <= value <= 1_000_000_000:
+                raise HTTPException(422, "Paramètre numérique hors limites.")
+            bounds.append(value)
         ranges[field] = tuple(bounds)
     return explore.ai_filter(verdicts, ranges)
 
@@ -1351,7 +1401,7 @@ async def ai_pending(request: Request):
         # Tâche horaire : seulement les analyses demandées depuis une fiche (souvent aucune).
         names = await _off(ai.requested, explorer)
     else:
-        names = ai.pending(explorer, _limit(request, ai.MAX_PENDING))
+        names = await _off(ai.pending, explorer, _limit(request, ai.MAX_PENDING))
     # Ventes et offres réelles du portefeuille : repères de prix ajoutés à la consigne.
     guide = ai.GUIDE + portfolio.guide_addendum(portfolio.market_examples(request.app.state.conn))
     return {"version": ai.VERSION, "guide": guide, "format": ai.FORMAT, "names": names}
@@ -1424,7 +1474,7 @@ async def update_portfolio(request: Request, item_id: int, payload: dict):
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from None
     conn = request.app.state.conn
-    if not conn.execute("SELECT 1 FROM portfolio WHERE id = ?", (item_id,)).fetchone():
+    if not 0 < item_id <= MAX_ID or not conn.execute("SELECT 1 FROM portfolio WHERE id = ?", (item_id,)).fetchone():
         raise HTTPException(404, "Nom absent du portefeuille.")
     if values:
         conn.execute(f"UPDATE portfolio SET {', '.join(f'{k} = ?' for k in values)} WHERE id = ?", (*values.values(), item_id))
@@ -1433,7 +1483,8 @@ async def update_portfolio(request: Request, item_id: int, payload: dict):
 
 @app.delete("/api/portfolio/{item_id}")
 async def delete_portfolio(request: Request, item_id: int):
-    request.app.state.conn.execute("DELETE FROM portfolio WHERE id = ?", (item_id,))
+    if not 0 < item_id <= MAX_ID or not request.app.state.conn.execute("DELETE FROM portfolio WHERE id = ?", (item_id,)).rowcount:
+        raise HTTPException(404, "Nom absent du portefeuille.")
     return await get_portfolio(request)
 
 
@@ -1519,7 +1570,7 @@ async def diag(request: Request):
         "lists": {k: len(v) for k, v in wordlists.lists().items()},
         "domains": dict(conn.execute("SELECT COALESCE(state, 'inconnu'), COUNT(*) FROM domains GROUP BY 1").fetchall()),
         "drops": drops_by_state,
-        "map": explorer.map(),
+        "map": await _off(explorer.map),
         "jobs": [{"id": j.id, "name": j.name, "next": iso(j.next_run_time) if j.next_run_time else None}
                  for j in state.scheduler.get_jobs()],
         "recent_errors": list(RECENT.records),
@@ -1576,7 +1627,7 @@ async def refresh_reserved_now(request: Request):
         async def refresh() -> None:
             await lists.refresh()
             request.app.state.explorer.invalidate()
-            request.app.state.explorer.warm()
+            await _off(request.app.state.explorer.warm)
 
         request.app.state.reserved_task = asyncio.create_task(refresh())
     return {"started": not lists.running}
@@ -1632,10 +1683,13 @@ def _export_items(explorer, params, chosen):
     items = []
     for tld in chosen:
         found = explorer.search(tld, **params, limit=explore.EXPORT_LIMIT)["items"]
-        if params["min_score"]:
-            # Même règle que la liste affichée : le score minimum s'applique aussi à l'export.
+        if params["min_score"] or params.get("level"):
+            # Mêmes règles que la liste affichée : score minimum et niveau s'appliquent aussi à l'export.
             scores = explorer.value_of([i["name"] for i in found])
-            found = [i for i in found if scores.get(i["name"], {}).get("score", 0) >= params["min_score"]]
+            opinions = explorer._opinions(tld) if params.get("level") else {}
+            found = [i for i in found
+                     if scores.get(i["name"], {}).get("score", 0) >= (params["min_score"] or 0)
+                     and explorer._level_ok(scores.get(i["name"], {}).get("score", 0), opinions.get(i["name"]), params.get("level", ""))]
         items += found
     return items
 
@@ -1706,7 +1760,7 @@ async def scan_drops(request: Request):
     # Référence gardée : une tâche sans référence peut être collectée en cours de route.
     async def run() -> None:
         await watcher.run()
-        request.app.state.explorer.warm()
+        await _off(request.app.state.explorer.warm)
 
     request.app.state.scan_task = asyncio.create_task(run())
     return {"started": True}

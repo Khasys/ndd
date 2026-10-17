@@ -593,6 +593,9 @@ def test_portfolio_tracks_purchases_sales_and_reminders(logged):
     assert client.post("/api/portfolio", json={"name": "forumdomotique.fr"}).status_code == 409
     # Rappel 30 jours avant l'échéance, une seule fois.
     conn = client.app.state.conn
+    # Pas marqué tant que le message n'est pas parti (échec Telegram : rappel gardé).
+    due = portfolio.due_reminders(conn, datetime.now(timezone.utc))
+    assert len(due) == 1 and portfolio.due_reminders(conn, datetime.now(timezone.utc)) == due
     texts = portfolio.reminders(conn, datetime.now(timezone.utc))
     assert len(texts) == 1 and "forumdomotique.fr" in texts[0]
     assert portfolio.reminders(conn, datetime.now(timezone.utc)) == []
@@ -607,3 +610,48 @@ def test_portfolio_tracks_purchases_sales_and_reminders(logged):
     assert client.put(f"/api/portfolio/{item['id']}", json={"status": "volé"}).status_code == 422
     assert client.delete(f"/api/portfolio/{item['id']}").json()["items"] == []
     client.__exit__(None, None, None)
+
+
+def test_diag_log_keeps_exception_cause_without_secrets():
+    import logging
+    from app import main
+
+    try:
+        raise ValueError("https://api.telegram.org/bot123456:ABC-def_9/sendMessage token=abc&x=1")
+    except ValueError:
+        logging.getLogger("test").error("Tâche en échec", exc_info=True)
+    line = main.RECENT.records[-1]["message"]
+    assert line.startswith("Tâche en échec : ValueError: ") and "test_app.py" not in line
+    assert "123456:ABC" not in line and "token=abc" not in line and "bot<masqué>" in line
+
+
+def test_bad_inputs_get_422_or_404_not_500(logged):
+    """Entrées tordues relevées par la recette API : jamais d'erreur 500."""
+    client = logged()
+    client.app.state.checker.add = lambda name: __import__("asyncio").sleep(0)
+    item = client.post("/api/portfolio", json={"name": "recette.fr"}).json()["items"][0]
+    for bad in ({"status": ""}, {"status": None}, {"status": ["owned"]}, {"buy_price": "inf"},
+                {"best_offer": "Infinity"}, {"buy_price": [1]}, {"buy_price": {}}, {"buy_price": True}):
+        assert client.put(f"/api/portfolio/{item['id']}", json=bad).status_code == 422, bad
+        assert client.post("/api/portfolio", json={"name": "autre.fr", **bad}).status_code == 422, bad
+    raw = client.put(f"/api/portfolio/{item['id']}", content='{"buy_price": 1e400}', headers={"content-type": "application/json"})
+    assert raw.status_code == 422
+    huge = 99999999999999999999999
+    assert client.put(f"/api/portfolio/{huge}", json={"notes": "x"}).status_code == 404
+    assert client.delete(f"/api/portfolio/{huge}").status_code == 404
+    assert client.delete("/api/portfolio/987654").status_code == 404
+    assert client.get(f"/api/domains/{huge}/history").status_code == 404
+    assert client.delete(f"/api/domains/{huge}").status_code == 404
+    hidden = client.post("/api/drops/hide", json={"names": ["x" * 5000, "é.fr", "ok.fr"]}).json()["hidden"]
+    assert hidden == 1
+
+
+def test_premium_devalue_toggle_applies_even_when_tlds_are_sent(logged):
+    client = logged()
+    explorer = client.app.state.explorer
+    calls = []
+    explorer.refresh_settings = lambda: calls.append(1)
+    off = sorted(explorer.premium_tlds_off())
+    client.put("/api/settings/premium", json={"devalue": True, "prices": {}, "off": off})
+    client.put("/api/settings/premium", json={"devalue": False, "prices": {}, "off": off})
+    assert len(calls) == 2

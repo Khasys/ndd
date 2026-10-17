@@ -592,7 +592,7 @@ document.addEventListener("alpine:init", () => {
     aiClass(a) { return { "À prendre": "take", "À surveiller": "watch", "À laisser": "skip" }[this.aiVerdict(a)] || ""; },
 
     async newAiToken() {
-      if (this.cfg && this.cfg.ai && this.cfg.ai.token_set && !confirm("Un nouveau jeton remplace l'ancien : la tâche de notation devra utiliser le nouveau. Continuer ?")) return;
+      if (this.aiStatus && this.aiStatus.token_set && !confirm("Un nouveau jeton remplace l'ancien : la tâche de notation devra utiliser le nouveau. Continuer ?")) return;
       try {
         this.aiToken = (await this.api("POST", "/api/settings/ai-token")).token;
         await this.loadAiStatus();
@@ -615,11 +615,14 @@ document.addEventListener("alpine:init", () => {
       return `<section class="fiche-sec"><h3>Registre (RDAP / WHOIS)</h3><dl>${body}</dl></section>`;
     },
 
-    // Bouton « 50 de plus » : liste pleine, ou compteur de l'état plus grand que la liste
-    // (un score minimum peut écourter une page sans que la liste soit finie).
+    // Compteurs d'état exacts seulement sans niveau ni score minimum : ils comptent des masques, pas
+    // des scores (les calculer pour chaque nom coûterait des secondes à chaque clic).
+    exCountsExact() { return !this.ex.level && !(this.ex.min && this.ex.min !== "0"); },
+
+    // Bouton « 50 de plus » : liste pleine, ou compteur exact de l'état plus grand que la liste.
     get exHasMore() {
       if (this.exNoMore || !this.exData) return false;
-      return this.exItems.length >= this.exLimit || (this.exData.counts?.[this.ex.status] || 0) > this.exItems.length;
+      return this.exItems.length >= this.exLimit || (this.exCountsExact() && (this.exData.counts?.[this.ex.status] || 0) > this.exItems.length);
     },
 
     exQuery(cursor) {
@@ -757,7 +760,9 @@ document.addEventListener("alpine:init", () => {
     verdictLine(i) {
       if (i.ai) {
         const v = this.aiVerdict(i.ai);
-        const price = this.lens === "exploit" ? `exploitation ${i.ai.exploit}/100` : `revente ${this.priceRange(i.ai.final_low, i.ai.final_high)}`;
+        // La note qui sert au classement, puis pour revendre le prix utilisateur final (le même que la fiche).
+        const price = this.lens === "exploit" ? `exploitation ${i.ai.exploit}/100`
+          : `revente ${i.ai.resale}/100 · utilisateur final ${this.priceRange(i.ai.final_low, i.ai.final_high)}`;
         return `${v} · ${price}`;
       }
       return (i.reasons || []).slice(0, 2).join(" · ");

@@ -102,9 +102,8 @@ def problems(state, now: datetime) -> dict[str, str]:
         paused = fr.paused_until(now)
         if paused and paused - now > FR_PAUSE_ALERT:
             found["fr_pause"] = f"Vérifications .fr en pause jusqu'au {paused.strftime('%d/%m %H:%M')} UTC (limite Afnic)"
-    stats = ai.stats(state.explorer)
-    last = parse_iso(stats.get("last"))
-    if stats.get("token_set") and last and now - last > AI_LATE:
+    last = parse_iso(ai.last_rated(state.explorer.conn))
+    if state.explorer.fr.store.get("ai_token_hash") and last and now - last > AI_LATE:
         found["ai"] = f"Notation IA de nuit : aucun avis reçu depuis le {last.strftime('%d/%m %H:%M')} UTC"
     return found
 

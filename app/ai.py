@@ -101,6 +101,12 @@ def load(conn, names: list[str]) -> dict[str, dict]:
     return found
 
 
+def last_rated(conn) -> str | None:
+    """Dernier avis reçu, toutes versions de consigne : après un changement de version, la nuit
+    continue de noter et ce n'est pas une panne."""
+    return conn.execute("SELECT MAX(rated_at) FROM domain_ai").fetchone()[0]
+
+
 def stats(explorer) -> dict:
     rated = explorer.conn.execute("SELECT COUNT(*), MAX(rated_at) FROM domain_ai WHERE version >= ?", (VERSION,)).fetchone()
     total = sum(explorer.universe.good) * len([t for t in explorer.tlds() if t in AI_TLDS])

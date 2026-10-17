@@ -6,6 +6,7 @@ réels à la notation IA : c'est la seule calibration sur le marché dont on dis
 """
 
 import json
+import math
 from datetime import datetime, timezone
 
 from . import ai, states
@@ -70,17 +71,23 @@ def clean(payload: dict) -> dict:
         if key not in payload:
             continue
         value = payload[key]
-        if value in ("", None):
-            out[key] = None
-        elif key == "status":
-            if value not in STATUSES:
+        if key == "status":
+            # Le statut ne se vide pas : NOT NULL en base (erreur 500 sinon).
+            if not isinstance(value, str) or value not in STATUSES:
                 raise ValueError("Statut inconnu.")
             out[key] = value
+        elif value in ("", None):
+            out[key] = None
         elif key.endswith("_price") or key == "best_offer":
-            number = int(float(value))
-            if not 0 <= number <= 100_000_000:
+            if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+                raise ValueError("Montant invalide.")
+            try:
+                number = float(value)
+            except ValueError:
+                raise ValueError("Montant invalide.") from None
+            if not math.isfinite(number) or not 0 <= number <= 100_000_000:
                 raise ValueError("Montant hors limites.")
-            out[key] = number
+            out[key] = int(number)
         elif key in ("bought_on", "sold_on", "expires_at"):
             out[key] = datetime.fromisoformat(str(value)[:10]).date().isoformat()
         else:
@@ -88,9 +95,10 @@ def clean(payload: dict) -> dict:
     return out
 
 
-def reminders(conn, now: datetime) -> list[str]:
-    """Rappels de renouvellement à envoyer (30 puis 7 jours avant), chacun une seule fois."""
-    texts = []
+def due_reminders(conn, now: datetime) -> list[tuple[int, str, str]]:
+    """Rappels de renouvellement à envoyer (30 puis 7 jours avant) : (id, clé, texte).
+    Marqués envoyés par mark_reminded, une fois le message parti : un échec Telegram ne les perd pas."""
+    found = []
     for item in items(conn, now):
         if item["status"] not in KEPT or not item["expiry"]:
             continue
@@ -102,10 +110,25 @@ def reminders(conn, now: datetime) -> list[str]:
             key = f"{expiry.date().isoformat()}:{days}"
             if 0 <= left <= days and key not in sent:
                 price = f", renouvellement {item['renew_price']} €" if item["renew_price"] else ""
-                texts.append(f"{item['name']} expire le {expiry.strftime('%d/%m/%Y')} (dans {left} j){price}.")
-                sent.add(key)
-                conn.execute("UPDATE portfolio SET reminded = ? WHERE id = ?", (json.dumps(sorted(sent)), item["id"]))
+                found.append((item["id"], key, f"{item['name']} expire le {expiry.strftime('%d/%m/%Y')} (dans {left} j){price}."))
                 break
+    return found
+
+
+def mark_reminded(conn, item_id: int, key: str) -> None:
+    row = conn.execute("SELECT reminded FROM portfolio WHERE id = ?", (item_id,)).fetchone()
+    if row is None:
+        return
+    sent = set(json.loads(row["reminded"] or "[]")) | {key}
+    conn.execute("UPDATE portfolio SET reminded = ? WHERE id = ?", (json.dumps(sorted(sent)), item_id))
+
+
+def reminders(conn, now: datetime) -> list[str]:
+    """Rappels dus, marqués envoyés tout de suite (sans Telegram)."""
+    texts = []
+    for item_id, key, text in due_reminders(conn, now):
+        mark_reminded(conn, item_id, key)
+        texts.append(text)
     return texts
 
 

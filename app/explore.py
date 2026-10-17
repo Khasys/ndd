@@ -16,6 +16,7 @@ import json
 import functools
 import heapq
 import itertools
+import re
 import threading
 import time
 from array import array
@@ -112,6 +113,8 @@ CACHE_SECONDS = 600
 # Sécurité seulement : chaque nom vérifié ou marqué est corrigé en place (touch), et un import ou
 # une lecture de zone change la version des données, donc la clé.
 MEMO_SECONDS = 6 * 3600
+# « Les plus courts » avec un niveau ou un score minimum : noms notés au plus, pour une page.
+ORDERED_BUDGET = 50_000
 MEMO_FACETS = 24  # jeux de filtres gardés, environ 2 Mo chacun
 MAX_LIMIT = 200
 EXPORT_LIMIT = 50_000
@@ -318,10 +321,19 @@ class Universe:
         return kinds + wordlists.categories(label)
 
 
-@functools.lru_cache(maxsize=1)
+_UNIVERSE: Universe | None = None
+_UNIVERSE_LOCK = threading.Lock()
+
+
 def shared_universe() -> Universe:
-    """L'univers ne dépend que des listes de noms : une seule instance par processus."""
-    return Universe()
+    """L'univers ne dépend que des listes de noms : une seule instance par processus.
+    Verrou : au démarrage, la préparation en tâche de fond et une première requête l'appellent en
+    même temps depuis deux fils ; sans lui, deux univers seraient construits (mémoire doublée)."""
+    global _UNIVERSE
+    with _UNIVERSE_LOCK:
+        if _UNIVERSE is None:
+            _UNIVERSE = Universe()
+        return _UNIVERSE
 
 
 class Explorer:
@@ -333,6 +345,9 @@ class Explorer:
         self._universe: Universe | None = None
         self._cache: dict[str, tuple[float, object, bytearray]] = {}
         self._memos: dict = {}
+        # Les mémos sont lus et modifiés depuis la boucle principale, le fil de l'Explorer et les fils
+        # des run_in_executor : chaque accès au dict passe par ce verrou (les calculs restent dehors).
+        self._memo_lock = threading.RLock()
         self.generation = 0
         # Les vérifications automatiques corrigent l'Explorer au fil de l'eau, nom par nom.
         drops_watcher.on_change = self.touch
@@ -352,20 +367,25 @@ class Explorer:
         now = time.monotonic()
         # Import .fr ou nouvelle lecture de zone : la version des données change, la mémoire aussi.
         key = (key, tuple((t, self._version(t)) for t in self.tlds()))
-        found = self._memos.get(key)
-        if found and found[0] == self.generation and now - found[1] < ttl:
+        with self._memo_lock:
+            found = self._memos.get(key)
+            generation = self.generation
+        if found and found[0] == generation and now - found[1] < ttl:
             return found[2]
         result = compute()
-        # Ménage : versions de données dépassées, résultats périmés, puis les plus anciens.
-        # Chaque entrée pèse quelques Mo (octets d'état, masques) : on en garde peu.
-        current = key[1]
-        for old in [k for k, (g, at, _) in self._memos.items() if k[1] != current or g != self.generation or now - at >= ttl]:
-            del self._memos[old]
-        # Les compteurs (un par jeu de filtres) sont les seuls à se multiplier : on retire les plus anciens.
-        facets = sorted((k for k in self._memos if k[0][0] == "facets"), key=lambda k: self._memos[k][1])
-        while facets and len(facets) >= MEMO_FACETS:
-            del self._memos[facets.pop(0)]
-        self._memos[key] = (self.generation, now, result)
+        with self._memo_lock:
+            if self.generation != generation:
+                return result  # données changées pendant le calcul : pas gardé
+            # Ménage : versions de données dépassées, résultats périmés, puis les plus anciens.
+            # Chaque entrée pèse quelques Mo (octets d'état, masques) : on en garde peu.
+            current = key[1]
+            for old in [k for k, (g, at, _) in self._memos.items() if k[1] != current or g != self.generation or now - at >= ttl]:
+                self._memos.pop(old, None)
+            # Les compteurs (un par jeu de filtres) sont les seuls à se multiplier : on retire les plus anciens.
+            facets = sorted((k for k in self._memos if k[0][0] == "facets"), key=lambda k: self._memos[k][1])
+            while facets and len(facets) >= MEMO_FACETS:
+                self._memos.pop(facets.pop(0), None)
+            self._memos[key] = (self.generation, now, result)
         return result
 
     def warm(self) -> None:
@@ -492,8 +512,9 @@ class Explorer:
 
     def invalidate(self, tld: str | None = None) -> None:
         """Données changées (vérification, marquage, import) : on recalcule au prochain affichage."""
-        self.generation += 1
-        self._memos.clear()
+        with self._memo_lock:
+            self.generation += 1
+            self._memos.clear()
         if tld:
             self._cache.pop(tld, None)
 
@@ -695,13 +716,15 @@ class Explorer:
             lo, hi = self._range(f.length)
             pos = max(lo, cursor + 1)
             scanned = 0
+            # Saut direct au prochain nom dans un des états voulus : une seule passe sur les octets.
+            # (Un find par état relisait jusqu'au bout, à chaque nom, les états absents de la suite.)
+            wanted = re.compile(b"[" + b"".join(re.escape(bytes([c])) for c in sorted(codes)) + b"]")
             while pos < hi and len(hits) < limit:
-                # Saut direct au prochain nom dans un des états voulus.
-                found = [x for x in (data.find(c, pos, hi) for c in codes) if x != -1]
-                if not found:
+                match = wanted.search(data, pos, hi)
+                if match is None:
                     pos = hi
                     break
-                i = min(found)
+                i = match.start()
                 scanned += i - pos + 1
                 pos = i + 1
                 last = i
@@ -899,8 +922,9 @@ class Explorer:
         u = self.universe
         ctx = self._bonus_context(tld)
         hits = []
+        # Sans date estimée (délais du registre inconnus, échéance absente) : à la fin, pas masqué.
         for (name,) in self.conn.execute(
-                "SELECT name FROM drops WHERE tld = ? AND release_at IS NOT NULL ORDER BY release_at, name", (tld,)):
+                "SELECT name FROM drops WHERE tld = ? ORDER BY release_at IS NULL, release_at, name", (tld,)):
             i = u.index(name.rsplit(".", 1)[0])
             if i is None or data[i] not in codes or not self._good_ok(i, f) or not self._taken_ok(i, others):
                 continue
@@ -920,32 +944,56 @@ class Explorer:
 
     def _ordered(self, tld: str, f: Filters, limit: int) -> dict:
         """Du plus court au plus long. Les noms courts sont déjà dans cet ordre dans l'univers ;
-        les mots (5 caractères et plus) y sont par ordre alphabétique : on suit by_length."""
-        need = limit * (4 if f.min_score else 1)
-        u = self.universe
+        les mots (5 caractères et plus) y sont par ordre alphabétique : on suit by_length.
+        Avec un score minimum ou un niveau, on note par paquets jusqu'à remplir la page (au plus
+        ORDERED_BUDGET noms notés : au-delà, la page reste courte plutôt que d'attendre)."""
         data = self.status_bytes(tld)
+        ctx = self._bonus_context(tld)
+        filtering = bool(f.min_score or f.level)
+        size = limit * 4 if filtering else limit
+        out: list[dict] = []
+        batch: list[int] = []
+        seen = 0
+        for i in self._length_order(tld, f, data):
+            batch.append(i)
+            seen += 1
+            if len(batch) >= size:
+                out += self._scored(tld, f, batch, data, ctx)["items"]
+                batch = []
+                if len(out) >= limit or not filtering or seen >= ORDERED_BUDGET:
+                    break
+        if batch:
+            out += self._scored(tld, f, batch, data, ctx)["items"]
+        return {"items": out[:limit]}
+
+    def _length_order(self, tld: str, f: Filters, data):
+        """Noms qui passent les filtres (hors score et niveau), du plus court au plus long."""
+        u = self.universe
         lo, _ = self._range(f.length)
-        hits: list[int] = []
         if lo < drops.CELLS:
-            found = self.search(tld, f, limit=need)["items"]
-            hits = [i for i in (u.index(item["label"]) for item in found) if i is not None and i < drops.CELLS]
-        if len(hits) < need:
-            codes = self.codes(f.status, "available", f.premium)
-            others = self._others(tld, f)
-            q = self.normalize(f.q, tld)
-            candidates = self._candidates(f, q, tld)
-            allowed = set(candidates) if candidates is not None else None
-            for i in u.by_length:
-                if allowed is not None and i not in allowed:
-                    continue
-                if data[i] not in codes or not self._good_ok(i, f) or not self._taken_ok(i, others):
-                    continue
-                label = u.label(i)
-                if self._matches(label, f, q) and self._keep(label, f):
-                    hits.append(i)
-                    if len(hits) >= need:
-                        break
-        return {"items": self._scored(tld, f, hits, data, self._bonus_context(tld))["items"][:limit]}
+            cursor = -1
+            while True:
+                found = self.search(tld, f, cursor=cursor, limit=500)
+                for item in found["items"]:
+                    i = u.index(item["label"])
+                    if i is not None and i < drops.CELLS:
+                        yield i
+                cursor = found["cursor"]
+                if cursor is None:
+                    break
+        codes = self.codes(f.status, "available", f.premium)
+        others = self._others(tld, f)
+        q = self.normalize(f.q, tld)
+        candidates = self._candidates(f, q, tld)
+        allowed = set(candidates) if candidates is not None else None
+        for i in u.by_length:
+            if allowed is not None and i not in allowed:
+                continue
+            if data[i] not in codes or not self._good_ok(i, f) or not self._taken_ok(i, others):
+                continue
+            label = u.label(i)
+            if self._matches(label, f, q) and self._keep(label, f):
+                yield i
 
     def merge_key(self, sort: str, category: str = ""):
         """Clé d'une liste fusionnée sur plusieurs extensions : le même ordre que rank() sur une seule."""
@@ -1170,59 +1218,61 @@ class Explorer:
         cached = self._cache.get(tld)
         if cached:
             cached[2][i] = base
-        changed = False
-        for key, (generation, at, value) in list(self._memos.items()):
-            kind = key[0][0]
-            if kind == "status" and key[0][1] == tld and value[i] != new:
-                old, value[i] = value[i], new
-                changed = True
-                for fkey, (_, _, raw) in self._memos.items():
-                    if fkey[0][0] == "facets" and fkey[0][1] == tld and fkey[1] == key[1]:
-                        mask = raw["mask"]
-                        if mask is None or (mask >> ((self.universe.size - 1 - i) * 8)) & 1:
-                            raw["by_code"][old] = raw["by_code"].get(old, 0) - 1
-                            raw["by_code"][new] = raw["by_code"].get(new, 0) + 1
-            elif kind == "bonus" and key[0][1] == tld:
-                if tld == "fr":
-                    row = self.conn.execute("SELECT created_on, removed_on FROM fr_names WHERE label = ?", (label,)).fetchone()
-                    if row and row["removed_on"]:
-                        value["gone"][i] = {"created_on": row["created_on"], "removed_on": row["removed_on"]}
-                    else:
-                        value["gone"].pop(i, None)
-                seo = self.conn.execute("SELECT * FROM domain_seo WHERE name = ?", (name,)).fetchone()
-                if seo is not None:
-                    value["seo"][name] = seo
-        # Le SEO du nom a pu changer : les compteurs filtrés sur le SEO sont recomptés.
-        for key in [k for k in self._memos if k[0][0] == "facets" and k[0][1] == tld and k[0][8]]:
-            del self._memos[key]
-        if changed:
-            self._forget("map")
-            # Les compteurs « pris ailleurs » des autres extensions dépendent de celle-ci.
-            for key in [k for k in self._memos if k[0][0] == "facets" and k[0][1] != tld and k[0][6]]:
-                del self._memos[key]
+        with self._memo_lock:
+            changed = False
+            for key, (generation, at, value) in list(self._memos.items()):
+                kind = key[0][0]
+                if kind == "status" and key[0][1] == tld and value[i] != new:
+                    old, value[i] = value[i], new
+                    changed = True
+                    for fkey, (_, _, raw) in list(self._memos.items()):
+                        if fkey[0][0] == "facets" and fkey[0][1] == tld and fkey[1] == key[1]:
+                            mask = raw["mask"]
+                            if mask is None or (mask >> ((self.universe.size - 1 - i) * 8)) & 1:
+                                raw["by_code"][old] = raw["by_code"].get(old, 0) - 1
+                                raw["by_code"][new] = raw["by_code"].get(new, 0) + 1
+                elif kind == "bonus" and key[0][1] == tld:
+                    if tld == "fr":
+                        row = self.conn.execute("SELECT created_on, removed_on FROM fr_names WHERE label = ?", (label,)).fetchone()
+                        if row and row["removed_on"]:
+                            value["gone"][i] = {"created_on": row["created_on"], "removed_on": row["removed_on"]}
+                        else:
+                            value["gone"].pop(i, None)
+                    seo = self.conn.execute("SELECT * FROM domain_seo WHERE name = ?", (name,)).fetchone()
+                    if seo is not None:
+                        value["seo"][name] = seo
+            # Le SEO du nom a pu changer : les compteurs filtrés sur le SEO sont recomptés.
+            for key in [k for k in self._memos if k[0][0] == "facets" and k[0][1] == tld and k[0][8]]:
+                self._memos.pop(key, None)
+            if changed:
+                self._forget("map")
+                # Les compteurs « pris ailleurs » des autres extensions dépendent de celle-ci.
+                for key in [k for k in self._memos if k[0][0] == "facets" and k[0][1] != tld and k[0][6]]:
+                    self._memos.pop(key, None)
 
     def ai_changed(self) -> None:
         """Nouveaux avis IA : les compteurs filtrés sur l'avis sont recomptés, rien d'autre."""
-        for key in [k for k in self._memos if k[0][0] == "facets" and k[0][9]]:
-            del self._memos[key]
+        with self._memo_lock:
+            for key in [k for k in self._memos if k[0][0] == "facets" and k[0][9]]:
+                self._memos.pop(key, None)
 
     def _forget(self, kind: str) -> None:
-        for key in [k for k in self._memos if k[0][0] == kind]:
-            del self._memos[key]
+        with self._memo_lock:
+            for key in [k for k in self._memos if k[0][0] == kind]:
+                self._memos.pop(key, None)
 
     def refresh_settings(self) -> None:
         """Barème ou mode des réservés changé : on met à jour ce qui en dépend, sans recompter."""
         weights = self.weights
-        for key, (_, _, value) in self._memos.items():
-            if key[0][0] == "bonus":
-                value["weights"] = weights
-                value["reach"] = (value["reach_parts"][0] * weights["demand"] + value["reach_parts"][1] * weights["history"]
-                                  + value["reach_parts"][2] * weights["seo"])
-        self._forget("map")
         devalue = self.premium_devalue()
-        for key, (_, _, value) in self._memos.items():
-            if key[0][0] == "bonus":
-                value["devalue"] = devalue
+        with self._memo_lock:
+            for key, (_, _, value) in list(self._memos.items()):
+                if key[0][0] == "bonus":
+                    value["weights"] = weights
+                    value["reach"] = (value["reach_parts"][0] * weights["demand"] + value["reach_parts"][1] * weights["history"]
+                                      + value["reach_parts"][2] * weights["seo"])
+                    value["devalue"] = devalue
+        self._forget("map")
 
     def map(self) -> dict:
         return self._memo(("map",), self._build_map)

@@ -413,6 +413,11 @@ button:disabled { cursor: default; opacity: .55; }
 @media (max-width: 900px) {
   .col-registrar { display: none; }
 }
+/* Tableau des domaines : sous 1 400 px, registrar et dernier check passent dans le détail de la ligne
+   (sinon le tableau déborde et pousse « Supprimer » hors de l'écran). */
+@media (min-width: 641px) and (max-width: 1400px) {
+  .col-registrar, .col-last { display: none; }
+}
 
 .tabbar, .sheet-head, .sidebar { display: none; }
 .tabbar svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
@@ -576,7 +581,10 @@ button:disabled { cursor: default; opacity: .55; }
 .drawer-name { display: block; font-size: 18px; font-weight: 600; overflow-wrap: anywhere; }
 .drawer-state { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 14px; }
 .drawer-state .abandon { margin: 0; }
-.drawer-actions { display: flex; gap: 8px; margin: 0 0 20px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+.drawer-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 20px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+/* Fiche : cinq actions dans un tiroir étroit ; elles passent à la ligne au lieu de sortir du cadre. */
+.drawer-actions > .btn, .drawer-actions > .btn-ghost { flex: 1 1 auto; white-space: nowrap; }
+.drawer-actions > a { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
 .drawer-actions .btn-ghost { flex: 1; height: 38px; }
 .drawer .details-grid { grid-template-columns: 1fr; gap: 24px; padding: 0; }
 .drawer .history ol { max-height: none; }

@@ -468,7 +468,7 @@
           <div class="ex-chips ex-states" aria-label="État">
             <template x-for="st in EX_STATES" :key="st.k">
               <button type="button" class="tag" :class="{ on: ex.status === st.k }" @click="exSet({ status: st.k, sort: st.k === 'coming' && ex.sort === 'best' ? 'release' : (st.k !== 'coming' && ex.sort === 'release' ? 'best' : ex.sort) })">
-                <span x-text="st.label"></span> <span class="num muted" x-text="fmt(exData.counts[st.k])"></span>
+                <span x-text="st.label"></span> <span class="num muted" x-show="exCountsExact()" x-text="fmt(exData.counts[st.k])"></span>
               </button>
             </template>
           </div>
@@ -716,7 +716,7 @@
                   </div>
                   <p class="nc-line"><span class="nc-ai" :class="aiClass(i.ai)" x-text="verdictLine(i)"></span></p>
                   <p class="nc-meta small">
-                    <span class="badge" :class="badgeClass(i)" x-show="![2, 3, 5].includes(i.status)" x-text="i.status_label"></span>
+                    <span class="badge" :class="badgeClass(i)" x-show="![2, 3, 5].includes(i.status) || ex.status === 'all'" x-text="i.status_label"></span>
                     <span x-show="i.status === 4 && i.release_at" x-text="'libre ~' + shortDate(i.release_at)"></span>
                     <span class="warn-text" x-show="i.premium_price" x-text="'premium ~' + fmt(i.premium_price) + ' €'"></span>
                   </p>

@@ -102,8 +102,8 @@ Réglages communs, gardés d'un écran à l'autre :
 - **Avancé** (replié) : les filtres fins (nature, longueur, fréquence, SEO, avis IA, score
   minimum…), et dans l'Explorer les classements, la carte, les premiums et les vues enregistrées.
 
-Chaque nom est une carte : le nom, le score, et une phrase (verdict IA et prix de revente ou note
-d'exploitation, sinon les raisons du score, par exemple « 5 lettres · 153e mot le plus courant »).
+Chaque nom est une carte : le nom, le score, et une phrase (verdict IA, puis note de revente et
+prix utilisateur final, ou note d'exploitation ; sinon les raisons du score, par exemple « 5 lettres · 153e mot le plus courant »).
 Dans la Veille, **Nouveaux cette nuit** ne garde que les noms libérés ou entrés en rédemption depuis
 24 h ; Réserver et Surveiller sont sur chaque carte. Tri en masse : cases à cocher (« Tout
 sélectionner » pour les noms affichés), puis Surveiller, Analyse IA, Revérifier ou Masquer ; un nom
@@ -251,7 +251,8 @@ requête : zones ICANN lues chaque jour, open data de l'Afnic, données de la Ve
 - **Fiche** : nuit prévue pour l'avis IA (place dans la file, 1 000 noms par nuit, horizon de 30
   nuits) et, pour un .fr, la prochaine interrogation DNS et la dernière réponse.
 - **États** : Libres (libres et probablement libres), Bientôt libres (triés par libération la plus
-  proche), Tous, même pris. Compteur sur chaque état.
+  proche), Tous, même pris. Compteur sur chaque état avec le niveau « Tout » et sans score minimum ;
+  avec un niveau, il est masqué : le compte exact demanderait de noter chaque nom à chaque clic.
 - **Premiums probables** : noms de 3 caractères libres hors .fr, souvent vendus au prix premium
   par le registre (rien ne le confirme sans accès registrar). Masqués par défaut ; bouton « Premiums
   probables » pour les afficher. Paramètres : case pour diviser leur score par deux, et prix relevés

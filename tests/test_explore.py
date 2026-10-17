@@ -577,6 +577,35 @@ def test_premium_probable_bookable_and_release_sort(env):
     assert [i["label"] for i in items] == ["maison"]
 
 
+def test_release_sort_keeps_names_without_estimate(env):
+    """Bientôt libres, tri par libération : un nom sans date estimée reste, à la fin."""
+    zone(env, [], ["maison", "jardin"])
+    now = datetime.now(timezone.utc)
+    env.drops.record("com", ["maison", "jardin"], [], now)
+    env.conn.execute("UPDATE drops SET state = 'redemption', release_at = ? WHERE name = 'maison.com'",
+                     ((now + timedelta(days=20)).isoformat(),))
+    env.conn.execute("UPDATE drops SET state = 'redemption', release_at = NULL WHERE name = 'jardin.com'")
+    env.touch("maison.com")
+    env.touch("jardin.com")
+    items = env.rank("com", status="coming", sort="release")["items"]
+    assert [i["label"] for i in items] == ["maison", "jardin"]
+
+
+def test_ai_health_counts_opinions_of_every_guide_version(env):
+    """Après un changement de version de consigne, un avis récent d'ancienne version n'est pas une panne."""
+    from types import SimpleNamespace
+    from app import morning
+
+    env.fr.store.set("ai_token_hash", "x")
+    now = datetime.now(timezone.utc)
+    state = SimpleNamespace(drops=env.drops, fr=env.fr, explorer=env)
+    env.conn.execute("INSERT INTO domain_ai (name, exploit, resale, quick_low, quick_high, final_low, final_high, comment, "
+                     "rated_at, version) VALUES ('a.fr', 1, 1, 0, 0, 0, 0, 'À laisser.', ?, 1)", ((now - timedelta(days=5)).isoformat(),))
+    assert "ai" in morning.problems(state, now)
+    env.conn.execute("UPDATE domain_ai SET rated_at = ?", ((now - timedelta(hours=3)).isoformat(),))
+    assert "ai" not in morning.problems(state, now)
+
+
 def test_english_only_and_conjugated_words_count_less_in_fr(env):
     found = env.value_of(["should.fr", "vais.fr", "maison.fr"])
     assert "mot anglais en .fr" in found["should.fr"]["reasons"]
@@ -599,3 +628,24 @@ def test_levels_and_resale_exploit_rankings(env):
     assert resale[0]["label"] == "saucisse"
     exploit = env.rank("com", status="available", sort="exploit", limit=5)["items"]
     assert exploit[0]["label"] != "saucisse" or exploit[0]["score"] <= 40
+
+
+def test_shortest_first_fills_the_page_with_a_level(env):
+    """« Les plus courts » avec un niveau : la page est pleine, pas tronquée par le filtre."""
+    add_fr(env, "zzzzz")
+    items = env.rank("fr", status="bookable", level="gem", sort="length", limit=50)["items"]
+    assert len(items) == 50
+    assert all(i["score"] >= explore.LEVEL_GEM for i in items)
+    lengths = [len(i["label"]) for i in items]
+    assert lengths == sorted(lengths)
+
+
+def test_search_skips_absent_states_in_one_pass(env):
+    """Un état absent de la suite ne fait pas relire tout le tableau à chaque nom trouvé."""
+    import time
+
+    add_fr(env, "zzzzz")
+    started = time.monotonic()
+    # 50 000 noms (taille d'un export) : 55 s avec un find par état, 1,3 s en une passe.
+    found = env.search("fr", status="bookable", limit=50000)["items"]
+    assert len(found) == 50000 and time.monotonic() - started < 15
