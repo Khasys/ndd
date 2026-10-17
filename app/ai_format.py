@@ -106,7 +106,8 @@ EXPLOIT_WEIGHTS = {"sens": 0.38, "marque": 0.37, "ext": 0.10, "memo": 0.15}
 RESALE_WEIGHTS = {"marche": 0.25, "acheteurs": 0.25, "sens": 0.15, "marque": 0.10, "ext": 0.10, "memo": 0.15}
 FORM_FLOOR = 0.6
 RISK_COST = 3     # points de note retirés par point de risque
-TAKE_MIN = 60     # « À prendre » : meilleure note d'au moins 60, et risque de 4 au plus
+TAKE_MIN = 60     # « À prendre » : meilleure note d'au moins 60, risque de 4 au plus, acheteurs de 4 et plus
+TAKE_BUYERS = 4
 LEAVE_MAX = 40    # « À laisser » : meilleure note de 40 au plus, ou risque de 8 et plus
 
 # Prix utilisateur final selon la meilleure des deux notes, pour un .fr (repères indicatifs, pas une
@@ -133,7 +134,7 @@ def derive(item: dict) -> dict:
     exploit = _round5(10 * sum(item[k] * w for k, w in EXPLOIT_WEIGHTS.items()) * form - RISK_COST * risk)
     resale = _round5(10 * sum(item[k] * w for k, w in RESALE_WEIGHTS.items()) * form - RISK_COST * risk)
     best = max(exploit, resale)
-    if best >= TAKE_MIN and risk <= 4:
+    if best >= TAKE_MIN and risk <= 4 and item["acheteurs"] >= TAKE_BUYERS:
         verdict = "À prendre"
     elif best <= LEAVE_MAX or risk >= 8:
         verdict = "À laisser"
@@ -184,15 +185,17 @@ def check_v5(item, known) -> str | None:
         return f"revente rapide : {int(QUICK_SHARE * 100)} % du prix utilisateur final au plus"
     notes = derive(item)
     best = max(notes["exploit"], notes["resale"])
+    # Le prix suit la note de revente : elle tient compte du marché et des acheteurs, l'exploitation non.
+    resale = notes["resale"]
     label, _, tld = name.rpartition(".")
     # Un palier de tolérance de chaque côté : le prix suit la note sans être une formule. Noms de 1 ou
     # 2 caractères : rares, ils se vendent au-dessus des paliers (ev.fr, 120 000 euros en 2022) ; pas de plafond.
-    floor = price_band(max(0, best - 10), tld)[0]
+    floor = price_band(max(0, resale - 10), tld)[0]
     # Meilleurs mots du marché (note de 90 et plus) : pas de plafond non plus.
     uncapped = len(label) <= SHORT_UNCAPPED_BY_TLD.get(tld, SHORT_UNCAPPED) or best >= UNCAPPED_FROM
-    ceiling = PRICE_STEPS[-1] if uncapped else price_band(min(100, best + 10), tld)[1]
+    ceiling = PRICE_STEPS[-1] if uncapped else price_band(min(100, resale + 10), tld)[1]
     if final_low < floor or final_high > ceiling:
-        return f"prix utilisateur final hors palier pour une note de {best} en .{tld} : entre {floor} et {ceiling} euros"
+        return f"prix utilisateur final hors palier pour une note de revente de {resale} en .{tld} : entre {floor} et {ceiling} euros"
     comment = item["comment"]
     if not isinstance(comment, str) or comment != " ".join(comment.split()):
         return "commentaire : texte sur une ligne, sans espaces en trop"

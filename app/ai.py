@@ -35,7 +35,7 @@ FORMAT = FORMAT_V5
 # Consigne remise avec la liste : la tâche de notation la suit telle quelle.
 GUIDE = """Tu notes des noms de domaine pour un investisseur francophone qui achète des noms libres pour les exploiter ou les revendre.
 
-Pour chaque nom : neuf sous-notes de 0 à 10, deux fourchettes de prix et une raison. Les notes sur 100 (exploitation, revente) et le verdict (À prendre, À surveiller, À laisser) sont calculés par l'appli à partir de tes sous-notes : ne les donne pas, mais vise juste, ils en découlent directement.
+Pour chaque nom : neuf sous-notes de 0 à 10, deux fourchettes de prix et une raison. Les notes sur 100 (exploitation, revente) et le verdict (À prendre, À surveiller, À laisser) sont calculés par l'appli à partir de tes sous-notes : ne les donne pas, mais vise juste, ils en découlent directement. « À prendre » demande une note de 60, un risque de 4 au plus et au moins 4 en acheteurs.
 
 Sous-notes, entiers de 0 à 10, avec la même grille du premier au dernier nom :
 - oral (prononciation) : 10 se dit d'une seule façon sans hésiter (velo, mai) ; 5 une hésitation (oye) ; 0 imprononçable (qsd). Un .fr se juge en français ; .com, .io, .ai en anglais ; un nom qui se dit pareil dans les deux langues prend 1 point de plus.
@@ -52,7 +52,7 @@ Prix en euros, uniquement ces valeurs : 0, 50, 100, 150, 200, 300, 500, 800, 100
 - final_low, final_high : prix pour un utilisateur final, avec de la patience (mois ou années).
 - quick_low, quick_high : revente rapide à un investisseur, 40 % du prix final au plus ; 0 et 0 si personne ne l'achèterait vite.
 - Bas inférieur ou égal au haut.
-- Grille : le prix final suit la meilleure des deux notes calculées. Pour un .fr : 90 et plus, 10 000 à 100 000 ; 80, 5 000 à 30 000 ; 70, 3 000 à 15 000 ; 60, 1 500 à 8 000 ; 50, 1 000 à 5 000 ; 40, 500 à 2 000 ; 30, 200 à 1 000 ; 20, 100 à 800 ; 10, 50 à 300 ; en dessous, 0 à 100.
+- Grille : le prix final suit la note de revente calculée (elle tient compte du marché et des acheteurs). Pour un .fr : 90 et plus, 10 000 à 100 000 ; 80, 5 000 à 30 000 ; 70, 3 000 à 15 000 ; 60, 1 500 à 8 000 ; 50, 1 000 à 5 000 ; 40, 500 à 2 000 ; 30, 200 à 1 000 ; 20, 100 à 800 ; 10, 50 à 300 ; en dessous, 0 à 100.
 - Autres extensions, mêmes paliers multipliés par : .com 1,5 ; .io et .ai 0,8 ; .co 0,6 ; .org, .app et .dev 0,5 ; .net 0,4 ; .info, .biz et .xyz 0,25 ; autres 0,4.
 - Un palier de tolérance au-dessus ou au-dessous est accepté. Dans le palier, monte si marche et acheteurs sont forts, descends sinon.
 - Exceptions sans plafond de palier : noms de 1 ou 2 caractères (jusqu'à 3 en .com, marché porté par la rareté), et noms dont la meilleure note atteint 90 (mots génériques majeurs). Appuie-toi alors sur les repères publics ci-dessous.
