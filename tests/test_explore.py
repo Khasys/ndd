@@ -177,7 +177,9 @@ def test_paused_afnic_refuses_manual_checks(env):
 
 def test_value_scores_are_explained():
     from app import value
-    assert value.base("ab") > value.base("abc") > value.base("mako") > value.base("1234") > value.base("ab12") > value.base("xkcd")
+    assert value.base("ab") > value.base("abc") > value.base("mako") > value.base("1234")
+    # Mélanges et suites imprononçables : tout en bas, quel que soit l'ordre entre eux.
+    assert max(value.base("ab12"), value.base("qzxw")) < 15 < value.base("1234") + 5
     assert value.base("oye") > value.base("qsd")
     found = value.score("maison", ["com"])
     assert found["reasons"][:2] == ["6 lettres", "153e mot le plus courant"] and "pris en .com" in found["reasons"]
@@ -649,3 +651,37 @@ def test_search_skips_absent_states_in_one_pass(env):
     # 50 000 noms (taille d'un export) : 55 s avec un find par état, 1,3 s en une passe.
     found = env.search("fr", status="bookable", limit=50000)["items"]
     assert len(found) == 50000 and time.monotonic() - started < 15
+
+
+def test_demand_counts_only_what_is_rare_for_the_shape(env):
+    """calp.fr : pris en .com, mais presque tous les 4 lettres prononçables le sont : peu de demande."""
+    from app import value
+
+    assert value.demand(["com", "org"])[0] == 14
+    low, reason = value.demand(["com", "org"], {"com": 0.95, "org": 0.91})
+    assert low <= 1 and "courant pour cette forme" in reason
+    assert value.history("2008-01-01", "2026-01-01", datetime(2026, 10, 1).date(), common=0.9)[0] <= 3
+    add_fr(env, "zzzzz")
+    u = env.universe
+    good4 = [drops.decode(i) for i in u.good_letters(4)]
+    zone(env, good4, [])  # tous les 4 lettres prononçables pris en .com
+    ctx = env._bonus_context("fr")
+    assert ctx["rates"]["com"]["L4g"] == 1.0 and ctx["rates"]["com"]["L4b"] == 0.0
+    found = env.value_of([f"{good4[0]}.fr"])[f"{good4[0]}.fr"]
+    assert found["parts"]["demand"] == 0 and any("courant pour cette forme" in r for r in found["reasons"])
+
+
+def test_review_pass_brings_back_ratings_far_from_the_estimate(env):
+    """Second passage : un avis v5 très loin de l'estimation du score repasse, une seule fois, en tête."""
+    from app import ai, quality
+
+    add_fr(env, "zzzzz")
+    estimate = quality.predict("maison", "fr")[0]
+    env.conn.execute("""INSERT INTO domain_ai (name, exploit, resale, quick_low, quick_high, final_low, final_high, comment,
+                        rated_at, version) VALUES ('maison.fr', 5, 5, 0, 0, 0, 100, 'À laisser. Test. Acheteur type : test.', 'x', ?)""",
+                     (ai.VERSION,))
+    assert estimate > 30
+    first = ai.pending(env, 10)[0]
+    assert first["name"] == "maison.fr" and first["review"] == {"previous_note": 5, "score_estimate": round(estimate)}
+    env.conn.execute("UPDATE domain_ai SET reviewed_at = 'x' WHERE name = 'maison.fr'")
+    assert all(n["name"] != "maison.fr" for n in ai.pending(env, 10))

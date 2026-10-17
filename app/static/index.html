@@ -135,31 +135,29 @@
 
     <h3 id="help-find">Trouver les meilleurs (Veille et Explorer)</h3>
     <dl class="help-dl">
-      <dt>Pour revendre</dt><dd>Classe par note IA de revente.</dd>
-      <dt>Pour exploiter</dt><dd>Classe par note IA d'exploitation : un nom pour un vrai site ou une marque.</dd>
-      <dt>Pépites</dt><dd>Score 50 et plus, ou avis IA « À prendre ».</dd>
-      <dt>Bons</dt><dd>Score 30 et plus, ou avis IA « À prendre » ou « À surveiller ».</dd>
-      <dt>Tout</dt><dd>Sans tri par niveau.</dd>
+      <dt>Pour revendre</dt><dd>D'abord les noms que l'IA conseille, par sa note de revente ; puis les noms sans avis, par score ; à la fin, ceux qu'elle déconseille.</dd>
+      <dt>Pour exploiter</dt><dd>Même ordre, avec la note d'exploitation : un nom pour un vrai site ou une marque.</dd>
+      <dt>Masquer les noms faibles</dt><dd>Sans avis IA : score sous 30. Avec un avis : « À laisser », même à bon score.</dd>
     </dl>
-    <p class="small muted">Un nom sans avis IA est classé par son score (même échelle, 0 à 100). Le bouton « Analyse IA » de la fiche le fait noter.</p>
+    <p class="small muted">Le bouton « Analyse IA » de la fiche fait noter un nom dans l'heure.</p>
 
     <h3 id="help-score">Score (0 à 100)</h3>
     <dl class="help-dl">
-      <dt>Forme, 40 au plus</dt><dd>Longueur, puis vrai mot, nom prononçable ou suite de lettres.</dd>
-      <dt>Popularité, 30 au plus</dt><dd>Rang dans sa liste. Combinaisons et sites de niche : moitié.</dd>
-      <dt>Demande, 15 au plus</dt><dd>Pris sur d'autres extensions, .com en tête.</dd>
-      <dt>Historique, 15 au plus</dt><dd>.fr supprimé : durée de détention, suppression récente.</dd>
+      <dt>Forme et sens, 70 au plus</dt><dd>Longueur, sonorité en français et en anglais (structure, test radio, lettres ambiguës), sens et rang du mot dans sa liste, secteur, image. Poids calés sur des avis IA détaillés de 5 000 noms de toutes les catégories.</dd>
+      <dt>Demande, 15 au plus</dt><dd>Pris sur d'autres extensions, .com en tête, seulement si c'est rare pour un nom de cette forme (presque tous les 4 lettres sont pris en .org : ça ne compte pas).</dd>
+      <dt>Historique, 15 au plus</dt><dd>.fr supprimé : durée de détention, suppression récente ; moins si la plupart des noms de cette forme ont déjà été tenus.</dd>
       <dt>SEO, 20 au plus</dt><dd>PageRank et archives Wayback, après analyse.</dd>
     </dl>
-    <p class="small muted">Poids réglables dans Paramètres, carte « Score de l'Explorer ».</p>
+    <p class="small muted">Poids réglables dans Paramètres, carte « Score de l'Explorer ». « Courant pour cette forme » : signal présent, mais banal.</p>
 
     <h3 id="help-ai">Avis IA</h3>
-    <p>1 000 noms notés par nuit, en .fr, .com et .org, par score décroissant.</p>
+    <p>1 000 noms notés par nuit, en .fr, .com et .org, par score décroissant. Chaque nuit, les 50 avis les plus éloignés du score sont revus une fois.</p>
     <dl class="help-dl">
-      <dt>Verdict</dt><dd>À prendre, À surveiller ou À laisser, suivi de la raison et du type d'acheteur.</dd>
-      <dt>Exploitation, revente</dt><dd>Notes sur 100.</dd>
-      <dt>Revente rapide</dt><dd>Fourchette de prix en vente à un revendeur.</dd>
-      <dt>Utilisateur final</dt><dd>Fourchette de prix en vente à un utilisateur final. Estimation.</dd>
+      <dt>Grille</dt><dd>Neuf sous-notes sur 10 : prononciation, test radio, mémorisation, sens, marque, marché, extension, acheteurs, risque.</dd>
+      <dt>Exploitation, revente</dt><dd>Notes sur 100, calculées depuis la grille : elles ne peuvent pas contredire le verdict.</dd>
+      <dt>Verdict</dt><dd>À prendre (60 et plus, risque faible), À surveiller, À laisser (40 et moins, ou risque fort).</dd>
+      <dt>Revente rapide</dt><dd>À un revendeur, 40 % du prix utilisateur final au plus.</dd>
+      <dt>Utilisateur final</dt><dd>Fourchette encadrée par des paliers selon la note et l'extension. Repères indicatifs, pas une cote.</dd>
     </dl>
 
     <h3 id="help-lists">Listes de noms</h3>
@@ -227,11 +225,9 @@
                 <button type="button" class="btn-ghost sm" :class="{ on: lens === l.k }" role="radio" :aria-checked="lens === l.k" @click="setLens(l.k)" x-text="l.label"></button>
               </template>
             </div>
-            <div class="segmented" role="radiogroup" aria-label="Niveau">
-              <template x-for="l in LEVELS" :key="l.k">
-                <button type="button" class="btn-ghost sm" :class="{ on: dropLevel === l.k }" role="radio" :aria-checked="dropLevel === l.k" @click="dropLevel = l.k; dropShow = 100" x-text="l.label"></button>
-              </template>
-            </div>
+            <label class="weak-toggle" title="Score sous 30 sans avis IA, ou avis IA « À laisser »">
+              <input type="checkbox" :checked="dropLevel === 'good'" @change="dropLevel = $event.target.checked ? 'good' : ''; dropShow = 100"> Masquer les noms faibles
+            </label>
             <button type="button" class="tag" :class="{ on: dropNewOnly }" :aria-pressed="dropNewOnly" @click="dropNewOnly = !dropNewOnly; dropShow = 100"
                     x-text="'Nouveaux cette nuit (' + fmt(dropNewCount()) + ')'"></button>
           </div>
@@ -459,11 +455,9 @@
                 <button type="button" class="btn-ghost sm" :class="{ on: lens === l.k }" role="radio" :aria-checked="lens === l.k" @click="setLens(l.k)" x-text="l.label"></button>
               </template>
             </div>
-            <div class="segmented" role="radiogroup" aria-label="Niveau">
-              <template x-for="l in LEVELS" :key="l.k">
-                <button type="button" class="btn-ghost sm" :class="{ on: ex.level === l.k }" role="radio" :aria-checked="ex.level === l.k" @click="exSet({ level: l.k })" x-text="l.label"></button>
-              </template>
-            </div>
+            <label class="weak-toggle" title="Score sous 30 sans avis IA, ou avis IA « À laisser »">
+              <input type="checkbox" :checked="ex.level === 'good'" @change="exSet({ level: $event.target.checked ? 'good' : '' })"> Masquer les noms faibles
+            </label>
           </div>
           <div class="ex-chips ex-states" aria-label="État">
             <template x-for="st in EX_STATES" :key="st.k">

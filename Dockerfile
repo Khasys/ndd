@@ -1,4 +1,4 @@
-# Précalcul des noms courts (forme, prononçabilité) : une fois à la construction, en natif même
+# Précalcul du score de base de tous les noms suivis : une fois à la construction, en natif même
 # quand l'image cible est ARM. Le résultat est un fichier de données, le même pour toutes les cibles.
 FROM --platform=$BUILDPLATFORM python:3.12-alpine AS precompute
 WORKDIR /app
@@ -21,7 +21,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
-COPY --from=precompute /app/app/data/courts.bin ./app/data/courts.bin
+COPY --from=precompute /app/app/data/scores.bin ./app/data/scores.bin
 COPY entrypoint.sh /entrypoint.sh
 RUN adduser -D -H -u 1000 app && mkdir -p /data && chown app:app /data
 

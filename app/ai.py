@@ -9,13 +9,14 @@ avec de la patience). Ce sont des avis, pas des cotes du marché.
 
 import hashlib
 import hmac
+import json
 import secrets
 
 from . import rdapinfo, value, wordlists
 from .checker import iso, utcnow
 
 # Version de la consigne : la monter fait renoter tous les noms, petit à petit.
-VERSION = 4  # 4 : le statut du nom n'entre plus dans sa valeur ; tous les avis sont refaits
+VERSION = 5  # 5 : grille détaillée (sous-notes), notes et verdict calculés, prix par paliers
 MAX_PENDING = 5000
 MAX_RESULTS = 5000
 MAX_PRICE = 10_000_000
@@ -26,47 +27,80 @@ TAKEN_MIN_BASE = 40       # noms enregistrés notés seulement à partir de ce s
 MAYBE_FREE = (2, 3)       # supprimé non repris, jamais vu
 TAKEN = (1, 6, 4)         # enregistré, suspendu, libération à venir (pris ailleurs = demande)
 
-from .ai_format import COMMENT_MAX, FIELDS, FORMAT, PRICE_STEPS, check  # noqa: F401  (réexportés)
+from .ai_format import (COMMENT_MAX, CRITERIA_V5, FIELDS, FIELDS_V5, FORMAT_V5, PRICE_STEPS, check,  # noqa: F401  (réexportés)
+                        check_any, derive, is_v5)
+
+FORMAT = FORMAT_V5
 
 # Consigne remise avec la liste : la tâche de notation la suit telle quelle.
 GUIDE = """Tu notes des noms de domaine pour un investisseur francophone qui achète des noms libres pour les exploiter ou les revendre.
 
-Format, identique pour chaque nom, sans exception :
-- un objet JSON avec exactement ces clés : name, exploit, resale, quick_low, quick_high, final_low, final_high, comment ;
-- name : le nom complet reçu, tel quel ;
-- exploit : potentiel d'exploitation (projet, marque, site, activité), entier de 0 à 100, multiple de 5 ;
-- resale : potentiel de revente (facilité à trouver un acheteur), entier de 0 à 100, multiple de 5 ;
-- quick_low, quick_high : revente rapide en euros, à un investisseur ou une place de marché en quelques semaines ;
-- final_low, final_high : prix pour un utilisateur final, avec de la patience (mois ou années) ;
-- prix : uniquement ces valeurs : 0, 50, 100, 150, 200, 300, 500, 800, 1000, 1500, 2000, 3000, 5000, 8000, 10000, 15000, 20000, 30000, 50000, 80000, 100000, 150000, 200000, 300000, 500000, 1000000 ; bas inférieur ou égal au haut ; revente rapide inférieure ou égale au prix final ;
-- comment : exactement trois phrases sur ce gabarit : « Verdict. Raison. Acheteur type : qui. » ;
-  verdict : « À prendre », « À surveiller » ou « À laisser », rien d'autre ;
-  « À prendre » seulement si exploit ou resale vaut au moins 60 ; « À laisser » seulement si les deux valent 45 au plus ;
-  raison : ce qui fait la valeur ou ce qui la freine (sens, longueur, demande, risque de marque) ;
-  acheteur type : à qui le revendre ou qui l'exploiterait ;
-  200 caractères au plus ; en français ; sans emoji ni tiret long ; sans répéter les notes ni les prix.
+Pour chaque nom : neuf sous-notes de 0 à 10, deux fourchettes de prix et une raison. Les notes sur 100 (exploitation, revente) et le verdict (À prendre, À surveiller, À laisser) sont calculés par l'appli à partir de tes sous-notes : ne les donne pas, mais vise juste, ils en découlent directement.
+
+Sous-notes, entiers de 0 à 10, avec la même grille du premier au dernier nom :
+- oral (prononciation) : 10 se dit d'une seule façon sans hésiter (velo, mai) ; 5 une hésitation (oye) ; 0 imprononçable (qsd). Un .fr se juge en français ; .com, .io, .ai en anglais ; un nom qui se dit pareil dans les deux langues prend 1 point de plus.
+- radio (entendu une fois, on sait l'écrire) : 10 une seule orthographe (velo) ; 5 une ambiguïté (lea ou léa, kado ou cado) ; 0 chiffres mêlés aux lettres, tiret ou plusieurs ambiguïtés.
+- memo (mémorisation) : 10 deux à quatre lettres ou mot très courant ; 7 cinq à sept lettres claires ; 4 huit à douze lettres ; 2 plus long ou deux mots mal liés.
+- sens : 10 mot très courant, clair et positif (velo, maison) ; 7 mot connu moins courant ou nom propre très connu ; 4 sens faible, rare ou technique ; 0 aucun sens (kalo, qsd).
+- marque (potentiel de marque) : 10 court, évocateur, utilisable par beaucoup d'activités ; 7 invention élégante ou mot fort ; 4 descriptif plat ; 1 impossible à porter.
+- marche (valeur commerciale) : 10 secteur qui paie avec intention d'achat (crédit, assurance, immobilier, avocat, voyage) ; 6 thème de consommation courant ; 3 loisir ou thème étroit ; 0 aucun marché.
+- ext (adéquation à l'extension) : en .fr, 10 pour un mot français, 6 pour un mot anglais compris en France, 3 sans lien avec la France ; en .com, 10 pour un mot anglais ou international ; en .io et .ai, 10 pour un mot tech ; en .org, 10 pour une cause ou une association, 4 pour un mot commercial.
+- acheteurs : 10 des centaines d'entreprises plausibles ; 5 quelques dizaines ; 1 un seul acheteur imaginable ; 0 aucun.
+- risque : 0 aucun ; 3 léger (homonyme d'une petite marque) ; 5 marque connue dans un secteur ; 8 marque célèbre, sens vulgaire, négatif ou gênant dans une langue courante ; 10 injurieux ou interdit.
+
+Prix en euros, uniquement ces valeurs : 0, 50, 100, 150, 200, 300, 500, 800, 1000, 1500, 2000, 3000, 5000, 8000, 10000, 15000, 20000, 30000, 50000, 80000, 100000, 150000, 200000, 300000, 500000, 1000000.
+- final_low, final_high : prix pour un utilisateur final, avec de la patience (mois ou années).
+- quick_low, quick_high : revente rapide à un investisseur, 40 % du prix final au plus ; 0 et 0 si personne ne l'achèterait vite.
+- Bas inférieur ou égal au haut.
+- Grille : le prix final suit la meilleure des deux notes calculées. Pour un .fr : 90 et plus, 10 000 à 100 000 ; 80, 5 000 à 30 000 ; 70, 3 000 à 15 000 ; 60, 1 500 à 8 000 ; 50, 1 000 à 5 000 ; 40, 500 à 2 000 ; 30, 200 à 1 000 ; 20, 100 à 800 ; 10, 50 à 300 ; en dessous, 0 à 100.
+- Autres extensions, mêmes paliers multipliés par : .com 1,5 ; .io et .ai 0,8 ; .co 0,6 ; .org, .app et .dev 0,5 ; .net 0,4 ; .info, .biz et .xyz 0,25 ; autres 0,4.
+- Un palier de tolérance au-dessus ou au-dessous est accepté. Dans le palier, monte si marche et acheteurs sont forts, descends sinon.
+- Exceptions sans plafond de palier : noms de 1 ou 2 caractères, et noms dont la meilleure note atteint 90 (mots génériques majeurs). Appuie-toi alors sur les repères publics ci-dessous.
+- Repères publics, ventes exceptionnelles et non la norme : credit.fr 587 500 euros (2010), auto.fr 100 000 euros (2008), ev.fr 120 000 euros (2022). Prix médian des ventes sur Sedo en 2012, toutes extensions : 461 euros.
+
+Raison (comment) : exactement deux phrases sur ce gabarit : « Raison. Acheteur type : qui. »
+- raison : ce qui fait la valeur ou ce qui la freine (sens, sonorité, longueur, marché, risque de marque) ;
+- acheteur type : à qui le revendre ou qui l'exploiterait ;
+- 180 caractères au plus, en français, sans emoji ni tiret long, sans verdict, sans notes ni prix.
+
+Second passage : un nom qui porte « review » a déjà un avis de ta part, très éloigné de l'estimation calculée par l'appli (previous_note : ta meilleure note d'alors ; score_estimate : l'estimation). Renote-le à froid avec la même grille, sans te caler sur l'un ou l'autre chiffre : garde ton avis s'il tient, corrige-le s'il était faux.
 
 Crédibilité avant tout :
-- La plupart des noms valent peu. Une note de revente au-dessus de 70 est rare et réservée aux noms très courts ou très recherchés. Beaucoup de noms ont une revente rapide à 0.
-- Revente rapide : en général 10 à 25 % du prix utilisateur final. Si elle ne couvre pas les frais (moins de 100 euros), mets 0 et 0.
-- Le .fr se revend moins facilement que le .com ; le .org vise les associations et les projets non commerciaux ; le .info vaut peu.
-- Un risque de marque connue fait baisser la revente : mets-le dans la raison.
-- Le statut du nom (libre, libération à venir, jamais enregistré, supprimé, enregistré) ne change pas sa valeur : juge le nom comme s'il était libre, et ne cite jamais son statut comme un frein.
-- N'invente rien : un nom sans sens connu le dit.
+- La plupart des noms valent peu. Des 9 et des 10 partout sont réservés aux meilleurs mots du marché.
+- Le statut du nom (libre, libération à venir, jamais enregistré, supprimé, enregistré) ne change pas sa valeur : juge le nom comme s'il était libre.
+- N'invente rien : un nom sans sens connu a sens 0, même s'il sonne bien.
+
+Format : une liste JSON d'objets avec exactement ces clés : name, oral, radio, memo, sens, marque, marche, ext, acheteurs, risque, quick_low, quick_high, final_low, final_high, comment ; name est le nom complet reçu, tel quel ; un objet par nom, dans l'ordre reçu, sans texte autour.
 
 Exemples de référence :
-{"name": "velo.fr", "exploit": 90, "resale": 90, "quick_low": 2000, "quick_high": 5000, "final_low": 10000, "final_high": 30000, "comment": "À prendre. Mot que tout le monde tape, rare en 4 lettres. Acheteur type : enseigne, marketplace ou start-up vélo."}
-{"name": "femmes.fr", "exploit": 80, "resale": 75, "quick_low": 1000, "quick_high": 3000, "final_low": 5000, "final_high": 15000, "comment": "À prendre. Thème large et porteur, se lit bien au pluriel. Acheteur type : média, marque de mode ou de santé."}
-{"name": "mai.fr", "exploit": 75, "resale": 80, "quick_low": 800, "quick_high": 2000, "final_low": 3000, "final_high": 8000, "comment": "À prendre. Trois lettres et un mot du calendrier, rare en .fr. Acheteur type : marque courte ou agence événementielle."}
-{"name": "lea.fr", "exploit": 60, "resale": 55, "quick_low": 150, "quick_high": 500, "final_low": 1000, "final_high": 3000, "comment": "À surveiller. Prénom court très donné, plaît aux particuliers. Acheteur type : parent, marque cosmétique ou enfant."}
-{"name": "premiere.fr", "exploit": 55, "resale": 50, "quick_low": 200, "quick_high": 800, "final_low": 2000, "final_high": 5000, "comment": "À surveiller. Mot fort, mais le magazine Première peut s'y opposer. Acheteur type : organisateur d'événements."}
-{"name": "oye.fr", "exploit": 45, "resale": 40, "quick_low": 100, "quick_high": 300, "final_low": 500, "final_high": 2000, "comment": "À surveiller. Court et prononçable, sans sens courant en français. Acheteur type : créateur de marque inventée."}
-{"name": "ciel.org", "exploit": 55, "resale": 40, "quick_low": 50, "quick_high": 200, "final_low": 500, "final_high": 2000, "comment": "À surveiller. Mot simple et poétique, mais le .org limite les acheteurs. Acheteur type : association ou projet culturel."}
-{"name": "sommes.fr", "exploit": 30, "resale": 25, "quick_low": 0, "quick_high": 100, "final_low": 300, "final_high": 1000, "comment": "À laisser. Forme de « être » ou pluriel de « somme », sens flou. Acheteur type : rare, à la marge en finance."}
-{"name": "qsd.fr", "exploit": 15, "resale": 25, "quick_low": 50, "quick_high": 200, "final_low": 200, "final_high": 800, "comment": "À laisser. Suite imprononçable sans sens, seule la brièveté compte. Acheteur type : entreprise au sigle QSD."}
-{"name": "kylian.org", "exploit": 25, "resale": 15, "quick_low": 0, "quick_high": 0, "final_low": 50, "final_high": 200, "comment": "À laisser. Prénom courant, mais le .org ne colle pas à un usage perso. Acheteur type : association de ce nom."}
-
-Réponds par une liste JSON de ces objets, un par nom reçu, dans le même ordre, sans texte autour."""
+{"name": "velo.fr", "oral": 10, "radio": 10, "memo": 10, "sens": 10, "marque": 9, "marche": 8, "ext": 10, "acheteurs": 9, "risque": 0, "quick_low": 3000, "quick_high": 8000, "final_low": 15000, "final_high": 50000, "comment": "Mot que tout le monde tape, rare en 4 lettres. Acheteur type : enseigne, marketplace ou start-up vélo."}
+  (calculé : exploitation 95, revente 90, À prendre)
+{"name": "femmes.fr", "oral": 9, "radio": 8, "memo": 8, "sens": 9, "marque": 7, "marche": 8, "ext": 9, "acheteurs": 8, "risque": 0, "quick_low": 1000, "quick_high": 3000, "final_low": 5000, "final_high": 15000, "comment": "Thème large et porteur, se lit bien au pluriel. Acheteur type : média, marque de mode ou de santé."}
+  (calculé : exploitation 75, revente 75, À prendre)
+{"name": "mai.fr", "oral": 9, "radio": 7, "memo": 9, "sens": 7, "marque": 8, "marche": 6, "ext": 9, "acheteurs": 8, "risque": 0, "quick_low": 800, "quick_high": 2000, "final_low": 3000, "final_high": 10000, "comment": "Trois lettres et un mot du calendrier, rare en .fr. Acheteur type : marque courte ou agence événementielle."}
+  (calculé : exploitation 70, revente 70, À prendre)
+{"name": "kalo.fr", "oral": 9, "radio": 8, "memo": 9, "sens": 0, "marque": 7, "marche": 2, "ext": 6, "acheteurs": 4, "risque": 0, "quick_low": 100, "quick_high": 300, "final_low": 800, "final_high": 2000, "comment": "Quatre lettres qui se disent d'une traite, sans sens, bon socle de marque inventée. Acheteur type : créateur de marque."}
+  (calculé : exploitation 45, revente 40, À surveiller)
+{"name": "lea.fr", "oral": 9, "radio": 6, "memo": 8, "sens": 5, "marque": 6, "marche": 3, "ext": 8, "acheteurs": 5, "risque": 0, "quick_low": 200, "quick_high": 500, "final_low": 1000, "final_high": 3000, "comment": "Prénom court très donné, Léa ou Lea à l'oral. Acheteur type : parent, marque cosmétique ou enfant."}
+  (calculé : exploitation 55, revente 50, À surveiller)
+{"name": "monassurance.fr", "oral": 8, "radio": 8, "memo": 6, "sens": 8, "marque": 4, "marche": 9, "ext": 9, "acheteurs": 6, "risque": 1, "quick_low": 500, "quick_high": 1500, "final_low": 3000, "final_high": 8000, "comment": "Secteur qui paie, intention claire, mais formule générique. Acheteur type : courtier ou comparateur d'assurance."}
+  (calculé : exploitation 55, revente 65, À prendre)
+{"name": "forumdomotique.fr", "oral": 7, "radio": 8, "memo": 5, "sens": 8, "marque": 3, "marche": 5, "ext": 9, "acheteurs": 3, "risque": 0, "quick_low": 100, "quick_high": 300, "final_low": 500, "final_high": 2000, "comment": "Usage évident pour un forum, peu d'acheteurs hors de ce projet. Acheteur type : éditeur de site domotique."}
+  (calculé : exploitation 50, revente 45, À surveiller)
+{"name": "premiere.fr", "oral": 9, "radio": 6, "memo": 7, "sens": 8, "marque": 6, "marche": 5, "ext": 8, "acheteurs": 5, "risque": 5, "quick_low": 150, "quick_high": 500, "final_low": 1000, "final_high": 3000, "comment": "Mot fort, mais le magazine Première peut s'y opposer. Acheteur type : organisateur d'événements."}
+  (calculé : exploitation 50, revente 40, À surveiller)
+{"name": "stack.io", "oral": 9, "radio": 9, "memo": 9, "sens": 8, "marque": 7, "marche": 6, "ext": 9, "acheteurs": 6, "risque": 3, "quick_low": 500, "quick_high": 1500, "final_low": 3000, "final_high": 10000, "comment": "Mot tech court et clair, très utilisé par les éditeurs de logiciels. Acheteur type : start-up d'outils pour développeurs."}
+  (calculé : exploitation 65, revente 60, À prendre)
+{"name": "ciel.org", "oral": 9, "radio": 8, "memo": 8, "sens": 8, "marque": 4, "marche": 2, "ext": 3, "acheteurs": 3, "risque": 0, "quick_low": 100, "quick_high": 300, "final_low": 800, "final_high": 3000, "comment": "Mot simple et poétique, le .org limite les acheteurs. Acheteur type : association ou projet culturel."}
+  (calculé : exploitation 55, revente 40, À surveiller)
+{"name": "sommes.fr", "oral": 8, "radio": 5, "memo": 5, "sens": 3, "marque": 2, "marche": 2, "ext": 7, "acheteurs": 2, "risque": 1, "quick_low": 0, "quick_high": 100, "final_low": 200, "final_high": 800, "comment": "Forme de « être » ou pluriel de « somme », sens flou. Acheteur type : rare, à la marge en finance."}
+  (calculé : exploitation 25, revente 25, À laisser)
+{"name": "382.fr", "oral": 3, "radio": 6, "memo": 4, "sens": 0, "marque": 1, "marche": 1, "ext": 5, "acheteurs": 2, "risque": 0, "quick_low": 0, "quick_high": 0, "final_low": 100, "final_high": 300, "comment": "Trois chiffres sans motif, se dit mal et s'oublie. Acheteur type : entreprise qui porte ce numéro."}
+  (calculé : exploitation 10, revente 15, À laisser)
+{"name": "qsd.fr", "oral": 1, "radio": 4, "memo": 4, "sens": 0, "marque": 1, "marche": 1, "ext": 5, "acheteurs": 3, "risque": 0, "quick_low": 0, "quick_high": 0, "final_low": 100, "final_high": 300, "comment": "Suite imprononçable sans sens, seule la brièveté compte. Acheteur type : entreprise au sigle QSD."}
+  (calculé : exploitation 10, revente 15, À laisser)
+{"name": "puer.fr", "oral": 8, "radio": 7, "memo": 7, "sens": 6, "marque": 1, "marche": 1, "ext": 6, "acheteurs": 1, "risque": 8, "quick_low": 0, "quick_high": 0, "final_low": 50, "final_high": 200, "comment": "Verbe à l'image repoussante, aucune marque ne voudra s'y associer. Acheteur type : aucun crédible."}
+  (calculé : exploitation 15, revente 5, À laisser)"""
 
 
 def hash_token(token: str) -> str:
@@ -88,8 +122,11 @@ def token_ok(store, header: str | None) -> bool:
 
 
 def public(row) -> dict:
-    return {k: row[k] for k in ("exploit", "resale", "quick_low", "quick_high", "final_low", "final_high",
-                                "comment", "rated_at")}
+    found = {k: row[k] for k in ("exploit", "resale", "quick_low", "quick_high", "final_low", "final_high",
+                                 "comment", "rated_at")}
+    grid = row["grid"] if "grid" in row.keys() else None
+    found["grid"] = json.loads(grid) if grid else None
+    return found
 
 
 def load(conn, names: list[str]) -> dict[str, dict]:
@@ -137,10 +174,42 @@ HORIZON_NIGHTS = 30
 _eta_cache: dict = {}
 
 
+# Second passage : chaque nuit, les avis v5 qui s'écartent le plus de l'estimation du score sont
+# renotés à froid, une seule fois (reviewed_at), en tête de lot.
+REVIEW_PER_NIGHT = 50
+REVIEW_GAP = 25  # écart minimal, en points de note, entre l'avis et l'estimation
+
+
+def to_review(explorer, limit: int = REVIEW_PER_NIGHT) -> list[tuple[str, int, int]]:
+    """(nom, meilleure note de l'avis, estimation du score) des avis à revoir, les plus gros écarts d'abord."""
+    from . import quality
+
+    found = []
+    for name, exploit, resale in explorer.conn.execute(
+            "SELECT name, exploit, resale FROM domain_ai WHERE version >= ? AND reviewed_at IS NULL", (VERSION,)):
+        label, _, tld = name.rpartition(".")
+        estimate = round(quality.predict(label, tld)[0])
+        best = max(exploit, resale)
+        if abs(best - estimate) >= REVIEW_GAP:
+            found.append((abs(best - estimate), name, best, estimate))
+    return [(name, best, estimate) for _, name, best, estimate in sorted(found, reverse=True)[:limit]]
+
+
 def pending(explorer, limit: int) -> list[dict]:
-    """Noms complets sans avis à jour, dans l'ordre où ils servent."""
-    picked, data = _queue(explorer, limit)
-    return _describe(explorer, picked, data)
+    """Noms complets sans avis à jour, dans l'ordre où ils servent ; les avis à revoir d'abord."""
+    review = to_review(explorer, min(REVIEW_PER_NIGHT, limit))
+    picked, data = _queue(explorer, limit - len(review)) if limit > len(review) else ([], {t: explorer.status_bytes(t) for t in explorer.tlds()})
+    u = explorer.universe
+    head = []
+    for name, best, estimate in review:
+        label, _, tld = name.rpartition(".")
+        i = u.index(label)
+        if i is not None and tld in data:
+            head.append(((i, label, tld), {"previous_note": best, "score_estimate": estimate}))
+    items = _describe(explorer, [p for p, _ in head] + picked, data)
+    for item, (_, review_info) in zip(items, head):
+        item["review"] = review_info
+    return items
 
 
 def queue_position(explorer, name: str) -> int | None:
@@ -259,20 +328,31 @@ def save(conn, results: list, known) -> dict:
     now = iso(utcnow())
     saved, rejected, names = 0, [], []
     for item in results[:MAX_RESULTS]:
-        reason = check(item, known)
+        reason = check_any(item, known)
         if reason:
             name = item.get("name") if isinstance(item, dict) else None
             rejected.append({"name": str(name or ""), "reason": reason})
             continue
+        if is_v5(item):
+            # Notes et verdict calculés depuis les sous-notes : ils ne peuvent pas se contredire.
+            notes = derive(item)
+            row = {**item, "exploit": notes["exploit"], "resale": notes["resale"],
+                   "comment": f"{notes['verdict']}. {item['comment']}"}
+            grid, version = json.dumps({k: item[k] for k in CRITERIA_V5}), VERSION
+        else:
+            row, grid, version = item, None, 4  # avis à l'ancien format, arrivé pendant la transition
+        # Un nom déjà noté en v5 qui revient : c'est le second passage, il ne repassera plus.
+        again = conn.execute("SELECT 1 FROM domain_ai WHERE name = ? AND version >= ?", (row["name"], VERSION)).fetchone()
         conn.execute(
             """INSERT INTO domain_ai (name, exploit, resale, quick_low, quick_high, final_low, final_high,
-                                      comment, rated_at, version)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                      comment, rated_at, version, grid, reviewed_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(name) DO UPDATE SET exploit = excluded.exploit, resale = excluded.resale,
                  quick_low = excluded.quick_low, quick_high = excluded.quick_high,
                  final_low = excluded.final_low, final_high = excluded.final_high,
-                 comment = excluded.comment, rated_at = excluded.rated_at, version = excluded.version""",
-            (*(item[k] for k in FIELDS), now, VERSION),
+                 comment = excluded.comment, rated_at = excluded.rated_at, version = excluded.version,
+                 grid = excluded.grid, reviewed_at = COALESCE(excluded.reviewed_at, domain_ai.reviewed_at)""",
+            (*(row[k] for k in FIELDS), now, version, grid, now if again and version >= VERSION else None),
         )
         saved += 1
         names.append(item["name"])

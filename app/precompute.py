@@ -1,8 +1,12 @@
-"""Calcul long fait une fois, à la construction de l'image : forme des 1,9 million de noms courts.
+"""Calcul long fait une fois, à la construction de l'image : score de base de tous les noms suivis.
 
-Un octet par nom de 1 à 4 caractères : points de forme (0 à 40) + 128 si le nom a un sens
-(vrai mot, prononçable, chiffres seuls). En tête, l'empreinte des fichiers de données utilisés :
-si elle ne correspond plus, le fichier est ignoré et le calcul refait au démarrage.
+Un octet par nom de l'univers (1,9 million de noms courts, puis les mots des listes) : points de forme et
+de sens (0 à 70, la meilleure de .fr et .com, plus une marge) + 128 si le nom a un sens (vrai mot,
+prononçable, chiffres seuls). En tête, l'empreinte des fichiers utilisés : si elle ne correspond plus, le
+fichier est ignoré et le calcul refait au démarrage.
+
+Seuls les noms classables sont calculés (1 à 3 caractères, 4 lettres, 4 chiffres, mots des listes) : les
+4 caractères mélangés (1,4 million) valent trop peu pour le classement.
 
     python -m app.precompute    (Dockerfile)
 """
@@ -11,34 +15,51 @@ import hashlib
 import itertools
 from pathlib import Path
 
-from . import drops, pronounce, value, wordlists
+from . import drops, pronounce, quality, value, wordlists
 
 DATA = Path(__file__).parent / "data"
-TARGET = DATA / "courts.bin"
-SOURCES = ("mots.txt", "formes.txt", "noms.txt", "prenoms.txt", "mots_courts.txt", "trigrammes.json")
+TARGET = DATA / "scores.bin"
 GOOD = 128
+# Marge sur la borne : une autre extension (.io pour un prénom) peut dépasser un peu .fr et .com.
+MARGIN = 2
 
 
 def fingerprint() -> bytes:
     digest = hashlib.sha256()
-    for name in SOURCES:
-        digest.update((DATA / name).read_bytes())
-    digest.update(Path(value.__file__).read_bytes())
-    digest.update(Path(pronounce.__file__).read_bytes())
+    for path in sorted(DATA.iterdir()):
+        if path.suffix in (".txt", ".json"):
+            digest.update(path.name.encode())
+            digest.update(path.read_bytes())
+    for module in (value, pronounce, quality, wordlists):
+        digest.update(Path(module.__file__).read_bytes())
     return digest.digest()
 
 
+def words() -> list[str]:
+    """Mots des listes de plus de 4 caractères, triés : ils suivent les noms courts dans l'univers."""
+    return sorted({w for names in wordlists.lists().values() for w in names if len(w) > drops.MAX_SHORT})
+
+
+def base(label: str) -> int:
+    return min(70, value.base(label) + MARGIN)
+
+
 def compute() -> bytearray:
-    table = bytearray(drops.CELLS)
+    found = words()
+    table = bytearray(drops.CELLS + len(found))
     listed = {w for names in wordlists.lists().values() for w in names}
+    letters4 = (drops.encode("".join(p)) for p in itertools.product(drops.CHARSET[:26], repeat=4))
+    digits4 = (drops.encode("".join(p)) for p in itertools.product(drops.CHARSET[26:36], repeat=4))
+    ranked = set(itertools.chain(range(0, drops.OFFSETS[3]), letters4, digits4))
     for i in range(drops.CELLS):
         label = drops.decode(i)
         if not drops.valid_label(label):
             continue
-        points = value.shape(label)[0]
         kind = drops.kind_of(label)
         good = label in listed or kind == "digits" or (kind == "letters" and value.quality(label) != "letters")
-        table[i] = points | (GOOD if good else 0)
+        table[i] = (base(label) if i in ranked or label in listed else 0) | (GOOD if good else 0)
+    for n, label in enumerate(found):
+        table[drops.CELLS + n] = base(label) | GOOD
     return table
 
 
@@ -47,7 +68,7 @@ def load() -> bytearray | None:
         data = TARGET.read_bytes()
     except OSError:
         return None
-    if len(data) != 32 + drops.CELLS or data[:32] != fingerprint():
+    if len(data) != 32 + drops.CELLS + len(words()) or data[:32] != fingerprint():
         return None
     return bytearray(data[32:])
 

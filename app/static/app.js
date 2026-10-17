@@ -2,6 +2,9 @@
 const AI_FILTER_DEFAULTS = Object.fromEntries([["ai_v", ""], ...["exploit", "resale", "quick_low", "quick_high", "final_low", "final_high"]
   .flatMap((f) => [[`ai_${f}_min`, ""], [`ai_${f}_max`, ""]])]);
 const AI_VERDICTS = { take: "À prendre", watch: "À surveiller", skip: "À laisser" };
+// Sous-notes de la grille v5 (sur 10), dans l'ordre de la consigne.
+const AI_GRID = [["oral", "prononciation"], ["radio", "test radio"], ["memo", "mémorisation"], ["sens", "sens"],
+  ["marque", "marque"], ["marche", "marché"], ["ext", "extension"], ["acheteurs", "acheteurs"], ["risque", "risque"]];
 // Catégories de forme ; les autres viennent des listes de noms.
 const SHAPE_KINDS = ["letters", "digits", "mixed", "hyphen"];
 // min : null = score minimum par défaut réglé dans Paramètres ; 0 = tout voir.
@@ -16,7 +19,6 @@ const EX_TYPES = [
   { k: "media", label: "Médias et marques" }, { k: "sector", label: "Secteurs" }, { k: "trend", label: "Tendances" },
   { k: "niche", label: "Sites de niche" }, { k: "expr", label: "Expressions" }, { k: "short", label: "Courts (1 à 4)" },
 ];
-const LEVELS = [{ k: "gem", label: "Pépites" }, { k: "good", label: "Bons" }, { k: "", label: "Tout" }];
 const LENSES = [{ k: "resale", label: "Pour revendre" }, { k: "exploit", label: "Pour exploiter" }];
 const LABELS = {
   available: "Disponible",
@@ -130,7 +132,7 @@ document.addEventListener("alpine:init", () => {
     seoKey: "",
     ex: { tld: "", q: "", status: "bookable", cat: "", len: "", sort: "best", nat: "", rank: "", taken: "", min: "", junk: "", seo: "", lang: "", premium: "", level: "good", ...AI_FILTER_DEFAULTS },
     lens: (() => { try { return localStorage.getItem("lens") || "resale"; } catch (_) { return "resale"; } })(),
-    EX_STATES, EX_TYPES, LEVELS, LENSES,
+    EX_STATES, EX_TYPES, LENSES,
     exFiltersOpen: false,
     exMapOpen: false,
     fiche: null,
@@ -525,6 +527,12 @@ document.addEventListener("alpine:init", () => {
         ai.push(["Notes", `<span class="ai-notes">Exploitation <b>${Number(opinion.exploit)}</b> · revente <b>${Number(opinion.resale)}</b></span>`]);
         ai.push(["Revente rapide", esc(this.priceRange(opinion.quick_low, opinion.quick_high))]);
         ai.push(["Utilisateur final", esc(this.priceRange(opinion.final_low, opinion.final_high))]);
+        if (opinion.grid) {
+          // Grille v5 : les sous-notes d'où viennent les notes et le verdict.
+          const g = opinion.grid;
+          ai.push(["Grille", `<span class="ai-grid">${AI_GRID.map(([k, label]) =>
+            `<span class="${k === "risque" && g[k] >= 5 ? "warn-text" : ""}">${label} <b>${Number(g[k])}</b></span>`).join(" · ")}</span>`]);
+        }
       }
       if (item && item.score !== undefined) {
         score.push(["Total", `<span class="ex-bar fiche-bar"><i style="width:${Number(item.score)}%"></i><b>${Number(item.score)}</b></span>`]);
@@ -711,6 +719,7 @@ document.addEventListener("alpine:init", () => {
         const saved = JSON.parse(localStorage.getItem("explorer") || "null");
         // Réglages d'avant la refonte : on repart des réglages simples, en gardant les extensions.
         if (saved && saved.v === 2) Object.assign(this.ex, saved, { q: "" });
+        if (this.ex.level === "gem") this.ex.level = "good";  // ancien niveau « Pépites » : la case le remplace
         else if (saved) this.ex.tld = saved.tld || "";
       } catch (_) {}
     },
@@ -874,7 +883,7 @@ document.addEventListener("alpine:init", () => {
 
     scoreTitle(i) {
       if (!i.parts) return "";
-      const names = { shape: "forme", popularity: "popularité", demand: "demande", history: "historique", seo: "SEO" };
+      const names = { shape: "forme et sonorité", popularity: "sens et marché", demand: "demande", history: "historique", seo: "SEO" };
       return `Score ${i.score} : ` + Object.entries(i.parts).filter(([, v]) => v).map(([k, v]) => `${names[k]} ${v}`).join(", ");
     },
 
@@ -1225,13 +1234,17 @@ document.addEventListener("alpine:init", () => {
       return this.df.min === null || this.df.min === undefined ? 0 : this.df.min;
     },
 
-    // Niveaux, comme dans l'Explorer : pépites, bons (score ou avis IA favorable), tout.
+    // « Masquer les noms faibles », comme dans l'Explorer : avec un avis IA, ce qu'il dit ; sans avis, score de 30.
     dropLevelOk(d) {
       if (!this.dropLevel) return true;
       const v = this.aiVerdict(d.ai);
-      if (this.dropLevel === "gem") return d.score >= 50 || v === "À prendre";
-      return d.score >= 30 || v === "À prendre" || v === "À surveiller";
+      if (this.dropLevel === "gem") return v === "À prendre" || (!v && d.score >= 50);
+      if (v) return v !== "À laisser";
+      return d.score >= 30;
     },
+
+    // Pour revendre / pour exploiter : conseillés par l'IA d'abord, puis sans avis, puis déconseillés.
+    dropLensTier(d) { return !d.ai ? 1 : this.aiVerdict(d.ai) === "À laisser" ? 0 : 2; },
 
     dropLensValue(d) { return d.ai ? d.ai[this.lens] : d.score; },
 
@@ -1264,7 +1277,7 @@ document.addEventListener("alpine:init", () => {
           return list.sort((a, b) => at(b).localeCompare(at(a)));
         }
         if (this.dropSortMode === "release") return list.sort((a, b) => (a.release_at || "9").localeCompare(b.release_at || "9"));
-        return list.sort((a, b) => this.dropLensValue(b) - this.dropLensValue(a) || b.score - a.score);
+        return list.sort((a, b) => this.dropLensTier(b) - this.dropLensTier(a) || this.dropLensValue(b) - this.dropLensValue(a) || b.score - a.score);
       });
     },
 

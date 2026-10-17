@@ -1098,3 +1098,9 @@ button:disabled { cursor: default; opacity: .55; }
   .veille-list .nc-actions { width: 100%; padding-left: 30px; }
   .veille-list .nc-actions .btn-ghost { flex: 1; min-height: 36px; }
 }
+
+/* Fiche : sous-notes de la grille IA. */
+.ai-grid { font-size: 13px; line-height: 1.7; }
+.ai-grid b { font-variant-numeric: tabular-nums; }
+.weak-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; cursor: pointer; }
+.weak-toggle input { width: 16px; height: 16px; accent-color: var(--accent); }

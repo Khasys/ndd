@@ -4,4 +4,4 @@ __pycache__/
 .venv/
 /data/
 .env
-app/data/courts.bin
+app/data/scores.bin

@@ -94,10 +94,11 @@ prénoms, tech et startups, médias et marques, courts…).
 
 Réglages communs, gardés d'un écran à l'autre :
 
-- **Pour revendre / Pour exploiter** : classe par note IA de revente ou d'exploitation. Un nom
-  sans avis IA est classé par son score, sur la même échelle de 0 à 100.
-- **Pépites / Bons / Tout** : Pépites = score 50 et plus ou avis « À prendre » ; Bons = score 30
-  et plus ou avis « À prendre » / « À surveiller » (choix par défaut) ; Tout = sans tri.
+- **Pour revendre / Pour exploiter** : d'abord les noms que l'IA conseille (« À prendre », « À
+  surveiller »), par sa note de revente ou d'exploitation ; puis les noms sans avis, par score ; à la
+  fin, ceux qu'elle déconseille (« À laisser »).
+- **Masquer les noms faibles** (case cochée par défaut) : sans avis IA, score sous 30 ; avec un avis,
+  « À laisser », même à bon score.
 - **Extensions** : une, plusieurs ou toutes.
 - **Avancé** (replié) : les filtres fins (nature, longueur, fréquence, SEO, avis IA, score
   minimum…), et dans l'Explorer les classements, la carte, les premiums et les vues enregistrées.
@@ -289,15 +290,25 @@ en mémoire et les prépare au démarrage, après chaque import .fr et chaque le
 nom vérifié, marqué ou analysé (bouton ou vérification automatique) est corrigé en place : son
 octet d'état, les compteurs de ±1, la carte. Pas de recalcul d'ensemble.
 
-Score (`app/value.py`), chaque critère pondérable de 0 à 2 dans Paramètres :
+Score (`app/value.py`, `app/quality.py`), chaque critère pondérable de 0 à 2 dans Paramètres :
 
 | Critère | Points |
 |---|---|
-| Forme : longueur, lettres avant chiffres, 4 lettres prononçables | 40 au plus |
-| Popularité : rang du mot ou de la forme (Lexique), du nom ou du prénom (Insee) | 30 au plus |
-| Demande : pris sur d'autres extensions, .com surtout | 15 au plus |
-| Historique .fr : années de détention, suppression récente | 15 au plus |
+| Forme et sens : longueur, sonorité en français et en anglais (ressemblance aux vrais mots, alternance consonnes-voyelles, test radio, lettres ambiguës), sens et rang dans sa liste (Lexique, Insee, anglais, secteurs…), nature du mot, image négative, langue adaptée à l'extension | 70 au plus |
+| Demande : pris sur d'autres extensions, .com surtout, seulement si c'est rare pour un nom de sa forme | 15 au plus |
+| Historique .fr : années de détention, suppression récente, moins si la plupart des noms de sa forme ont déjà été tenus | 15 au plus |
 | SEO, si analysé : Open PageRank, années archivées par la Wayback Machine | 20 au plus |
+
+Forme et sens : poids calés sur des avis IA détaillés (grille v5) d'un échantillon de noms de toutes
+les catégories, une famille de poids par sorte de nom (mots, noms de personnes, suites courtes),
+dans `app/data/score_model.json`. Concordance de rang avec les avis IA, sur des noms gardés hors du
+calage : 0,26 pour l'ancien barème, 0,83 pour celui-ci. Point faible connu : entre deux mots
+courants, la valeur tient au sens et au marché, que seule la notation IA juge bien. Demande et
+historique : taux de base par extension et par forme (1 à 4 lettres prononçables ou non, chiffres,
+mélanges, mots), mesurés sur les zones lues ; la raison dit « courant pour cette forme » quand le
+signal est banal. Le score de base de tous les noms est précalculé à la construction de l'image
+(`app/precompute.py`, `scores.bin`) ; le classement écarte d'abord les noms sur cette borne et ne
+fait le calcul complet que pour ceux qui peuvent entrer dans la page.
 
 SEO à la demande (bouton « SEO » d'un nom, ou « SEO des 50 premiers ») : Open PageRank donne une
 note de 0 à 10 tirée des liens (Common Crawl), avec une clé gratuite à saisir dans Paramètres ;
@@ -308,18 +319,31 @@ Tri : score, fréquence (mot, nom ou prénom du plus courant au moins courant), 
 
 #### Avis IA
 
-Pour chaque nom complet en .fr, .com ou .org (velo.fr, ciel.org ; les autres extensions valent trop peu pour être notées) : potentiel d'exploitation et de revente sur 100, prix
-de revente rapide (à un investisseur, en quelques semaines), prix utilisateur final (avec de la
-patience) et un commentaire de 200 caractères qui explique la valeur sans répéter les notes.
+Pour chaque nom complet en .fr, .com ou .org (velo.fr, ciel.org ; les autres extensions valent trop peu pour être notées) : une grille de neuf sous-notes sur 10
+(prononciation, test radio, mémorisation, sens, marque, marché, adéquation à l'extension,
+acheteurs possibles, risque), deux fourchettes de prix (revente rapide à un investisseur ;
+utilisateur final, avec de la patience) et une raison avec le type d'acheteur. Les notes
+d'exploitation et de revente sur 100 et le verdict sont calculés par le NAS depuis la grille
+(`app/ai_format.py`, `derive`) : ils ne peuvent plus se contredire. Le prix utilisateur final doit
+tomber dans le palier de la note pour son extension (repères indicatifs, un palier de tolérance ;
+pas de plafond pour les noms de 1 ou 2 caractères ni pour une note de 90 et plus). Validation de
+la grille : 50 noms témoins notés par plusieurs agents indépendants, écart-type moyen de 3 points,
+même verdict dans 93 % des cas.
+
+Second passage : chaque nuit, les 50 avis les plus éloignés de l'estimation du score (25 points
+d'écart au moins) reviennent en tête de lot, avec l'ancienne note et l'estimation ; l'IA les renote à
+froid, une seule fois.
 
 Le NAS publie la liste à noter (`GET /api/ai/pending`) : noms libres ou bientôt libres d'abord, puis
 probablement libres, puis enregistrés, les plus prometteurs d'abord, avec la consigne et des exemples
 de référence pour garder des notes cohérentes. Il réimporte les avis (`POST /api/ai/results`) après
-contrôle du format, le même pour chaque avis : exactement huit champs, notes en multiples de 5,
-prix sur une échelle fixe (0, 50, 100, 150, 200, 300, 500, 800, 1 000…), revente rapide sous le prix
-final, commentaire sur le gabarit « Verdict. Raison. Acheteur type : … » (200 caractères, sans emoji
-ni tiret long). Le verdict est « À prendre » (note d'au moins 60), « À surveiller » ou « À laisser »
-(notes de 45 au plus) ; il apparaît en tête de l'étiquette dans les listes. Le script applique le même contrôle avant l'envoi (`check`). Une tâche planifiée fait l'échange
+contrôle du format, le même pour chaque avis : exactement quinze champs, sous-notes entières de 0
+à 10, prix sur une échelle fixe (0, 50, 100, 150, 200, 300, 500, 800, 1 000…), revente rapide à 40 %
+du prix final au plus, raison sur le gabarit « Raison. Acheteur type : … » (180 caractères, sans
+emoji ni tiret long, sans verdict). Le verdict calculé est « À prendre » (meilleure note d'au moins
+60, risque de 4 au plus), « À surveiller » ou « À laisser » (40 au plus, ou risque de 8 et plus) ; il
+apparaît en tête de l'étiquette dans les listes. Les avis à l'ancien format (version 4) restent
+acceptés pendant la transition. Le script applique le même contrôle avant l'envoi (`check`). Une tâche planifiée fait l'échange
 chaque nuit avec `scripts/ai_exchange.py` (variables `DW_URL` et `DW_AI_TOKEN`).
 
 Analyse à la demande : bouton « Analyse IA » dans la fiche de n'importe quel nom, même hors des

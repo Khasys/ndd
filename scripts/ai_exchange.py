@@ -16,7 +16,7 @@ import sys
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from app.ai_format import check  # noqa: E402  même règle que le NAS, sans dépendance
+from app.ai_format import check_any, derive, is_v5, summary  # noqa: E402  même règle que le NAS, sans dépendance
 
 
 def call(method: str, path: str, body: dict | None = None) -> dict:
@@ -43,7 +43,7 @@ def verify(lot_path: str, results_path: str) -> tuple[list, list]:
     wanted = set(asked)
     good, problems, seen = [], [], set()
     for item in results:
-        reason = check(item, lambda name: name in wanted)
+        reason = check_any(item, lambda name: name in wanted)
         name = item.get("name") if isinstance(item, dict) else None
         if not reason and name in seen:
             reason = "doublon"
@@ -80,6 +80,19 @@ def main() -> None:
         print(f"{len(good)} avis conformes, {len(problems)} problèmes")
         for name, reason in problems[:30]:
             print(f"  {name} : {reason}")
+        # Grille v5 : le verdict et les notes sont calculés depuis les sous-notes ; on les montre ici.
+        verdicts = {}
+        for item in good:
+            v = derive(item)["verdict"] if is_v5(item) else item["comment"].split(".")[0]
+            verdicts[v] = verdicts.get(v, 0) + 1
+        if good:
+            print("Verdicts calculés : " + ", ".join(f"{v} {n}" for v, n in sorted(verdicts.items())))
+            # Les meilleurs d'abord : la tâche de nuit en tire son résumé, la tâche horaire un nom par ligne.
+            def best(item):
+                d = derive(item) if is_v5(item) else item
+                return max(d["exploit"], d["resale"])
+            for item in sorted(good, key=best, reverse=True)[:20]:
+                print("  " + summary(item) + f", revente rapide {item['quick_low']} à {item['quick_high']} euros")
         if action == "push" and good:
             saved, rejected = 0, []
             for start in range(0, len(good), 1000):

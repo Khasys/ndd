@@ -2,15 +2,14 @@
 
 Barème fixe et lisible plutôt qu'un modèle : chaque point vient d'une raison affichée.
 
-- Forme (40 au plus) : plus c'est court, mieux c'est ; lettres avant chiffres, chiffres avant
-  mélanges, tiret en dernier. En lettres : un vrai mot (même rare, d'après le Lexique) vaut plus
-  qu'un nom prononçable, qui vaut bien plus qu'une suite de lettres (pronounce.py).
-- Popularité (30 au plus) : rang du nom dans sa liste (mot, nom, prénom, anglais, secteur…).
+- Forme et sonorité, sens et marché (70 au plus à eux deux) : calés sur des avis IA détaillés
+  (quality.py, score_model.json). L'ancien barème de forme (vrai mot, prononçable, suite de lettres)
+  et de popularité (rang dans sa liste) y entre comme une mesure parmi d'autres.
 - Demande (15 au plus) : le même nom est pris sur d'autres extensions, .com surtout.
 - Historique (15 au plus) : pour un .fr supprimé, années de détention et suppression récente.
 - SEO (20 au plus) : Open PageRank et archives Wayback, si l'analyse a été faite.
 
-Forme + popularité ne dépendent que du nom : c'est la « base », calculée une fois.
+Forme et sens ne dépendent que du nom et de l'extension : c'est la « base », précalculée.
 Le reste dépend de l'extension et des données du moment : c'est le « bonus », 50 au plus.
 """
 
@@ -18,6 +17,7 @@ import math
 from datetime import date
 
 from . import drops, pronounce, wordlists
+from . import quality as measures  # le nom quality est pris par la fonction plus bas
 
 MAX_BONUS = 50
 
@@ -91,17 +91,33 @@ def _nth(rank: int) -> str:
 
 
 def base(label: str) -> int:
-    return min(70, shape(label)[0] + popularity(label)[0])
+    """Points de forme et de sens, la meilleure extension (.fr ou .com) : sert à ranger et à borner."""
+    return min(70, max(sum(measures.points(label, tld)) for tld in ("fr", "com")))
 
 
-def demand(taken: list[str]) -> tuple[int, str | None]:
+# Demande : un nom pris ailleurs ne compte que si c'est rare pour un nom de sa forme. 91 % des
+# 4 lettres prononçables sont pris en .org : y être pris ne dit presque rien. rates donne, par
+# extension, la part des noms de la même forme qui y sont pris (mesurée sur les zones lues).
+DEMAND_POINTS = {"com": 10}
+OTHER_DEMAND_POINTS = 4
+COMMON_SIGNAL = 0.5  # en dessous de la moitié des points possibles : « courant pour cette forme »
+
+
+def demand(taken: list[str], rates: dict[str, float] | None = None) -> tuple[int, str | None]:
     if not taken:
         return 0, None
-    points = (10 if "com" in taken else 4) + 3 * len([t for t in taken if t != "com"])
-    return min(15, points), "pris en " + ", ".join(f".{t}" for t in taken)
+    rates = rates or {}
+    full = sum(DEMAND_POINTS.get(t, OTHER_DEMAND_POINTS) for t in taken)
+    raw = sum(DEMAND_POINTS.get(t, OTHER_DEMAND_POINTS) * (1 - rates.get(t, 0.0)) for t in taken)
+    reason = "pris en " + ", ".join(f".{t}" for t in taken)
+    if rates and raw < COMMON_SIGNAL * full:
+        reason += " (courant pour cette forme)"
+    return min(15, round(raw)), reason
 
 
-def history(created: str | None, removed: str | None, today: date) -> tuple[int, str | None]:
+def history(created: str | None, removed: str | None, today: date, common: float = 0.0) -> tuple[int, str | None]:
+    """Années de détention et suppression récente. common : part des .fr libres de la même forme qui ont
+    déjà été tenus ; au-delà de la moitié (portefeuilles de spéculateurs vidés), le signal s'efface."""
     if not created or not removed:
         return 0, None
     years = (date.fromisoformat(removed) - date.fromisoformat(created)).days / 365.25
@@ -110,7 +126,10 @@ def history(created: str | None, removed: str | None, today: date) -> tuple[int,
     if (today - date.fromisoformat(removed)).days < 730:
         points += 5
         reason = (reason + ", " if reason else "") + f"supprimé en {removed[:4]}"
-    return min(15, points), reason
+    factor = min(1.0, 2 * (1 - common))
+    if reason and factor < COMMON_SIGNAL:
+        reason += " (courant pour cette forme)"
+    return min(15, round(points * factor)), reason
 
 
 def seo(row) -> tuple[int, list[str]]:
@@ -127,7 +146,7 @@ def seo(row) -> tuple[int, list[str]]:
 
 
 # Poids de chaque critère, de 0 (ignoré) à 2 (doublé), réglables dans Paramètres.
-CRITERIA = {"shape": "Forme", "popularity": "Popularité", "demand": "Demande", "history": "Historique", "seo": "SEO"}
+CRITERIA = {"shape": "Forme et sonorité", "popularity": "Sens et marché", "demand": "Demande", "history": "Historique", "seo": "SEO"}
 DEFAULT_WEIGHTS = dict.fromkeys(CRITERIA, 1.0)
 
 
@@ -141,19 +160,32 @@ def weights_from(raw: str | None) -> dict[str, float]:
     return {k: max(0.0, min(2.0, float(found.get(k, 1.0)))) for k in CRITERIA}
 
 
+def intrinsic(label: str, tld: str = "fr", f: dict | None = None) -> tuple[int, int, list[str]]:
+    """Forme et sens du nom pour une extension : (points de forme, points de sens, raisons).
+
+    Points calés sur des avis IA détaillés (quality.py) ; raisons en mots simples : la forme (« 4 lettres,
+    prononçable »), le rang dans sa liste, puis ce qui aide ou freine à l'oral."""
+    f = f or measures.features(label, tld)
+    form, meaning = measures.points(label, tld, f)
+    reasons = [r for r in (shape(label)[1], popularity(label)[1]) if r] + measures.sound_reasons(label, tld, f)
+    return form, meaning, reasons
+
+
 def score(label: str, taken: list[str], fr_row=None, seo_row=None, today: date | None = None,
-          weights: dict[str, float] | None = None) -> dict:
+          weights: dict[str, float] | None = None, rates: dict[str, float] | None = None, common: float = 0.0,
+          tld: str = "fr") -> dict:
     today = today or date.today()
     weights = weights or DEFAULT_WEIGHTS
     parts: dict[str, int] = {}
-    reasons = []
-    for key, (points, reason) in (("shape", shape(label)), ("popularity", popularity(label)), ("demand", demand(taken))):
-        parts[key] = points
-        if reason:
-            reasons.append(reason)
+    form, meaning, reasons = intrinsic(label, tld)
+    parts["shape"], parts["popularity"] = form, meaning
+    points, reason = demand(taken, rates)
+    parts["demand"] = points
+    if reason:
+        reasons.append(reason)
     parts["history"] = 0
     if fr_row is not None:
-        points, reason = history(fr_row["created_on"], fr_row["removed_on"], today)
+        points, reason = history(fr_row["created_on"], fr_row["removed_on"], today, common)
         parts["history"] = points
         if reason:
             reasons.append(reason)

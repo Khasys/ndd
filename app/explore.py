@@ -13,6 +13,7 @@ Recherche, filtres et comptages se font sur ces octets : bytes.find et bytes.cou
 
 import bisect
 import json
+import operator
 import functools
 import heapq
 import itertools
@@ -126,8 +127,9 @@ _PRESENT_TO_STATUS = bytes([ABSENT, REGISTERED]) + bytes(254)
 
 
 def _words() -> list[str]:
-    """Noms des listes de plus de 4 caractères, triés : ils suivent les noms courts dans l'univers."""
-    return sorted({w for names in wordlists.lists().values() for w in names if len(w) > drops.MAX_SHORT})
+    """Noms des listes de plus de 4 caractères, triés : ils suivent les noms courts dans l'univers
+    (même liste que le précalcul des scores, dans le même ordre)."""
+    return precompute.words()
 
 
 # Filtre sur l'avis IA : verdicts et bornes (basse, haute) de chaque note et de chaque prix.
@@ -197,6 +199,14 @@ class Filters:
         return cls(**{k: v for k, v in kwargs.items() if k in cls.__dataclass_fields__})
 
 
+def lens_tier(opinion: dict | None) -> int:
+    """Ordre « pour revendre / pour exploiter » : 2 conseillé par l'IA, 1 sans avis, 0 déconseillé."""
+    if not opinion:
+        return 1
+    verdict = opinion.get("verdict") or (opinion.get("comment") or "").split(".")[0]
+    return 0 if verdict == "À laisser" else 2
+
+
 @functools.lru_cache(maxsize=1)
 def _english_only() -> frozenset[str]:
     """Mots anglais qui ne sont pas aussi des mots français."""
@@ -231,6 +241,8 @@ class Universe:
                        for n in range(1, drops.MAX_SHORT + 1)}
         self.letters4, self.digits4 = self.letters[4], self.digits[4]
         self._buckets: list[array] | None = None
+        self.base_table: bytearray | None = None
+        self._good_letters: dict[int, array] = {}
         self._lock = threading.Lock()
         self.good: bytearray | None = None
         # Noms des listes du plus fréquent au moins fréquent, par liste et toutes listes confondues.
@@ -270,26 +282,41 @@ class Universe:
             buckets = [array("i") for _ in range(71)]
             good = bytearray(self.size)
             good[drops.CELLS:] = b"\x01" * (self.size - drops.CELLS)  # noms des listes de 5 caractères et plus
-            listed = set(self.listed_sorted_labels)
-            for label in sorted(listed):  # ordre stable d'un démarrage à l'autre
-                i = self.index(label)
-                if i is not None:
-                    buckets[value.base(label)].append(i)
-                    good[i] = 1
+            # Score de base précalculé (construction de l'image) : forme et sens, la meilleure extension.
             table = precompute.load() or precompute.compute()
-            # Classement : noms de 1 à 3 caractères, 4 lettres et 4 chiffres. Les 4 caractères
-            # mélangés (1,4 million) valent trop peu pour y entrer.
-            for i in itertools.chain(range(0, drops.OFFSETS[3]), self.letters4, self.digits4):
-                byte = table[i]
-                if byte and not good[i]:
-                    buckets[byte & 127].append(i)
+            # Classement : noms de 1 à 3 caractères, 4 lettres et 4 chiffres, noms des listes. Les 4
+            # caractères mélangés (1,4 million) valent trop peu pour y entrer : leur octet est à 0.
             for i in range(drops.CELLS):
-                if table[i] & precompute.GOOD:
+                byte = table[i]
+                if byte & precompute.GOOD:
                     good[i] = 1
+                if byte & 127:
+                    buckets[byte & 127].append(i)
+            for i in range(drops.CELLS, self.size):
+                buckets[table[i] & 127].append(i)
+            self.base_table = table  # borne du score de forme et de sens, nom par nom
             self.good = good
             self.good_int = int.from_bytes(good, "big")
             self._buckets = buckets
             return buckets
+
+    def good_letters(self, n: int) -> array:
+        """Noms de n lettres qui ont un sens ou se prononcent (après buckets())."""
+        found = self._good_letters.get(n)
+        if found is None:
+            self.buckets()
+            found = self._good_letters[n] = array("i", (i for i in self.letters[n] if self.good[i]))
+        return found
+
+    def shape_class(self, i: int) -> str:
+        """Forme d'un nom pour les taux de base : L4g (4 lettres qui se prononcent), L4b, D4, M4…, W (mot)."""
+        if i >= drops.CELLS:
+            return "W"
+        label = drops.decode(i)
+        n, kind = len(label), drops.kind_of(label)
+        if kind == "letters":
+            return f"L{n}{'g' if self.good is not None and self.good[i] else 'b'}"
+        return f"{'D' if kind == 'digits' else 'M'}{n}"
 
     def position(self, order_key: str, i: int) -> int:
         """Place d'un nom dans un ordre de la liste (fréquence, longueur), pour fusionner des listes."""
@@ -788,28 +815,61 @@ class Explorer:
         # Bonus le plus haut possible avec ces données : sert à arrêter le classement au plus tôt.
         parts = (value.demand(list(others))[0], 15 if gone else 0, 20)  # SEO : peut arriver à tout moment
         reach = parts[0] * w["demand"] + parts[1] * w["history"] + parts[2] * w["seo"]
-        return {"others": others, "gone": gone, "seo": seo, "today": date.today(), "reach": reach,
+        # Taux de base par forme : pris sur chaque autre extension ; en .fr, déjà tenus parmi les libres.
+        rates = {t: self._rates(data, TAKEN_CODES) for t, data in others.items()}
+        held = self._rates(self.status_bytes(tld), (GONE,), (GONE, ABSENT)) if tld == "fr" else {}
+        return {"others": others, "gone": gone, "seo": seo, "today": date.today(), "reach": reach, "rates": rates, "held": held,
                 "reach_parts": parts, "weights": w, "status": self.status_bytes(tld), "devalue": self.premium_devalue(),
                 "en_only": _english_only() if tld == "fr" else frozenset(),
                 "conjugated": _conjugated() if tld == "fr" else frozenset()}
 
+    def _rates(self, data, wanted: tuple[int, ...], among: tuple[int, ...] | None = None) -> dict[str, float]:
+        """Par forme de nom : part des noms dans un des états voulus (parmi tous les noms valides, ou
+        parmi ceux dans un des états among). Sert à ne compter que les signaux rares pour la forme."""
+        u = self.universe
+        hit = data.translate(bytes(1 if c in wanted else 0 for c in range(256)))
+        base = data.translate(bytes(1 if (c in among if among else c != INVALID) else 0 for c in range(256)))
+
+        def count(table, idx) -> int:
+            return sum(table[i] for i in idx) if len(idx) < 2 else sum(operator.itemgetter(*idx)(table))
+
+        rates = {}
+        for n in range(1, drops.MAX_SHORT + 1):
+            lo, hi = (drops.OFFSETS[n - 1] if n > 1 else 0), drops.OFFSETS[n]
+            groups = {"g": u.good_letters(n), "all": u.letters[n], "d": u.digits[n]}
+            h = {k: count(hit, idx) for k, idx in groups.items()}
+            b = {k: count(base, idx) for k, idx in groups.items()}
+            rates[f"L{n}g"] = h["g"] / b["g"] if b["g"] else 0.0
+            rates[f"L{n}b"] = (h["all"] - h["g"]) / (b["all"] - b["g"]) if b["all"] > b["g"] else 0.0
+            rates[f"D{n}"] = h["d"] / b["d"] if b["d"] else 0.0
+            rest = base.count(1, lo, hi) - b["all"] - b["d"]
+            rates[f"M{n}"] = (hit.count(1, lo, hi) - h["all"] - h["d"]) / rest if rest > 0 else 0.0
+        words = base.count(1, drops.CELLS, u.size)
+        rates["W"] = hit.count(1, drops.CELLS, u.size) / words if words else 0.0
+        return rates
+
+    def _bound(self, tld: str, i: int, label: str, ctx: dict) -> float:
+        """Borne haute du score d'un nom, sans le calcul de forme et de sens (score de base précalculé) :
+        demande, historique et SEO sont exacts et bon marché. Sert à écarter un nom sans le noter."""
+        w = ctx["weights"]
+        taken = [t for t, data in ctx["others"].items() if data[i] in TAKEN_CODES]
+        form = self.universe.shape_class(i)
+        demand = value.demand(taken, {t: ctx["rates"][t].get(form, 0.0) for t in taken})[0] if taken else 0
+        row = ctx["gone"].get(i)
+        history = value.history(row["created_on"], row["removed_on"], ctx["today"], ctx["held"].get(form, 0.0))[0] if row else 0
+        seo = value.seo(ctx["seo"].get(f"{label}.{tld}"))[0]
+        top = max(w["shape"], w["popularity"])
+        return (self.universe.base_table[i] & 127) * top + demand * w["demand"] + history * w["history"] + seo * w["seo"]
+
     def _value(self, tld: str, i: int, label: str, ctx: dict) -> dict:
         taken = [t for t, data in ctx["others"].items() if data[i] in TAKEN_CODES]
-        found = value.score(label, taken, ctx["gone"].get(i), ctx["seo"].get(f"{label}.{tld}"), ctx["today"], ctx["weights"])
+        form = self.universe.shape_class(i)
+        rates = {t: ctx["rates"][t].get(form, 0.0) for t in taken}
+        # Forme et sens calés sur les avis IA (value.intrinsic) : un mot seulement anglais en .fr ou une
+        # forme conjuguée y comptent déjà moins ; demande et historique ramenés à ce qui est rare.
+        found = value.score(label, taken, ctx["gone"].get(i), ctx["seo"].get(f"{label}.{tld}"), ctx["today"], ctx["weights"],
+                            rates, ctx["held"].get(form, 0.0), tld)
         found["rank"] = self.best_rank(label)
-        if tld == "fr":
-            # Faux bons .fr : un mot seulement anglais (should, disease) ou une forme conjuguée (vais,
-            # dits) se lit mal en .fr ; la popularité de sa liste compte moitié.
-            why = None
-            if label in ctx["en_only"]:
-                why = "mot anglais en .fr"
-            elif label in ctx["conjugated"]:
-                why = "forme conjuguée"
-            if why:
-                cut = found["parts"]["popularity"] // 2
-                found["parts"]["popularity"] -= cut
-                found["score"] -= cut
-                found["reasons"] = found["reasons"] + [why]
         if ctx.get("devalue") and ctx["status"][i] == PREMIUM:
             # Case « dévaluer les premiums probables » : score divisé par deux, la raison le dit.
             found["score"] //= 2
@@ -824,13 +884,16 @@ class Explorer:
 
     @staticmethod
     def _level_ok(score: int, opinion: dict | None, level: str) -> bool:
-        """Pépites : score 50 et plus ou « À prendre » ; bons : score 30 et plus ou avis favorable."""
+        """« Masquer les noms faibles » (good) : sans avis IA, score de 30 et plus ; avec un avis, ce que
+        dit l'IA (« À laisser » masqué, même à bon score). gem : « À prendre », ou score 50 sans avis."""
         if not level:
             return True
         verdict = opinion["verdict"] if opinion else ""
         if level == "gem":
-            return score >= LEVEL_GEM or verdict == "À prendre"
-        return score >= LEVEL_GOOD or verdict in ("À prendre", "À surveiller")
+            return verdict == "À prendre" or (not verdict and score >= LEVEL_GEM)
+        if verdict:
+            return verdict != "À laisser"
+        return score >= LEVEL_GOOD
 
     def rank(self, tld: str, *args, limit: int = 50, sort: str = "score", **kwargs) -> dict:
         """Les meilleurs noms d'abord. Sans recherche, parcours par score de base décroissant,
@@ -878,13 +941,19 @@ class Explorer:
             label = u.label(i)
             if not self._keep(label, f):
                 return
+            opinion = opinions.get(f"{label}.{tld}")
+            if not opinion:
+                # Sans avis : on écarte d'abord sur la borne, le calcul complet ne sert qu'aux noms qui peuvent entrer.
+                bound = self._bound(tld, i, label, ctx)
+                if (f.min_score and bound < f.min_score) or (f.level and bound < LEVEL_GOOD) \
+                        or (len(best) >= limit and (1, bound) <= best[0][0]):
+                    return
             found = self._value(tld, i, label, ctx)
             if f.min_score and found["score"] < f.min_score:
                 return
-            opinion = opinions.get(f"{label}.{tld}")
             if not self._level_ok(found["score"], opinion, f.level):
                 return
-            key = opinion[lens] if lens and opinion else found["score"]
+            key = (lens_tier(opinion), opinion[lens] if opinion else found["score"]) if lens else (1, found["score"])
             entry = (key, -i, i, found)
             if len(best) < limit:
                 heapq.heappush(best, entry)
@@ -904,7 +973,8 @@ class Explorer:
                     consider(i)
             top = max(ctx["weights"]["shape"], ctx["weights"]["popularity"])
             for score in range(70, -1, -1):
-                if len(best) >= limit and score * top + ctx["reach"] <= best[0][0]:
+                # Les noms du parcours n'ont pas d'avis (palier 1) : on s'arrête quand aucun ne peut plus entrer.
+                if len(best) >= limit and (1, score * top + ctx["reach"]) <= best[0][0]:
                     break
                 for i in u.buckets()[score]:
                     consider(i)
@@ -1016,7 +1086,8 @@ class Explorer:
                 return (0, -a["quick_high"], -a["resale"], -a["final_high"]) if a else (1, 0, 0, 0)
             return lambda item: (*opinion(item), -item["score"], where(item), item["tld"])
         if sort in LENSES:
-            return lambda item: (-(item["ai"][sort] if item.get("ai") else item["score"]), -item["score"], where(item), item["tld"])
+            return lambda item: (-lens_tier(item.get("ai")), -(item["ai"][sort] if item.get("ai") else item["score"]),
+                                 -item["score"], where(item), item["tld"])
         if sort == "release":
             return lambda item: (item.get("release_at") or "9", where(item), item["tld"])
         return lambda item: (-item["score"], where(item), item["tld"])
