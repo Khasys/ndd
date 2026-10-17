@@ -1,9 +1,10 @@
-"""Construit les listes anglais, secteurs, tendances, combinaisons et sites de niche dans app/data.
+"""Construit les listes anglais, secteurs, tendances, combinaisons, sites de niche, expressions et
+noms de média dans app/data.
 
 Usage : python scripts/build_lists.py WORDFREQ_DIR LEXIQUE_TXT
 
 WORDFREQ_DIR : dossier du paquet wordfreq 3.1.1 décompressé (contient data/large_en.msgpack.gz).
-LEXIQUE_TXT : Lexique383.txt (paquet pylexique 1.5.1). Il faut aussi le module msgpack.
+LEXIQUE_TXT : Lexique383.txt (paquet pylexique 1.5.1), encodé en Latin-1. Il faut aussi le module msgpack.
 Les listes choisies à la main sont dans scripts/lists ; sources et licences : app/data/SOURCES.md.
 """
 
@@ -16,6 +17,9 @@ from pathlib import Path
 import msgpack
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+from app.pronounce import pronounceable  # noqa: E402  filtre des noms « fr + mot tech »
+
 LISTS = ROOT / "scripts" / "lists"
 DATA = ROOT / "app" / "data"
 ENGLISH_SIZE = 30_000
@@ -75,10 +79,29 @@ def english(wordfreq_dir: Path, banned: set[str]) -> list[str]:
     return picked
 
 
+def lexique_rows(lexique: Path) -> list[tuple]:
+    """Noms et adjectifs du Lexique : (fréquence, mot sans accent, catégorie, genre, nombre), du plus fréquent.
+    Le fichier est en Latin-1 : lu en UTF-8, chaque mot accentué serait perdu."""
+    rows = []
+    with lexique.open(encoding="latin-1") as f:
+        header = f.readline().rstrip("\n").split("\t")
+        col = {name: i for i, name in enumerate(header)}
+        for line in f:
+            cells = line.rstrip("\n").split("\t")
+            cgram = cells[col["4_cgram"]]
+            word = fold(cells[col["1_ortho"]])
+            if cgram not in ("NOM", "ADJ") or not word.isalpha() or not word.isascii() or not 3 <= len(word) <= 12:
+                continue
+            freq = float(cells[col["9_freqfilms2"]].replace(",", ".")) + float(cells[col["10_freqlivres"]].replace(",", "."))
+            rows.append((freq, word, cgram, cells[col["5_genre"]], cells[col["6_nombre"]]))
+    rows.sort(reverse=True)
+    return rows
+
+
 def nouns(lexique: Path) -> dict[str, str]:
     """Genre des noms communs (m ou f), du plus fréquent au moins fréquent."""
     rows = []
-    with lexique.open(encoding="utf-8", errors="replace") as f:
+    with lexique.open(encoding="latin-1") as f:
         header = f.readline().rstrip("\n").split("\t")
         col = {name: i for i, name in enumerate(header)}
         for line in f:
@@ -158,6 +181,65 @@ def niche() -> list[str]:
     return out
 
 
+ARTICLE_TOP = 600    # noms par genre (et pluriels) pour « le / la / l' / les + mot »
+MEDIA_HEADS = ["journal", "planete", "monde", "univers", "gazette"]
+
+
+def medias(lexique: Path, genders: dict[str, str], banned: set[str]) -> list[str]:
+    """Noms de média ou de marque : lemonde, lequipe, lesnumeriques, frandroid, journaldelinformatique."""
+    rows = lexique_rows(lexique)
+
+    def top(keep, n):
+        out, seen = [], set()
+        for _, word, cgram, genre, number in rows:
+            if keep(cgram, genre, number) and word not in seen:
+                seen.add(word)
+                out.append(word)
+                if len(out) >= n:
+                    break
+        return out
+
+    # Mot qui commence par h : élision incertaine (l'homme, la honte), on l'écarte plutôt que de se tromper.
+    def article(word, base):
+        return None if word[0] == "h" else ("l" + word if word[0] in "aeiouy" else base + word)
+
+    # Noms seulement ; pluriels de 5 lettres au moins (ni lesans ni lesfois) ; mots négatifs écartés.
+    negative = set(read("negatifs.txt"))
+    singular_m = [w for w in top(lambda c, g, n: c == "NOM" and g == "m" and n == "s", ARTICLE_TOP) if w not in negative]
+    singular_f = [w for w in top(lambda c, g, n: c == "NOM" and g == "f" and n == "s", ARTICLE_TOP) if w not in negative]
+    plural = [w for w in top(lambda c, g, n: c == "NOM" and n == "p", ARTICLE_TOP) if len(w) >= 5 and w not in negative]
+    articles = [x for pair in itertools.zip_longest(
+        [article(w, "le") for w in singular_m], [article(w, "la") for w in singular_f], ["les" + w for w in plural])
+        for x in pair if x]
+    # « les » + thème porteur au pluriel, si ce pluriel existe dans le Lexique (lesnumeriques, pas lesdomotiques).
+    plurals = {w for _, w, _, _, n in rows if n == "p"}
+    # Pluriel employé pour de vrai (fréquence d'au moins 1 par million) : lesrecettes oui, lessantes non.
+    common = {w for f, w, _, _, n in rows if n == "p" and f >= 1}
+    themes = [t for t in unique(read("themes_fr.txt") + read("secteurs_fr.txt")) if t not in negative]
+    les_themes = ["les" + (t if t in common else t + "s") for t in themes if t in common or t + "s" in common]
+    # fr / french + mot tech, seulement s'il se prononce (frandroid oui, frweb non).
+    tech = sections("tech_en.txt")
+    fr_only = set(tech["fr"])
+    fr_tech = [p + w for w in unique(tech["french"] + tech["fr"]) for p in ("fr", "french")
+               if (p == "french" or w in fr_only) and pronounceable(p + w)]
+    # Tête de média + du / de la / de l' / des + thème : journaldelinformatique, planetedujardinage.
+    def linked(head, theme):
+        if theme in plurals and theme not in genders:
+            return head + "des" + theme
+        if theme[0] in "aeiouy":
+            return head + "del" + theme
+        gender = genders.get(theme)
+        return head + ("du" if gender == "m" else "dela") + theme if gender else None
+    heads = [x for t in read("themes_fr.txt") for h in MEDIA_HEADS if (x := linked(h, t))]
+    families = [articles, les_themes, fr_tech, heads]
+    out = []
+    for i in range(max(map(len, families))):
+        out += [f[i] for f in families if i < len(f)]
+    found = [x for x in unique(out) if x not in banned]
+    LANG["fr"].update(found)
+    return found
+
+
 def write(name: str, words: list[str]) -> None:
     (DATA / name).write_text("\n".join(words) + "\n", encoding="utf-8")
     print(f"{name}: {len(words)}")
@@ -193,6 +275,9 @@ def main() -> None:
     expressions = [e for e in unique(x for pair in itertools.zip_longest(expr_fr, expr_en) for x in pair if x)
                    if e not in taken and e not in banned]
     write("expressions.txt", expressions)
+    taken |= set(expressions)
+    media = [m for m in medias(lexique, nouns(lexique), banned) if m not in taken]
+    write("medias.txt", media)
     # Tendances : anglais si le mot est dans la liste anglaise, français s'il est dans le Lexique.
     french = existing | set(nouns(lexique))
     LANG["fr"].update(sectors_fr + [t for t in trends if t in french])
@@ -202,7 +287,7 @@ def main() -> None:
         if t not in LANG["fr"] and t not in LANG["en"]:
             LANG["fr"].add(t)
             LANG["en"].add(t)
-    mixed = set(sectors) | set(trends) | set(combined) | set(niches) | set(expressions)
+    mixed = set(sectors) | set(trends) | set(combined) | set(niches) | set(expressions) | set(media)
     lines = []
     for name in sorted(mixed):
         langs = [k for k in ("fr", "en") if name in LANG[k]]

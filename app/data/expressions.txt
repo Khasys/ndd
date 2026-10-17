@@ -703,7 +703,6 @@ lareussite
 budgetfriendly
 valueformoney
 worthit
-lesucces
 musthave
 mustsee
 musttry
@@ -794,7 +793,6 @@ numberone
 lambiance
 firstclass
 worldclass
-lafete
 highend
 fairelafete
 luxurylife
@@ -1010,6 +1008,7 @@ samedisoir
 vendredisoir
 lundimatin
 debutdesemaine
+lemercredi
 rentreescolaire
 larentree
 vacancesscolaires
@@ -1026,7 +1025,6 @@ souslesoleil
 pleinsoleil
 coupdesoleil
 cremesolaire
-lafraicheur
 auchaud
 cocooning
 moncocon

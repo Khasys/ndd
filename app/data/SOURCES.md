@@ -100,6 +100,23 @@ anglaises (goodvibes, homesweethome, dealoftheday…) en alternance, rédigées 
 (scripts/lists/expressions_fr.txt et expressions_en.txt). Slogans de marques retirés. Les
 expressions déjà présentes dans une autre liste sont retirées.
 
+
+## medias.txt
+
+Noms de média ou de marque, sur quatre motifs, du plus fréquent au moins fréquent, en alternance :
+
+- article + nom : le, la, l', les + les 600 noms les plus fréquents de chaque genre et les 600 pluriels
+  les plus fréquents (5 lettres au moins) de Lexique 3.83 (lequipe, lecole). Mots commençant par h
+  écartés (élision incertaine), mots négatifs écartés (scripts/lists/negatifs.txt, rédigée à la main) ;
+- « les » + thème ou secteur au pluriel, si ce pluriel est employé au moins une fois par million de
+  mots dans le Lexique (lesnumeriques, lesrecettes) ;
+- « french » + mot tech, et « fr » devant quelques mots qui commencent par une voyelle (frandroid,
+  frenchweb), gardés seulement s'ils se prononcent (modèle de app/pronounce.py) ; mots tech choisis à
+  la main (scripts/lists/tech_en.txt) ;
+- journal, planete, monde, univers, gazette + du, de la, de l', des + thème (journaldelinformatique).
+
+Les noms déjà présents dans une autre liste sont retirés. Pour la part tirée du Lexique, même source
+et même licence CC BY-SA 4.0 que mots.txt.
 ## langues.txt
 
 Langue (fr, en ou les deux) de chaque nom des listes mêlées : secteurs, tendances, combinaisons,

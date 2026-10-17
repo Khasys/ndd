@@ -59,6 +59,7 @@ video
 drone
 astronomie
 informatique
+numerique
 smartphone
 jeuxvideo
 retrogaming
