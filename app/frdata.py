@@ -52,6 +52,10 @@ KEEP_REQUEST_LOG_DAYS = 30
 READER_VERSION = 3
 # Échéance .fr dépassée sans rédemption : délai avant de regarder de nouveau.
 RENEWAL_LAG_DAYS = 1
+# Statut « auto renew period » : l'Afnic montre déjà la nouvelle échéance. Le nom est renouvelé,
+# mais le registrar peut encore le supprimer pendant cette période : une lecture à la fin, puis
+# la suivante à l'échéance. 45 jours : durée usuelle de cette période (ICANN), non publiée pour le .fr.
+AUTORENEW_RECHECK_DAYS = 45
 
 
 def lists_version() -> str:
@@ -117,6 +121,19 @@ def next_anniversary(created: date, after: date) -> date:
 def _check_time(day: date) -> datetime:
     # Le lendemain de l'échéance, en milieu de journée UTC : le registrar a eu le temps d'agir.
     return datetime(day.year, day.month, day.day, 12, tzinfo=utcnow().tzinfo) + timedelta(days=1)
+
+
+def renewed(info, now: datetime) -> bool:
+    """Renouvellement automatique déjà visible : statut « auto renew period » et échéance future."""
+    return (info.expires_at is not None and info.expires_at > now
+            and any(st.replace(" ", "").lower() == "autorenewperiod" for st in info.statuses))
+
+
+def following_check(info, now: datetime) -> datetime:
+    """Prochaine lecture d'un .fr enregistré dont l'échéance est future."""
+    if renewed(info, now):
+        return min(now + timedelta(days=AUTORENEW_RECHECK_DAYS), _check_time(info.expires_at.date()))
+    return _check_time(info.expires_at.date())
 
 
 def watched_label(label: str) -> bool:
@@ -547,7 +564,7 @@ class FrWatcher:
         expires = result.info.expires_at
         now = utcnow()
         # Échéance passée : renouvellement pas encore visible, on regarde de nouveau le lendemain.
-        following = _check_time(expires.date()) if expires and expires > now else now + timedelta(days=RENEWAL_LAG_DAYS)
+        following = following_check(result.info, now) if expires and expires > now else now + timedelta(days=RENEWAL_LAG_DAYS)
         self.conn.execute(
             """INSERT INTO fr_names (label, removed_on, expires_at, checked_at, next_check_at)
                VALUES (?, NULL, ?, ?, ?)
@@ -575,6 +592,10 @@ class FrWatcher:
             return True
         info = result.info
         state = states.compute_state(info.statuses, info.expires_at, now, 0)
+        if renewed(info, now):
+            # Renouvelé automatiquement : pas expiré, rien à suivre dans l'écran Suppressions.
+            self._schedule(row["label"], iso(info.expires_at), following_check(info, now), now)
+            return True
         if state == states.EXPIRED:
             # Pas de délai de grâce en .fr : sans rédemption, le renouvellement n'est pas encore
             # visible (le registrar renouvelle parfois à l'échéance). On revient le lendemain : la date
@@ -588,7 +609,7 @@ class FrWatcher:
         expires = info.expires_at
         if expires and expires > now:
             # Renouvelé : la vraie échéance, lue en RDAP, fixe la vérification suivante.
-            following = _check_time(expires.date())
+            following = following_check(info, now)
         elif row["created_on"]:
             following = _check_time(next_anniversary(date.fromisoformat(row["created_on"]), now.date()))
         else:

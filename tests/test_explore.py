@@ -122,6 +122,29 @@ def test_manual_check_goes_through_the_afnic_log(env):
     assert [r[0] for r in env.conn.execute("SELECT source FROM fr_requests")] == ["manuel"]
 
 
+def test_auto_renewed_fr_is_registered_with_a_next_read(env):
+    # Statut « auto renew period » et nouvelle échéance : renouvelé, pas expiré ; une lecture reste prévue.
+    add_fr(env, "seven")
+    now = datetime.now(timezone.utc)
+    expires = now + timedelta(days=362)
+    renewed = LookupResult(found=True, info=DomainInfo(statuses=["active", "auto renew period"], expires_at=expires))
+    env.drops.record("fr", ["seven"], [], now)  # suivi dans Suppressions après une lecture « expiré »
+    env.fr.rdap = env.drops.rdap = FakeRdap({"seven.fr": renewed})
+    item = asyncio.run(env.verify("seven.fr"))
+    assert item["status"] == explore.REGISTERED
+    row = env.conn.execute("SELECT * FROM fr_names WHERE label = 'seven'").fetchone()
+    at = datetime.fromisoformat(row["next_check_at"])
+    assert now + timedelta(days=44) < at < now + timedelta(days=46)
+    assert env.fiche("seven.fr")["rdap_next"]["why"] == "suivi des échéances .fr"
+    # Lecture de date anniversaire : même conclusion, rien n'est confié à l'écran Suppressions.
+    env.conn.execute("DELETE FROM drops")
+    env.conn.execute("UPDATE fr_names SET next_check_at = '2000-01-01T00:00:00Z' WHERE label = 'seven'")
+    asyncio.run(env.fr.tick())
+    assert env.drops.row("seven.fr") is None
+    row = env.conn.execute("SELECT * FROM fr_names WHERE label = 'seven'").fetchone()
+    assert datetime.fromisoformat(row["next_check_at"]) > now + timedelta(days=44)
+
+
 def test_manual_check_of_a_registered_name_creates_no_drop(env):
     add_fr(env, "navarro")
     expires = datetime.now(timezone.utc) + timedelta(days=100)
@@ -387,7 +410,7 @@ def test_language_filter(env):
 def test_fiche_tells_when_rdap_is_next_read(env):
     add_fr(env, "velo")
     env.conn.execute("UPDATE fr_names SET next_check_at = '2027-01-02T12:00:00Z' WHERE label = 'velo'")
-    assert env.fiche("velo.fr")["rdap_next"] == {"at": "2027-01-02T12:00:00Z", "why": "lendemain de la date anniversaire"}
+    assert env.fiche("velo.fr")["rdap_next"] == {"at": "2027-01-02T12:00:00Z", "why": "suivi des échéances .fr"}
     assert env.fiche("zzqx.fr")["rdap_next"]["at"] is None
 
 

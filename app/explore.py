@@ -1219,9 +1219,11 @@ class Explorer:
             row = self.conn.execute("SELECT next_check_at, removed_on FROM fr_names WHERE label = ?",
                                     (name.partition(".")[0],)).fetchone()
             if row is not None and row["next_check_at"]:
-                return {"at": row["next_check_at"], "why": "lendemain de la date anniversaire"}
+                return {"at": row["next_check_at"], "why": "suivi des échéances .fr"}
             if row is not None and row["removed_on"]:
                 return {"at": None, "why": "supprimé d'après l'Afnic : vérification à la demande"}
+            if row is not None:
+                return {"at": None, "why": "aucune lecture prévue : vérification à la demande"}
             return {"at": None, "why": "jamais enregistré d'après l'Afnic : vérification à la demande"}
         return {"at": None, "why": "aucune lecture automatique : vérification à la demande ou en le surveillant"}
 
@@ -1255,8 +1257,9 @@ class Explorer:
         if result.error:
             raise VerifyError(result.error)
         now = utcnow()
-        registered = not result.available and states.compute_state(
-            result.info.statuses, result.info.expires_at, now, 0) not in drops.TRACKED
+        state = None if result.available else states.compute_state(result.info.statuses, result.info.expires_at, now, 0)
+        # .fr sans délai de grâce : échéance passée sans rédemption ou renouvellement automatique = à quelqu'un.
+        registered = not result.available and (state not in drops.TRACKED or (tld == "fr" and state == states.EXPIRED))
         row = self.drops.row(name)
         state = None
         # Hors .fr, la zone ne dit rien d'un nom enregistré sans DNS (hold) : on garde la réponse.
