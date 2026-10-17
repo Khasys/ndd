@@ -5,29 +5,19 @@ const AI_VERDICTS = { take: "À prendre", watch: "À surveiller", skip: "À lais
 // Catégories de forme ; les autres viennent des listes de noms.
 const SHAPE_KINDS = ["letters", "digits", "mixed", "hyphen"];
 // min : null = score minimum par défaut réglé dans Paramètres ; 0 = tout voir.
-const DROP_FILTER_DEFAULTS = { q: "", nat: "", lang: "", len: "", rank: "", min: null, junk: false, ai: [], quick: "", night: "" };
-const NIGHT_GROUPS = [
-  { key: "removed", label: "sortis des zones" },
-  { key: "freed", label: "libérés en 24 h" },
-  { key: "coming", label: "entrés en rédemption ou en suppression" },
+const DROP_FILTER_DEFAULTS = { q: "", nat: "", lang: "", len: "", rank: "", min: null, junk: false, ai: [], quick: "" };
+// Filtres vierges de l'Explorer ; l'extension choisie reste.
+const EX_BLANK = { cat: "", nat: "", lang: "", len: "", rank: "", taken: "", min: "", junk: "", seo: "", status: "bookable", sort: "best", level: "good" };
+// Explorer et Veille : trois réglages simples, les mêmes partout.
+const EX_STATES = [{ k: "bookable", label: "Libres" }, { k: "coming", label: "Bientôt libres" }, { k: "all", label: "Tous, même pris" }];
+const EX_TYPES = [
+  { k: "", label: "Tout" }, { k: "word", label: "Mots courants" }, { k: "english", label: "Anglais" },
+  { k: "firstname", label: "Prénoms" }, { k: "surname", label: "Noms de famille" }, { k: "startup", label: "Tech et startups" },
+  { k: "media", label: "Médias et marques" }, { k: "sector", label: "Secteurs" }, { k: "trend", label: "Tendances" },
+  { k: "niche", label: "Sites de niche" }, { k: "expr", label: "Expressions" }, { k: "short", label: "Courts (1 à 4)" },
 ];
-// Vues intégrées de l'Explorer. Chacune part de filtres vierges ; l'extension choisie reste.
-const EX_BLANK = { cat: "", nat: "", lang: "", len: "", rank: "", taken: "", min: "", junk: "", seo: "", status: "available", sort: "score" };
-const EX_PRESETS = [
-  { name: "À réserver", filters: { status: "bookable", sort: "score" } },
-  { name: "Bientôt libres", filters: { status: "coming", sort: "release" } },
-  { name: "Avis IA : à prendre", filters: { ai_v: "take", sort: "ai" } },
-  { name: "Revente rapide ≥ 500 €", filters: { ai_quick_low_min: "500", sort: "ai" } },
-  { name: "Libres vérifiés", filters: { status: "free" } },
-  { name: "Pris en .com", filters: { taken: "com", min: "30" }, needs: "com" },
-  { name: "1 à 3 caractères", filters: { len: "-3" } },
-  { name: "Top 1 000 mots", filters: { cat: "word", rank: "1000", sort: "freq" } },
-  { name: "Top 5 000 anglais", filters: { cat: "english", rank: "5000", sort: "freq" } },
-  { name: "Secteurs porteurs", filters: { cat: "sector", sort: "freq" } },
-  { name: "Tendances", filters: { cat: "trend", sort: "freq" } },
-  { name: "Sites de niche", filters: { cat: "niche", sort: "freq" } },
-  { name: "Signal SEO", filters: { seo: "any", sort: "seo" } },
-];
+const LEVELS = [{ k: "gem", label: "Pépites" }, { k: "good", label: "Bons" }, { k: "", label: "Tout" }];
+const LENSES = [{ k: "resale", label: "Pour revendre" }, { k: "exploit", label: "Pour exploiter" }];
 const LABELS = {
   available: "Disponible",
   pending_delete: "Suppression imminente",
@@ -138,11 +128,19 @@ document.addEventListener("alpine:init", () => {
     exBusy: {},
     exSeo: { running: false, done: 0, total: 0, key_set: true },
     seoKey: "",
-    ex: { tld: "", q: "", status: "available", cat: "", len: "", sort: "score", nat: "", rank: "", taken: "", min: "", junk: "", seo: "", lang: "", premium: "", ...AI_FILTER_DEFAULTS },
+    ex: { tld: "", q: "", status: "bookable", cat: "", len: "", sort: "best", nat: "", rank: "", taken: "", min: "", junk: "", seo: "", lang: "", premium: "", level: "good", ...AI_FILTER_DEFAULTS },
+    lens: (() => { try { return localStorage.getItem("lens") || "resale"; } catch (_) { return "resale"; } })(),
+    EX_STATES, EX_TYPES, LEVELS, LENSES,
     exFiltersOpen: false,
+    exMapOpen: false,
     fiche: null,
     aiReq: { pending: [], done: [] },
     dropShowFree: 100,
+    dropTab: "free",
+    dropNewOnly: false,
+    dropLevel: "good",
+    dropSortMode: "best",
+    dropShow: 100,
     dropSelected: [],
     dropBulkRunning: false,
     dropBulkDone: 0,
@@ -218,7 +216,7 @@ document.addEventListener("alpine:init", () => {
       this.$watch("dropsOpen", () => this.lockScroll());
       this.$watch("exploreOpen", () => this.lockScroll());
       this.$watch("portfolioOpen", () => this.lockScroll());
-      // Suppressions ouvert : le travail .fr est suivi en direct.
+      // Veille ouverte : le travail .fr est suivi en direct.
       setInterval(() => { if (this.dropsOpen && document.visibilityState === "visible") this.loadDrops(true); }, 15000);
       this.$watch("openId", (id) => {
         this.lockScroll();
@@ -348,7 +346,7 @@ document.addEventListener("alpine:init", () => {
 
     // Explorer : tous les noms suivis, extension par extension.
 
-    // Fiche d'un nom : la même partout (Domaines, Suppressions, Explorer).
+    // Fiche d'un nom : la même partout (Domaines, Veille, Explorer).
 
     loadOrderUrl() {
       if (!this.orderUrl) this.api("GET", "/api/settings").then((c) => (this.orderUrl = c.order_url)).catch(() => {});
@@ -626,7 +624,7 @@ document.addEventListener("alpine:init", () => {
 
     exQuery(cursor) {
       const e = this.ex;
-      const params = new URLSearchParams({ q: e.q.trim(), mode: "prefix", status: e.status, cat: e.cat, len: e.len, nat: e.nat, rank: e.rank, taken: e.taken, min: e.min && e.min !== "0" ? e.min : "", junk: e.junk, seo: e.seo, lang: e.lang || "", premium: e.premium || "", cursor: String(cursor) });
+      const params = new URLSearchParams({ q: e.q.trim(), mode: "prefix", status: e.status, cat: e.cat, len: e.len, nat: e.nat, rank: e.rank, taken: e.taken, min: e.min && e.min !== "0" ? e.min : "", junk: e.junk, seo: e.seo, lang: e.lang || "", premium: e.premium || "", level: e.level || "", cursor: String(cursor) });
       if (this.ex.tld) params.set("tld", this.ex.tld);
       for (const k of Object.keys(AI_FILTER_DEFAULTS)) if (String(e[k] ?? "").trim() !== "") params.set(k, String(e[k]).trim());
       return params.toString();
@@ -638,7 +636,7 @@ document.addEventListener("alpine:init", () => {
       const ticket = (this._exTicket = (this._exTicket || 0) + 1);
       this.exLoading = true;
       try {
-        const data = await this.api("GET", `/api/explore/rank?${this.exQuery(-1)}&limit=${this.exLimit}&sort=${this.ex.sort}`);
+        const data = await this.api("GET", `/api/explore/rank?${this.exQuery(-1)}&limit=${this.exLimit}&sort=${this.exSortParam()}`);
         // Une frappe ou un filtre plus récent a déjà relancé le chargement : ce résultat est périmé.
         if (ticket !== this._exTicket) return;
         this.exError = "";
@@ -700,7 +698,7 @@ document.addEventListener("alpine:init", () => {
       if (patch.cat === "mixed") this.ex.junk = "1";
       this.exSelected = [];
       this.exOpen = null;
-      try { localStorage.setItem("explorer", JSON.stringify({ ...this.ex, q: "" })); } catch (_) {}
+      try { localStorage.setItem("explorer", JSON.stringify({ ...this.ex, q: "", v: 2 })); } catch (_) {}
       if (this.exTopOpen) this.exLoadTop();
       await this.exLoad();
     },
@@ -708,7 +706,9 @@ document.addEventListener("alpine:init", () => {
     exRestore() {
       try {
         const saved = JSON.parse(localStorage.getItem("explorer") || "null");
-        if (saved) Object.assign(this.ex, saved, { q: "" });
+        // Réglages d'avant la refonte : on repart des réglages simples, en gardant les extensions.
+        if (saved && saved.v === 2) Object.assign(this.ex, saved, { q: "" });
+        else if (saved) this.ex.tld = saved.tld || "";
       } catch (_) {}
     },
 
@@ -716,10 +716,10 @@ document.addEventListener("alpine:init", () => {
       if (!this.exData) return [];
       const e = this.ex;
       const out = [];
-      if (e.cat) out.push({ key: "cat", label: this.exData.kinds[e.cat] });
+      if (e.cat && !EX_TYPES.some((t) => t.k === e.cat)) out.push({ key: "cat", label: this.exData.kinds[e.cat] });
       if (e.nat) out.push({ key: "nat", label: this.exData.natures[e.nat] });
       if (e.lang) out.push({ key: "lang", label: this.exData.langs[e.lang] });
-      if (e.len) out.push({ key: "len", label: this.exLengths.find((o) => o.v === e.len)?.label + " car." });
+      if (e.len && e.len !== "-4") out.push({ key: "len", label: this.exLengths.find((o) => o.v === e.len)?.label + " car." });
       if (e.rank) out.push({ key: "rank", label: this.exRanks.find((o) => o.v === e.rank)?.label });
       if (e.taken) out.push({ key: "taken", label: e.taken === "any" ? "Pris ailleurs" : "Pris en ." + e.taken });
       if (e.min && e.min !== "0") out.push({ key: "min", label: "Score ≥ " + e.min });
@@ -738,7 +738,30 @@ document.addEventListener("alpine:init", () => {
 
     exClear(key) { return this.exSet(Object.fromEntries([].concat(key).map((k) => [k, ""]))); },
 
-    exReset() { return this.exSet({ cat: "", nat: "", lang: "", len: "", rank: "", taken: "", min: "", junk: "", seo: "", status: "available", ...AI_FILTER_DEFAULTS }); },
+    // Filtres avancés seulement : l'état, le type, le niveau et l'usage restent.
+    exReset() { return this.exSet({ nat: "", lang: "", rank: "", taken: "", min: "", junk: "", seo: "", ...AI_FILTER_DEFAULTS }); },
+
+    exSortParam() { return this.ex.sort === "best" ? this.lens : this.ex.sort; },
+
+    exTypeOn(t) { return t.k === "short" ? this.ex.len === "-4" && !this.ex.cat : this.ex.cat === t.k && this.ex.len !== "-4"; },
+
+    exSetType(t) { return this.exSet(t.k === "short" ? { cat: "", len: "-4" } : { cat: t.k, len: "" }); },
+
+    setLens(k) {
+      this.lens = k;
+      try { localStorage.setItem("lens", k); } catch (_) {}
+      if (this.exploreOpen && this.ex.sort === "best") this.exLoad();
+    },
+
+    // Une phrase par nom : l'avis IA s'il existe, sinon ce qui fait sa valeur.
+    verdictLine(i) {
+      if (i.ai) {
+        const v = this.aiVerdict(i.ai);
+        const price = this.lens === "exploit" ? `exploitation ${i.ai.exploit}/100` : `revente ${this.priceRange(i.ai.final_low, i.ai.final_high)}`;
+        return `${v} · ${price}`;
+      }
+      return (i.reasons || []).slice(0, 2).join(" · ");
+    },
 
     exAiVerdicts() { return (this.ex.ai_v || "").split(",").filter(Boolean); },
 
@@ -778,24 +801,6 @@ document.addEventListener("alpine:init", () => {
       } catch (e) {
         this.say(e.message, "error");
       }
-    },
-
-    exPresets() {
-      if (!this.exData) return [];
-      const tlds = this.exTlds();
-      return EX_PRESETS.filter((p) => !p.needs || (this.exData.tlds.includes(p.needs) && !tlds.includes(p.needs)));
-    },
-
-    exPresetFilters(p) { return { ...EX_BLANK, ...AI_FILTER_DEFAULTS, ...p.filters }; },
-
-    exApplyPreset(p) {
-      this.exTopOpen = false;
-      if (this.exPresetOn(p)) return this.exReset();
-      return this.exSet({ ...this.exPresetFilters(p), q: "" });
-    },
-
-    exPresetOn(p) {
-      return Object.entries(this.exPresetFilters(p)).every(([k, val]) => String(this.ex[k] ?? "") === String(val ?? ""));
     },
 
     // Vue active : tous ses filtres sont ceux du moment.
@@ -1043,14 +1048,12 @@ document.addEventListener("alpine:init", () => {
       if (await this.verifyName(d.name)) await this.loadDrops();
     },
 
-    // Tri en masse dans Suppressions : sélection, puis une action pour tous.
+    // Tri en masse dans la Veille : sélection, puis une action pour tous.
     dropToggle(name) {
       this.dropSelected = this.dropSelected.includes(name) ? this.dropSelected.filter((n) => n !== name) : [...this.dropSelected, name];
     },
 
-    dropShown(kind) {
-      return kind === "free" ? this.dropsReleased.slice(0, this.dropShowFree) : this.dropsComing.slice(0, this.dropShowComing);
-    },
+    dropShown() { return this.dropList.slice(0, this.dropShow); },
 
     dropAllPicked(kind) {
       const shown = this.dropShown(kind);
@@ -1159,13 +1162,13 @@ document.addEventListener("alpine:init", () => {
       try {
         this.cfg.drops = await this.api("PUT", "/api/settings/drops", { keep_days: this.cfg.drops.keep_days, min_score: Number(this.cfg.drops.min_score) || 0 });
         if (this.dropsData) this.dropsData.min_score = this.cfg.drops.min_score;
-        this.say("Réglages de l'écran Suppressions enregistrés.");
+        this.say("Réglages de la Veille enregistrés.");
       } catch (e) {
         this.say(e.message, "error");
       }
     },
 
-    // Suppressions : noms courts, mots et noms de famille sortis des zones ICANN.
+    // Veille : noms courts, mots et noms de famille sortis des zones ICANN.
 
     // statusOnly : état des lectures seul (rafraîchissement de l'écran ouvert), la liste reste en place.
     async loadDrops(statusOnly = false) {
@@ -1180,20 +1183,21 @@ document.addEventListener("alpine:init", () => {
         this.dropsData = await this.api("GET", "/api/drops");
         this._dropsVer = (this._dropsVer || 0) + 1;
       } catch (e) {
-        if (!statusOnly) this.say(`Suppressions indisponibles : ${e.message}`, "error");
+        if (!statusOnly) this.say(`Veille indisponible : ${e.message}`, "error");
       }
     },
 
     // Listes triées gardées tant que ni les données ni les filtres ne changent : 3 000 noms ne sont
     // plus filtrés et triés à chaque rafraîchissement de l'affichage.
     dropsMemo(kind, build) {
-      const key = JSON.stringify([kind, this._dropsVer, this.df, this.dropTld, this.dropKinds, this.dropSort, this.dropSortFree]);
+      const key = JSON.stringify([kind, this._dropsVer, this.df, this.dropTld, this.dropKinds, this.dropSort, this.dropSortFree,
+        this.dropTab, this.dropNewOnly, this.dropLevel, this.dropSortMode, this.lens, Math.floor(this.now / 600000)]);
       this._memo = this._memo || {};
       if (this._memo[kind]?.key !== key) this._memo[kind] = { key, list: build() };
       return this._memo[kind].list;
     },
 
-    dropMatches(d, ignoreNight = false) {
+    dropMatches(d) {
       const f = this.df;
       const len = f.len ? Number(f.len) : 0;
       const label = d.name.slice(0, -(d.tld.length + 1));
@@ -1208,38 +1212,66 @@ document.addEventListener("alpine:init", () => {
         && (!len || (len < 0 ? label.length <= -len : len >= 5 ? label.length >= 5 : label.length === len))
         && (!f.rank || (d.rank && d.rank <= Number(f.rank)))
         && (!this.dropMin || d.score >= this.dropMin)
-        && (ignoreNight || !f.night || this.nightMatch(d, f.night))
         && (f.junk || d.good !== false);
     },
 
-    // Score minimum en vigueur : celui des filtres, sinon le défaut de Paramètres.
+    // Score minimum explicite (filtres avancés) ; les niveaux font le tri courant.
     get dropMin() {
-      return this.df.min === null || this.df.min === undefined ? (this.dropsData?.min_score ?? 20) : this.df.min;
+      return this.df.min === null || this.df.min === undefined ? 0 : this.df.min;
     },
 
-    // Cette nuit : dernière date de sortie de zone, libérés et entrés en rédemption depuis 24 h.
+    // Niveaux, comme dans l'Explorer : pépites, bons (score ou avis IA favorable), tout.
+    dropLevelOk(d) {
+      if (!this.dropLevel) return true;
+      const v = this.aiVerdict(d.ai);
+      if (this.dropLevel === "gem") return d.score >= 50 || v === "À prendre";
+      return d.score >= 30 || v === "À prendre" || v === "À surveiller";
+    },
+
+    dropLensValue(d) { return d.ai ? d.ai[this.lens] : d.score; },
+
+    dropInTab(d, tab) {
+      return tab === "free" ? d.state === "available" : ["expired", "redemption", "pending_delete"].includes(d.state);
+    },
+
+    dropIsNew(d) {
+      const since = this.nightSince();
+      return (d.state === "available" ? d.available_since || "" : d.state_since || "") >= since;
+    },
+
+    dropTabCount(tab) {
+      if (!this.dropsData) return 0;
+      return this.dropsMemo("count:" + tab, () => this.dropsData.items.filter((d) => this.dropInTab(d, tab) && this.dropMatches(d) && this.dropLevelOk(d)).length);
+    },
+
+    dropNewCount() {
+      if (!this.dropsData) return 0;
+      return this.dropsMemo("new", () => this.dropsData.items.filter((d) => this.dropInTab(d, this.dropTab) && this.dropMatches(d) && this.dropLevelOk(d) && this.dropIsNew(d)).length);
+    },
+
+    get dropList() {
+      if (!this.dropsData) return [];
+      return this.dropsMemo("list", () => {
+        const list = this.dropsData.items.filter((d) => this.dropInTab(d, this.dropTab) && this.dropMatches(d) && this.dropLevelOk(d)
+          && (!this.dropNewOnly || this.dropIsNew(d)));
+        if (this.dropSortMode === "recent") {
+          const at = (d) => (d.state === "available" ? d.available_since : d.state_since) || "";
+          return list.sort((a, b) => at(b).localeCompare(at(a)));
+        }
+        if (this.dropSortMode === "release") return list.sort((a, b) => (a.release_at || "9").localeCompare(b.release_at || "9"));
+        return list.sort((a, b) => this.dropLensValue(b) - this.dropLensValue(a) || b.score - a.score);
+      });
+    },
+
+    dropSetTab(tab) {
+      this.dropTab = tab;
+      this.dropShow = 100;
+      this.dropSelected = [];
+      if (tab === "free" && this.dropSortMode === "release") this.dropSortMode = "best";
+    },
+
+    // « Nouveaux cette nuit » : libérés ou entrés en rédemption depuis 24 h.
     nightSince() { return new Date(this.now - 24 * 3600 * 1000).toISOString(); },
-
-    nightLastRemoved() {
-      return this.dropsMemo("lastRemoved", () => this.dropsData.items.reduce((m, d) => (d.removed_on && d.removed_on > m ? d.removed_on : m), ""));
-    },
-
-    nightMatch(d, key) {
-      if (key === "removed") return !!d.removed_on && d.removed_on === this.nightLastRemoved();
-      if (key === "freed") return d.state === "available" && (d.available_since || "") >= this.nightSince();
-      return ["expired", "redemption", "pending_delete"].includes(d.state) && (d.state_since || "") >= this.nightSince();
-    },
-
-    nightGroups() {
-      if (!this.dropsData || !this.dropsData.items.length) return [];
-      // Mêmes filtres que les tableaux (sauf « Cette nuit » lui-même) : le compteur annonce ce que la liste montrera.
-      return this.dropsMemo("night", () => NIGHT_GROUPS.map((g) => {
-        const all = this.dropsData.items.filter((d) => this.nightMatch(d, g.key));
-        const shown = all.filter((d) => this.dropMatches(d, true));
-        const best = shown.filter((d) => !d.premium).sort((a, b) => b.score - a.score || this.aiValue(b) - this.aiValue(a));
-        return { ...g, count: shown.length, total: all.length, best: best.slice(0, 5) };
-      }));
-    },
 
     // Nouveau : changé depuis la visite précédente de l'écran (heure gardée dans le navigateur).
     dropNew(d) {
@@ -1325,8 +1357,7 @@ document.addEventListener("alpine:init", () => {
       if (f.lang) out.push({ key: "lang", label: f.lang === "fr" ? "Français" : "Anglais" });
       if (f.len) out.push({ key: "len", label: this.exLengths.find((o) => o.v === f.len)?.label + " car." });
       if (f.rank) out.push({ key: "rank", label: this.exRanks.find((o) => o.v === f.rank)?.label });
-      if (this.dropMin) out.push({ key: "min", label: "Score ≥ " + this.dropMin + (f.min === null ? " (défaut)" : "") });
-      if (f.night) out.push({ key: "night", label: "Cette nuit : " + NIGHT_GROUPS.find((g) => g.key === f.night)?.label });
+      if (this.dropMin) out.push({ key: "min", label: "Score ≥ " + this.dropMin });
       if (f.junk) out.push({ key: "junk", label: "Suites et mélanges inclus" });
       if (f.ai.length) out.push({ key: "ai", label: "IA : " + f.ai.map((v) => AI_VERDICTS[v]).join(", ") });
       if (f.quick) out.push({ key: "quick", label: `Revente rapide ≥ ${f.quick} €` });
@@ -1335,7 +1366,7 @@ document.addEventListener("alpine:init", () => {
 
     dropClear(key) {
       if (key.startsWith("kind:")) { this.dropKinds = this.dropKinds.filter((k) => k !== key.slice(5)); return; }
-      if (key === "min") { this.df.min = 0; return; }  // enlever le score minimum = tout voir
+      if (key === "min") { this.df.min = null; return; }
       this.df[key] = Array.isArray(DROP_FILTER_DEFAULTS[key]) ? [] : DROP_FILTER_DEFAULTS[key];
     },
 

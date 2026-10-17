@@ -1054,3 +1054,39 @@ button:disabled { cursor: default; opacity: .55; }
 .pf-notes { width: 100%; }
 .pf-sold { opacity: .85; }
 .pf-dropped { opacity: .6; }
+
+/* Explorer et Veille : réglages simples et cartes de nom. */
+.simple-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; padding: 2px; gap: 2px; }
+.segmented .btn-ghost { border: 0; border-radius: 999px; min-height: 30px; padding: 0 12px; }
+.segmented .btn-ghost.on { background: var(--accent); color: var(--accent-text); }
+.ex-types { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.ex-types::-webkit-scrollbar { display: none; }
+.ex-types .tag { flex: none; }
+.name-card { display: flex; gap: 10px; align-items: flex-start; }
+.nc-main { flex: 1; min-width: 0; }
+.nc-head { display: flex; align-items: center; gap: 10px; justify-content: space-between; }
+.nc-name { font-size: 16px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nc-line { margin: 3px 0 0; font-size: 14px; }
+.nc-ai.take { color: var(--accent); font-weight: 600; }
+.nc-ai.watch { font-weight: 600; }
+.nc-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 3px 0 0; color: var(--muted); }
+.nc-meta:empty { display: none; }
+.warn-text { color: var(--danger); }
+
+/* Veille : onglets et actions sur les cartes. */
+.veille-tabs { display: flex; gap: 6px; }
+.veille-tab { flex: 1; min-height: 40px; border: 1px solid var(--line); border-radius: 10px; background: transparent; color: inherit;
+  font: inherit; font-weight: 600; cursor: pointer; }
+.veille-tab .num { color: var(--muted); font-weight: 500; margin-left: 4px; }
+.veille-tab.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--accent); }
+.nc-actions { display: flex; gap: 6px; flex: none; align-self: center; }
+/* États : trois choix, toujours visibles. */
+.ex-states { flex-wrap: wrap; overflow: visible; }
+@media (max-width: 640px) {
+  /* Sur téléphone, l'en-tête complet mangerait la moitié de l'écran : il défile avec la liste. */
+  .ex-sticky { position: static; }
+  .veille-list .name-card { flex-wrap: wrap; }
+  .veille-list .nc-actions { width: 100%; padding-left: 30px; }
+  .veille-list .nc-actions .btn-ghost { flex: 1; min-height: 36px; }
+}

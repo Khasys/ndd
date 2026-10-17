@@ -75,8 +75,19 @@ def popularity(label: str) -> tuple[int, str | None]:
         points = round(30 * (1 - math.sqrt((rank - 1) / len(ranks))))
         points = round(points * POPULAR_FACTOR.get(key, 1))
         if points > best:
-            best, reason = points, f"{POPULAR[key]} n° {rank:,}".replace(",", " ")
+            best, reason = points, f"{_nth(rank)} {POPULAR_PHRASE.get(key, POPULAR[key])}"
     return best, reason
+
+
+# Raison lisible : « 153e mot le plus courant » plutôt que « mot n° 153 ».
+POPULAR_PHRASE = {"word": "mot le plus courant", "form": "forme la plus courante", "surname": "nom de famille le plus porté",
+                  "firstname": "prénom le plus donné", "english": "mot anglais le plus courant", "sector": "secteur porteur",
+                  "trend": "tendance", "combo": "combinaison", "niche": "site de niche", "expr": "expression courante",
+                  "media": "nom de média", "startup": "mot tech et startups"}
+
+
+def _nth(rank: int) -> str:
+    return "1er" if rank == 1 else f"{rank:,}e".replace(",", "\u202f")
 
 
 def base(label: str) -> int:

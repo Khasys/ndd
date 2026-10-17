@@ -42,6 +42,9 @@ LABELS = {
 # Rien ne le confirme sans accès registrar ; l'Explorer les masque sauf si on demande à les voir.
 PREMIUM_LENGTH = 3
 PREMIUM_OFF_DEFAULT = ("com", "net")
+# Niveaux de l'Explorer et de la Veille ; classements selon l'usage.
+LEVEL_GOOD, LEVEL_GEM = 30, 50
+LENSES = ("resale", "exploit")
 # Pour une zone ICANN, l'absence veut seulement dire « pas dans la zone » : un nom enregistré
 # sans serveurs DNS n'y figure pas non plus. Pour le .fr, l'open data liste aussi l'historique.
 ABSENT_ZONE = "Absent de la zone, à vérifier"
@@ -59,6 +62,7 @@ STATUS_FILTERS = {
     "suspended": (SUSPENDED,),
     "reserved": (RESERVED,),
     "premium": (PREMIUM,),
+    "all": (GONE, ABSENT, FREE, COMING, REGISTERED, SUSPENDED),
 }
 STATUS_NAMES = {
     "available": "Tous non pris",
@@ -69,7 +73,8 @@ STATUS_NAMES = {
     "registered": "Enregistrés",
     "suspended": "Suspendus",
     "reserved": "Réservés",
-    "premium": "Premium probables",
+    "premium": "Premiums probables",
+    "all": "Tous, même pris",
 }
 # Réservés mêlés aux noms à saisir si on le demande dans Paramètres.
 WITH_RESERVED = {"available", "bookable", "maybe_free", "free", "coming"}
@@ -178,6 +183,7 @@ class Filters:
     ai: str = ""  # avis IA, forme canonique de ai_filter() : « v=take,watch;exploit=40-;quick_high=-500 »
     lang: str = ""  # fr ou en (wordlists.LANGS)
     premium: bool = False  # True : les premiums probables se mêlent aux noms à saisir
+    level: str = ""  # gem : pépites ; good : bons (score ou avis IA favorable) ; vide : tout
 
     @classmethod
     def of(cls, *args, **kwargs) -> "Filters":
@@ -787,6 +793,22 @@ class Explorer:
             found["reasons"] = found.get("reasons", []) + ["premium probable"]
         return found
 
+    def _opinions(self, tld: str) -> dict[str, dict]:
+        """Avis IA de l'extension : notes et verdict, pour les niveaux et les classements revendre / exploiter."""
+        return {r[0]: {"resale": r[1], "exploit": r[2], "verdict": (r[3] or "").split(".")[0]}
+                for r in self.conn.execute("SELECT name, resale, exploit, comment FROM domain_ai WHERE name LIKE ?",
+                                           (f"%.{tld}",))}
+
+    @staticmethod
+    def _level_ok(score: int, opinion: dict | None, level: str) -> bool:
+        """Pépites : score 50 et plus ou « À prendre » ; bons : score 30 et plus ou avis favorable."""
+        if not level:
+            return True
+        verdict = opinion["verdict"] if opinion else ""
+        if level == "gem":
+            return score >= LEVEL_GEM or verdict == "À prendre"
+        return score >= LEVEL_GOOD or verdict in ("À prendre", "À surveiller")
+
     def rank(self, tld: str, *args, limit: int = 50, sort: str = "score", **kwargs) -> dict:
         """Les meilleurs noms d'abord. Sans recherche, parcours par score de base décroissant,
         arrêté dès qu'aucun nom restant ne peut plus entrer dans le classement.
@@ -818,9 +840,16 @@ class Explorer:
         u = self.universe
         ctx = self._bonus_context(tld)
         q = self.normalize(f.q, tld)
-        best: list[tuple[int, int, int, dict]] = []  # tas : (score, -position, position, valeur)
+        best: list[tuple[int, int, int, dict]] = []  # tas : (clé, -position, position, valeur)
+        # Classement « pour revendre » / « pour exploiter » : la note IA quand le nom est noté, sinon le score.
+        lens = sort if sort in LENSES else None
+        opinions = self._opinions(tld) if (lens or f.level) else {}
+        seen: set[int] = set()
 
         def consider(i: int) -> None:
+            if i in seen:
+                return
+            seen.add(i)
             if data[i] not in codes or not self._good_ok(i, f) or not self._taken_ok(i, others):
                 return
             label = u.label(i)
@@ -829,7 +858,11 @@ class Explorer:
             found = self._value(tld, i, label, ctx)
             if f.min_score and found["score"] < f.min_score:
                 return
-            entry = (found["score"], -i, i, found)
+            opinion = opinions.get(f"{label}.{tld}")
+            if not self._level_ok(found["score"], opinion, f.level):
+                return
+            key = opinion[lens] if lens and opinion else found["score"]
+            entry = (key, -i, i, found)
             if len(best) < limit:
                 heapq.heappush(best, entry)
             elif entry > best[0]:
@@ -840,6 +873,12 @@ class Explorer:
             for i in candidates:
                 consider(i)
         else:
+            # Noms notés d'abord : leur note IA (ou leur verdict pour un niveau) peut dépasser leur score,
+            # le parcours par score ne les atteindrait pas toujours avant de s'arrêter.
+            for name in opinions:
+                i = u.index(name[: -len(tld) - 1])
+                if i is not None:
+                    consider(i)
             top = max(ctx["weights"]["shape"], ctx["weights"]["popularity"])
             for score in range(70, -1, -1):
                 if len(best) >= limit and score * top + ctx["reach"] <= best[0][0]:
@@ -875,7 +914,9 @@ class Explorer:
         items = self.describe(tld, hits, data)
         for i, item in zip(hits, items):
             item.update(self._value(tld, i, item["label"], ctx))
-        return {"items": [it for it in items if not f.min_score or it["score"] >= f.min_score]}
+        opinions = self._opinions(tld) if f.level else {}
+        return {"items": [it for it in items if (not f.min_score or it["score"] >= f.min_score)
+                          and self._level_ok(it["score"], opinions.get(it["name"]), f.level)]}
 
     def _ordered(self, tld: str, f: Filters, limit: int) -> dict:
         """Du plus court au plus long. Les noms courts sont déjà dans cet ordre dans l'univers ;
@@ -926,6 +967,10 @@ class Explorer:
                 a = item.get("ai")
                 return (0, -a["quick_high"], -a["resale"], -a["final_high"]) if a else (1, 0, 0, 0)
             return lambda item: (*opinion(item), -item["score"], where(item), item["tld"])
+        if sort in LENSES:
+            return lambda item: (-(item["ai"][sort] if item.get("ai") else item["score"]), -item["score"], where(item), item["tld"])
+        if sort == "release":
+            return lambda item: (item.get("release_at") or "9", where(item), item["tld"])
         return lambda item: (-item["score"], where(item), item["tld"])
 
     def _by_seo(self, tld: str, f: Filters, limit: int) -> dict:

@@ -180,7 +180,7 @@ def test_value_scores_are_explained():
     assert value.base("ab") > value.base("abc") > value.base("mako") > value.base("1234") > value.base("ab12") > value.base("xkcd")
     assert value.base("oye") > value.base("qsd")
     found = value.score("maison", ["com"])
-    assert found["reasons"][:2] == ["6 lettres", "mot n° 153"] and "pris en .com" in found["reasons"]
+    assert found["reasons"][:2] == ["6 lettres", "153e mot le plus courant"] and "pris en .com" in found["reasons"]
     old = {"created_on": "2008-01-01", "removed_on": "2026-03-01"}
     assert value.score("maison", [], old, today=datetime(2026, 10, 1).date())["score"] > value.score("maison", [])["score"]
 
@@ -582,3 +582,20 @@ def test_english_only_and_conjugated_words_count_less_in_fr(env):
     assert "mot anglais en .fr" in found["should.fr"]["reasons"]
     assert "forme conjuguée" in found["vais.fr"]["reasons"]
     assert not {"mot anglais en .fr", "forme conjuguée"} & set(found["maison.fr"]["reasons"])
+
+
+def test_levels_and_resale_exploit_rankings(env):
+    zone(env, [], ["maison"])
+    # Un nom faible mais noté « À prendre » par l'IA : il passe le niveau « pépites » et prend la tête
+    # du classement « pour revendre ».
+    env.conn.execute("""INSERT INTO domain_ai (name, exploit, resale, quick_low, quick_high, final_low, final_high,
+                        comment, rated_at, version) VALUES ('saucisse.com', 40, 95, 0, 0, 100, 300,
+                        'À prendre. Test. Acheteur type : test.', '2026-10-17', 4)""")
+    env.ai_changed()
+    assert [i["label"] for i in env.rank("com", q="saucisse", mode="exact", level="gem")["items"]] == ["saucisse"]
+    assert env.rank("com", q="poutre", mode="exact", level="gem")["items"] == []
+    assert all(i["score"] >= 50 for i in env.rank("com", status="available", level="gem", limit=50)["items"])
+    resale = env.rank("com", status="available", sort="resale", limit=5)["items"]
+    assert resale[0]["label"] == "saucisse"
+    exploit = env.rank("com", status="available", sort="exploit", limit=5)["items"]
+    assert exploit[0]["label"] != "saucisse" or exploit[0]["score"] <= 40

@@ -84,17 +84,32 @@ Paramètres, Calendrier, « Créer l'adresse » : une URL secrète au format ICS
 calendrier par URL dans l'agenda du téléphone. Elle contient les expirations et les libérations
 estimées, avec un rappel la veille. Elle s'ouvre sans mot de passe : la changer si elle a fuité.
 
-### Suppressions : noms courts, mots et noms de famille
+### Veille et Explorer : deux écrans, mêmes réglages
 
-En haut de l'écran, **Cette nuit** : noms sortis des zones à la dernière lecture, libérés en 24 h,
-entrés en rédemption ou en suppression en 24 h, avec les 5 meilleurs de chaque groupe ; un clic sur
-un compteur filtre les tableaux. Score minimum appliqué à l'ouverture (20 par défaut, réglable dans
-Paramètres, bouton « Tout voir »), badge « Nouveau » depuis la visite précédente, 100 lignes par
-tableau. L'état des lectures (zones, .fr, DNS, historique) est dans Paramètres, carte « Sources et
-lectures » ; une ligne d'état reste en haut de l'écran. Tri en masse : cases à cocher (« Tout
+**Veille** : ce qui tombe et ce qui va tomber. Deux onglets : **Libérés** (réservables maintenant)
+et **Bientôt libres** (en rédemption ou en suppression, avec la date estimée). **Explorer** : tous
+les noms suivis, pour chercher. Grande barre de recherche, puis l'état : **Libres**, **Bientôt
+libres** ou **Tous, même pris**, et le type de nom en mots simples (mots courants, anglais,
+prénoms, tech et startups, médias et marques, courts…).
+
+Réglages communs, gardés d'un écran à l'autre :
+
+- **Pour revendre / Pour exploiter** : classe par note IA de revente ou d'exploitation. Un nom
+  sans avis IA est classé par son score, sur la même échelle de 0 à 100.
+- **Pépites / Bons / Tout** : Pépites = score 50 et plus ou avis « À prendre » ; Bons = score 30
+  et plus ou avis « À prendre » / « À surveiller » (choix par défaut) ; Tout = sans tri.
+- **Extensions** : une, plusieurs ou toutes.
+- **Avancé** (replié) : les filtres fins (nature, longueur, fréquence, SEO, avis IA, score
+  minimum…), et dans l'Explorer les classements, la carte, les premiums et les vues enregistrées.
+
+Chaque nom est une carte : le nom, le score, et une phrase (verdict IA et prix de revente ou note
+d'exploitation, sinon les raisons du score, par exemple « 5 lettres · 153e mot le plus courant »).
+Dans la Veille, **Nouveaux cette nuit** ne garde que les noms libérés ou entrés en rédemption depuis
+24 h ; Réserver et Surveiller sont sur chaque carte. Tri en masse : cases à cocher (« Tout
 sélectionner » pour les noms affichés), puis Surveiller, Analyse IA, Revérifier ou Masquer ; un nom
-masqué quitte l'écran mais reste dans l'Explorer (Paramètres : « Tout réafficher »). Sur téléphone,
-les tableaux deviennent des cartes compactes.
+masqué quitte la Veille mais reste dans l'Explorer (Paramètres : « Tout réafficher »). L'état des
+lectures (zones, .fr, DNS, historique) est dans Paramètres, carte « Sources et lectures » ; une
+ligne d'état reste en haut de la Veille. Sur téléphone, l'en-tête défile avec la liste.
 
 Fiche d'un nom : ligne de décision en tête (libération estimée, premium probable, verdict IA, prix
 utilisateur final) et action mise en avant : Réserver pour un nom libre, Surveiller pour un nom qui
@@ -103,7 +118,7 @@ va se libérer, Analyse IA pour un nom pas encore noté. Surveiller reste dispon
 En .fr, un mot seulement anglais (should) ou une forme conjuguée (vais) compte moitié moins en
 popularité : ils se lisent mal en .fr.
 
-Menu Suppressions : les noms qui quittent les zones des extensions génériques, suivis jusqu'à leur
+Menu Veille : les noms qui quittent les zones des extensions génériques, suivis jusqu'à leur
 libération. Sont suivis tous les noms de 1 à 4 caractères (lettres, chiffres, tiret), les 20 000
 mots français les plus courants (forme de base, sans accents), les noms de famille donnés plus
 de 500 fois en France entre 1891 et 2000 (environ 21 700) et les prénoms donnés plus de 100 fois
@@ -115,8 +130,7 @@ niche (forumdomotique, guidepotager, gardeningforum…), et environ 1 000 expres
 françaises et anglaises (bonplan, faitmaison, goodvibes…). Une liste ajoutée n'est cherchée
 dans une zone qu'à la lecture suivante : d'ici là, ses noms n'apparaissent pas pour cette
 extension plutôt que d'y passer pour libres. Sources et licences des listes :
-`app/data/SOURCES.md`. Deux listes : libérés ces 7 derniers jours,
-et libération à venir avec la date estimée. Un bouton Surveiller les ajoute à la liste principale.
+`app/data/SOURCES.md`. Un bouton Surveiller ajoute un nom à la liste principale.
 
 Source : les fichiers de zone publiés chaque jour par les registres via CZDS d'ICANN, gratuits sur
 inscription. Le .fr et les autres extensions nationales n'y sont pas.
@@ -157,12 +171,12 @@ L'appli fonctionne alors en trois temps :
    des 90 derniers jours.
 2. Un nom .fr expire à la date anniversaire de sa création. L'appli le vérifie en RDAP le
    lendemain de cet anniversaire : renouvelé, la vraie échéance lue en RDAP fixe la vérification
-   suivante, un an plus tard ; en rédemption ou libre, il passe dans l'écran Suppressions.
+   suivante, un an plus tard ; en rédemption ou libre, il passe dans l'écran Veille.
 3. Toutes les requêtes vers l'Afnic (dates anniversaire, suppressions, boutons « Vérifier »)
    passent par une seule file, sous un plafond par minute réglable (2 par défaut, soit 2 880 par
    jour au plus). L'Afnic ne publie pas de limite. Au premier signal de trop de requêtes, pause
    d'une heure, doublée à chaque nouveau signal (24 h au plus), et durée demandée par l'Afnic
-   respectée. L'écran Suppressions montre en direct le nom en cours, le travail du jour et du
+   respectée. Paramètres, carte « Sources et lectures », montre en direct le nom en cours, le travail du jour et du
    lendemain, et les dernières requêtes.
 4. Chaque jour à partir de minuit, l'appli demande directement aux serveurs DNS du .fr si les
    noms « probablement libres » y sont délégués (150 000 par jour au plus, de 2 à 4 requêtes par
@@ -173,8 +187,8 @@ L'appli fonctionne alors en trois temps :
    intermédiaire : seule l'Afnic voit les requêtes. Aucun quota RDAP consommé. Limite : un nom
    enregistré sans serveurs DNS passe pour libre ; le bouton « Vérifier » (RDAP) tranche.
    Chaque échec est journalisé avec sa cause (délai dépassé, réponse tronquée, refusé, code
-   d'erreur, erreur réseau) et le serveur interrogé ; les 30 derniers sont visibles dans l'écran
-   Suppressions. Un refus du serveur ou 20 échecs d'affilée arrêtent la passe, divisent par deux
+   d'erreur, erreur réseau) et le serveur interrogé ; les 30 derniers sont visibles dans
+   Paramètres, carte « Sources et lectures ». Un refus du serveur ou 20 échecs d'affilée arrêtent la passe, divisent par deux
    le plafond de rythme des nuits suivantes et envoient une alerte Telegram. Le plafond remonte
    de 25 % par nuit sans incident.
    Désactivable : case « Interroger le DNS du .fr chaque nuit ».
@@ -204,11 +218,10 @@ Le moins de requêtes possible : un nom n'est revérifié que quand quelque chos
 | Suspendu (hold) | une fois par semaine |
 | Libre, repris | jamais automatiquement : boutons « Revérifier » et « Surveiller » |
 
-Un nom libre reste affiché dans Suppressions 30 jours (réglable dans Paramètres). Rien n'est
-effacé de la base : passé ce délai, il reste visible dans l'Explorer. Suppressions a les mêmes
-filtres que l'Explorer (recherche, extension, forme et liste, nature, longueur, fréquence, score
-minimum, avis IA, revente rapide minimum), dans le même panneau, gardés d'une visite à l'autre.
-Les deux listes se trient par date, score, avis IA ou nom. Chaque nom ouvre la même fiche.
+Un nom libre reste dans la Veille 30 jours (réglable dans Paramètres). Rien n'est effacé de la
+base : passé ce délai, il reste visible dans l'Explorer. La Veille a les mêmes filtres avancés que
+l'Explorer, gardés d'une visite à l'autre. Tri : les meilleurs d'abord (selon revendre ou
+exploiter), les plus récents, ou la libération la plus proche. Chaque nom ouvre la même fiche.
 Domaines a aussi une colonne Valeur (score et avis IA), triable, et des filtres par extension et
 par verdict IA.
 
@@ -229,29 +242,29 @@ obtenu.
 
 Tous les noms suivis, extension par extension : les 1 926 220 noms possibles de 1 à 4 caractères,
 puis les mots, noms de famille et prénoms. L'état vient des données déjà sur le NAS, sans aucune
-requête : zones ICANN lues chaque jour, open data de l'Afnic, écran Suppressions par-dessus.
+requête : zones ICANN lues chaque jour, open data de l'Afnic, données de la Veille par-dessus.
 
 - **Top** : les 10, 50, 100, 200, 500 ou 1 000 premiers d'une liste (secteurs, tendances, sites de niche,
   mots, anglais, prénoms, noms…), pris ou non, avec l'état sur chaque extension. Un état ouvre la fiche.
-- **Langue** : filtre Français / Anglais (Explorer et Suppressions). Listes mêlées : langue relevée à
+- **Langue** : filtre Français / Anglais (Explorer et Veille). Listes mêlées : langue relevée à
   la construction (app/data/langues.txt) ; jargon des tendances absent des deux listes : les deux.
 - **Fiche** : nuit prévue pour l'avis IA (place dans la file, 1 000 noms par nuit, horizon de 30
   nuits) et, pour un .fr, la prochaine interrogation DNS et la dernière réponse.
-- **Vues intégrées** : **à réserver** (libres et probablement libres, toutes listes), **bientôt
-  libres** (par date de libération), avis IA à prendre, revente rapide ≥ 500 €, libres vérifiés, pris en .com, 1 à 3 caractères, top 1 000 mots, top 5 000 anglais, secteurs porteurs,
-  tendances, sites de niche, signal SEO.
+- **États** : Libres (libres et probablement libres), Bientôt libres (triés par libération la plus
+  proche), Tous, même pris. Compteur sur chaque état.
 - **Premiums probables** : noms de 3 caractères libres hors .fr, souvent vendus au prix premium
   par le registre (rien ne le confirme sans accès registrar). Masqués par défaut ; bouton « Premiums
   probables » pour les afficher. Paramètres : case pour diviser leur score par deux, et prix relevés
   à la main par extension pour 2 et 3 caractères, affichés sur ces noms.
 - **Carte** : extension × catégorie (1 à 3 caractères, 4 lettres, mots, formes fléchies, noms,
   prénoms), nombre de noms à saisir par case. Une case ouvre la liste filtrée.
-- **Liste** triée par score, par fréquence, par longueur ou par SEO. Une ligne ouvre la fiche du nom.
-- **Fiche** : la même dans Domaines, Suppressions et Explorer. État, score détaillé, raisons,
+- **Liste** : les meilleurs d'abord (selon revendre ou exploiter), libération la plus proche, les plus
+  courts, les plus courants, ou score seul. Une carte ouvre la fiche du nom.
+- **Fiche** : la même dans Domaines, Veille et Explorer. État, score détaillé, raisons,
   catégories, nature, fréquence, historique .fr, SEO, dernière réponse RDAP ou WHOIS (registrar,
   dates, statuts, DNS), autres extensions, et les actions (Vérifier, Réserver chez Gandi,
   Surveiller ou Voir dans Domaines, SEO, Réservé).
-- **Filtres** (panneau du bas sur téléphone) : catégorie, nature des mots (verbes, noms communs,
+- **Avancé** (panneau du bas sur téléphone) : catégorie, nature des mots (verbes, noms communs,
   adjectifs, adverbes, mots outils), longueur, fréquence (top 100 à top 5 000), pris sur une
   autre extension, SEO (analysé, PageRank 1, 3 ou 5 et plus, archivé 5 ans et plus), score
   minimum. Les compteurs suivent les filtres ; les filtres sont mémorisés. Le filtre SEO ne
@@ -319,7 +332,7 @@ connexion, puis retour sur la fiche.
 
 Le jeton se crée dans Paramètres > Avis IA ; il n'est montré qu'une fois. Il ouvre l'échange des
 avis et, en lecture seule (GET), le diagnostic `/api/diag` (version, mémoire, zones, .fr, DNS, avis
-IA, compteurs, tâches planifiées, dernières erreurs du journal), les écrans (Domaines, Suppressions,
+IA, compteurs, tâches planifiées, dernières erreurs du journal), les écrans (Domaines, Veille,
 Explorer, Top, fiches) et `/api/ai/rated` (avis enregistrés, filtres `verdict` et `tld`). Jamais
 les réglages, les secrets ni une écriture. Lecture depuis une session Claude :
 `python3 scripts/read_api.py /api/diag`. L'avis s'affiche dans la fiche et les listes, avec un tri « Par avis IA » (revente

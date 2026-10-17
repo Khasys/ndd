@@ -68,7 +68,7 @@ def build(conn, explorer, cc_status: dict, base: str, now: datetime, min_score: 
         lines.append(f"\nSortis du DNS (.co, .ai, .io), à vérifier : {', '.join(lost[:20])}"
                      + (f" et {len(lost) - 20} autres" if len(lost) > 20 else ""))
     if base:
-        lines.append(f"\nSuppressions : {base}/")
+        lines.append(f"\nVeille : {base}/")
     text = "\n".join(lines)
     return text if len(text) < 4000 else text[:3990] + "\n[tronqué]"
 

@@ -1086,7 +1086,8 @@ def _explore_params(request: Request) -> dict:
             "seo": p.get("seo", "") if p.get("seo", "") in explore.SEO_FILTERS else "",
             "ai": _ai_param(p),
             "lang": p.get("lang", "") if p.get("lang", "") in wordlists.LANGS and p.get("cat", "") not in wordlists.NO_LANG else "",
-            "premium": p.get("premium") == "1"}
+            "premium": p.get("premium") == "1",
+            "level": p.get("level", "") if p.get("level", "") in ("good", "gem") else ""}
 
 
 def _ai_param(p) -> str:
@@ -1185,7 +1186,7 @@ async def explore_rank(request: Request):
     params["status"] = params["status"] or "available"
     limit = _limit(request, explore.MAX_LIMIT * 5)
     sort = request.query_params.get("sort", "score")
-    if sort not in ("score", "freq", "length", "seo", "ai", "release"):
+    if sort not in ("score", "freq", "length", "seo", "ai", "release", "resale", "exploit"):
         raise HTTPException(422, "Tri inconnu.")
     chosen = params["tlds"]
     rest = {k: v for k, v in params.items() if k not in ("tld", "tlds")}
