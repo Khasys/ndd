@@ -86,6 +86,13 @@ estimées, avec un rappel la veille. Elle s'ouvre sans mot de passe : la changer
 
 ### Suppressions : noms courts, mots et noms de famille
 
+En haut de l'écran, **Cette nuit** : noms sortis des zones à la dernière lecture, libérés en 24 h,
+entrés en rédemption ou en suppression en 24 h, avec les 5 meilleurs de chaque groupe ; un clic sur
+un compteur filtre les tableaux. Score minimum appliqué à l'ouverture (20 par défaut, réglable dans
+Paramètres, bouton « Tout voir »), badge « Nouveau » depuis la visite précédente, 100 lignes par
+tableau. L'état des lectures (zones, .fr, DNS, historique) est dans Paramètres, carte « Sources et
+lectures » ; une ligne d'état reste en haut de l'écran.
+
 Menu Suppressions : les noms qui quittent les zones des extensions génériques, suivis jusqu'à leur
 libération. Sont suivis tous les noms de 1 à 4 caractères (lettres, chiffres, tiret), les 20 000
 mots français les plus courants (forme de base, sans accents), les noms de famille donnés plus
@@ -162,10 +169,11 @@ L'appli fonctionne alors en trois temps :
    de 25 % par nuit sans incident.
    Désactivable : case « Interroger le DNS du .fr chaque nuit ».
 5. .co, .ai et .io : ces extensions de pays ne publient pas leur zone. Chaque jour, en même temps
-   que le .fr, l'appli interroge leurs serveurs DNS pour les 50 000 meilleurs noms des listes Mots
-   anglais, Tendances, Secteurs, Médias et marques, Mots et Expressions (plus de 2 caractères),
-   jamais interrogés d'abord. Mêmes garde-fous, propres à chaque extension. Un nom délégué qui ne
-   l'est plus (« sorti du DNS ») part en alerte Telegram : souvent un nom qui expire, à vérifier
+   que le .fr, l'appli interroge leurs serveurs DNS pour les 50 000 meilleurs noms (plus de 2
+   caractères), jamais interrogés d'abord : toutes les listes pour .co (vendu comme le .com) ; Mots
+   anglais, Tendances et Tech et startups pour .ai et .io. Mêmes garde-fous, propres à chaque
+   extension. Un nom délégué qui ne l'est plus (« sorti du DNS ») part dans le résumé Telegram du
+   matin : souvent un nom qui expire, à vérifier
    en RDAP. Pas de date de libération estimée ; un nom absent du DNS peut être enregistré sans
    serveurs, réservé ou premium du registre.
 
@@ -209,9 +217,13 @@ requête : zones ICANN lues chaque jour, open data de l'Afnic, écran Suppressio
   la construction (app/data/langues.txt) ; jargon des tendances absent des deux listes : les deux.
 - **Fiche** : nuit prévue pour l'avis IA (place dans la file, 1 000 noms par nuit, horizon de 30
   nuits) et, pour un .fr, la prochaine interrogation DNS et la dernière réponse.
-- **Vues intégrées** : avis IA à prendre, revente rapide ≥ 500 €, libération à venir, libres
-  vérifiés, pris en .com, 1 à 3 caractères, top 1 000 mots, top 5 000 anglais, secteurs porteurs,
+- **Vues intégrées** : **à réserver** (libres et probablement libres, toutes listes), **bientôt
+  libres** (par date de libération), avis IA à prendre, revente rapide ≥ 500 €, libres vérifiés, pris en .com, 1 à 3 caractères, top 1 000 mots, top 5 000 anglais, secteurs porteurs,
   tendances, sites de niche, signal SEO.
+- **Premiums probables** : noms de 3 caractères libres hors .fr, souvent vendus au prix premium
+  par le registre (rien ne le confirme sans accès registrar). Masqués par défaut ; bouton « Premiums
+  probables » pour les afficher. Paramètres : case pour diviser leur score par deux, et prix relevés
+  à la main par extension pour 2 et 3 caractères, affichés sur ces noms.
 - **Carte** : extension × catégorie (1 à 3 caractères, 4 lettres, mots, formes fléchies, noms,
   prénoms), nombre de noms à saisir par case. Une case ouvre la liste filtrée.
 - **Liste** triée par score, par fréquence, par longueur ou par SEO. Une ligne ouvre la fiche du nom.

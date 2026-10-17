@@ -451,9 +451,11 @@ class Explorer:
                 for i in range(drops.OFFSETS[2]):
                     if status[i] in (ABSENT, FREE) and f"{u.label(i)}.{tld}" not in unflagged:
                         status[i] = RESERVED
-                for i in range(drops.OFFSETS[2], drops.OFFSETS[PREMIUM_LENGTH]):
-                    if status[i] in (ABSENT, FREE) and f"{u.label(i)}.{tld}" not in unflagged:
-                        status[i] = PREMIUM
+        if tld != "fr":
+            unflagged = self.reserved.unflagged() if self.reserved is not None else frozenset()
+            for i in range(drops.OFFSETS[2], drops.OFFSETS[PREMIUM_LENGTH]):
+                if status[i] in (ABSENT, FREE) and f"{u.label(i)}.{tld}" not in unflagged:
+                    status[i] = PREMIUM
         return status
 
     def codes(self, status: str, default: str = "", premium: bool = False) -> tuple[int, ...]:
@@ -1065,8 +1067,8 @@ class Explorer:
             code = RESERVED
         elif self.reserved is not None and code in (ABSENT, FREE) and self.reserved.short_reserved(f"{label}.{tld}"):
             code = RESERVED
-        elif (tld != "fr" and self.reserved is not None and code in (ABSENT, FREE) and len(label) == PREMIUM_LENGTH
-              and drops.OFFSETS[2] <= i < drops.OFFSETS[PREMIUM_LENGTH] and f"{label}.{tld}" not in self.reserved.unflagged()):
+        elif (tld != "fr" and code in (ABSENT, FREE) and drops.OFFSETS[2] <= i < drops.OFFSETS[PREMIUM_LENGTH]
+              and (self.reserved is None or f"{label}.{tld}" not in self.reserved.unflagged())):
             code = PREMIUM
         return base, code
 

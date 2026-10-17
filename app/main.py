@@ -1174,7 +1174,7 @@ def _rank(explorer, params, chosen, rest, limit, sort):
 TOP_SIZES = (10, 50, 100, 200, 500, 1000)
 # État court pour le tableau Top : pris ou pas, d'un coup d'œil.
 TOP_STATES = {explore.REGISTERED: "pris", explore.SUSPENDED: "pris", explore.GONE: "libre ?", explore.ABSENT: "libre ?",
-              explore.COMING: "à venir", explore.FREE: "libre", explore.RESERVED: "réservé", explore.INVALID: "pas lu"}
+              explore.COMING: "à venir", explore.FREE: "libre", explore.RESERVED: "réservé", explore.INVALID: "pas lu", explore.PREMIUM: "premium ?"}
 
 
 @app.get("/api/explore/top")

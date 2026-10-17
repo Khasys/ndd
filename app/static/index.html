@@ -188,103 +188,31 @@
 
     <template x-if="dropsData && dropsData.configured">
       <div>
-        <div class="drops-card drops-status">
-          <div class="drops-zones">
-            <template x-for="z in dropsData.zones" :key="z.tld">
-              <div class="zone-line" :class="{ error: z.error }">
-                <span class="mono zone-tld" x-text="'.' + z.tld"></span>
-                <span class="small" x-text="zoneLine(z)"></span>
-              </div>
-            </template>
-            <template x-if="dropsData.fr.enabled">
-              <div class="zone-line fr-zone" :class="{ error: dropsData.fr.error }">
-                <span class="mono zone-tld">.fr</span>
-                <span class="small" x-text="frLine(dropsData.fr)"></span>
-                <template x-if="dropsData.fr.work && dropsData.fr.at && !dropsData.fr.error">
-                  <div class="fr-work small">
-                    <p><strong>En ce moment</strong> <span x-text="frNow(dropsData.fr)"></span></p>
-                    <p><strong>Aujourd'hui</strong> <span x-text="frToday(dropsData.fr)"></span></p>
-                    <p><strong>Demain</strong> <span x-text="frTomorrow(dropsData.fr)"></span></p>
-                    <p><strong>DNS du jour</strong> <span x-text="frDns(dropsData.fr.dns)"></span></p>
-                    <details x-show="dropsData.fr.dns && ((dropsData.fr.dns.taken_names || []).length || (dropsData.fr.dns.freed_names || []).length)">
-                      <summary class="muted">Changements vus par le DNS</summary>
-                      <p x-show="(dropsData.fr.dns.taken_names || []).length"><span class="muted">Pris :</span>
-                        <template x-for="n in (dropsData.fr.dns.taken_names || [])" :key="n"><button type="button" class="link-like mono dns-name" @click="openFiche(n)" x-text="n"></button></template>
-                      </p>
-                      <p x-show="(dropsData.fr.dns.freed_names || []).length"><span class="muted">Sortis du DNS :</span>
-                        <template x-for="n in (dropsData.fr.dns.freed_names || [])" :key="n"><button type="button" class="link-like mono dns-name" @click="openFiche(n)" x-text="n"></button></template>
-                      </p>
-                    </details>
-                    <details x-show="dropsData.fr.dns && (dropsData.fr.dns.failure_log || []).length">
-                      <summary class="muted">Échecs DNS de la dernière passe</summary>
-                      <ul class="fr-recent">
-                        <template x-for="f in ((dropsData.fr.dns && dropsData.fr.dns.failure_log) || [])" :key="f.at + f.name">
-                          <li><span class="muted" x-text="clock(f.at)"></span> <span class="mono" x-text="f.name"></span> <span x-text="f.reason"></span> <span class="muted mono" x-text="f.server"></span> <span class="muted" x-text="perSecond(f.rate) + '/s'"></span> <span class="muted" x-text="f.detail"></span></li>
-                        </template>
-                      </ul>
-                    </details>
-                    <details x-show="dropsData.fr.work.recent.length">
-                      <summary class="muted">Dernières requêtes</summary>
-                      <ul class="fr-recent">
-                        <template x-for="r in dropsData.fr.work.recent" :key="r.at + r.name">
-                          <li><span class="muted" x-text="clock(r.at)"></span> <span class="mono" x-text="r.name"></span> <span class="muted" x-text="sourceLabel(r.source)"></span> <span x-text="r.outcome"></span></li>
-                        </template>
-                      </ul>
-                    </details>
-                  </div>
-                </template>
-              </div>
-            </template>
-            <template x-for="[tld, d] in Object.entries(dropsData.cc_dns || {})" :key="tld">
-              <div class="zone-line fr-zone" :class="{ error: d.error }">
-                <span class="mono zone-tld" x-text="'.' + tld"></span>
-                <span class="small"><strong>DNS du jour</strong> <span x-text="frDns(d)"></span></span>
-                <details class="small" x-show="(d.freed_names || []).length || (d.failure_log || []).length">
-                  <summary class="muted">Sortis du DNS et échecs</summary>
-                  <p x-show="(d.freed_names || []).length"><span class="muted">Sortis du DNS, souvent un nom qui expire :</span>
-                    <template x-for="n in (d.freed_names || [])" :key="n"><button type="button" class="link-like mono dns-name" @click="openFiche(n)" x-text="n"></button></template>
-                  </p>
-                  <ul class="fr-recent" x-show="(d.failure_log || []).length">
-                    <template x-for="f in (d.failure_log || [])" :key="f.at + f.name">
-                      <li><span class="muted" x-text="clock(f.at)"></span> <span class="mono" x-text="f.name"></span> <span x-text="f.reason"></span> <span class="muted mono" x-text="f.server"></span></li>
-                    </template>
-                  </ul>
-                </details>
-              </div>
-            </template>
-            <p class="small muted" x-show="dropsData.czds && !dropsData.zones.length">Aucune zone ICANN activée. Paramètres, carte « Zones ICANN ».</p>
-            <p class="small error-text" x-show="dropsData.error" x-text="dropsData.error"></p>
-            <p class="small muted" x-show="dropsData.pending_checks" x-text="dropsData.pending_checks + ' nom(s) en attente de vérification RDAP.'"></p>
-          </div>
-          <div class="drops-actions">
-            <button type="button" class="btn-ghost" x-show="dropsData.czds" @click="scanDrops()" :disabled="dropsData.running" x-text="dropsData.running ? 'Lecture en cours' : 'Lire les zones maintenant'"></button>
-            <button type="button" class="btn-ghost" x-show="dropsData.fr.enabled" @click="importFr()" :disabled="dropsData.fr.running" x-text="dropsData.fr.running ? 'Import .fr en cours' : 'Importer le .fr maintenant'"></button>
-            <button type="button" class="btn-ghost" @click="scansOpen = !scansOpen" :aria-expanded="scansOpen" x-show="dropsData.history.length" x-text="scansOpen ? 'Masquer l\'historique' : 'Historique des lectures'"></button>
-          </div>
+        <div class="drops-sources small" :class="{ error: sourcesError() }">
+          <span x-text="sourcesLine()"></span>
+          <button type="button" class="link-like" @click="openSettingsAt('settings-sources')">Sources et lectures</button>
         </div>
 
-        <div class="drops-card scans" x-show="scansOpen && dropsData.history.length" x-cloak>
-          <h3>Historique des lectures</h3>
-          <p class="muted small">Attente réseau élevée : la connexion limite. Calcul élevé : le NAS limite. <span x-text="dropsData.workers"></span> processus.</p>
-          <div class="scans-scroll">
-            <table class="drops-table scans-table">
-              <thead><tr><th>Date</th><th>Zone</th><th>Taille</th><th>Durée</th><th>Attente réseau</th><th>Calcul</th><th>Vitesse</th><th>Proc.</th><th>Résultat</th></tr></thead>
-              <tbody>
-                <template x-for="h in dropsData.history" :key="h.id">
-                  <tr>
-                    <td data-label="Date" x-text="scanStamp(h.at)"></td>
-                    <td data-label="Zone" class="mono" x-text="'.' + h.tld"></td>
-                    <td data-label="Taille" x-text="h.megabytes + ' Mo'"></td>
-                    <td data-label="Durée" x-text="duration(h.seconds)"></td>
-                    <td data-label="Attente réseau" x-text="duration(h.wait_seconds)"></td>
-                    <td data-label="Calcul" x-text="duration(h.compute_seconds)"></td>
-                    <td data-label="Vitesse" x-text="speed(h)"></td>
-                    <td data-label="Processus" x-text="h.workers"></td>
-                    <td data-label="Résultat" :class="{ 'error-text': h.error }" x-text="h.error ? h.error : (h.removed + ' sortis, ' + h.added + ' entrés')"></td>
-                  </tr>
-                </template>
-              </tbody>
-            </table>
+        <div class="drops-card night" x-show="nightGroups().some((g) => g.count)">
+          <h3>Cette nuit</h3>
+          <div class="night-grid">
+            <template x-for="g in nightGroups()" :key="g.key">
+              <div class="night-col">
+                <button type="button" class="night-count" :class="{ on: df.night === g.key }" @click="df.night = df.night === g.key ? '' : g.key">
+                  <strong class="num" x-text="fmt(g.count)"></strong> <span x-text="g.label"></span>
+                </button>
+                <ul class="night-list">
+                  <template x-for="d in g.best" :key="d.name">
+                    <li>
+                      <button type="button" class="link-like mono" @click="openFiche(d.name)" x-text="d.name"></button>
+                      <span class="ex-bar drop-bar" :title="scoreTitle(d)"><i :style="'width:' + d.score + '%'"></i><b x-text="d.score"></b></span>
+                      <span class="ex-reason ai" :class="aiClass(d.ai)" x-show="d.ai" x-text="aiTag(d.ai)"></span>
+                      <span class="muted small" x-show="d.release_at" x-text="'~' + shortDate(d.release_at)"></span>
+                    </li>
+                  </template>
+                </ul>
+              </div>
+            </template>
           </div>
         </div>
 
@@ -304,6 +232,7 @@
             <template x-for="a in dropActive()" :key="a.key">
               <button type="button" class="ex-pill" @click="dropClear(a.key)"><span x-text="a.label"></span> ×</button>
             </template>
+            <button type="button" class="btn-ghost sm" x-show="dropMin" @click="df.min = 0">Tout voir</button>
           </div>
         </div>
 
@@ -361,8 +290,8 @@
           </div>
           <label class="check ex-junk"><input type="checkbox" x-model="df.junk"><span>Inclure les suites imprononçables, les mélanges lettres-chiffres et les tirets</span></label>
           <h4 class="ex-group-title">Score</h4>
-          <div class="ex-field"><span>Score minimum <strong class="num" x-text="df.min"></strong></span>
-            <input type="range" min="0" max="90" step="5" x-model.number="df.min" aria-label="Score minimum">
+          <div class="ex-field"><span>Score minimum <strong class="num" x-text="dropMin"></strong></span>
+            <input type="range" min="0" max="90" step="5" :value="dropMin" @input="df.min = Number($event.target.value)" aria-label="Score minimum">
           </div>
           <h4 class="ex-group-title">Avis IA</h4>
           <div class="ex-field"><span>Verdict (noms notés seulement)</span>
@@ -395,9 +324,9 @@
                 <td class="drop-name">
                   <button type="button" class="link-like mono" @click="openFiche(d.name)" x-text="d.name"></button>
                   <span class="ex-bar drop-bar" :title="scoreTitle(d)"><i :style="'width:' + d.score + '%'"></i><b x-text="d.score >= 30 ? d.score : ''"></b></span>
-                  <div class="ex-reasons"><span class="ex-reason ai" :class="aiClass(d.ai)" x-show="d.ai" x-text="aiTag(d.ai)" :title="d.ai ? d.ai.comment : ''"></span><template x-for="r in d.reasons.slice(0, 3)" :key="r"><span class="ex-reason" x-text="r"></span></template></div>
+                  <div class="ex-reasons"><span class="ex-reason new" x-show="dropNew(d)">Nouveau</span><span class="ex-reason warn" x-show="d.premium" :title="'3 caractères : souvent premium chez le registre'" x-text="d.premium_price ? 'premium ~' + fmt(d.premium_price) + ' €' : 'premium ?'"></span><span class="ex-reason ai" :class="aiClass(d.ai)" x-show="d.ai" x-text="aiTag(d.ai)" :title="d.ai ? d.ai.comment : ''"></span><template x-for="r in d.reasons.slice(0, 3)" :key="r"><span class="ex-reason" x-text="r"></span></template></div>
                 </td>
-                <td data-label="Type" x-text="d.categories.map((c) => dropsData.kinds[c]).join(', ')"></td>
+                <td data-label="Type" x-text="d.categories.map((c) => dropsData.kinds[c]).filter(Boolean).join(', ')"></td>
                 <td data-label="Libéré" :title="exact(d.available_since)" x-text="relative(d.available_since)"></td>
                 <td data-label="Vu libre" :title="exact(d.checked_at)" x-text="relative(d.checked_at)"></td>
                 <td class="drop-action">
@@ -429,9 +358,9 @@
                 <td class="drop-name">
                   <button type="button" class="link-like mono" @click="openFiche(d.name)" x-text="d.name"></button>
                   <span class="ex-bar drop-bar" :title="scoreTitle(d)"><i :style="'width:' + d.score + '%'"></i><b x-text="d.score >= 30 ? d.score : ''"></b></span>
-                  <div class="ex-reasons"><span class="ex-reason ai" :class="aiClass(d.ai)" x-show="d.ai" x-text="aiTag(d.ai)" :title="d.ai ? d.ai.comment : ''"></span><template x-for="r in d.reasons.slice(0, 3)" :key="r"><span class="ex-reason" x-text="r"></span></template></div>
+                  <div class="ex-reasons"><span class="ex-reason new" x-show="dropNew(d)">Nouveau</span><span class="ex-reason warn" x-show="d.premium" :title="'3 caractères : souvent premium chez le registre'" x-text="d.premium_price ? 'premium ~' + fmt(d.premium_price) + ' €' : 'premium ?'"></span><span class="ex-reason ai" :class="aiClass(d.ai)" x-show="d.ai" x-text="aiTag(d.ai)" :title="d.ai ? d.ai.comment : ''"></span><template x-for="r in d.reasons.slice(0, 3)" :key="r"><span class="ex-reason" x-text="r"></span></template></div>
                 </td>
-                <td data-label="Type" x-text="d.categories.map((c) => dropsData.kinds[c]).join(', ')"></td>
+                <td data-label="Type" x-text="d.categories.map((c) => dropsData.kinds[c]).filter(Boolean).join(', ')"></td>
                 <td data-label="État"><span class="badge" :class="'s-' + d.state" x-text="labels[d.state]"></span></td>
                 <td data-label="Libération" :title="d.release_at ? exact(d.release_at) : 'Délais non sourcés pour cette extension'"
                     x-text="d.release_at ? '~' + shortDate(d.release_at) + ' (' + relative(d.release_at).replace(/ /g, '\u00a0') + ')' : 'inconnue'"></td>
@@ -491,6 +420,9 @@
             <template x-for="p in exPresets()" :key="p.name">
               <button type="button" class="tag preset" :class="{ on: exPresetOn(p) }" :aria-pressed="exPresetOn(p)" @click="exApplyPreset(p)" x-text="p.name"></button>
             </template>
+            <button type="button" class="tag" :class="{ on: ex.premium === '1' }" :aria-pressed="ex.premium === '1'"
+                    title="Noms de 3 caractères libres hors .fr, souvent vendus au prix premium par le registre"
+                    @click="exSet({ premium: ex.premium === '1' ? '' : '1' })" x-text="ex.premium === '1' ? 'Premiums probables affichés' : 'Premiums probables masqués'"></button>
           </div>
           <div class="ex-active" x-show="exActive().length">
             <template x-for="a in exActive()" :key="String(a.key)">
@@ -696,6 +628,7 @@
             <option value="length">Par longueur</option>
             <option value="seo">Par SEO</option>
             <option value="ai">Par avis IA (revente rapide)</option>
+            <option value="release">Par date de libération</option>
           </select>
           <div class="ex-tools">
             <button type="button" class="btn-ghost sm" @click="exSelectAll()" x-text="exSelected.length ? 'Désélectionner' : 'Tout sélectionner'"></button>
@@ -713,6 +646,8 @@
                 <span class="ex-tags">
                   <span class="badge" :class="badgeClass(i)" x-show="i.status !== 2 && i.status !== 3" x-text="i.status_label"></span>
                   <template x-for="r in i.reserved" :key="r"><span class="ex-reason warn" x-text="r"></span></template>
+                  <span class="ex-reason" x-show="i.status === 4 && i.release_at" x-text="'libre ~' + shortDate(i.release_at)"></span>
+                  <span class="ex-reason warn" x-show="i.premium_price" x-text="'premium ~' + fmt(i.premium_price) + ' €'"></span>
                   <span class="ex-reason ai" :class="aiClass(i.ai)" x-show="i.ai" x-text="aiTag(i.ai)" :title="i.ai ? i.ai.comment : ''"></span>
                   <template x-for="r in i.reasons.slice(0, mobile ? 2 : 4)" :key="r"><span class="ex-reason" x-text="r"></span></template>
                   <span class="ex-reason more" x-show="i.reasons.length > (mobile ? 2 : 4)" x-text="'+' + (i.reasons.length - (mobile ? 2 : 4))"></span>
@@ -967,10 +902,144 @@
           <form class="inline-form" @submit.prevent="saveDropsSettings()">
             <label class="small" for="keep-days">Afficher les noms libres pendant (jours)</label>
             <input id="keep-days" type="number" min="1" max="365" x-model.number="cfg.drops.keep_days" class="num-input">
+            <label class="small" for="drops-min">Score minimum par défaut</label>
+            <input id="drops-min" type="number" min="0" max="100" step="5" x-model.number="cfg.drops.min_score" class="num-input">
             <button type="submit" class="btn-ghost">Enregistrer</button>
           </form>
         </template>
-        <p class="muted small">Ensuite visible dans l'Explorer seulement.</p>
+        <p class="muted small">Ensuite visible dans l'Explorer seulement. Le score minimum s'applique à l'ouverture de l'écran ; le bouton « Tout voir » l'enlève.</p>
+      </div>
+
+      <div id="settings-sources" class="setting-wide">
+        <h2>Sources et lectures</h2>
+        <template x-if="dropsData && dropsData.configured">
+          <div>
+            <div class="drops-card drops-status">
+              <div class="drops-zones">
+                <template x-for="z in dropsData.zones" :key="z.tld">
+                  <div class="zone-line" :class="{ error: z.error }">
+                    <span class="mono zone-tld" x-text="'.' + z.tld"></span>
+                    <span class="small" x-text="zoneLine(z)"></span>
+                  </div>
+                </template>
+                <template x-if="dropsData.fr.enabled">
+                  <div class="zone-line fr-zone" :class="{ error: dropsData.fr.error }">
+                    <span class="mono zone-tld">.fr</span>
+                    <span class="small" x-text="frLine(dropsData.fr)"></span>
+                    <template x-if="dropsData.fr.work && dropsData.fr.at && !dropsData.fr.error">
+                      <div class="fr-work small">
+                        <p><strong>En ce moment</strong> <span x-text="frNow(dropsData.fr)"></span></p>
+                        <p><strong>Aujourd'hui</strong> <span x-text="frToday(dropsData.fr)"></span></p>
+                        <p><strong>Demain</strong> <span x-text="frTomorrow(dropsData.fr)"></span></p>
+                        <p><strong>DNS du jour</strong> <span x-text="frDns(dropsData.fr.dns)"></span></p>
+                        <details x-show="dropsData.fr.dns && ((dropsData.fr.dns.taken_names || []).length || (dropsData.fr.dns.freed_names || []).length)">
+                          <summary class="muted">Changements vus par le DNS</summary>
+                          <p x-show="(dropsData.fr.dns.taken_names || []).length"><span class="muted">Pris :</span>
+                            <template x-for="n in (dropsData.fr.dns.taken_names || [])" :key="n"><button type="button" class="link-like mono dns-name" @click="openFiche(n)" x-text="n"></button></template>
+                          </p>
+                          <p x-show="(dropsData.fr.dns.freed_names || []).length"><span class="muted">Sortis du DNS :</span>
+                            <template x-for="n in (dropsData.fr.dns.freed_names || [])" :key="n"><button type="button" class="link-like mono dns-name" @click="openFiche(n)" x-text="n"></button></template>
+                          </p>
+                        </details>
+                        <details x-show="dropsData.fr.dns && (dropsData.fr.dns.failure_log || []).length">
+                          <summary class="muted">Échecs DNS de la dernière passe</summary>
+                          <ul class="fr-recent">
+                            <template x-for="f in ((dropsData.fr.dns && dropsData.fr.dns.failure_log) || [])" :key="f.at + f.name">
+                              <li><span class="muted" x-text="clock(f.at)"></span> <span class="mono" x-text="f.name"></span> <span x-text="f.reason"></span> <span class="muted mono" x-text="f.server"></span> <span class="muted" x-text="perSecond(f.rate) + '/s'"></span> <span class="muted" x-text="f.detail"></span></li>
+                            </template>
+                          </ul>
+                        </details>
+                        <details x-show="dropsData.fr.work.recent.length">
+                          <summary class="muted">Dernières requêtes</summary>
+                          <ul class="fr-recent">
+                            <template x-for="r in dropsData.fr.work.recent" :key="r.at + r.name">
+                              <li><span class="muted" x-text="clock(r.at)"></span> <span class="mono" x-text="r.name"></span> <span class="muted" x-text="sourceLabel(r.source)"></span> <span x-text="r.outcome"></span></li>
+                            </template>
+                          </ul>
+                        </details>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+                <template x-for="[tld, d] in Object.entries(dropsData.cc_dns || {})" :key="tld">
+                  <div class="zone-line fr-zone" :class="{ error: d.error }">
+                    <span class="mono zone-tld" x-text="'.' + tld"></span>
+                    <span class="small"><strong>DNS du jour</strong> <span x-text="frDns(d)"></span></span>
+                    <details class="small" x-show="(d.freed_names || []).length || (d.failure_log || []).length">
+                      <summary class="muted">Sortis du DNS et échecs</summary>
+                      <p x-show="(d.freed_names || []).length"><span class="muted">Sortis du DNS, souvent un nom qui expire :</span>
+                        <template x-for="n in (d.freed_names || [])" :key="n"><button type="button" class="link-like mono dns-name" @click="openFiche(n)" x-text="n"></button></template>
+                      </p>
+                      <ul class="fr-recent" x-show="(d.failure_log || []).length">
+                        <template x-for="f in (d.failure_log || [])" :key="f.at + f.name">
+                          <li><span class="muted" x-text="clock(f.at)"></span> <span class="mono" x-text="f.name"></span> <span x-text="f.reason"></span> <span class="muted mono" x-text="f.server"></span></li>
+                        </template>
+                      </ul>
+                    </details>
+                  </div>
+                </template>
+                <p class="small muted" x-show="dropsData.czds && !dropsData.zones.length">Aucune zone ICANN activée. Paramètres, carte « Zones ICANN ».</p>
+                <p class="small error-text" x-show="dropsData.error" x-text="dropsData.error"></p>
+                <p class="small muted" x-show="dropsData.pending_checks" x-text="dropsData.pending_checks + ' nom(s) en attente de vérification RDAP.'"></p>
+              </div>
+              <div class="drops-actions">
+                <button type="button" class="btn-ghost" x-show="dropsData.czds" @click="scanDrops()" :disabled="dropsData.running" x-text="dropsData.running ? 'Lecture en cours' : 'Lire les zones maintenant'"></button>
+                <button type="button" class="btn-ghost" x-show="dropsData.fr.enabled" @click="importFr()" :disabled="dropsData.fr.running" x-text="dropsData.fr.running ? 'Import .fr en cours' : 'Importer le .fr maintenant'"></button>
+                <button type="button" class="btn-ghost" @click="scansOpen = !scansOpen" :aria-expanded="scansOpen" x-show="dropsData.history.length" x-text="scansOpen ? 'Masquer l\'historique' : 'Historique des lectures'"></button>
+              </div>
+            </div>
+
+            <div class="drops-card scans" x-show="scansOpen && dropsData.history.length" x-cloak>
+              <h3>Historique des lectures</h3>
+              <p class="muted small">Attente réseau élevée : la connexion limite. Calcul élevé : le NAS limite. <span x-text="dropsData.workers"></span> processus.</p>
+              <div class="scans-scroll">
+                <table class="drops-table scans-table">
+                  <thead><tr><th>Date</th><th>Zone</th><th>Taille</th><th>Durée</th><th>Attente réseau</th><th>Calcul</th><th>Vitesse</th><th>Proc.</th><th>Résultat</th></tr></thead>
+                  <tbody>
+                    <template x-for="h in dropsData.history" :key="h.id">
+                      <tr>
+                        <td data-label="Date" x-text="scanStamp(h.at)"></td>
+                        <td data-label="Zone" class="mono" x-text="'.' + h.tld"></td>
+                        <td data-label="Taille" x-text="h.megabytes + ' Mo'"></td>
+                        <td data-label="Durée" x-text="duration(h.seconds)"></td>
+                        <td data-label="Attente réseau" x-text="duration(h.wait_seconds)"></td>
+                        <td data-label="Calcul" x-text="duration(h.compute_seconds)"></td>
+                        <td data-label="Vitesse" x-text="speed(h)"></td>
+                        <td data-label="Processus" x-text="h.workers"></td>
+                        <td data-label="Résultat" :class="{ 'error-text': h.error }" x-text="h.error ? h.error : (h.removed + ' sortis, ' + h.added + ' entrés')"></td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </template>
+        <p class="muted small" x-show="!dropsData">Chargement…</p>
+      </div>
+
+      <div>
+        <h2>Premiums probables</h2>
+        <template x-if="cfg && cfg.premium">
+          <div class="setting-lines">
+            <p class="muted small">Noms de 3 caractères libres hors .fr : souvent vendus au prix premium par le registre. Rien ne le confirme sans accès registrar. L'Explorer les masque sauf avec le bouton « Premiums probables ».</p>
+            <label class="check"><input type="checkbox" x-model="cfg.premium.devalue" @change="savePremium()"> Diviser leur score par deux</label>
+            <p class="muted small">Prix relevés chez le registrar (euros par an), affichés sur ces noms. Laisser vide si inconnu.</p>
+            <p class="muted small" x-show="!cfg.premium.tlds.length">Aucune zone ICANN lue pour l'instant.</p>
+            <table class="premium-table" x-show="cfg.premium.tlds.length">
+              <thead><tr><th>Extension</th><th>2 caractères</th><th>3 caractères</th></tr></thead>
+              <tbody>
+                <template x-for="tld in cfg.premium.tlds" :key="tld">
+                  <tr>
+                    <td class="mono" x-text="'.' + tld"></td>
+                    <td><input type="number" min="0" step="10" class="filter-input num-input" :value="premiumPrice(tld, '2')" @change="setPremiumPrice(tld, '2', $event.target.value)" :aria-label="'Prix 2 caractères .' + tld"></td>
+                    <td><input type="number" min="0" step="10" class="filter-input num-input" :value="premiumPrice(tld, '3')" @change="setPremiumPrice(tld, '3', $event.target.value)" :aria-label="'Prix 3 caractères .' + tld"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </template>
       </div>
 
       <div>

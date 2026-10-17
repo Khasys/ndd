@@ -4,13 +4,20 @@ const AI_FILTER_DEFAULTS = Object.fromEntries([["ai_v", ""], ...["exploit", "res
 const AI_VERDICTS = { take: "À prendre", watch: "À surveiller", skip: "À laisser" };
 // Catégories de forme ; les autres viennent des listes de noms.
 const SHAPE_KINDS = ["letters", "digits", "mixed", "hyphen"];
-const DROP_FILTER_DEFAULTS = { q: "", nat: "", lang: "", len: "", rank: "", min: 0, junk: false, ai: [], quick: "" };
+// min : null = score minimum par défaut réglé dans Paramètres ; 0 = tout voir.
+const DROP_FILTER_DEFAULTS = { q: "", nat: "", lang: "", len: "", rank: "", min: null, junk: false, ai: [], quick: "", night: "" };
+const NIGHT_GROUPS = [
+  { key: "removed", label: "sortis des zones" },
+  { key: "freed", label: "libérés en 24 h" },
+  { key: "coming", label: "entrés en rédemption ou en suppression" },
+];
 // Vues intégrées de l'Explorer. Chacune part de filtres vierges ; l'extension choisie reste.
 const EX_BLANK = { cat: "", nat: "", lang: "", len: "", rank: "", taken: "", min: "", junk: "", seo: "", status: "available", sort: "score" };
 const EX_PRESETS = [
+  { name: "À réserver", filters: { status: "bookable", sort: "score" } },
+  { name: "Bientôt libres", filters: { status: "coming", sort: "release" } },
   { name: "Avis IA : à prendre", filters: { ai_v: "take", sort: "ai" } },
   { name: "Revente rapide ≥ 500 €", filters: { ai_quick_low_min: "500", sort: "ai" } },
-  { name: "Libération à venir", filters: { status: "coming" } },
   { name: "Libres vérifiés", filters: { status: "free" } },
   { name: "Pris en .com", filters: { taken: "com", min: "30" }, needs: "com" },
   { name: "1 à 3 caractères", filters: { len: "-3" } },
@@ -128,11 +135,12 @@ document.addEventListener("alpine:init", () => {
     exBusy: {},
     exSeo: { running: false, done: 0, total: 0, key_set: true },
     seoKey: "",
-    ex: { tld: "", q: "", status: "available", cat: "", len: "", sort: "score", nat: "", rank: "", taken: "", min: "", junk: "", seo: "", lang: "", ...AI_FILTER_DEFAULTS },
+    ex: { tld: "", q: "", status: "available", cat: "", len: "", sort: "score", nat: "", rank: "", taken: "", min: "", junk: "", seo: "", lang: "", premium: "", ...AI_FILTER_DEFAULTS },
     exFiltersOpen: false,
     fiche: null,
     aiReq: { pending: [], done: [] },
     dropShowFree: 100,
+    dropsSeenBefore: "",
     dropShowComing: 100,
     aiToken: "",
     aiStatus: null,
@@ -295,7 +303,14 @@ document.addEventListener("alpine:init", () => {
       } else if (name === "drops") {
         this.settingsOpen = false;
         this.dropsOpen = opening;
-        if (opening) await this.loadDrops();
+        if (opening) {
+          // « Nouveau » : depuis la visite précédente ; cette visite devient la référence suivante.
+          try {
+            this.dropsSeenBefore = localStorage.getItem("drops.seen") || "";
+            localStorage.setItem("drops.seen", new Date().toISOString());
+          } catch (_) { this.dropsSeenBefore = ""; }
+          await this.loadDrops();
+        }
       } else if (name === "explore") {
         this.settingsOpen = false;
         this.exploreOpen = opening;
@@ -308,7 +323,14 @@ document.addEventListener("alpine:init", () => {
         }
       } else {
         await this.toggleSettings();
+        // Carte « Sources et lectures » : état des lectures sans la liste des noms.
+        if (this.settingsOpen && !this.dropsData) this.loadDrops(true);
       }
+    },
+
+    async openSettingsAt(id) {
+      await this.openSheet("settings");
+      this.$nextTick(() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" }));
     },
 
     // Explorer : tous les noms suivis, extension par extension.
@@ -524,7 +546,7 @@ document.addEventListener("alpine:init", () => {
 
     exQuery(cursor) {
       const e = this.ex;
-      const params = new URLSearchParams({ q: e.q.trim(), mode: "prefix", status: e.status, cat: e.cat, len: e.len, nat: e.nat, rank: e.rank, taken: e.taken, min: e.min && e.min !== "0" ? e.min : "", junk: e.junk, seo: e.seo, lang: e.lang || "", cursor: String(cursor) });
+      const params = new URLSearchParams({ q: e.q.trim(), mode: "prefix", status: e.status, cat: e.cat, len: e.len, nat: e.nat, rank: e.rank, taken: e.taken, min: e.min && e.min !== "0" ? e.min : "", junk: e.junk, seo: e.seo, lang: e.lang || "", premium: e.premium || "", cursor: String(cursor) });
       if (this.ex.tld) params.set("tld", this.ex.tld);
       for (const k of Object.keys(AI_FILTER_DEFAULTS)) if (String(e[k] ?? "").trim() !== "") params.set(k, String(e[k]).trim());
       return params.toString();
@@ -995,8 +1017,9 @@ document.addEventListener("alpine:init", () => {
 
     async saveDropsSettings() {
       try {
-        this.cfg.drops = await this.api("PUT", "/api/settings/drops", { keep_days: this.cfg.drops.keep_days });
-        this.say("Durée d'affichage enregistrée.");
+        this.cfg.drops = await this.api("PUT", "/api/settings/drops", { keep_days: this.cfg.drops.keep_days, min_score: Number(this.cfg.drops.min_score) || 0 });
+        if (this.dropsData) this.dropsData.min_score = this.cfg.drops.min_score;
+        this.say("Réglages de l'écran Suppressions enregistrés.");
       } catch (e) {
         this.say(e.message, "error");
       }
@@ -1008,9 +1031,10 @@ document.addEventListener("alpine:init", () => {
     async loadDrops(statusOnly = false) {
       this.loadOrderUrl();
       try {
-        if (statusOnly && this.dropsData) {
+        if (statusOnly) {
           const { items, ...status } = await this.api("GET", "/api/drops?items=0");
-          Object.assign(this.dropsData, status);
+          if (this.dropsData) Object.assign(this.dropsData, status);
+          else this.dropsData = { ...status, items: [] };
           return;
         }
         this.dropsData = await this.api("GET", "/api/drops");
@@ -1043,8 +1067,81 @@ document.addEventListener("alpine:init", () => {
         && (!f.lang || (d.langs || []).includes(f.lang))
         && (!len || (len < 0 ? label.length <= -len : len >= 5 ? label.length >= 5 : label.length === len))
         && (!f.rank || (d.rank && d.rank <= Number(f.rank)))
-        && (!f.min || d.score >= f.min)
+        && (!this.dropMin || d.score >= this.dropMin)
+        && (!f.night || this.nightMatch(d, f.night))
         && (f.junk || d.good !== false);
+    },
+
+    // Score minimum en vigueur : celui des filtres, sinon le défaut de Paramètres.
+    get dropMin() {
+      return this.df.min === null || this.df.min === undefined ? (this.dropsData?.min_score ?? 20) : this.df.min;
+    },
+
+    // Cette nuit : dernière date de sortie de zone, libérés et entrés en rédemption depuis 24 h.
+    nightSince() { return new Date(this.now - 24 * 3600 * 1000).toISOString(); },
+
+    nightLastRemoved() {
+      return this.dropsMemo("lastRemoved", () => this.dropsData.items.reduce((m, d) => (d.removed_on && d.removed_on > m ? d.removed_on : m), ""));
+    },
+
+    nightMatch(d, key) {
+      if (key === "removed") return !!d.removed_on && d.removed_on === this.nightLastRemoved();
+      if (key === "freed") return d.state === "available" && (d.available_since || "") >= this.nightSince();
+      return ["expired", "redemption", "pending_delete"].includes(d.state) && (d.state_since || "") >= this.nightSince();
+    },
+
+    nightGroups() {
+      if (!this.dropsData || !this.dropsData.items.length) return [];
+      return this.dropsMemo("night", () => NIGHT_GROUPS.map((g) => {
+        const all = this.dropsData.items.filter((d) => this.nightMatch(d, g.key));
+        const best = all.filter((d) => !d.premium).sort((a, b) => b.score - a.score || this.aiValue(b) - this.aiValue(a));
+        return { ...g, count: all.length, best: best.slice(0, 5) };
+      }));
+    },
+
+    // Nouveau : changé depuis la visite précédente de l'écran (heure gardée dans le navigateur).
+    dropNew(d) {
+      const seen = this.dropsSeenBefore;
+      const at = d.state === "available" ? d.available_since : d.state_since;
+      return !!seen && !!at && at > seen;
+    },
+
+    sourcesError() {
+      const d = this.dropsData;
+      if (!d) return "";
+      const zone = (d.zones || []).find((z) => z.error);
+      return d.error || (zone && `.${zone.tld} : ${zone.error}`) || (d.fr && d.fr.enabled && d.fr.error) || "";
+    },
+
+    sourcesLine() {
+      const d = this.dropsData;
+      if (!d) return "";
+      const error = this.sourcesError();
+      if (error) return `Erreur de lecture : ${error}`;
+      const last = (d.zones || []).reduce((m, z) => (z.at && z.at > m ? z.at : m), "");
+      const parts = [];
+      if (last) parts.push(`zones lues ${this.relative(last)}`);
+      if (d.fr && d.fr.enabled && d.fr.at) parts.push(`.fr importé ${this.relative(d.fr.at)}`);
+      return parts.length ? "Lectures à jour : " + parts.join(", ") + "." : "Lectures à jour.";
+    },
+
+    premiumPrice(tld, len) { return this.cfg?.premium?.prices?.[tld]?.[len] ?? ""; },
+
+    setPremiumPrice(tld, len, value) {
+      const prices = { ...(this.cfg.premium.prices || {}) };
+      prices[tld] = { ...(prices[tld] || {}), [len]: value === "" ? null : Number(value) };
+      this.cfg.premium.prices = prices;
+      this.savePremium();
+    },
+
+    async savePremium() {
+      try {
+        const saved = await this.api("PUT", "/api/settings/premium", { devalue: !!this.cfg.premium.devalue, prices: this.cfg.premium.prices || {} });
+        this.cfg.premium = { ...this.cfg.premium, ...saved };
+        this.say("Réglage des premiums enregistré.");
+      } catch (e) {
+        this.say(e.message, "error");
+      }
     },
 
     get dropsReleased() {
@@ -1079,7 +1176,8 @@ document.addEventListener("alpine:init", () => {
       if (f.lang) out.push({ key: "lang", label: f.lang === "fr" ? "Français" : "Anglais" });
       if (f.len) out.push({ key: "len", label: this.exLengths.find((o) => o.v === f.len)?.label + " car." });
       if (f.rank) out.push({ key: "rank", label: this.exRanks.find((o) => o.v === f.rank)?.label });
-      if (f.min) out.push({ key: "min", label: "Score ≥ " + f.min });
+      if (this.dropMin) out.push({ key: "min", label: "Score ≥ " + this.dropMin + (f.min === null ? " (défaut)" : "") });
+      if (f.night) out.push({ key: "night", label: "Cette nuit : " + NIGHT_GROUPS.find((g) => g.key === f.night)?.label });
       if (f.junk) out.push({ key: "junk", label: "Suites et mélanges inclus" });
       if (f.ai.length) out.push({ key: "ai", label: "IA : " + f.ai.map((v) => AI_VERDICTS[v]).join(", ") });
       if (f.quick) out.push({ key: "quick", label: `Revente rapide ≥ ${f.quick} €` });
@@ -1088,6 +1186,7 @@ document.addEventListener("alpine:init", () => {
 
     dropClear(key) {
       if (key.startsWith("kind:")) { this.dropKinds = this.dropKinds.filter((k) => k !== key.slice(5)); return; }
+      if (key === "min") { this.df.min = 0; return; }  // enlever le score minimum = tout voir
       this.df[key] = Array.isArray(DROP_FILTER_DEFAULTS[key]) ? [] : DROP_FILTER_DEFAULTS[key];
     },
 
@@ -1099,7 +1198,7 @@ document.addEventListener("alpine:init", () => {
     dropSave() {
       try {
         localStorage.setItem("drops.filters", JSON.stringify({
-          df: this.df, tld: this.dropTld, kinds: this.dropKinds, sort: this.dropSort, sortFree: this.dropSortFree,
+          v: 2, df: this.df, tld: this.dropTld, kinds: this.dropKinds, sort: this.dropSort, sortFree: this.dropSortFree,
         }));
       } catch (_) {}
     },
@@ -1109,6 +1208,8 @@ document.addEventListener("alpine:init", () => {
         const saved = JSON.parse(localStorage.getItem("drops.filters") || "null");
         if (!saved) return;
         this.df = { ...DROP_FILTER_DEFAULTS, ...saved.df, ai: Array.isArray(saved.df?.ai) ? saved.df.ai : [] };
+        // Filtres gardés avant le score minimum par défaut : 0 voulait dire « pas choisi ».
+        if (saved.v !== 2 && !this.df.min) this.df.min = null;
         this.dropTld = saved.tld || "";
         this.dropKinds = Array.isArray(saved.kinds) ? saved.kinds : [];
         this.dropSort = saved.sort || "release";

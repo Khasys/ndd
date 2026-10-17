@@ -358,6 +358,7 @@ button:disabled { cursor: default; opacity: .55; }
   .settings-grid { grid-template-columns: minmax(0, 1fr); gap: 18px; }
 }
 .settings-grid > div { min-width: 0; }
+.settings-grid > .setting-wide { grid-column: 1 / -1; }
 @media (max-width: 640px) {
   .filter-input { width: 100%; }
   .panel { padding: 10px 12px; }
@@ -835,6 +836,7 @@ button:disabled { cursor: default; opacity: .55; }
 .ex-rdap dd { margin: 0; overflow-wrap: anywhere; }
 .ex-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .badge.x-7 { background: none; color: var(--danger); border: 1px solid var(--danger); }
+.badge.x-8 { background: none; color: var(--muted); border: 1px dashed var(--muted); }
 .ex-bulk { position: sticky; bottom: 8px; z-index: 6; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0 0; padding: 10px 12px; background: var(--surface); border: 1px solid var(--accent); border-radius: 12px; box-shadow: 0 4px 18px rgba(0, 0, 0, .12); }
 .explore-more { display: flex; align-items: center; gap: 12px; margin: 12px 0 0; }
 .link-like { background: none; border: 0; padding: 0; color: inherit; font: inherit; cursor: pointer; text-align: left; text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
@@ -986,3 +988,20 @@ button:disabled { cursor: default; opacity: .55; }
 .fiche-sec.fiche-hot { padding: 10px 12px; border: 2px solid var(--accent); border-radius: 10px;
   background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .drops-more { display: block; margin: 10px auto 0; }
+
+/* Suppressions : ligne d'état des sources, bloc « Cette nuit ». */
+.drops-sources { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; margin: 0 0 10px; color: var(--muted); }
+.drops-sources.error { color: var(--danger, #b42318); }
+.night h3 { margin-top: 0; }
+.night-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 14px; }
+.night-col { min-width: 0; }
+.night-count { display: block; width: 100%; text-align: left; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px;
+  background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.night-count.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.night-count strong { font-size: 1.25em; }
+.night-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.night-list li { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; }
+.night-list .mono { overflow: hidden; text-overflow: ellipsis; }
+.ex-reason.new { border-color: var(--accent); color: var(--accent); }
+.premium-table { border-collapse: collapse; }
+.premium-table th, .premium-table td { padding: 4px 8px 4px 0; text-align: left; font-weight: normal; }

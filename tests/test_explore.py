@@ -221,7 +221,9 @@ def test_map_counts_per_extension_and_category(env):
     assert found["tlds"] == ["fr", "com"] and "Mots" in found["rows"].values()
     assert found["filters"]["short"] == {"cat": "", "len": -3} and found["filters"]["l4"] == {"cat": "letters", "len": 4}
     assert found["cells"]["fr"]["short"] == env.facets("fr", length=-3)["available"]
-    assert found["cells"]["com"]["word"] == len(env.universe.by_list["word"]) - 1
+    # Mots de 3 lettres libres en .com : premiums probables, hors des noms à saisir.
+    three = sum(1 for i in env.universe.by_list["word"] if len(env.universe.label(i)) == 3)
+    assert found["cells"]["com"]["word"] == len(env.universe.by_list["word"]) - 1 - three
 
 
 def test_seo_analysis_reads_pagerank_and_wayback(env):
@@ -541,3 +543,32 @@ def test_health_alerts_open_and_close_once(env):
     closed = morning.health_message(store, {})
     assert closed.startswith("Réglé :") and "Zone .org" in closed
     assert morning.health_message(store, {}) is None
+
+
+def test_premium_probable_bookable_and_release_sort(env):
+    zone(env, [], ["maison"])
+    u = env.universe
+    status = env.status_bytes("com")
+    assert status[u.index("abd")] == explore.PREMIUM and status[u.index("maison")] == explore.REGISTERED
+    # Masqués par défaut, visibles avec premium=1.
+    hidden = env.search("com", q="abd", mode="exact", status="bookable")["items"]
+    shown = env.search("com", q="abd", mode="exact", status="bookable", premium=True)["items"]
+    assert hidden == [] and [i["label"] for i in shown] == ["abd"]
+    counts = env.facets("com", premium=True)
+    assert counts["premium"] > 0 and counts["bookable"] > env.facets("com")["bookable"]
+    # Prix saisi dans Paramètres : affiché sur le nom ; dévaluation : score divisé par deux.
+    env.fr.store.set("premium_prices", '{"com": {"3": 1200}}')
+    assert shown and env.search("com", q="abd", mode="exact", premium=True)["items"][0]["premium_price"] == 1200
+    before = env.value_of(["abd.com"])["abd.com"]["score"]
+    env.fr.store.set("premium_devalue", "1")
+    env.refresh_settings()
+    after = env.value_of(["abd.com"])["abd.com"]
+    assert after["score"] == before // 2 and "premium probable" in after["reasons"]
+    # Tri par libération : la plus proche d'abord.
+    now = datetime.now(timezone.utc)
+    env.drops.record("com", ["maison"], [], now)
+    env.conn.execute("UPDATE drops SET state = 'redemption', release_at = ? WHERE name = 'maison.com'",
+                     ((now + timedelta(days=20)).isoformat(),))
+    env.touch("maison.com")
+    items = env.rank("com", status="coming", sort="release")["items"]
+    assert [i["label"] for i in items] == ["maison"]
