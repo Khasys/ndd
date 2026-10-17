@@ -749,7 +749,9 @@ async def get_settings(request: Request):
         "czds": _czds_settings(state.drops),
         "fr": {"enabled": state.fr.enabled, "url": state.store.get("fr_url"), "rate": state.fr.rate,
                "dns": state.store.get("fr_dns_enabled", "1") == "1"},
-        "drops": {"keep_days": state.drops.keep_days},
+        "drops": {"keep_days": state.drops.keep_days, "min_score": _drops_min_score(state.store)},
+        "premium": {"devalue": state.explorer.premium_devalue(), "prices": state.explorer.premium_prices(),
+                    "tlds": [t for t in state.explorer.tlds() if t != "fr"]},
         "seo": {"key_set": bool(state.seo.key)},
         "reserved": state.reserved.status(),
         "weights": {"values": value.weights_from(store.get("score_weights")), "labels": value.CRITERIA},
@@ -856,14 +858,49 @@ async def set_fr(request: Request, payload: FrSettings):
 
 class DropsSettings(BaseModel):
     keep_days: int
+    min_score: int = 20
+
+
+def _drops_min_score(store) -> int:
+    """Score minimum appliqué à l'ouverture de l'écran Suppressions (bouton « Tout voir » pour l'ignorer)."""
+    try:
+        return int(store.get("drops_min_score", "20"))
+    except ValueError:
+        return 20
 
 
 @app.put("/api/settings/drops")
 async def set_drops(request: Request, payload: DropsSettings):
     if not 1 <= payload.keep_days <= 365:
         raise HTTPException(422, "Durée d'affichage : entre 1 et 365 jours.")
+    if not 0 <= payload.min_score <= 100:
+        raise HTTPException(422, "Score minimum : entre 0 et 100.")
     request.app.state.store.set("drops_keep_days", str(payload.keep_days))
-    return {"keep_days": payload.keep_days}
+    request.app.state.store.set("drops_min_score", str(payload.min_score))
+    return {"keep_days": payload.keep_days, "min_score": payload.min_score}
+
+
+class PremiumSettings(BaseModel):
+    devalue: bool
+    prices: dict[str, dict[str, int | None]]
+
+
+@app.put("/api/settings/premium")
+async def set_premium(request: Request, payload: PremiumSettings):
+    """Premiums probables : dévaluation du score (case), prix saisis par extension pour 2 et 3 caractères."""
+    clean = {}
+    for tld, by_len in payload.prices.items():
+        tld = tld.strip().lower().lstrip(".")
+        if not re.fullmatch(r"[a-z]{2,20}", tld):
+            continue
+        kept = {k: int(v) for k, v in by_len.items() if k in ("2", "3") and v and 0 < int(v) <= 10_000_000}
+        if kept:
+            clean[tld] = kept
+    store = request.app.state.store
+    store.set("premium_devalue", "1" if payload.devalue else "0")
+    store.set("premium_prices", json.dumps(clean))
+    request.app.state.explorer.refresh_settings()
+    return {"devalue": payload.devalue, "prices": clean}
 
 
 @app.post("/api/drops/fr/import", status_code=202)
@@ -902,6 +939,7 @@ async def list_drops(request: Request):
     # Rafraîchissement de l'état seul (écran ouvert) : pas de liste, quelques Ko au lieu de plusieurs Mo.
     # Le détail RDAP n'est pas dans la liste : la fiche le charge.
     with_items = request.query_params.get("items") != "0"
+    prices = request.app.state.explorer.premium_prices()
     values = await _off(request.app.state.explorer.value_of, [r["name"] for r in rows]) if with_items else {}
     return {
         "configured": watcher.configured or request.app.state.fr.enabled,
@@ -918,6 +956,7 @@ async def list_drops(request: Request):
         "pending_checks": pending,
         "suspended": suspended,
         "keep_days": watcher.keep_days,
+        "min_score": _drops_min_score(request.app.state.store),
         "kinds": drops.KINDS,
         "natures": explore.NATURES,
         "items": [
@@ -934,6 +973,10 @@ async def list_drops(request: Request):
                 "next_check_at": r["next_check_at"],
                 "watched": r["name"] in watched,
                 "reserved": r["name"] in reserved_names,
+                "state_since": r["state_since"],
+                # 3 caractères libres hors .fr : souvent premium chez le registre (voir explore.PREMIUM).
+                "premium": r["tld"] != "fr" and len(r["name"]) - len(r["tld"]) - 1 == explore.PREMIUM_LENGTH,
+                "premium_price": prices.get(r["tld"], {}).get(str(len(r["name"]) - len(r["tld"]) - 1)),
                 **values[r["name"]],
             }
             for r in rows
@@ -1001,7 +1044,8 @@ def _explore_params(request: Request) -> dict:
             "max_rank": max_rank, "min_score": min_score, "taken": taken, "junk": p.get("junk") == "1",
             "seo": p.get("seo", "") if p.get("seo", "") in explore.SEO_FILTERS else "",
             "ai": _ai_param(p),
-            "lang": p.get("lang", "") if p.get("lang", "") in wordlists.LANGS and p.get("cat", "") not in wordlists.NO_LANG else ""}
+            "lang": p.get("lang", "") if p.get("lang", "") in wordlists.LANGS and p.get("cat", "") not in wordlists.NO_LANG else "",
+            "premium": p.get("premium") == "1"}
 
 
 def _ai_param(p) -> str:
@@ -1100,7 +1144,7 @@ async def explore_rank(request: Request):
     params["status"] = params["status"] or "available"
     limit = _limit(request, explore.MAX_LIMIT * 5)
     sort = request.query_params.get("sort", "score")
-    if sort not in ("score", "freq", "length", "seo", "ai"):
+    if sort not in ("score", "freq", "length", "seo", "ai", "release"):
         raise HTTPException(422, "Tri inconnu.")
     chosen = params["tlds"]
     rest = {k: v for k, v in params.items() if k not in ("tld", "tlds")}

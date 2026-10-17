@@ -123,3 +123,8 @@ Langue (fr, en ou les deux) de chaque nom des listes mêlées : secteurs, tendan
 sites de niche, expressions. Relevée à la construction.
 
 Pour reconstruire les fichiers : `python scripts/build_lists.py DOSSIER_WORDFREQ LEXIQUE383_TXT`.
+
+## startup.txt
+
+Mots courts pour la tech, l'IA et les startups, anglais et français, choisis à la main
+(scripts/lists/startup.txt), du plus porteur au moins. Sert surtout au DNS de .ai et .io.

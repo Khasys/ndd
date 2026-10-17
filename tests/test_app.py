@@ -331,7 +331,7 @@ def test_explorer_and_drops_settings(logged):
     assert "navarro.fr" in csv and "navarro.com" in csv
 
     assert client.put("/api/settings/drops", json={"keep_days": 0}).status_code == 422
-    assert client.put("/api/settings/drops", json={"keep_days": 45}).json() == {"keep_days": 45}
+    assert client.put("/api/settings/drops", json={"keep_days": 45}).json() == {"keep_days": 45, "min_score": 20}
     assert client.put("/api/settings/fr", json={"enabled": False, "url": "https://x/y", "rate": 50}).status_code == 422
     assert client.app.state.store.get("fr_url") != "https://x/y"  # rien d'écrit sur une erreur
     assert client.put("/api/settings/weights", json={"values": {"shape": "NaN"}}).status_code == 422
@@ -397,7 +397,7 @@ def test_ai_opinions_round_trip_with_a_token(logged):
     client.app.state.explorer.touch("ciel.fr")
     client.app.state.explorer.touch("mai.fr")
     pending = client.get("/api/ai/pending", params={"limit": 20}).json()
-    assert pending["version"] == 3 and "revente rapide" in pending["guide"] and len(pending["names"]) == 20
+    assert pending["version"] == 4 and "revente rapide" in pending["guide"] and len(pending["names"]) == 20
     assert pending["format"]["required"][0] == "name" and pending["format"]["additionalProperties"] is False
     # Entre deux libres, le meilleur score d'abord (mai : 3 lettres, mot plus fréquent).
     assert [n["name"] for n in pending["names"][:2]] == ["mai.fr", "ciel.fr"]

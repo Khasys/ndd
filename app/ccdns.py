@@ -19,7 +19,9 @@ log = logging.getLogger(__name__)
 
 TLDS = ("co", "ai", "io")
 PER_TLD = 50_000          # noms suivis par extension : les meilleurs scores de base des listes ci-dessous
-CATEGORIES = ("english", "trend", "sector", "media", "word", "expr")
+# .co se vend comme le .com : toutes les listes. .ai et .io visent la tech et les startups : noms
+# anglais, tendances, et la liste tech et startups (anglais et français).
+CATEGORIES = {"co": None, "ai": ("english", "trend", "startup"), "io": ("english", "trend", "startup")}
 
 
 def load_names(conn, names: list[str]) -> dict[str, dict]:
@@ -48,7 +50,8 @@ class CcDns(FrDns):
         u = self.explorer.universe
         buckets = u.buckets()
         lists = wordlists.lists()
-        wanted = set().union(*(lists[c] for c in CATEGORIES if c in lists))
+        chosen_lists = CATEGORIES.get(self.tld) or tuple(lists)
+        wanted = set().union(*(lists[c] for c in chosen_lists if c in lists))
         chosen = []
         for score in range(len(buckets) - 1, -1, -1):
             for i in buckets[score]:

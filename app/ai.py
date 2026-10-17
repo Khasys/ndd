@@ -15,13 +15,14 @@ from . import rdapinfo, value, wordlists
 from .checker import iso, utcnow
 
 # Version de la consigne : la monter fait renoter tous les noms, petit à petit.
-VERSION = 3
+VERSION = 4  # 4 : le statut du nom n'entre plus dans sa valeur ; tous les avis sont refaits
 MAX_PENDING = 5000
 MAX_RESULTS = 5000
 MAX_PRICE = 10_000_000
 
 # Codes d'état de l'Explorer (explore.py) : libres ou bientôt libres d'abord, enregistrés en dernier.
 FREE_SOON = (5, 4)        # libre vérifié, libération à venir
+TAKEN_MIN_BASE = 40       # noms enregistrés notés seulement à partir de ce score de base
 MAYBE_FREE = (2, 3)       # supprimé non repris, jamais vu
 TAKEN = (1, 6, 4)         # enregistré, suspendu, libération à venir (pris ailleurs = demande)
 
@@ -50,6 +51,7 @@ Crédibilité avant tout :
 - Revente rapide : en général 10 à 25 % du prix utilisateur final. Si elle ne couvre pas les frais (moins de 100 euros), mets 0 et 0.
 - Le .fr se revend moins facilement que le .com ; le .org vise les associations et les projets non commerciaux ; le .info vaut peu.
 - Un risque de marque connue fait baisser la revente : mets-le dans la raison.
+- Le statut du nom (libre, libération à venir, jamais enregistré, supprimé, enregistré) ne change pas sa valeur : juge le nom comme s'il était libre, et ne cite jamais son statut comme un frein.
 - N'invente rien : un nom sans sens connu le dit.
 
 Exemples de référence :
@@ -185,7 +187,7 @@ def _queue(explorer, limit: int):
     # 2 et 3. Trop nombreux pour tout classer : par paliers d'extension (.fr et .com, puis .org,
     # puis le reste), et dans chaque palier par score de base. Un nom de 1 ou 2 caractères jamais
     # vu n'est pas « probablement libre » : les registres réservent ces formats. On ne le note pas.
-    from .explore import ABSENT, INVALID, RESERVED  # import local : explore importe ce module
+    from .explore import ABSENT, INVALID, PREMIUM, RESERVED  # import local : explore importe ce module
 
     tiers: dict[float, list[str]] = {}
     for tld in tlds:
@@ -193,12 +195,14 @@ def _queue(explorer, limit: int):
     for group in (MAYBE_FREE, None):
         for weight in sorted(tiers, reverse=True):
             for score in range(70, -1, -1):
+                if group is None and score < TAKEN_MIN_BASE:
+                    break  # noms pris : seulement les meilleurs, la notation sert d'abord aux noms à saisir
                 for i in u.buckets()[score]:
                     if not u.good[i]:
                         continue
                     for tld in tiers[weight]:
                         code = data[tld][i]
-                        if (group is not None and code not in group) or code in (INVALID, RESERVED):
+                        if (group is not None and code not in group) or code in (INVALID, RESERVED, PREMIUM):
                             continue
                         label = u.label(i)
                         if code == ABSENT and len(label) <= 2:

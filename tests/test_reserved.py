@@ -132,7 +132,7 @@ def test_one_or_two_characters_in_generic_zones_are_held_by_the_registry(env):
     status = ex.status_bytes("org")
     u = ex.universe
     assert status[u.index("sk")] == explore.RESERVED and status[u.index("x")] == explore.RESERVED
-    assert status[u.index("ab")] == explore.REGISTERED and status[u.index("abd")] == explore.ABSENT
+    assert status[u.index("ab")] == explore.REGISTERED and status[u.index("abd")] == explore.PREMIUM  # 3 caractères : premium probable
     item = ex.search("org", q="sk", mode="exact", status="")["items"][0]
     assert item["reserved"] == ["Réservé par le registre (1 ou 2 caractères)"]
     # Cas réellement ouvert : la correction à la main l'emporte.

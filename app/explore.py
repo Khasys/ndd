@@ -26,7 +26,7 @@ from . import ai, drops, frdns, precompute, rdapinfo, states, value, wordlists
 from .checker import iso, utcnow
 
 # États, un octet par nom.
-INVALID, REGISTERED, GONE, ABSENT, COMING, FREE, SUSPENDED, RESERVED = range(8)
+INVALID, REGISTERED, GONE, ABSENT, COMING, FREE, SUSPENDED, RESERVED, PREMIUM = range(9)
 
 LABELS = {
     REGISTERED: "Enregistré",
@@ -36,7 +36,11 @@ LABELS = {
     FREE: "Libre (vérifié)",
     SUSPENDED: "Enregistré, suspendu (hold)",
     RESERVED: "Réservé",
+    PREMIUM: "Premium probable",
 }
+# 3 caractères libres sur une extension générique : souvent vendus au prix premium par le registre.
+# Rien ne le confirme sans accès registrar ; l'Explorer les masque sauf si on demande à les voir.
+PREMIUM_LENGTH = 3
 # Pour une zone ICANN, l'absence veut seulement dire « pas dans la zone » : un nom enregistré
 # sans serveurs DNS n'y figure pas non plus. Pour le .fr, l'open data liste aussi l'historique.
 ABSENT_ZONE = "Absent de la zone, à vérifier"
@@ -46,24 +50,28 @@ ABSENT_FR = "Jamais enregistré"
 
 STATUS_FILTERS = {
     "available": (GONE, ABSENT, FREE, COMING),
+    "bookable": (GONE, ABSENT, FREE),
     "maybe_free": (GONE, ABSENT),
     "coming": (COMING,),
     "free": (FREE,),
     "registered": (REGISTERED,),
     "suspended": (SUSPENDED,),
     "reserved": (RESERVED,),
+    "premium": (PREMIUM,),
 }
 STATUS_NAMES = {
     "available": "Tous non pris",
+    "bookable": "À réserver",
     "maybe_free": "Probablement libres",
     "coming": "Libération à venir",
     "free": "Libres vérifiés",
     "registered": "Enregistrés",
     "suspended": "Suspendus",
     "reserved": "Réservés",
+    "premium": "Premium probables",
 }
 # Réservés mêlés aux noms à saisir si on le demande dans Paramètres.
-WITH_RESERVED = {"available", "maybe_free", "free", "coming"}
+WITH_RESERVED = {"available", "bookable", "maybe_free", "free", "coming"}
 # Pris sur une autre extension : signe de demande pour le nom.
 TAKEN_CODES = (REGISTERED, SUSPENDED, COMING)
 
@@ -168,6 +176,7 @@ class Filters:
     seo: str = ""  # any : analysé avec signal ; pr1, pr3, pr5 : PageRank minimum ; wb5 : archivé 5 ans et plus
     ai: str = ""  # avis IA, forme canonique de ai_filter() : « v=take,watch;exploit=40-;quick_high=-500 »
     lang: str = ""  # fr ou en (wordlists.LANGS)
+    premium: bool = False  # True : les premiums probables se mêlent aux noms à saisir
 
     @classmethod
     def of(cls, *args, **kwargs) -> "Filters":
@@ -442,13 +451,18 @@ class Explorer:
                 for i in range(drops.OFFSETS[2]):
                     if status[i] in (ABSENT, FREE) and f"{u.label(i)}.{tld}" not in unflagged:
                         status[i] = RESERVED
+                for i in range(drops.OFFSETS[2], drops.OFFSETS[PREMIUM_LENGTH]):
+                    if status[i] in (ABSENT, FREE) and f"{u.label(i)}.{tld}" not in unflagged:
+                        status[i] = PREMIUM
         return status
 
-    def codes(self, status: str, default: str = "") -> tuple[int, ...]:
+    def codes(self, status: str, default: str = "", premium: bool = False) -> tuple[int, ...]:
         key = status if status in STATUS_FILTERS else default
         codes = STATUS_FILTERS.get(key) or tuple(LABELS)
         if key in WITH_RESERVED and self.reserved is not None and self.reserved.mode == "show":
             codes = codes + (RESERVED,)
+        if key in WITH_RESERVED and premium:
+            codes = codes + (PREMIUM,)
         return codes
 
     def invalidate(self, tld: str | None = None) -> None:
@@ -633,7 +647,7 @@ class Explorer:
         limit = max(1, min(limit, EXPORT_LIMIT))
         if self._hopeless(tld, f):
             return {"items": [], "cursor": None}
-        codes = self.codes(f.status)
+        codes = self.codes(f.status, premium=f.premium)
         data = self.status_bytes(tld)
         others = self._others(tld, f)
         u = self.universe
@@ -689,6 +703,16 @@ class Explorer:
     def weights(self) -> dict[str, float]:
         return value.weights_from(self.fr.store.get("score_weights"))
 
+    def premium_prices(self) -> dict[str, dict[str, int]]:
+        """Prix premium saisis dans Paramètres : {extension: {"2": euros, "3": euros}}."""
+        try:
+            return json.loads(self.fr.store.get("premium_prices") or "{}")
+        except ValueError:
+            return {}
+
+    def premium_devalue(self) -> bool:
+        return self.fr.store.get("premium_devalue") == "1"
+
     def _bonus_context(self, tld: str) -> dict:
         return self._memo(("bonus", tld), lambda: self._build_bonus_context(tld))
 
@@ -709,12 +733,16 @@ class Explorer:
         parts = (value.demand(list(others))[0], 15 if gone else 0, 20)  # SEO : peut arriver à tout moment
         reach = parts[0] * w["demand"] + parts[1] * w["history"] + parts[2] * w["seo"]
         return {"others": others, "gone": gone, "seo": seo, "today": date.today(), "reach": reach,
-                "reach_parts": parts, "weights": w}
+                "reach_parts": parts, "weights": w, "status": self.status_bytes(tld), "devalue": self.premium_devalue()}
 
     def _value(self, tld: str, i: int, label: str, ctx: dict) -> dict:
         taken = [t for t, data in ctx["others"].items() if data[i] in TAKEN_CODES]
         found = value.score(label, taken, ctx["gone"].get(i), ctx["seo"].get(f"{label}.{tld}"), ctx["today"], ctx["weights"])
         found["rank"] = self.best_rank(label)
+        if ctx.get("devalue") and ctx["status"][i] == PREMIUM:
+            # Case « dévaluer les premiums probables » : score divisé par deux, la raison le dit.
+            found["score"] //= 2
+            found["reasons"] = found.get("reasons", []) + ["premium probable"]
         return found
 
     def rank(self, tld: str, *args, limit: int = 50, sort: str = "score", **kwargs) -> dict:
@@ -732,6 +760,8 @@ class Explorer:
             return self._ordered(tld, f, limit)
         if sort == "freq":
             return self._by_frequency(tld, f, limit)
+        if sort == "release":
+            return self._by_release(tld, f, limit)
         if sort in ("seo", "ai"):
             # Un tri ne filtre pas : les noms analysés (ou notés) d'abord, puis les autres par score.
             first = (self._by_seo if sort == "seo" else self._by_ai)(tld, f, limit)["items"]
@@ -740,7 +770,7 @@ class Explorer:
                 rest = self.rank(tld, f, limit=limit + len(first), sort="score")["items"]
                 first += [i for i in rest if i["label"] not in seen][: limit - len(first)]
             return {"items": first}
-        codes = self.codes(f.status, "available")
+        codes = self.codes(f.status, "available", f.premium)
         data = self.status_bytes(tld)
         others = self._others(tld, f)
         u = self.universe
@@ -780,6 +810,25 @@ class Explorer:
             item.update(entry[3])
         return {"items": items}
 
+    def _by_release(self, tld: str, f: Filters, limit: int) -> dict:
+        """Libération la plus proche d'abord (noms en rédemption ou en suppression suivis)."""
+        data = self.status_bytes(tld)
+        codes = self.codes(f.status, "coming", f.premium)
+        others = self._others(tld, f)
+        u = self.universe
+        ctx = self._bonus_context(tld)
+        hits = []
+        for (name,) in self.conn.execute(
+                "SELECT name FROM drops WHERE tld = ? AND release_at IS NOT NULL ORDER BY release_at, name", (tld,)):
+            i = u.index(name.rsplit(".", 1)[0])
+            if i is None or data[i] not in codes or not self._good_ok(i, f) or not self._taken_ok(i, others):
+                continue
+            if not self._keep(u.label(i), f):
+                continue
+            hits.append(i)
+        scored = self._scored(tld, f, hits, data, ctx)["items"]
+        return {"items": scored[:limit]}
+
     def _scored(self, tld: str, f: Filters, hits: list[int], data, ctx) -> dict:
         items = self.describe(tld, hits, data)
         for i, item in zip(hits, items):
@@ -798,7 +847,7 @@ class Explorer:
             found = self.search(tld, f, limit=need)["items"]
             hits = [i for i in (u.index(item["label"]) for item in found) if i is not None and i < drops.CELLS]
         if len(hits) < need:
-            codes = self.codes(f.status, "available")
+            codes = self.codes(f.status, "available", f.premium)
             others = self._others(tld, f)
             q = self.normalize(f.q, tld)
             candidates = self._candidates(f, q, tld)
@@ -839,7 +888,7 @@ class Explorer:
 
     def _by_seo(self, tld: str, f: Filters, limit: int) -> dict:
         """Meilleur PageRank d'abord, puis le plus d'années d'archives ; noms analysés seulement."""
-        codes = self.codes(f.status, "available")
+        codes = self.codes(f.status, "available", f.premium)
         data = self.status_bytes(tld)
         others = self._others(tld, f)
         u = self.universe
@@ -857,7 +906,7 @@ class Explorer:
 
     def _by_ai(self, tld: str, f: Filters, limit: int) -> dict:
         """Meilleure revente rapide selon l'avis IA, puis potentiel de revente ; noms notés seulement."""
-        codes = self.codes(f.status, "available")
+        codes = self.codes(f.status, "available", f.premium)
         data = self.status_bytes(tld)
         others = self._others(tld, f)
         u = self.universe
@@ -879,7 +928,7 @@ class Explorer:
         return {"items": self._scored(tld, f, hits, data, self._bonus_context(tld))["items"][:limit]}
 
     def _by_frequency(self, tld: str, f: Filters, limit: int) -> dict:
-        codes = self.codes(f.status, "available")
+        codes = self.codes(f.status, "available", f.premium)
         data = self.status_bytes(tld)
         others = self._others(tld, f)
         u = self.universe
@@ -973,7 +1022,7 @@ class Explorer:
         raw = self._memo(key, lambda: self._facets(tld, f))
         by_code = raw["by_code"]
         # Les états réservés suivent le réglage du moment : conversion à chaque appel, sans recompter.
-        return {k: sum(by_code.get(c, 0) for c in self.codes(k)) for k in STATUS_FILTERS}
+        return {k: sum(by_code.get(c, 0) for c in self.codes(k, premium=f.premium)) for k in STATUS_FILTERS}
 
     def _facets(self, tld: str, f: Filters) -> dict:
         """Comptes par octet d'état, et le masque des filtres : touch() s'en sert pour corriger de ±1."""
@@ -1016,6 +1065,9 @@ class Explorer:
             code = RESERVED
         elif self.reserved is not None and code in (ABSENT, FREE) and self.reserved.short_reserved(f"{label}.{tld}"):
             code = RESERVED
+        elif (tld != "fr" and self.reserved is not None and code in (ABSENT, FREE) and len(label) == PREMIUM_LENGTH
+              and drops.OFFSETS[2] <= i < drops.OFFSETS[PREMIUM_LENGTH] and f"{label}.{tld}" not in self.reserved.unflagged()):
+            code = PREMIUM
         return base, code
 
     def touch(self, name: str) -> None:
@@ -1079,6 +1131,10 @@ class Explorer:
                 value["reach"] = (value["reach_parts"][0] * weights["demand"] + value["reach_parts"][1] * weights["history"]
                                   + value["reach_parts"][2] * weights["seo"])
         self._forget("map")
+        devalue = self.premium_devalue()
+        for key, (_, _, value) in self._memos.items():
+            if key[0][0] == "bonus":
+                value["devalue"] = devalue
 
     def map(self) -> dict:
         return self._memo(("map",), self._build_map)
@@ -1152,8 +1208,16 @@ class Explorer:
                 "rdap": details.get(name),
                 "reserved": self.reserved.why(name) if self.reserved is not None and code == RESERVED else [],
                 "ai": opinions.get(name),
+                "premium_price": self._premium_price(tld, label, code),
             })
         return items
+
+    def _premium_price(self, tld: str, label: str, code: int) -> int | None:
+        """Prix premium saisi pour cette extension et cette longueur (2 ou 3 caractères), s'il y en a un."""
+        if tld == "fr" or code not in (PREMIUM, RESERVED) or len(label) not in (2, 3):
+            return None
+        price = self.premium_prices().get(tld, {}).get(str(len(label)))
+        return int(price) if price else None
 
     def value_of(self, names: list[str]) -> dict[str, dict]:
         """Score, raisons et filtres d'une liste de noms (écran Suppressions), mêmes calculs que l'Explorer."""
