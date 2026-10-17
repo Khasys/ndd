@@ -147,6 +147,13 @@ L'appli fonctionne alors en trois temps :
    le plafond de rythme des nuits suivantes et envoient une alerte Telegram. Le plafond remonte
    de 25 % par nuit sans incident.
    Désactivable : case « Interroger le DNS du .fr chaque nuit ».
+5. .co, .ai et .io : ces extensions de pays ne publient pas leur zone. Chaque nuit, en même temps
+   que le .fr, l'appli interroge leurs serveurs DNS pour les 50 000 meilleurs noms des listes Mots
+   anglais, Tendances, Secteurs, Médias et marques, Mots et Expressions (plus de 2 caractères),
+   jamais interrogés d'abord. Mêmes garde-fous, propres à chaque extension. Un nom délégué qui ne
+   l'est plus (« sorti du DNS ») part en alerte Telegram : souvent un nom qui expire, à vérifier
+   en RDAP. Pas de date de libération estimée ; un nom absent du DNS peut être enregistré sans
+   serveurs, réservé ou premium du registre.
 
 Le fichier de l'Afnic ne donne pas de date d'expiration, d'où le calcul par la date de création.
 Un nom sans date de création dans le fichier n'est pas suivi. Ses colonnes

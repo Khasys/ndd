@@ -235,6 +235,23 @@
                 </template>
               </div>
             </template>
+            <template x-for="[tld, d] in Object.entries(dropsData.cc_dns || {})" :key="tld">
+              <div class="zone-line fr-zone" :class="{ error: d.error }">
+                <span class="mono zone-tld" x-text="'.' + tld"></span>
+                <span class="small"><strong>DNS de nuit</strong> <span x-text="frDns(d)"></span></span>
+                <details class="small" x-show="(d.freed_names || []).length || (d.failure_log || []).length">
+                  <summary class="muted">Sortis du DNS et échecs</summary>
+                  <p x-show="(d.freed_names || []).length"><span class="muted">Sortis du DNS, souvent un nom qui expire :</span>
+                    <template x-for="n in (d.freed_names || [])" :key="n"><button type="button" class="link-like mono dns-name" @click="openFiche(n)" x-text="n"></button></template>
+                  </p>
+                  <ul class="fr-recent" x-show="(d.failure_log || []).length">
+                    <template x-for="f in (d.failure_log || [])" :key="f.at + f.name">
+                      <li><span class="muted" x-text="clock(f.at)"></span> <span class="mono" x-text="f.name"></span> <span x-text="f.reason"></span> <span class="muted mono" x-text="f.server"></span></li>
+                    </template>
+                  </ul>
+                </details>
+              </div>
+            </template>
             <p class="small muted" x-show="dropsData.czds && !dropsData.zones.length">Aucune zone ICANN activée. Paramètres, carte « Zones ICANN ».</p>
             <p class="small error-text" x-show="dropsData.error" x-text="dropsData.error"></p>
             <p class="small muted" x-show="dropsData.pending_checks" x-text="dropsData.pending_checks + ' nom(s) en attente de vérification RDAP.'"></p>

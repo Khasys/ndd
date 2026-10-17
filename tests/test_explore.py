@@ -480,3 +480,34 @@ def test_fr_dns_stops_on_refusal_and_lowers_the_cap(env, monkeypatch):
     monkeypatch.setattr(frdns, "MIN_RATE", 1000.0)
     stats = asyncio.run(checker.run(limit=50))
     assert stats["skipped"] == frdns.FAIL_STOP and "d'affilée" in stats["stopped"]
+
+
+def test_cc_dns_flags_names_that_leave_the_dns(env, monkeypatch):
+    from app import ccdns, frdns
+
+    monkeypatch.setattr(frdns, "RATE", 1_000_000.0)
+    alerts = []
+
+    async def notify(text):
+        alerts.append(text)
+
+    checker = ccdns.CcDns("io", env.conn, env.fr.store, env, timezone.utc, notify=notify)
+    labels = checker.pending(200)
+    assert labels and all(len(x) > 2 for x in labels)
+    checker.pending = lambda limit, now=None: ["insurance", "maison", "cloud"]
+    state = {"insurance": True, "maison": False, "cloud": True}
+
+    async def query(label):
+        return state[label]
+
+    checker.query = query
+    first = asyncio.run(checker.run(limit=3))
+    # Première nuit : rien n'est un changement.
+    assert first["checked"] == 3 and first["newly_taken"] == 0 and not alerts
+    state["cloud"] = False
+    asyncio.run(checker.run(limit=3))
+    found = ccdns.load_names(env.conn, ["cloud.io", "insurance.io"])
+    assert found["cloud.io"]["present"] is False and found["cloud.io"]["lost_at"]
+    assert found["insurance.io"]["present"] is True and found["insurance.io"]["lost_at"] is None
+    assert len(alerts) == 1 and "cloud.io" in alerts[0] and "sortis du DNS" in alerts[0]
+    assert env.fr.store.get("io_dns_status") and not env.fr.store.get("fr_dns_status")

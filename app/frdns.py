@@ -78,6 +78,10 @@ def load(conn, labels: list[str]) -> dict[str, dict]:
 
 
 class FrDns:
+    tld = "fr"
+    key = "fr_dns"  # préfixe des réglages et de l'état gardés dans le store
+    count_first = True  # un nom vu délégué à sa première interrogation compte comme « nouvellement pris »
+
     def __init__(self, conn, store, explorer, local_zone, notify=None):
         self.conn = conn
         self.notify = notify  # async (texte) -> motif d'échec ou None : Telegram
@@ -91,8 +95,11 @@ class FrDns:
     # --- File ---------------------------------------------------------------------
 
     def due(self, now_local: datetime) -> bool:
-        return (self.store.get("fr_dns_enabled", "1") == "1" and START_HOUR <= now_local.hour < END_HOUR
-                and self.store.get("fr_dns_last") != now_local.date().isoformat() and "fr" in self.explorer.tlds())
+        return (self.store.get(f"{self.key}_enabled", "1") == "1" and START_HOUR <= now_local.hour < END_HOUR
+                and self.store.get(f"{self.key}_last") != now_local.date().isoformat() and self.ready())
+
+    def ready(self) -> bool:
+        return "fr" in self.explorer.tlds()
 
     def pending(self, limit: int, now: datetime | None = None) -> list[str]:
         """Les .fr probablement libres à revoir, du meilleur score de base au moins bon.
@@ -124,6 +131,19 @@ class FrDns:
                     return picked
         return picked
 
+    def load(self, labels: list[str]) -> dict[str, dict]:
+        return load(self.conn, labels)
+
+    def save(self, label: str, present: bool, at: str) -> None:
+        self.conn.execute(
+            "INSERT INTO name_dns (label, present, checked_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(label) DO UPDATE SET present = excluded.present, checked_at = excluded.checked_at",
+            (label, int(present), at),
+        )
+
+    def changed(self, label: str, present: bool) -> None:
+        self.explorer.touch(f"{label}.fr")  # le nom change d'état dans l'Explorer
+
     # --- Requêtes -------------------------------------------------------------------
 
     async def _servers(self) -> list[str]:
@@ -131,7 +151,7 @@ class FrDns:
         if self.servers:
             return self.servers
         resolver = dns.asyncresolver.Resolver()
-        names = [str(r.target) for r in await resolver.resolve("fr.", "NS")]
+        names = [str(r.target) for r in await resolver.resolve(f"{self.tld}.", "NS")]
         addresses = []
         for name in names:
             try:
@@ -139,7 +159,7 @@ class FrDns:
             except dns.exception.DNSException:
                 continue
         if not addresses:
-            raise RuntimeError("serveurs du .fr introuvables")
+            raise RuntimeError(f"serveurs du .{self.tld} introuvables")
         self.servers = addresses
         return addresses
 
@@ -147,7 +167,7 @@ class FrDns:
         """True : délégué ; False : inconnu ; Failure : pas de réponse exploitable (on réessaiera)."""
         servers = await self._servers()
         server = random.choice(servers)
-        message = dns.message.make_query(f"{label}.fr.", dns.rdatatype.NS)
+        message = dns.message.make_query(f"{label}.{self.tld}.", dns.rdatatype.NS)
         message.flags &= ~dns.flags.RD  # question directe au serveur du .fr, pas de récursion
         try:
             answer = await dns.asyncquery.udp(message, server, timeout=TIMEOUT)
@@ -171,7 +191,7 @@ class FrDns:
     def cap(self) -> float:
         """Rythme maximal autorisé : abaissé après un refus ou un silence prolongé."""
         try:
-            return min(MAX_RATE, float(self.store.get("fr_dns_cap") or MAX_RATE))
+            return min(MAX_RATE, float(self.store.get(f"{self.key}_cap") or MAX_RATE))
         except ValueError:
             return MAX_RATE
 
@@ -197,7 +217,7 @@ class FrDns:
             # Parcours de l'univers hors de la boucle : l'appli reste réactive.
             labels = await asyncio.get_running_loop().run_in_executor(None, self.pending, limit)
             stats["queued"] = len(labels)
-            before = load(self.conn, labels)
+            before = self.load(labels)
             rate = RATE if cap >= MAX_RATE else min(RATE, cap)
             streak = 0
             fails = 0
@@ -217,10 +237,10 @@ class FrDns:
                     first = failure.reason not in stats["failures"]
                     stats["failures"][failure.reason] = stats["failures"].get(failure.reason, 0) + 1
                     stats["failure_log"] = (stats["failure_log"] + [{
-                        "at": iso(utcnow()), "name": f"{label}.fr", "server": failure.server,
+                        "at": iso(utcnow()), "name": f"{label}.{self.tld}", "server": failure.server,
                         "reason": failure.reason, "detail": failure.detail, "rate": round(rate, 1)}])[-FAIL_LOG:]
                     (log.warning if first else log.info)(
-                        "DNS .fr : %s pour %s.fr (serveur %s, rythme %.1f/s)%s", failure.reason, label,
+                        "DNS .%s : %s pour %s.%s (serveur %s, rythme %.1f/s)%s", self.tld, failure.reason, label, self.tld,
                         failure.server or "?", rate, f" : {failure.detail}" if failure.detail else "")
                     if failure.reason == REFUSED:
                         halted = f"refus du serveur {failure.server}"
@@ -237,28 +257,23 @@ class FrDns:
                     if streak >= RECOVER_AFTER and rate < cap:
                         rate = min(cap, rate * 1.25)
                         streak = 0
-                    now = iso(utcnow())
-                    self.conn.execute(
-                        "INSERT INTO name_dns (label, present, checked_at) VALUES (?, ?, ?) "
-                        "ON CONFLICT(label) DO UPDATE SET present = excluded.present, checked_at = excluded.checked_at",
-                        (label, int(present), now),
-                    )
+                    self.save(label, present, iso(utcnow()))
                     stats["checked"] += 1
                     stats["present"] += int(present)
                     was = before.get(label, {}).get("present")
-                    if present != was and (present or was):
+                    if present != was and (present or was) and (was is not None or self.count_first):
                         if present:
                             stats["newly_taken"] += 1
                             if len(stats["taken_names"]) < 100:
-                                stats["taken_names"].append(f"{label}.fr")
+                                stats["taken_names"].append(f"{label}.{self.tld}")
                         elif len(stats["freed_names"]) < 100:
-                            stats["freed_names"].append(f"{label}.fr")
-                        self.explorer.touch(f"{label}.fr")  # le nom change d'état dans l'Explorer
+                            stats["freed_names"].append(f"{label}.{self.tld}")
+                        self.changed(label, present)
                 wait = 1 / rate - (asyncio.get_running_loop().time() - started)
                 if wait > 0:
                     await asyncio.sleep(wait)
         except Exception as exc:  # noqa: BLE001  le journal garde la cause, l'écran l'affiche
-            log.warning("DNS .fr : %s", exc)
+            log.warning("DNS .%s : %s", self.tld, exc)
             stats["error"] = str(exc)
         finally:
             self.running = False
@@ -271,16 +286,16 @@ class FrDns:
             else:
                 new_cap = cap
             if new_cap != cap:
-                self.store.set("fr_dns_cap", str(new_cap))
+                self.store.set(f"{self.key}_cap", str(new_cap))
             stats["next_cap"] = new_cap
             if stats["failures"]:
-                log.warning("DNS .fr : %d échec(s) sur la passe : %s", stats["skipped"],
+                log.warning("DNS .%s : %d échec(s) sur la passe : %s", self.tld, stats["skipped"],
                             ", ".join(f"{n} {r}" for r, n in stats["failures"].items()))
-            self.store.set("fr_dns_status", json.dumps(stats))
-            self.store.set("fr_dns_last", datetime.now(self.local_zone).date().isoformat())
+            self.store.set(f"{self.key}_status", json.dumps(stats))
+            self.store.set(f"{self.key}_last", datetime.now(self.local_zone).date().isoformat())
         if halted:
-            log.warning("DNS .fr : passe arrêtée, %s ; plafond ramené à %s requêtes par seconde", halted, new_cap)
-            await self._alert(f"DNS .fr : passe arrêtée ({halted}). Plafond ramené à {new_cap} requêtes par seconde. "
+            log.warning("DNS .%s : passe arrêtée, %s ; plafond ramené à %s requêtes par seconde", self.tld, halted, new_cap)
+            await self._alert(f"DNS .{self.tld} : passe arrêtée ({halted}). Plafond ramené à {new_cap} requêtes par seconde. "
                               f"Échecs : {', '.join(f'{n} {r}' for r, n in stats['failures'].items())}.")
         return stats
 
@@ -296,8 +311,8 @@ class FrDns:
         return cached[1].get(label)
 
     def status(self) -> dict:
-        info = json.loads(self.store.get("fr_dns_status") or "{}")
+        info = json.loads(self.store.get(f"{self.key}_status") or "{}")
         info["running"] = self.running
-        info["enabled"] = self.store.get("fr_dns_enabled", "1") == "1"
+        info["enabled"] = self.store.get(f"{self.key}_enabled", "1") == "1"
         return info
 

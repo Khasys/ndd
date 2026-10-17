@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import ai, bot, calendar_ics, db, digest, drops, explore, frdata, frdns, rdapinfo, reserved, seo, signals, states, updates, value, wordlists
+from . import ai, bot, calendar_ics, ccdns, db, digest, drops, explore, frdata, frdns, rdapinfo, reserved, seo, signals, states, updates, value, wordlists
 from .auth import (
     COOKIE_NAME,
     MIN_PASSWORD_LENGTH,
@@ -149,6 +149,13 @@ async def lifespan(app: FastAPI):
         if fr_dns.due(datetime.now(digest.local_zone())):
             await fr_dns.run()
 
+    def cc_job(tld):
+        async def check() -> None:
+            checker = app.state.cc_dns[tld]
+            if checker.due(datetime.now(digest.local_zone())):
+                await checker.run()
+        return check
+
     async def refresh_reserved() -> None:
         if app.state.reserved.due():
             await app.state.reserved.refresh()
@@ -167,6 +174,10 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(tick_fr, "interval", minutes=1, next_run_time=now + timedelta(minutes=6), max_instances=1)
     # DNS .fr : une passe par nuit, à partir de minuit.
     scheduler.add_job(check_fr_dns, "interval", minutes=10, next_run_time=now + timedelta(minutes=8), max_instances=1)
+    # DNS .co, .ai, .io : même fenêtre, une passe par extension en parallèle.
+    for n, tld in enumerate(ccdns.TLDS):
+        scheduler.add_job(cc_job(tld), "interval", minutes=10, next_run_time=now + timedelta(minutes=9 + n),
+                          max_instances=1, id=f"check_{tld}_dns")
     scheduler.start()
     telegram.start()
 
@@ -178,6 +189,9 @@ async def lifespan(app: FastAPI):
     app.state.explorer = explore.Explorer(conn, watcher, fr, app.state.reserved)
     fr_dns = frdns.FrDns(conn, store, app.state.explorer, digest.local_zone(), notify=telegram.send)
     app.state.fr_dns = fr_dns
+    # .co, .ai, .io : une passe par extension, en même temps que le .fr (registres différents).
+    app.state.cc_dns = {t: ccdns.CcDns(t, conn, store, app.state.explorer, digest.local_zone(), notify=telegram.send)
+                        for t in ccdns.TLDS}
     app.state.seo = seo.Seo(conn, store)
     # Explorer : univers et classement préparés hors requête (thread), puis états et carte en mémoire.
     async def warm_explorer() -> None:
@@ -837,6 +851,7 @@ async def list_drops(request: Request):
         "history": watcher.history(),
         "fr": {"enabled": request.app.state.fr.enabled, "running": request.app.state.fr.running, **request.app.state.fr.status(),
                "dns": request.app.state.fr_dns.status()},
+        "cc_dns": {tld: c.status() for tld, c in request.app.state.cc_dns.items()},
         "workers": watcher.workers,
         "pending_checks": pending,
         "suspended": suspended,
@@ -1303,6 +1318,7 @@ async def diag(request: Request):
         "czds_error": state.store.get("czds_error") or None,
         "fr": {"enabled": state.fr.enabled, **state.fr.status()},
         "fr_dns": state.fr_dns.status(),
+        "cc_dns": {tld: c.status() for tld, c in state.cc_dns.items()},
         "ai": ai.stats(explorer),
         "reserved": state.reserved.status(),
         "lists": {k: len(v) for k, v in wordlists.lists().items()},
@@ -1444,6 +1460,8 @@ async def explore_fiche(request: Request):
     found = await _off(explorer.fiche, name)
     found["ai_eta"] = await _ai_eta(explorer, found)
     found["ai_request"] = ai.request_state(request.app.state.conn, name)
+    if found.get("tld") in ccdns.TLDS:
+        found["cc_dns"] = ccdns.load_names(request.app.state.conn, [name]).get(name)
     if found.get("tld") == "fr":
         found["dns_eta"] = await _dns_eta(request.app.state.fr_dns, found)
     return found

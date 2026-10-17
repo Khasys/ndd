@@ -444,6 +444,11 @@ document.addEventListener("alpine:init", () => {
       }
       if (f.dns) past.push(["DNS .fr, dernière", esc((f.dns.present ? "délégué : nom pris" : "aucun serveur : probablement libre") + `, ${this.relative(f.dns.at)}`)]);
       else if (f.tld === "fr") past.push(["DNS .fr, dernière", "jamais interrogé"]);
+      if (f.cc_dns) {
+        const c = f.cc_dns;
+        const lost = !c.present && c.lost_at ? `, sorti du DNS ${this.relative(c.lost_at)} : à vérifier` : "";
+        past.push([`DNS .${f.tld}, dernière`, esc((c.present ? "délégué : nom pris" : "aucun serveur") + lost + `, ${this.relative(c.at)}`)]);
+      } else if (["co", "ai", "io"].includes(f.tld)) past.push([`DNS .${f.tld}`, "pas dans les noms suivis chaque nuit"]);
       if (f.seo) {
         const parts = [];
         if (f.seo.pr) parts.push(`PageRank ${String(f.seo.pr).replace(".", ",")}`);
