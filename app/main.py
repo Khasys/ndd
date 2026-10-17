@@ -2,6 +2,7 @@ import asyncio
 import hmac
 import html
 import secrets
+import time
 import json
 import math
 import logging
@@ -172,9 +173,9 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(refresh_reserved, "interval", hours=6, next_run_time=now + timedelta(minutes=2), max_instances=1)
     # File .fr : chaque minute, autant de requêtes que le plafond réglé le permet.
     scheduler.add_job(tick_fr, "interval", minutes=1, next_run_time=now + timedelta(minutes=6), max_instances=1)
-    # DNS .fr : une passe par nuit, à partir de minuit.
+    # DNS .fr : une passe par jour, lancée à minuit, étalée sur la journée.
     scheduler.add_job(check_fr_dns, "interval", minutes=10, next_run_time=now + timedelta(minutes=8), max_instances=1)
-    # DNS .co, .ai, .io : même fenêtre, une passe par extension en parallèle.
+    # DNS .co, .ai, .io : même passe du jour, une par extension en parallèle.
     for n, tld in enumerate(ccdns.TLDS):
         scheduler.add_job(cc_job(tld), "interval", minutes=10, next_run_time=now + timedelta(minutes=9 + n),
                           max_instances=1, id=f"check_{tld}_dns")
@@ -231,6 +232,19 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
+
+
+SLOW_REQUEST = 1.0  # secondes : au-delà, la requête est notée au journal (lu par /api/diag)
+
+
+@app.middleware("http")
+async def log_slow_requests(request: Request, call_next):
+    started = time.monotonic()
+    response = await call_next(request)
+    spent = time.monotonic() - started
+    if spent > SLOW_REQUEST and request.url.path.startswith("/api/"):
+        log.warning("Requête lente : %s %s en %.1f s", request.method, request.url.path, spent)
+    return response
 
 
 @app.middleware("http")
@@ -839,8 +853,10 @@ async def list_drops(request: Request):
     rows = [r for r in rows if not (hide_reserved and (r["name"] in reserved_names or held.short_reserved(r["name"])))]
     suspended = dict(conn.execute("SELECT tld, COUNT(*) FROM drops WHERE state = ? GROUP BY tld", (drops.SUSPENDED,)).fetchall())
     watched = {r[0] for r in conn.execute("SELECT name FROM domains")}
-    details = rdapinfo.load(conn, [r["name"] for r in rows])
-    values = request.app.state.explorer.value_of([r["name"] for r in rows])
+    # Rafraîchissement de l'état seul (écran ouvert) : pas de liste, quelques Ko au lieu de plusieurs Mo.
+    # Le détail RDAP n'est pas dans la liste : la fiche le charge.
+    with_items = request.query_params.get("items") != "0"
+    values = await _off(request.app.state.explorer.value_of, [r["name"] for r in rows]) if with_items else {}
     return {
         "configured": watcher.configured or request.app.state.fr.enabled,
         "czds": watcher.configured,
@@ -872,11 +888,10 @@ async def list_drops(request: Request):
                 "next_check_at": r["next_check_at"],
                 "watched": r["name"] in watched,
                 "reserved": r["name"] in reserved_names,
-                "rdap": details.get(r["name"]),
                 **values[r["name"]],
             }
             for r in rows
-        ],
+        ] if with_items else None,
     }
 
 

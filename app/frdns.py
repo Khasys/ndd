@@ -37,12 +37,14 @@ from .checker import iso, utcnow
 
 log = logging.getLogger(__name__)
 
-NIGHTLY = 150_000         # noms par nuit au plus (la fenêtre de minuit à 6 h borne aussi la passe)
-RATE = 3.0                # requêtes par seconde au départ
-MAX_RATE = 10.0           # plafond atteint par paliers tant que tout répond
+NIGHTLY = 150_000         # noms par jour au plus
+# Passe étalée sur la journée plutôt que tassée la nuit : même travail, rythme plus doux pour les
+# registres (moins de risque de blocage). 150 000 noms à 4 par seconde : environ 10 h 30.
+RATE = 2.0                # requêtes par seconde au départ
+MAX_RATE = 4.0            # plafond atteint par paliers tant que tout répond
 MIN_RATE = 0.5
-START_HOUR = 0            # heure locale de départ : bien avant la lecture des zones (3 h) et la notation IA (5 h)
-END_HOUR = 6              # au-delà, la passe s'arrête ; le reste attend la nuit suivante
+START_HOUR = 0            # heure locale de départ : une passe par jour, lancée à minuit
+END_HOUR = 23             # au-delà, la passe s'arrête ; le reste attend le lendemain
 RECOVER_AFTER = 50        # réponses sans accroc avant de réaccélérer
 FRESH_DAYS_TOP = 1        # noms à fort score de base : revus chaque nuit
 FRESH_DAYS_OTHER = 7      # les autres : chaque semaine
@@ -221,7 +223,7 @@ class FrDns:
             rate = RATE if cap >= MAX_RATE else min(RATE, cap)
             streak = 0
             fails = 0
-            # Passe de nuit : elle s'arrête à l'heure de fin. Une passe lancée à la main va au bout.
+            # Passe du jour : elle s'arrête à l'heure de fin. Une passe lancée à la main va au bout.
             night = START_HOUR <= datetime.now(self.local_zone).hour < END_HOUR
             for label in labels:
                 if night and datetime.now(self.local_zone).hour >= END_HOUR:

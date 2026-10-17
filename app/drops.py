@@ -692,8 +692,12 @@ class DropWatcher:
         since = parse_iso(row["state_since"])
         if state != row["state"]:
             since = now
-            if not result.available and result.info.last_changed_at and state in (states.REDEMPTION, states.PENDING_DELETE):
-                since = min(result.info.last_changed_at, now)
+            changed = None if result.available else result.info.last_changed_at
+            # Date de dernière modification RDAP : début de la rédemption, sauf si elle précède l'échéance
+            # (modification ancienne, sans rapport) ; on garde alors le moment où on voit l'état.
+            if changed and state in (states.REDEMPTION, states.PENDING_DELETE) and (
+                    result.info.expires_at is None or changed >= result.info.expires_at):
+                since = min(changed, now)
         release = self.release(state, row["tld"], expires, since, now)
         available_since = row["available_since"]
         if state == states.AVAILABLE and not available_since:

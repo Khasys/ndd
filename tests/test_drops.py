@@ -387,3 +387,15 @@ def test_cut_in_the_middle_of_a_download_is_reported(watcher):
     result = asyncio.run(watcher.run())[0]
     assert result.error == "Téléchargement interrompu (ReadError)."
     assert watcher._load("com") is None and watcher.history()[0]["error"] == result.error
+
+
+def test_stale_change_date_does_not_put_release_in_the_past(watcher):
+    # Cas réel (jhgh.biz) : dernière modification RDAP bien avant l'échéance ; la rédemption vient
+    # d'être vue, la libération estimée ne peut pas être déjà passée.
+    now = datetime.now(timezone.utc)
+    watcher.record("com", ["jhgh"], [], now)
+    watcher.rdap = FakeRdap({"jhgh.com": LookupResult(found=True, info=DomainInfo(
+        statuses=["redemption period"], expires_at=now - timedelta(days=44), last_changed_at=now - timedelta(days=350)))})
+    asyncio.run(watcher.check_due())
+    row = watcher.conn.execute("SELECT * FROM drops WHERE name = 'jhgh.com'").fetchone()
+    assert datetime.fromisoformat(row["release_at"]) > now + timedelta(days=30)

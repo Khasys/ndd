@@ -134,9 +134,10 @@ L'appli fonctionne alors en trois temps :
    d'une heure, doublée à chaque nouveau signal (24 h au plus), et durée demandée par l'Afnic
    respectée. L'écran Suppressions montre en direct le nom en cours, le travail du jour et du
    lendemain, et les dernières requêtes.
-4. Chaque nuit à partir de minuit, l'appli demande directement aux serveurs DNS du .fr si les
-   noms « probablement libres » y sont délégués (150 000 par nuit au plus, de 3 à 10 requêtes par
-   seconde selon les réponses, ralenti au premier silence, arrêt à 6 h). Ordre : meilleur score de base d'abord ;
+4. Chaque jour à partir de minuit, l'appli demande directement aux serveurs DNS du .fr si les
+   noms « probablement libres » y sont délégués (150 000 par jour au plus, de 2 à 4 requêtes par
+   seconde selon les réponses, ralenti au premier silence, arrêt à 23 h). La passe est étalée
+   sur la journée : rythme plus doux pour le registre, moins de risque de blocage. Ordre : meilleur score de base d'abord ;
    score de base 40 et plus revu chaque nuit, les autres chaque semaine. Un nom délégué passe en
    « Enregistré » dans l'Explorer sans attendre le fichier mensuel. Pas de résolveur
    intermédiaire : seule l'Afnic voit les requêtes. Aucun quota RDAP consommé. Limite : un nom
@@ -147,7 +148,7 @@ L'appli fonctionne alors en trois temps :
    le plafond de rythme des nuits suivantes et envoient une alerte Telegram. Le plafond remonte
    de 25 % par nuit sans incident.
    Désactivable : case « Interroger le DNS du .fr chaque nuit ».
-5. .co, .ai et .io : ces extensions de pays ne publient pas leur zone. Chaque nuit, en même temps
+5. .co, .ai et .io : ces extensions de pays ne publient pas leur zone. Chaque jour, en même temps
    que le .fr, l'appli interroge leurs serveurs DNS pour les 50 000 meilleurs noms des listes Mots
    anglais, Tendances, Secteurs, Médias et marques, Mots et Expressions (plus de 2 caractères),
    jamais interrogés d'abord. Mêmes garde-fous, propres à chaque extension. Un nom délégué qui ne

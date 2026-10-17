@@ -985,3 +985,4 @@ button:disabled { cursor: default; opacity: .55; }
 /* Avis IA ouvert depuis la notification : encadré, pour le voir tout de suite. */
 .fiche-sec.fiche-hot { padding: 10px 12px; border: 2px solid var(--accent); border-radius: 10px;
   background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.drops-more { display: block; margin: 10px auto 0; }

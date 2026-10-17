@@ -205,7 +205,7 @@
                     <p><strong>En ce moment</strong> <span x-text="frNow(dropsData.fr)"></span></p>
                     <p><strong>Aujourd'hui</strong> <span x-text="frToday(dropsData.fr)"></span></p>
                     <p><strong>Demain</strong> <span x-text="frTomorrow(dropsData.fr)"></span></p>
-                    <p><strong>DNS de nuit</strong> <span x-text="frDns(dropsData.fr.dns)"></span></p>
+                    <p><strong>DNS du jour</strong> <span x-text="frDns(dropsData.fr.dns)"></span></p>
                     <details x-show="dropsData.fr.dns && ((dropsData.fr.dns.taken_names || []).length || (dropsData.fr.dns.freed_names || []).length)">
                       <summary class="muted">Changements vus par le DNS</summary>
                       <p x-show="(dropsData.fr.dns.taken_names || []).length"><span class="muted">Pris :</span>
@@ -238,7 +238,7 @@
             <template x-for="[tld, d] in Object.entries(dropsData.cc_dns || {})" :key="tld">
               <div class="zone-line fr-zone" :class="{ error: d.error }">
                 <span class="mono zone-tld" x-text="'.' + tld"></span>
-                <span class="small"><strong>DNS de nuit</strong> <span x-text="frDns(d)"></span></span>
+                <span class="small"><strong>DNS du jour</strong> <span x-text="frDns(d)"></span></span>
                 <details class="small" x-show="(d.freed_names || []).length || (d.failure_log || []).length">
                   <summary class="muted">Sortis du DNS et échecs</summary>
                   <p x-show="(d.freed_names || []).length"><span class="muted">Sortis du DNS, souvent un nom qui expire :</span>
@@ -390,7 +390,7 @@
         <table class="drops-table" x-show="dropsReleased.length">
           <thead><tr><th>Nom</th><th>Type</th><th>Libéré</th><th>Vu libre</th><th><span class="visually-hidden">Action</span></th></tr></thead>
           <tbody>
-            <template x-for="d in dropsReleased" :key="d.name">
+            <template x-for="d in dropsReleased.slice(0, dropShowFree)" :key="d.name">
               <tr>
                 <td class="drop-name">
                   <button type="button" class="link-like mono" @click="openFiche(d.name)" x-text="d.name"></button>
@@ -408,6 +408,8 @@
             </template>
           </tbody>
         </table>
+        <button type="button" class="btn-ghost drops-more" x-show="dropsReleased.length > dropShowFree" @click="dropShowFree += 100"
+                x-text="'Afficher 100 de plus (' + (dropsReleased.length - dropShowFree) + ' restants)'"></button>
 
         <div class="drops-title-row">
           <h3 class="drops-title">Libération à venir <span class="num muted" x-text="dropsComing.length"></span></h3>
@@ -422,7 +424,7 @@
         <table class="drops-table" x-show="dropsComing.length">
           <thead><tr><th>Nom</th><th>Type</th><th>État</th><th>Libération estimée</th><th>Prochaine vérification</th><th>Sorti de la zone</th><th><span class="visually-hidden">Action</span></th></tr></thead>
           <tbody>
-            <template x-for="d in dropsComing" :key="d.name">
+            <template x-for="d in dropsComing.slice(0, dropShowComing)" :key="d.name">
               <tr>
                 <td class="drop-name">
                   <button type="button" class="link-like mono" @click="openFiche(d.name)" x-text="d.name"></button>
@@ -443,6 +445,8 @@
             </template>
           </tbody>
         </table>
+        <button type="button" class="btn-ghost drops-more" x-show="dropsComing.length > dropShowComing" @click="dropShowComing += 100"
+                x-text="'Afficher 100 de plus (' + (dropsComing.length - dropShowComing) + ' restants)'"></button>
       </div>
     </template>
   </section>
@@ -923,7 +927,7 @@
               <input type="checkbox" x-model="cfg.fr.dns" @change="saveFr()">
               <span>Interroger le DNS du .fr chaque nuit</span>
             </label>
-            <p class="muted small">Les .fr probablement libres les mieux notés, dès minuit : un nom délégué passe en « Enregistré ». Seule l'Afnic voit les requêtes. Aucun quota RDAP consommé.</p>
+            <p class="muted small">Les .fr probablement libres les mieux notés, chaque jour à partir de minuit, à rythme doux : un nom délégué passe en « Enregistré ». Seule l'Afnic voit les requêtes. Aucun quota RDAP consommé.</p>
             <details class="fr-advanced">
               <summary class="small muted">Adresse du fichier (facultatif)</summary>
               <form class="inline-form" @submit.prevent="saveFr()">

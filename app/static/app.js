@@ -132,6 +132,8 @@ document.addEventListener("alpine:init", () => {
     exFiltersOpen: false,
     fiche: null,
     aiReq: { pending: [], done: [] },
+    dropShowFree: 100,
+    dropShowComing: 100,
     aiToken: "",
     aiStatus: null,
     domainFiche: null,
@@ -202,7 +204,7 @@ document.addEventListener("alpine:init", () => {
       this.$watch("dropsOpen", () => this.lockScroll());
       this.$watch("exploreOpen", () => this.lockScroll());
       // Suppressions ouvert : le travail .fr est suivi en direct.
-      setInterval(() => { if (this.dropsOpen && document.visibilityState === "visible") this.loadDrops(); }, 15000);
+      setInterval(() => { if (this.dropsOpen && document.visibilityState === "visible") this.loadDrops(true); }, 15000);
       this.$watch("openId", (id) => {
         this.lockScroll();
         // Panneau d'un domaine surveillé : même bloc « Valeur » que la fiche des autres écrans.
@@ -440,7 +442,7 @@ document.addEventListener("alpine:init", () => {
       if (item && item.next_check_at && !f.rdap_next) past.push(["Prochaine vérification", esc(this.relative(item.next_check_at))]);
       if (f.dns_eta) {
         const d = f.dns_eta;
-        past.push(["DNS .fr, prochaine", esc(d.queued ? `nuit prochaine dès minuit (${this.fmt(d.position)}e sur ${this.fmt(d.nightly)} au plus)` : `pas la nuit prochaine : ${d.why}`)]);
+        past.push(["DNS .fr, prochaine", esc(d.queued ? `prochaine passe, lancée à minuit (${this.fmt(d.position)}e sur ${this.fmt(d.nightly)} au plus)` : `pas à la prochaine passe : ${d.why}`)]);
       }
       if (f.dns) past.push(["DNS .fr, dernière", esc((f.dns.present ? "délégué : nom pris" : "aucun serveur : probablement libre") + `, ${this.relative(f.dns.at)}`)]);
       else if (f.tld === "fr") past.push(["DNS .fr, dernière", "jamais interrogé"]);
@@ -966,7 +968,7 @@ document.addEventListener("alpine:init", () => {
       if (!d || !d.enabled) return "désactivé.";
       if (d.running) return "passe en cours.";
       if (d.error) return `erreur à la dernière passe : ${d.error}`;
-      if (!d.finished_at) return "première passe cette nuit, à partir de minuit.";
+      if (!d.finished_at) return "première passe à minuit, étalée sur la journée.";
       const parts = [`dernière passe ${this.relative(d.finished_at)} : ${this.fmt(d.checked)} nom(s) interrogé(s)` + (d.queued ? ` sur ${this.fmt(d.queued)} prévus` : "")];
       parts.push(`${this.fmt(d.present || 0)} avec serveurs (pris)`);
       parts.push(`${this.fmt(d.newly_taken)} nouvellement pris`);
@@ -975,7 +977,7 @@ document.addEventListener("alpine:init", () => {
         parts.push(`${this.fmt(d.skipped)} sans réponse` + (why ? ` (${why})` : ""));
       }
       if (d.rate) parts.push(`rythme final ${this.perSecond(d.rate)} par seconde`);
-      if (d.stopped === "heure de fin atteinte") parts.push("arrêtée à 6 h, la suite la nuit prochaine");
+      if (d.stopped === "heure de fin atteinte") parts.push("arrêtée à 23 h, la suite le lendemain");
       else if (d.stopped) parts.push(`arrêtée : ${d.stopped}`);
       if (d.next_cap && d.next_cap < 10) parts.push(`plafond la nuit prochaine ${this.perSecond(d.next_cap)} par seconde`);
       return parts.join(", ") + ".";
@@ -1002,13 +1004,29 @@ document.addEventListener("alpine:init", () => {
 
     // Suppressions : noms courts, mots et noms de famille sortis des zones ICANN.
 
-    async loadDrops() {
+    // statusOnly : état des lectures seul (rafraîchissement de l'écran ouvert), la liste reste en place.
+    async loadDrops(statusOnly = false) {
       this.loadOrderUrl();
       try {
+        if (statusOnly && this.dropsData) {
+          const { items, ...status } = await this.api("GET", "/api/drops?items=0");
+          Object.assign(this.dropsData, status);
+          return;
+        }
         this.dropsData = await this.api("GET", "/api/drops");
+        this._dropsVer = (this._dropsVer || 0) + 1;
       } catch (e) {
-        this.say(`Suppressions indisponibles : ${e.message}`, "error");
+        if (!statusOnly) this.say(`Suppressions indisponibles : ${e.message}`, "error");
       }
+    },
+
+    // Listes triées gardées tant que ni les données ni les filtres ne changent : 3 000 noms ne sont
+    // plus filtrés et triés à chaque rafraîchissement de l'affichage.
+    dropsMemo(kind, build) {
+      const key = JSON.stringify([kind, this._dropsVer, this.df, this.dropTld, this.dropKinds, this.dropSort, this.dropSortFree]);
+      this._memo = this._memo || {};
+      if (this._memo[kind]?.key !== key) this._memo[kind] = { key, list: build() };
+      return this._memo[kind].list;
     },
 
     dropMatches(d) {
@@ -1031,9 +1049,11 @@ document.addEventListener("alpine:init", () => {
 
     get dropsReleased() {
       if (!this.dropsData) return [];
-      const list = this.dropsData.items.filter((d) => d.state === "available" && this.dropMatches(d));
-      const by = this.compareBy(this.dropSortFree);
-      return list.sort(by || ((a, b) => (b.available_since || "").localeCompare(a.available_since || "")));
+      return this.dropsMemo("released", () => {
+        const list = this.dropsData.items.filter((d) => d.state === "available" && this.dropMatches(d));
+        const by = this.compareBy(this.dropSortFree);
+        return list.sort(by || ((a, b) => (b.available_since || "").localeCompare(a.available_since || "")));
+      });
     },
 
     // Tris communs aux écrans : score, avis IA (revente rapide haute), nom.
@@ -1098,11 +1118,13 @@ document.addEventListener("alpine:init", () => {
 
     get dropsComing() {
       if (!this.dropsData) return [];
-      const rank = { pending_delete: 0, redemption: 1, expired: 2 };
-      const list = this.dropsData.items.filter((d) => d.state in rank && this.dropMatches(d));
-      const by = this.compareBy(this.dropSort);
-      if (by) return list.sort(by);
-      return list.sort((a, b) => (a.release_at || "9").localeCompare(b.release_at || "9") || rank[a.state] - rank[b.state]);
+      return this.dropsMemo("coming", () => {
+        const rank = { pending_delete: 0, redemption: 1, expired: 2 };
+        const list = this.dropsData.items.filter((d) => d.state in rank && this.dropMatches(d));
+        const by = this.compareBy(this.dropSort);
+        if (by) return list.sort(by);
+        return list.sort((a, b) => (a.release_at || "9").localeCompare(b.release_at || "9") || rank[a.state] - rank[b.state]);
+      });
     },
 
     get dropsSuspended() {
@@ -1112,7 +1134,7 @@ document.addEventListener("alpine:init", () => {
     },
 
     get dropTlds() {
-      return this.dropsData ? [...new Set(this.dropsData.items.map((d) => d.tld))].sort() : [];
+      return this.dropsData ? this.dropsMemo("tlds", () => [...new Set(this.dropsData.items.map((d) => d.tld))].sort()) : [];
     },
 
     toggleDropKind(k) {
