@@ -466,7 +466,7 @@ button:disabled { cursor: default; opacity: .55; }
   .chip { min-height: 34px; padding: 0 12px; font-size: 13px; border-radius: 17px; }
 
   .tabbar {
-    display: grid; grid-template-columns: repeat(5, 1fr);
+    display: grid; grid-template-columns: repeat(6, 1fr);
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
     height: var(--tabbar); padding: 4px env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
     background: var(--surface); border-top: 1px solid var(--line);
@@ -478,6 +478,7 @@ button:disabled { cursor: default; opacity: .55; }
     -webkit-tap-highlight-color: transparent;
   }
   .tabbar button.on { color: var(--accent); }
+  .tabbar button span:not(.update-badge) { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10.5px; }
   .tabbar .update-badge { top: 2px; right: calc(50% - 22px); }
 
   .sheet {
@@ -1031,3 +1032,23 @@ button:disabled { cursor: default; opacity: .55; }
 .fiche-decision .fd-ai { font-weight: 600; }
 .fiche-decision .fd-warn { color: var(--danger); }
 .fiche-decision .fd-price, .fiche-decision .fd-date { color: var(--muted); }
+
+/* Portefeuille. */
+.pf-totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px 16px; }
+.pf-totals div { display: flex; flex-direction: column; gap: 2px; }
+.pf-totals strong { font-size: 1.2em; }
+.pf-add { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.pf-add input[type=text] { flex: 1 1 180px; }
+.pf-list { display: flex; flex-direction: column; gap: 10px; }
+.pf-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+.pf-name { font-size: 17px; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pf-status { width: auto; }
+.pf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px 12px; }
+.pf-grid label { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--muted); min-width: 0; }
+.pf-grid input { width: 100%; }
+.pf-compare { display: flex; flex-wrap: wrap; gap: 12px; margin: 8px 0; }
+.pf-gain { color: var(--accent); font-weight: 600; }
+.pf-loss { color: var(--danger); font-weight: 600; }
+.pf-notes { width: 100%; }
+.pf-sold { opacity: .85; }
+.pf-dropped { opacity: .6; }

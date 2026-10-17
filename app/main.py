@@ -22,7 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import ai, bot, calendar_ics, ccdns, db, morning, digest, drops, explore, frdata, frdns, rdapinfo, reserved, seo, signals, states, updates, value, wordlists
+from . import ai, bot, calendar_ics, ccdns, db, morning, portfolio, digest, drops, explore, frdata, frdns, rdapinfo, reserved, seo, signals, states, updates, value, wordlists
 from .auth import (
     COOKIE_NAME,
     MIN_PASSWORD_LENGTH,
@@ -71,7 +71,7 @@ STATIC = Path(__file__).parent / "static"
 PWA_PATHS = {"/manifest.webmanifest", "/sw.js", "/offline"}
 AI_PATHS = {"/api/ai/pending", "/api/ai/results"}
 # Lecture seule avec le même jeton : de quoi observer et analyser, jamais modifier ni lire un réglage.
-READ_PATHS = re.compile(r"^/api/(meta|diag|domains|domains/\d+/history|drops|explore(/[a-z]+)?|ai/(status|rated))$")
+READ_PATHS = re.compile(r"^/api/(meta|diag|domains|domains/\d+/history|drops|portfolio|explore(/[a-z]+)?|ai/(status|rated))$")
 PUBLIC_PATHS = {"/login", "/health", "/favicon.svg", "/logo", *PWA_PATHS}
 SETUP_PATHS = {"/setup", "/health", "/favicon.svg", "/logo"}
 BCRYPT_HASH = re.compile(r"\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}")
@@ -127,6 +127,11 @@ async def lifespan(app: FastAPI):
             # Rien à signaler : pas de message, mais le jour compte comme fait.
             if text is None or await telegram.send(text) is None:
                 store.set("morning_last_sent", now_local.date().isoformat())
+
+    async def remind_renewals() -> None:
+        if telegram.configured:
+            for text in portfolio.reminders(conn, utcnow()):
+                await telegram.send("Renouvellement : " + text)
 
     async def check_health() -> None:
         if not telegram.configured:
@@ -184,6 +189,7 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(send_digest, "interval", minutes=15, max_instances=1)
     scheduler.add_job(send_morning, "interval", minutes=15, next_run_time=now + timedelta(minutes=5), max_instances=1)
     scheduler.add_job(check_health, "interval", hours=1, next_run_time=now + timedelta(minutes=20), max_instances=1)
+    scheduler.add_job(remind_renewals, "interval", hours=6, next_run_time=now + timedelta(minutes=25), max_instances=1)
     scheduler.add_job(refresh_signals, "interval", hours=1, next_run_time=now + timedelta(minutes=2), max_instances=1)
     scheduler.add_job(scan_zones, "interval", minutes=15, next_run_time=now + timedelta(minutes=1), max_instances=1)
     scheduler.add_job(check_drops, "interval", minutes=5, next_run_time=now + timedelta(minutes=3), max_instances=1)
@@ -1345,7 +1351,9 @@ async def ai_pending(request: Request):
         names = await _off(ai.requested, explorer)
     else:
         names = ai.pending(explorer, _limit(request, ai.MAX_PENDING))
-    return {"version": ai.VERSION, "guide": ai.GUIDE, "format": ai.FORMAT, "names": names}
+    # Ventes et offres réelles du portefeuille : repères de prix ajoutés à la consigne.
+    guide = ai.GUIDE + portfolio.guide_addendum(portfolio.market_examples(request.app.state.conn))
+    return {"version": ai.VERSION, "guide": guide, "format": ai.FORMAT, "names": names}
 
 
 class AiResults(BaseModel):
@@ -1377,6 +1385,55 @@ async def _notify_ai_done(request: Request, name: str) -> None:
         await request.app.state.telegram.send(text)
     except Exception as exc:  # noqa: BLE001  la notification dans l'appli reste
         log.warning("Analyse IA : message Telegram non envoyé (%s)", exc)
+
+
+@app.get("/api/portfolio")
+async def get_portfolio(request: Request):
+    found = portfolio.items(request.app.state.conn, utcnow())
+    return {"items": found, "totals": portfolio.totals(found), "statuses": portfolio.STATUSES}
+
+
+@app.post("/api/portfolio")
+async def add_portfolio(request: Request, payload: dict):
+    try:
+        name = clean_domain(str(payload.get("name", "")))
+        values = portfolio.clean(payload)
+    except (InvalidDomain, ValueError) as exc:
+        raise HTTPException(422, str(exc)) from None
+    conn = request.app.state.conn
+    if conn.execute("SELECT 1 FROM portfolio WHERE name = ?", (name,)).fetchone():
+        raise HTTPException(409, f"{name} est déjà dans le portefeuille.")
+    values.setdefault("status", "owned")
+    cols = ["name", "created_at", *values]
+    conn.execute(f"INSERT INTO portfolio ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
+                 (name, iso(utcnow()), *values.values()))
+    # Surveillé aussi : l'échéance réelle vient du RDAP, et les changements arrivent sur Telegram.
+    if not conn.execute("SELECT 1 FROM domains WHERE name = ?", (name,)).fetchone():
+        try:
+            await request.app.state.checker.add(name)
+        except Exception as exc:  # noqa: BLE001  le nom reste au portefeuille, la surveillance se rattrape
+            log.info("Portefeuille : %s non surveillé (%s)", name, exc)
+    return await get_portfolio(request)
+
+
+@app.put("/api/portfolio/{item_id}")
+async def update_portfolio(request: Request, item_id: int, payload: dict):
+    try:
+        values = portfolio.clean(payload)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    conn = request.app.state.conn
+    if not conn.execute("SELECT 1 FROM portfolio WHERE id = ?", (item_id,)).fetchone():
+        raise HTTPException(404, "Nom absent du portefeuille.")
+    if values:
+        conn.execute(f"UPDATE portfolio SET {', '.join(f'{k} = ?' for k in values)} WHERE id = ?", (*values.values(), item_id))
+    return await get_portfolio(request)
+
+
+@app.delete("/api/portfolio/{item_id}")
+async def delete_portfolio(request: Request, item_id: int):
+    request.app.state.conn.execute("DELETE FROM portfolio WHERE id = ?", (item_id,))
+    return await get_portfolio(request)
 
 
 class AiAsk(BaseModel):

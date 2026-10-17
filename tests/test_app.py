@@ -572,3 +572,36 @@ def test_hidden_drops_leave_the_screen(logged):
     client.post("/api/drops/unhide")
     assert "ciel.fr" in {i["name"] for i in client.get("/api/drops").json()["items"]}
     client.__exit__(None, None, None)
+
+
+def test_portfolio_tracks_purchases_sales_and_reminders(logged):
+    from app import portfolio
+
+    client = logged()
+    added = []
+
+    async def add(name):
+        added.append(name)
+
+    client.app.state.checker.add = add
+    soon = (datetime.now(timezone.utc) + timedelta(days=20)).date().isoformat()
+    data = client.post("/api/portfolio", json={"name": "ForumDomotique.fr", "buy_price": 12, "renew_price": 12,
+                                               "bought_on": "2025-03-01", "expires_at": soon}).json()
+    item = data["items"][0]
+    assert item["name"] == "forumdomotique.fr" and item["status"] == "owned" and added == ["forumdomotique.fr"]
+    assert data["totals"]["invested"] == 12 and data["totals"]["yearly_renewals"] == 12
+    assert client.post("/api/portfolio", json={"name": "forumdomotique.fr"}).status_code == 409
+    # Rappel 30 jours avant l'échéance, une seule fois.
+    conn = client.app.state.conn
+    texts = portfolio.reminders(conn, datetime.now(timezone.utc))
+    assert len(texts) == 1 and "forumdomotique.fr" in texts[0]
+    assert portfolio.reminders(conn, datetime.now(timezone.utc)) == []
+    # Vente : bénéfice, et prix réel ajouté à la consigne de notation.
+    data = client.put(f"/api/portfolio/{item['id']}", json={"status": "sold", "sold_price": 900, "sold_on": "2026-10-01"}).json()
+    assert data["items"][0]["profit"] == 888 and data["totals"]["sold_total"] == 900
+    token = client.post("/api/settings/ai-token").json()["token"]
+    guide = client.get("/api/ai/pending", params={"limit": 1}, headers={"Authorization": f"Bearer {token}"}).json()["guide"]
+    assert "forumdomotique.fr : 900 euros (vendu)" in guide
+    assert client.put(f"/api/portfolio/{item['id']}", json={"status": "volé"}).status_code == 422
+    assert client.delete(f"/api/portfolio/{item['id']}").json()["items"] == []
+    client.__exit__(None, None, None)

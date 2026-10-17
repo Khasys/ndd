@@ -121,6 +121,9 @@ document.addEventListener("alpine:init", () => {
     dropsOpen: false,
     dropsData: null,
     exploreOpen: false,
+    portfolioOpen: false,
+    pf: null,
+    pfNew: { name: "", buy_price: "", bought_on: "", renew_price: "" },
     exData: null,
     exError: "",
     exItems: [],
@@ -214,6 +217,7 @@ document.addEventListener("alpine:init", () => {
       this.$watch("settingsOpen", () => this.lockScroll());
       this.$watch("dropsOpen", () => this.lockScroll());
       this.$watch("exploreOpen", () => this.lockScroll());
+      this.$watch("portfolioOpen", () => this.lockScroll());
       // Suppressions ouvert : le travail .fr est suivi en direct.
       setInterval(() => { if (this.dropsOpen && document.visibilityState === "visible") this.loadDrops(true); }, 15000);
       this.$watch("openId", (id) => {
@@ -263,13 +267,14 @@ document.addEventListener("alpine:init", () => {
       else if (this.paged) this.showList();
     },
 
-    get paged() { return this.legendOpen || this.settingsOpen || this.dropsOpen || this.exploreOpen; },
+    get paged() { return this.legendOpen || this.settingsOpen || this.dropsOpen || this.exploreOpen || this.portfolioOpen; },
 
     showList() {
       this.legendOpen = false;
       this.settingsOpen = false;
       this.dropsOpen = false;
       this.exploreOpen = false;
+      this.portfolioOpen = false;
       window.scrollTo({ top: 0, behavior: "smooth" });
     },
 
@@ -300,7 +305,12 @@ document.addEventListener("alpine:init", () => {
       this.legendOpen = false;
       this.dropsOpen = false;
       this.exploreOpen = false;
-      if (name === "legend") {
+      this.portfolioOpen = false;
+      if (name === "portfolio") {
+        this.settingsOpen = false;
+        this.portfolioOpen = true;
+        await this.loadPortfolio();
+      } else if (name === "legend") {
         this.settingsOpen = false;
         this.legendOpen = opening;
       } else if (name === "drops") {
@@ -382,6 +392,50 @@ document.addEventListener("alpine:init", () => {
         this.say(`${name} : ${e.message}`, "error");
       }
     },
+
+    // Portefeuille : noms achetés, renouvellements, mise en vente, ventes.
+    async loadPortfolio() {
+      try {
+        this.pf = await this.api("GET", "/api/portfolio");
+      } catch (e) {
+        this.say(`Portefeuille indisponible : ${e.message}`, "error");
+      }
+    },
+
+    async pfAdd(name, extra = {}) {
+      const body = { ...this.pfNew, ...extra, name: name || this.pfNew.name };
+      for (const k of Object.keys(body)) if (body[k] === "") delete body[k];
+      try {
+        this.pf = await this.api("POST", "/api/portfolio", body);
+        this.pfNew = { name: "", buy_price: "", bought_on: "", renew_price: "" };
+        this.say(`${body.name} ajouté au portefeuille.`);
+        return true;
+      } catch (e) {
+        this.say(e.message, "error");
+        return false;
+      }
+    },
+
+    async pfSet(item, key, value) {
+      try {
+        this.pf = await this.api("PUT", `/api/portfolio/${item.id}`, { [key]: value });
+      } catch (e) {
+        this.say(e.message, "error");
+        await this.loadPortfolio();
+      }
+    },
+
+    async pfDelete(item) {
+      if (!confirm(`Retirer ${item.name} du portefeuille ?`)) return;
+      this.pf = await this.api("DELETE", `/api/portfolio/${item.id}`);
+    },
+
+    async ficheBought() {
+      const today = new Date().toISOString().slice(0, 10);
+      if (await this.pfAdd(this.fiche.name, { bought_on: today })) this.ficheReload();
+    },
+
+    euros(n) { return n === null || n === undefined || n === "" ? "" : `${this.fmt(n)} €`; },
 
     // En-tête de fiche : de quoi décider d'un coup d'œil (état, libération, avis IA, prix).
     ficheDecision(f) {

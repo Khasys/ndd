@@ -35,6 +35,9 @@
       <button type="button" class="side-link" :class="{ on: exploreOpen }" @click="openSheet('explore')">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/></svg><span>Explorer</span>
       </button>
+      <button type="button" class="side-link" :class="{ on: portfolioOpen }" @click="openSheet('portfolio')">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="7" width="16" height="12" rx="2"/><path d="M9 7V5h6v2M4 12h16"/></svg><span>Portefeuille</span>
+      </button>
       <button type="button" class="side-link" :class="{ on: legendOpen }" @click="openSheet('legend')">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 7.5v.5"/></svg><span>Aide</span>
       </button>
@@ -389,6 +392,66 @@
           <button type="button" class="btn-ghost sm" @click="dropBulk('hide')" :disabled="dropBulkRunning">Masquer</button>
           <button type="button" class="btn-text" @click="dropSelected = []">Annuler</button>
           <span class="muted small" x-show="dropBulkRunning" x-text="dropBulkDone + '/' + dropSelected.length"></span>
+        </div>
+      </div>
+    </template>
+  </section>
+
+  <section class="portfolio-page sheet" x-show="portfolioOpen" x-transition.opacity.duration.150ms x-cloak aria-label="Portefeuille">
+    <div class="sheet-head">
+      <h2>Portefeuille</h2>
+      <button type="button" class="btn-ghost" @click="portfolioOpen = false">Fermer</button>
+    </div>
+    <template x-if="pf">
+      <div>
+        <div class="drops-card pf-totals">
+          <div><span class="muted small">Possédés</span><strong class="num" x-text="pf.totals.count.owned + pf.totals.count.for_sale"></strong></div>
+          <div><span class="muted small">En vente</span><strong class="num" x-text="pf.totals.count.for_sale"></strong></div>
+          <div><span class="muted small">Vendus</span><strong class="num" x-text="pf.totals.count.sold"></strong></div>
+          <div><span class="muted small">Investi</span><strong class="num" x-text="euros(pf.totals.invested)"></strong></div>
+          <div><span class="muted small">Renouvellements par an</span><strong class="num" x-text="euros(pf.totals.yearly_renewals)"></strong></div>
+          <div><span class="muted small">Ventes</span><strong class="num" x-text="euros(pf.totals.sold_total)"></strong></div>
+          <div><span class="muted small">Bénéfice sur les ventes</span><strong class="num" x-text="euros(pf.totals.profit)"></strong></div>
+        </div>
+
+        <form class="drops-card pf-add" @submit.prevent="pfAdd()">
+          <input type="text" class="filter-input" x-model="pfNew.name" placeholder="nom.fr" aria-label="Nom" autocapitalize="off" spellcheck="false" required>
+          <input type="number" min="0" class="filter-input num-input" x-model="pfNew.buy_price" placeholder="Achat €" aria-label="Prix d'achat">
+          <input type="date" class="filter-input" x-model="pfNew.bought_on" aria-label="Date d'achat">
+          <input type="number" min="0" class="filter-input num-input" x-model="pfNew.renew_price" placeholder="Renouv. €/an" aria-label="Renouvellement par an">
+          <button type="submit" class="btn">Ajouter</button>
+        </form>
+        <p class="muted small">Un nom ajouté est aussi surveillé : son échéance réelle vient du RDAP. Rappel Telegram 30 puis 7 jours avant le renouvellement. Les ventes et les offres reçues servent de repères de prix à la notation IA.</p>
+
+        <p class="muted" x-show="!pf.items.length">Aucun nom pour l'instant. « J'ai acheté » dans la fiche d'un nom l'ajoute ici.</p>
+        <div class="pf-list">
+          <template x-for="i in pf.items" :key="i.id">
+            <div class="drops-card pf-item" :class="'pf-' + i.status">
+              <div class="pf-head">
+                <button type="button" class="link-like mono pf-name" @click="openFiche(i.name)" x-text="i.name"></button>
+                <select class="filter-input pf-status" :value="i.status" @change="pfSet(i, 'status', $event.target.value)" aria-label="Statut">
+                  <template x-for="(label, k) in pf.statuses" :key="k"><option :value="k" x-text="label" :selected="k === i.status"></option></template>
+                </select>
+                <button type="button" class="btn-text small" @click="pfDelete(i)">Retirer</button>
+              </div>
+              <div class="pf-grid">
+                <label><span>Achat €</span><input type="number" min="0" class="filter-input" :value="i.buy_price ?? ''" @change="pfSet(i, 'buy_price', $event.target.value)"></label>
+                <label><span>Acheté le</span><input type="date" class="filter-input" :value="i.bought_on ?? ''" @change="pfSet(i, 'bought_on', $event.target.value)"></label>
+                <label><span>Renouv. €/an</span><input type="number" min="0" class="filter-input" :value="i.renew_price ?? ''" @change="pfSet(i, 'renew_price', $event.target.value)"></label>
+                <label><span x-text="'Échéance' + (i.expiry_source === 'RDAP' ? ' (RDAP)' : '')"></span>
+                  <input type="date" class="filter-input" :value="(i.expiry || '').slice(0, 10)" :disabled="i.expiry_source === 'RDAP'" @change="pfSet(i, 'expires_at', $event.target.value)"></label>
+                <label><span>Prix demandé €</span><input type="number" min="0" class="filter-input" :value="i.asking_price ?? ''" @change="pfSet(i, 'asking_price', $event.target.value)"></label>
+                <label><span>Meilleure offre €</span><input type="number" min="0" class="filter-input" :value="i.best_offer ?? ''" @change="pfSet(i, 'best_offer', $event.target.value)"></label>
+                <label x-show="i.status === 'sold'"><span>Vendu €</span><input type="number" min="0" class="filter-input" :value="i.sold_price ?? ''" @change="pfSet(i, 'sold_price', $event.target.value)"></label>
+                <label x-show="i.status === 'sold'"><span>Vendu le</span><input type="date" class="filter-input" :value="i.sold_on ?? ''" @change="pfSet(i, 'sold_on', $event.target.value)"></label>
+              </div>
+              <p class="small pf-compare">
+                <span x-show="i.ai" x-text="i.ai ? 'Estimation IA, utilisateur final : ' + priceRange(i.ai.final_low, i.ai.final_high) : ''"></span>
+                <span x-show="i.profit !== null" :class="i.profit >= 0 ? 'pf-gain' : 'pf-loss'" x-text="'Bénéfice ' + euros(i.profit)"></span>
+              </p>
+              <input type="text" class="filter-input pf-notes" :value="i.notes ?? ''" placeholder="Notes" @change="pfSet(i, 'notes', $event.target.value)" aria-label="Notes">
+            </div>
+          </template>
         </div>
       </div>
     </template>
@@ -1416,6 +1479,7 @@
         <button type="button" class="btn-ghost" x-show="fiche.domain_id" @click="openDomain(fiche.domain_id)">Voir dans Domaines</button>
         <button type="button" :class="fichePrimary(fiche) === 'ai' ? 'btn' : 'btn-ghost'" @click="ficheAskAi()" :disabled="fiche.ai_request && !fiche.ai_request.done_at" x-text="aiAskLabel(fiche)"></button>
         <button type="button" class="btn-ghost" @click="ficheCheck()" :disabled="!!exBusy[fiche.name]" x-text="exBusy[fiche.name] ? 'Vérification' : 'Vérifier'"></button>
+        <button type="button" class="btn-ghost" @click="ficheBought()">J'ai acheté</button>
       </div>
       <div class="details-grid">
         <div x-html="valueHtml(fiche)"></div>
@@ -1448,11 +1512,15 @@
     </button>
     <button type="button" :class="{ on: dropsOpen }" @click="openSheet('drops')">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
-      <span>Suppressions</span>
+      <span>Suppr.</span>
     </button>
     <button type="button" :class="{ on: exploreOpen }" @click="openSheet('explore')">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/></svg>
       <span>Explorer</span>
+    </button>
+    <button type="button" :class="{ on: portfolioOpen }" @click="openSheet('portfolio')">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="7" width="16" height="12" rx="2"/><path d="M9 7V5h6v2M4 12h16"/></svg>
+      <span>Mes noms</span>
     </button>
     <button type="button" :class="{ on: legendOpen }" @click="openSheet('legend')">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 7.5v.5"/></svg>
@@ -1460,7 +1528,7 @@
     </button>
     <button type="button" class="has-badge" :class="{ on: settingsOpen }" @click="openSheet('settings')">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>
-      <span>Paramètres</span>
+      <span>Réglages</span>
       <span class="update-badge" x-show="meta && meta.update_available" x-cloak aria-label="Mise à jour disponible">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 12V4M4.5 7.5 8 4l3.5 3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </span>

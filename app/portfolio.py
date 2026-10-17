@@ -1,0 +1,128 @@
+"""Portefeuille : noms possédés, prix d'achat, renouvellements, mise en vente, ventes.
+
+L'échéance vient du domaine surveillé du même nom (RDAP), sinon de la date saisie. Rappel Telegram
+30 jours puis 7 jours avant chaque renouvellement. Les ventes et les offres reçues servent d'exemples
+réels à la notation IA : c'est la seule calibration sur le marché dont on dispose.
+"""
+
+import json
+from datetime import datetime, timezone
+
+from . import ai, states
+from .checker import iso, parse_iso
+
+STATUSES = {"owned": "Possédé", "for_sale": "En vente", "sold": "Vendu", "dropped": "Abandonné"}
+KEPT = ("owned", "for_sale")       # encore à toi : renouvellements à payer
+REMIND_DAYS = (30, 7)
+FIELDS = ("status", "bought_on", "buy_price", "renew_price", "expires_at", "asking_price", "best_offer",
+          "sold_on", "sold_price", "notes")
+
+
+def _expiry(row, domain, now: datetime) -> datetime | None:
+    if domain is not None and domain["expires_at"]:
+        return states.effective_expiry(domain["state"], parse_iso(domain["expires_at"]), now)
+    # Date saisie (AAAA-MM-JJ) : minuit UTC ce jour-là.
+    return datetime.fromisoformat(row["expires_at"][:10]).replace(tzinfo=timezone.utc) if row["expires_at"] else None
+
+
+def items(conn, now: datetime) -> list[dict]:
+    rows = conn.execute("SELECT * FROM portfolio ORDER BY status, name").fetchall()
+    names = [r["name"] for r in rows]
+    domains = {r["name"]: r for r in conn.execute("SELECT * FROM domains")}
+    opinions = ai.load(conn, names)
+    out = []
+    for r in rows:
+        domain = domains.get(r["name"])
+        expiry = _expiry(r, domain, now)
+        item = {k: r[k] for k in ("id", "name", *FIELDS)}
+        item.update(
+            status_label=STATUSES.get(r["status"], r["status"]),
+            expiry=iso(expiry) if expiry else None,
+            expiry_source="RDAP" if domain is not None and domain["expires_at"] else ("saisie" if r["expires_at"] else None),
+            domain_id=domain["id"] if domain is not None else None,
+            ai=opinions.get(r["name"]),
+            profit=(r["sold_price"] - (r["buy_price"] or 0)) if r["status"] == "sold" and r["sold_price"] is not None else None,
+        )
+        out.append(item)
+    return out
+
+
+def totals(found: list[dict]) -> dict:
+    kept = [i for i in found if i["status"] in KEPT]
+    sold = [i for i in found if i["status"] == "sold"]
+    return {
+        "count": {k: sum(1 for i in found if i["status"] == k) for k in STATUSES},
+        "invested": sum(i["buy_price"] or 0 for i in found),
+        "yearly_renewals": sum(i["renew_price"] or 0 for i in kept),
+        "sold_total": sum(i["sold_price"] or 0 for i in sold),
+        "profit": sum(i["profit"] or 0 for i in sold),
+        "asking_total": sum(i["asking_price"] or 0 for i in kept if i["status"] == "for_sale"),
+    }
+
+
+def clean(payload: dict) -> dict:
+    """Champs saisis, au bon type ; les montants en euros entiers, les dates en AAAA-MM-JJ."""
+    out = {}
+    for key in FIELDS:
+        if key not in payload:
+            continue
+        value = payload[key]
+        if value in ("", None):
+            out[key] = None
+        elif key == "status":
+            if value not in STATUSES:
+                raise ValueError("Statut inconnu.")
+            out[key] = value
+        elif key.endswith("_price") or key == "best_offer":
+            number = int(float(value))
+            if not 0 <= number <= 100_000_000:
+                raise ValueError("Montant hors limites.")
+            out[key] = number
+        elif key in ("bought_on", "sold_on", "expires_at"):
+            out[key] = datetime.fromisoformat(str(value)[:10]).date().isoformat()
+        else:
+            out[key] = str(value)[:500]
+    return out
+
+
+def reminders(conn, now: datetime) -> list[str]:
+    """Rappels de renouvellement à envoyer (30 puis 7 jours avant), chacun une seule fois."""
+    texts = []
+    for item in items(conn, now):
+        if item["status"] not in KEPT or not item["expiry"]:
+            continue
+        expiry = parse_iso(item["expiry"])
+        left = (expiry - now).days
+        row = conn.execute("SELECT reminded FROM portfolio WHERE id = ?", (item["id"],)).fetchone()
+        sent = set(json.loads(row["reminded"] or "[]"))
+        for days in REMIND_DAYS:
+            key = f"{expiry.date().isoformat()}:{days}"
+            if 0 <= left <= days and key not in sent:
+                price = f", renouvellement {item['renew_price']} €" if item["renew_price"] else ""
+                texts.append(f"{item['name']} expire le {expiry.strftime('%d/%m/%Y')} (dans {left} j){price}.")
+                sent.add(key)
+                conn.execute("UPDATE portfolio SET reminded = ? WHERE id = ?", (json.dumps(sorted(sent)), item["id"]))
+                break
+    return texts
+
+
+def market_examples(conn, limit: int = 15) -> list[dict]:
+    """Ventes et offres réelles, pour la consigne de notation."""
+    found = []
+    for r in conn.execute("SELECT name, sold_price, best_offer, status FROM portfolio "
+                          "WHERE sold_price IS NOT NULL OR best_offer IS NOT NULL ORDER BY COALESCE(sold_on, created_at) DESC"):
+        if r["sold_price"] is not None:
+            found.append({"name": r["name"], "price": r["sold_price"], "kind": "vendu"})
+        elif r["best_offer"] is not None:
+            found.append({"name": r["name"], "price": r["best_offer"], "kind": "offre reçue"})
+        if len(found) >= limit:
+            break
+    return found
+
+
+def guide_addendum(examples: list[dict]) -> str:
+    if not examples:
+        return ""
+    lines = [f"- {e['name']} : {e['price']} euros ({e['kind']})" for e in examples]
+    return ("\n\nPrix réels connus de cet investisseur (ventes et offres reçues), à prendre comme repères "
+            "pour le prix utilisateur final de noms comparables :\n" + "\n".join(lines))
