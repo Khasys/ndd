@@ -118,6 +118,7 @@ EXT_FACTOR = {"com": 1.5, "fr": 1.0, "io": 0.8, "ai": 0.8, "co": 0.6, "org": 0.5
 OTHER_EXT_FACTOR = 0.4
 QUICK_SHARE = 0.4  # revente rapide : 40 % du prix utilisateur final au plus
 SHORT_UNCAPPED = 2  # noms de 1 ou 2 caractères : pas de plafond de palier
+SHORT_UNCAPPED_BY_TLD = {"com": 3}  # en .com, jusqu'à 3 caractères (marché porté par la rareté)
 UNCAPPED_FROM = 90  # ni pour une note de 90 et plus
 
 
@@ -188,7 +189,7 @@ def check_v5(item, known) -> str | None:
     # 2 caractères : rares, ils se vendent au-dessus des paliers (ev.fr, 120 000 euros en 2022) ; pas de plafond.
     floor = price_band(max(0, best - 10), tld)[0]
     # Meilleurs mots du marché (note de 90 et plus) : pas de plafond non plus.
-    uncapped = len(label) <= SHORT_UNCAPPED or best >= UNCAPPED_FROM
+    uncapped = len(label) <= SHORT_UNCAPPED_BY_TLD.get(tld, SHORT_UNCAPPED) or best >= UNCAPPED_FROM
     ceiling = PRICE_STEPS[-1] if uncapped else price_band(min(100, best + 10), tld)[1]
     if final_low < floor or final_high > ceiling:
         return f"prix utilisateur final hors palier pour une note de {best} en .{tld} : entre {floor} et {ceiling} euros"
