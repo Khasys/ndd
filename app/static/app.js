@@ -1134,9 +1134,16 @@ document.addEventListener("alpine:init", () => {
       this.savePremium();
     },
 
+    togglePremiumTld(tld, possible) {
+      const off = new Set(this.cfg.premium.off || []);
+      if (possible) off.delete(tld); else off.add(tld);
+      this.cfg.premium.off = [...off].sort();
+      this.savePremium();
+    },
+
     async savePremium() {
       try {
-        const saved = await this.api("PUT", "/api/settings/premium", { devalue: !!this.cfg.premium.devalue, prices: this.cfg.premium.prices || {} });
+        const saved = await this.api("PUT", "/api/settings/premium", { devalue: !!this.cfg.premium.devalue, prices: this.cfg.premium.prices || {}, off: this.cfg.premium.off || [] });
         this.cfg.premium = { ...this.cfg.premium, ...saved };
         this.say("Réglage des premiums enregistré.");
       } catch (e) {

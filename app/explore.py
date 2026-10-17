@@ -41,6 +41,7 @@ LABELS = {
 # 3 caractères libres sur une extension générique : souvent vendus au prix premium par le registre.
 # Rien ne le confirme sans accès registrar ; l'Explorer les masque sauf si on demande à les voir.
 PREMIUM_LENGTH = 3
+PREMIUM_OFF_DEFAULT = ("com", "net")
 # Pour une zone ICANN, l'absence veut seulement dire « pas dans la zone » : un nom enregistré
 # sans serveurs DNS n'y figure pas non plus. Pour le .fr, l'open data liste aussi l'historique.
 ABSENT_ZONE = "Absent de la zone, à vérifier"
@@ -451,7 +452,7 @@ class Explorer:
                 for i in range(drops.OFFSETS[2]):
                     if status[i] in (ABSENT, FREE) and f"{u.label(i)}.{tld}" not in unflagged:
                         status[i] = RESERVED
-        if tld != "fr":
+        if tld != "fr" and tld not in self.premium_tlds_off():
             unflagged = self.reserved.unflagged() if self.reserved is not None else frozenset()
             for i in range(drops.OFFSETS[2], drops.OFFSETS[PREMIUM_LENGTH]):
                 if status[i] in (ABSENT, FREE) and f"{u.label(i)}.{tld}" not in unflagged:
@@ -714,6 +715,14 @@ class Explorer:
 
     def premium_devalue(self) -> bool:
         return self.fr.store.get("premium_devalue") == "1"
+
+    def premium_tlds_off(self) -> frozenset[str]:
+        """Extensions sans prix premium chez le registre : .com et .net (prix unique imposé à Verisign)
+        par défaut, puis ce que l'on décoche dans Paramètres."""
+        try:
+            return frozenset(json.loads(self.fr.store.get("premium_off") or '["com", "net"]'))
+        except ValueError:
+            return frozenset(PREMIUM_OFF_DEFAULT)
 
     def _bonus_context(self, tld: str) -> dict:
         return self._memo(("bonus", tld), lambda: self._build_bonus_context(tld))
@@ -1067,7 +1076,8 @@ class Explorer:
             code = RESERVED
         elif self.reserved is not None and code in (ABSENT, FREE) and self.reserved.short_reserved(f"{label}.{tld}"):
             code = RESERVED
-        elif (tld != "fr" and code in (ABSENT, FREE) and drops.OFFSETS[2] <= i < drops.OFFSETS[PREMIUM_LENGTH]
+        elif (tld != "fr" and tld not in self.premium_tlds_off() and code in (ABSENT, FREE)
+              and drops.OFFSETS[2] <= i < drops.OFFSETS[PREMIUM_LENGTH]
               and (self.reserved is None or f"{label}.{tld}" not in self.reserved.unflagged())):
             code = PREMIUM
         return base, code

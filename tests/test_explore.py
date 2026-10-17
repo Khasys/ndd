@@ -221,9 +221,8 @@ def test_map_counts_per_extension_and_category(env):
     assert found["tlds"] == ["fr", "com"] and "Mots" in found["rows"].values()
     assert found["filters"]["short"] == {"cat": "", "len": -3} and found["filters"]["l4"] == {"cat": "letters", "len": 4}
     assert found["cells"]["fr"]["short"] == env.facets("fr", length=-3)["available"]
-    # Mots de 3 lettres libres en .com : premiums probables, hors des noms à saisir.
-    three = sum(1 for i in env.universe.by_list["word"] if len(env.universe.label(i)) == 3)
-    assert found["cells"]["com"]["word"] == len(env.universe.by_list["word"]) - 1 - three
+    # .com : pas de premium chez le registre (prix unique) ; tous les mots libres comptent.
+    assert found["cells"]["com"]["word"] == len(env.universe.by_list["word"]) - 1
 
 
 def test_seo_analysis_reads_pagerank_and_wayback(env):
@@ -548,6 +547,10 @@ def test_health_alerts_open_and_close_once(env):
 def test_premium_probable_bookable_and_release_sort(env):
     zone(env, [], ["maison"])
     u = env.universe
+    # .com et .net sont sans premium par défaut : la règle s'y applique une fois cochée.
+    assert env.status_bytes("com")[u.index("abd")] == explore.ABSENT
+    env.fr.store.set("premium_off", "[]")
+    env.invalidate("com")
     status = env.status_bytes("com")
     assert status[u.index("abd")] == explore.PREMIUM and status[u.index("maison")] == explore.REGISTERED
     # Masqués par défaut, visibles avec premium=1.

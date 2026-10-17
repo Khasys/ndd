@@ -751,6 +751,7 @@ async def get_settings(request: Request):
                "dns": state.store.get("fr_dns_enabled", "1") == "1"},
         "drops": {"keep_days": state.drops.keep_days, "min_score": _drops_min_score(state.store)},
         "premium": {"devalue": state.explorer.premium_devalue(), "prices": state.explorer.premium_prices(),
+                    "off": sorted(state.explorer.premium_tlds_off()),
                     "tlds": [t for t in state.explorer.tlds() if t != "fr"]},
         "seo": {"key_set": bool(state.seo.key)},
         "reserved": state.reserved.status(),
@@ -883,6 +884,7 @@ async def set_drops(request: Request, payload: DropsSettings):
 class PremiumSettings(BaseModel):
     devalue: bool
     prices: dict[str, dict[str, int | None]]
+    off: list[str] | None = None  # extensions sans premium chez le registre
 
 
 @app.put("/api/settings/premium")
@@ -899,8 +901,16 @@ async def set_premium(request: Request, payload: PremiumSettings):
     store = request.app.state.store
     store.set("premium_devalue", "1" if payload.devalue else "0")
     store.set("premium_prices", json.dumps(clean))
-    request.app.state.explorer.refresh_settings()
-    return {"devalue": payload.devalue, "prices": clean}
+    explorer = request.app.state.explorer
+    if payload.off is not None:
+        off = sorted({t.strip().lower().lstrip(".") for t in payload.off if re.fullmatch(r"\.?[a-z]{2,20}", t.strip().lower())})
+        if set(off) != explorer.premium_tlds_off():
+            store.set("premium_off", json.dumps(off))
+            explorer.invalidate()  # l'état « premium probable » change : états recalculés
+            explorer.warm()
+    else:
+        explorer.refresh_settings()
+    return {"devalue": payload.devalue, "prices": clean, "off": sorted(explorer.premium_tlds_off())}
 
 
 @app.post("/api/drops/fr/import", status_code=202)
@@ -940,6 +950,7 @@ async def list_drops(request: Request):
     # Le détail RDAP n'est pas dans la liste : la fiche le charge.
     with_items = request.query_params.get("items") != "0"
     prices = request.app.state.explorer.premium_prices()
+    premium_off = request.app.state.explorer.premium_tlds_off()
     values = await _off(request.app.state.explorer.value_of, [r["name"] for r in rows]) if with_items else {}
     return {
         "configured": watcher.configured or request.app.state.fr.enabled,
@@ -975,7 +986,8 @@ async def list_drops(request: Request):
                 "reserved": r["name"] in reserved_names,
                 "state_since": r["state_since"],
                 # 3 caractères libres hors .fr : souvent premium chez le registre (voir explore.PREMIUM).
-                "premium": r["tld"] != "fr" and len(r["name"]) - len(r["tld"]) - 1 == explore.PREMIUM_LENGTH,
+                "premium": (r["tld"] != "fr" and r["tld"] not in premium_off
+                            and len(r["name"]) - len(r["tld"]) - 1 == explore.PREMIUM_LENGTH),
                 "premium_price": prices.get(r["tld"], {}).get(str(len(r["name"]) - len(r["tld"]) - 1)),
                 **values[r["name"]],
             }
