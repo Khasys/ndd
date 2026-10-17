@@ -22,7 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import ai, bot, calendar_ics, ccdns, db, digest, drops, explore, frdata, frdns, rdapinfo, reserved, seo, signals, states, updates, value, wordlists
+from . import ai, bot, calendar_ics, ccdns, db, morning, digest, drops, explore, frdata, frdns, rdapinfo, reserved, seo, signals, states, updates, value, wordlists
 from .auth import (
     COOKIE_NAME,
     MIN_PASSWORD_LENGTH,
@@ -97,6 +97,7 @@ async def lifespan(app: FastAPI):
     store = Store(conn, {"telegram_token": settings.telegram_token, "telegram_chat_id": settings.telegram_chat_id})
     telegram = Telegram(store, http)
     checker = Checker(conn, settings, rdap, http, notify=telegram.send)
+    checker.link_base = lambda: settings.app_url or store.get("public_url") or ""
     telegram.handler = bot.build_handler(checker, VERSION)
 
     scheduler = AsyncIOScheduler(timezone="UTC")
@@ -116,8 +117,23 @@ async def lifespan(app: FastAPI):
     async def send_digest() -> None:
         now_local = datetime.now(digest.local_zone())
         if telegram.configured and digest.due(store, now_local):
-            if await telegram.send(digest.build(checker, utcnow(), settings.app_url)) is None:
+            if await telegram.send(digest.build(checker, utcnow(), settings.app_url or store.get("public_url") or "")) is None:
                 store.set("digest_last_sent", now_local.date().isoformat())
+
+    async def send_morning() -> None:
+        now_local = datetime.now(digest.local_zone())
+        if telegram.configured and morning.due(store, now_local):
+            text = await _morning_text(app.state)
+            # Rien à signaler : pas de message, mais le jour compte comme fait.
+            if text is None or await telegram.send(text) is None:
+                store.set("morning_last_sent", now_local.date().isoformat())
+
+    async def check_health() -> None:
+        if not telegram.configured:
+            return
+        text = morning.health_message(store, await _off(morning.problems, app.state, utcnow()))
+        if text:
+            await telegram.send(text)
 
     async def refresh_signals() -> None:
         await signals.update_due(conn, limit=20)
@@ -166,6 +182,8 @@ async def lifespan(app: FastAPI):
     now = datetime.now(timezone.utc)
     scheduler.add_job(refresh_latest, "interval", hours=24, next_run_time=now, max_instances=1, id="latest")
     scheduler.add_job(send_digest, "interval", minutes=15, max_instances=1)
+    scheduler.add_job(send_morning, "interval", minutes=15, next_run_time=now + timedelta(minutes=5), max_instances=1)
+    scheduler.add_job(check_health, "interval", hours=1, next_run_time=now + timedelta(minutes=20), max_instances=1)
     scheduler.add_job(refresh_signals, "interval", hours=1, next_run_time=now + timedelta(minutes=2), max_instances=1)
     scheduler.add_job(scan_zones, "interval", minutes=15, next_run_time=now + timedelta(minutes=1), max_instances=1)
     scheduler.add_job(check_drops, "interval", minutes=5, next_run_time=now + timedelta(minutes=3), max_instances=1)
@@ -247,6 +265,26 @@ async def log_slow_requests(request: Request, call_next):
     return response
 
 
+def _remember_public_url(request: Request) -> None:
+    """Adresse publique de l'appli, vue du navigateur : sert aux liens des messages Telegram."""
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+    if host:
+        scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
+        url = f"{scheme}://{host}"
+        if request.app.state.store.get("public_url") != url:
+            request.app.state.store.set("public_url", url)
+
+
+def _public_url(state) -> str:
+    return state.settings.app_url or state.store.get("public_url") or ""
+
+
+async def _morning_text(state) -> str | None:
+    min_score = int(state.store.get("morning_min", "40"))
+    status = {tld: c.status() for tld, c in state.cc_dns.items()}
+    return await _off(morning.build, state.conn, state.explorer, status, _public_url(state), utcnow(), min_score)
+
+
 @app.middleware("http")
 async def require_session(request: Request, call_next):
     path = request.url.path
@@ -260,6 +298,8 @@ async def require_session(request: Request, call_next):
     if path in PUBLIC_PATHS or path.startswith(("/static/", "/calendar/")):
         return await call_next(request)
     if state.sessions.valid(request.cookies.get(COOKIE_NAME), state.settings.username):
+        if path == "/" and not state.settings.app_url:
+            _remember_public_url(request)
         return await call_next(request)
     # Tâche de notation IA : jeton d'accès, limité à l'échange de la liste et des avis.
     if path in AI_PATHS and ai.token_ok(state.store, request.headers.get("authorization")):
@@ -630,8 +670,8 @@ async def test_alert(request: Request):
     state = request.app.state
     settings = state.settings
     lines = ["domain-watch : alerte test", f"Version {VERSION}"]
-    if settings.app_url:
-        lines.append(settings.app_url)
+    if _public_url(state):
+        lines.append(_public_url(state))
     error = await state.telegram.send("\n".join(lines))
     if error:
         raise HTTPException(502, error)
@@ -698,6 +738,12 @@ async def get_settings(request: Request):
             "day": int(store.get("digest_day", "0")),
             "hour": int(store.get("digest_hour", "9")),
             "last_sent": store.get("digest_last_sent") or None,
+        },
+        "morning": {
+            "enabled": store.get("morning_enabled", "1") == "1",
+            "hour": int(store.get("morning_hour", "8")),
+            "min_score": int(store.get("morning_min", "40")),
+            "last_sent": store.get("morning_last_sent") or None,
         },
         "calendar_url": _calendar_url(request),
         "czds": _czds_settings(state.drops),
@@ -1245,7 +1291,7 @@ async def ai_results(request: Request, payload: AiResults):
 async def _notify_ai_done(request: Request, name: str) -> None:
     """Analyse demandée prête : message Telegram avec le lien direct vers la fiche."""
     opinion = ai.load(request.app.state.conn, [name]).get(name) or {}
-    base = request.app.state.settings.app_url or request.app.state.store.get("public_url") or ""
+    base = _public_url(request.app.state)
     link = f"{base}/?{urlencode({'fiche': name, 'ai': '1'})}" if base else ""
     text = "\n".join(x for x in (f"Analyse IA prête : {name}", opinion.get("comment", ""), link) if x)
     try:
@@ -1265,11 +1311,8 @@ async def ai_request(request: Request, payload: AiAsk):
         name = clean_domain(payload.name)
     except InvalidDomain as exc:
         raise HTTPException(422, str(exc)) from None
-    # Adresse publique de l'appli, vue du navigateur : sert au lien du message Telegram.
-    host = request.headers.get("x-forwarded-host") or request.headers.get("host")
-    if host and not request.app.state.settings.app_url:
-        scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
-        request.app.state.store.set("public_url", f"{scheme}://{host}")
+    if not request.app.state.settings.app_url:
+        _remember_public_url(request)
     return ai.request(request.app.state.conn, name)
 
 
@@ -1595,10 +1638,38 @@ async def set_digest(request: Request, payload: DigestSettings):
     return await get_settings(request)
 
 
+class MorningSettings(BaseModel):
+    enabled: bool
+    hour: int
+    min_score: int
+
+
+@app.put("/api/settings/morning")
+async def set_morning(request: Request, payload: MorningSettings):
+    if not 0 <= payload.hour <= 23 or not 0 <= payload.min_score <= 100:
+        raise HTTPException(422, "Heure ou score invalide.")
+    store = request.app.state.store
+    store.set("morning_enabled", "1" if payload.enabled else "0")
+    store.set("morning_hour", str(payload.hour))
+    store.set("morning_min", str(payload.min_score))
+    return await get_settings(request)
+
+
+@app.post("/api/morning/send")
+async def send_morning_now(request: Request):
+    text = await _morning_text(request.app.state)
+    if text is None:
+        return {"sent": False, "detail": "Rien à signaler sur les dernières 24 h."}
+    error = await request.app.state.telegram.send(text)
+    if error:
+        raise HTTPException(502, error)
+    return {"sent": True}
+
+
 @app.post("/api/digest/send")
 async def send_digest_now(request: Request):
     state = request.app.state
-    error = await state.telegram.send(digest.build(state.checker, utcnow(), state.settings.app_url))
+    error = await state.telegram.send(digest.build(state.checker, utcnow(), _public_url(state)))
     if error:
         raise HTTPException(502, error)
     return {"sent": True}

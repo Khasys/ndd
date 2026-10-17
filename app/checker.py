@@ -75,6 +75,12 @@ class Checker:
             release = release.replace(hour=drop[0], minute=drop[1], second=0, microsecond=0)
         return release
 
+    link_base = None  # adresse publique de l'appli (fonction), pour le lien vers la fiche
+
+    def _link(self, name: str) -> str:
+        base = (self.link_base() if self.link_base else "") or self.settings.app_url
+        return f"{base}/?fiche={name}" if base else ""
+
     def _next_check(self, state: str | None, now: datetime) -> datetime:
         return now + timedelta(seconds=states.check_interval(state, self.settings.intervals))
 
@@ -192,7 +198,7 @@ class Checker:
                 row["registrar"] if registrar_changed else None,
                 values["registrar"] if registrar_changed else None,
                 self.release_estimate(updated, now),
-                self.settings.app_url,
+                self._link(row["name"]),
             )
             await self.notify(text)
 

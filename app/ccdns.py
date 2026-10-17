@@ -5,7 +5,7 @@ directement à leurs serveurs si les meilleurs noms des listes y sont délégué
 garde-fous du DNS .fr (rythme progressif, arrêt sur refus ou silence, plafond abaissé, alerte).
 
 Le signal utile : un nom délégué qui ne l'est plus (« sorti du DNS »), souvent un nom qui expire.
-Une alerte Telegram liste ces noms ; le RDAP (bouton Vérifier) tranche. Pas de date de libération :
+Le résumé Telegram du matin liste ces noms ; le RDAP (bouton Vérifier) tranche. Pas de date de libération :
 les délais de ces registres ne sont pas relevés. Un nom absent du DNS n'est pas forcément libre
 (enregistré sans serveurs, réservé ou premium du registre).
 """
@@ -84,15 +84,6 @@ class CcDns(FrDns):
 
     def changed(self, label: str, present: bool) -> None:
         pass  # pas de colonne dans l'Explorer pour ces extensions : la fiche lit cc_dns
-
-    async def run(self, limit: int = PER_TLD) -> dict:
-        stats = await super().run(limit)
-        lost = stats.get("freed_names") or []
-        if lost:
-            more = f" (et {len(lost) - 20} autres)" if len(lost) > 20 else ""
-            await self._alert(f"DNS .{self.tld} : {len(lost)} nom(s) sortis du DNS cette nuit, souvent un nom qui "
-                              f"expire : {', '.join(lost[:20])}{more}. À vérifier (RDAP) avant de conclure.")
-        return stats
 
     def position(self, label: str):
         return None

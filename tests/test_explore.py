@@ -509,5 +509,35 @@ def test_cc_dns_flags_names_that_leave_the_dns(env, monkeypatch):
     found = ccdns.load_names(env.conn, ["cloud.io", "insurance.io"])
     assert found["cloud.io"]["present"] is False and found["cloud.io"]["lost_at"]
     assert found["insurance.io"]["present"] is True and found["insurance.io"]["lost_at"] is None
-    assert len(alerts) == 1 and "cloud.io" in alerts[0] and "sortis du DNS" in alerts[0]
+    # Pas de message à part : le résumé du matin les liste.
+    assert not alerts and checker.status()["freed_names"] == ["cloud.io"]
     assert env.fr.store.get("io_dns_status") and not env.fr.store.get("fr_dns_status")
+
+
+def test_morning_summary_lists_good_names_with_links(env):
+    from app import morning
+
+    now = datetime.now(timezone.utc)
+    env.drops.record("fr", ["velo", "zzqx"], [], now)
+    env.conn.execute("UPDATE drops SET state = 'available', available_since = ? WHERE name IN ('velo.fr', 'zzqx.fr')",
+                     (now.isoformat(),))
+    env.touch("velo.fr")
+    text = morning.build(env.conn, env, {}, "https://nas.exemple", now, min_score=30)
+    assert text.startswith("Ce matin") and "velo.fr" in text and "https://nas.exemple/?fiche=velo.fr" in text
+    assert "zzqx.fr" not in text  # score trop bas, pas d'avis : pas dans le résumé
+    # Noms .co / .ai / .io sortis du DNS dans les dernières 24 h.
+    cc = {"io": {"finished_at": now.isoformat(), "freed_names": ["cloud.io"]}}
+    assert "cloud.io" in morning.build(env.conn, env, cc, "", now, min_score=30)
+    # Rien de bon : pas de message.
+    assert morning.build(env.conn, env, {}, "", now, min_score=100) is None
+
+
+def test_health_alerts_open_and_close_once(env):
+    from app import morning
+
+    store = env.fr.store
+    assert morning.health_message(store, {"zone:org": "Zone .org en erreur"}).startswith("Problème :")
+    assert morning.health_message(store, {"zone:org": "Zone .org en erreur"}) is None  # déjà signalé
+    closed = morning.health_message(store, {})
+    assert closed.startswith("Réglé :") and "Zone .org" in closed
+    assert morning.health_message(store, {}) is None

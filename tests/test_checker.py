@@ -195,7 +195,7 @@ def test_transition_records_history_and_alerts(env):
     assert lines[0] == "exemple-test.com"
     assert lines[1] == "En rédemption → Suppression imminente"
     assert lines[2].startswith("Libération estimée : ~")
-    assert lines[3] == "http://nas:8080"
+    assert lines[3] == "http://nas:8080/?fiche=exemple-test.com"
 
 
 def test_registrar_change_alerts(env):

@@ -1438,6 +1438,24 @@ document.addEventListener("alpine:init", () => {
       }
     },
 
+    async saveMorning() {
+      try {
+        const m = this.cfg.morning;
+        this.cfg = await this.api("PUT", "/api/settings/morning", { enabled: m.enabled, hour: m.hour, min_score: Number(m.min_score) || 0 });
+      } catch (e) {
+        this.say(e.message, "error");
+      }
+    },
+
+    async sendMorning() {
+      try {
+        const r = await this.api("POST", "/api/morning/send");
+        this.say(r.sent ? "Résumé du matin envoyé sur Telegram." : r.detail);
+      } catch (e) {
+        this.say(`Résumé non envoyé : ${e.message}`, "error");
+      }
+    },
+
     async sendDigest() {
       try {
         await this.api("POST", "/api/digest/send");

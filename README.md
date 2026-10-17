@@ -59,6 +59,19 @@ Commandes du bot : `/liste`, `/urgent`, `/ajouter nom.fr`, `/supprimer nom.fr`, 
 Le résumé hebdomadaire (changements de la semaine, expirations et libérations des 30 jours à venir,
 domaines en erreur) se règle au même endroit : jour, heure, activation. L'heure suit la variable `TZ`.
 
+Messages envoyés :
+
+| Message | Quand |
+|---|---|
+| Changement d'un domaine surveillé (état, registrar, libération estimée), lien vers sa fiche | à chaque changement ; vérification toutes les 5 min en suppression |
+| Résumé du matin : libérés, entrés en rédemption ou en suppression, .co / .ai / .io sortis du DNS, bons noms seulement, lien vers chaque fiche | chaque jour à l'heure choisie (8 h par défaut), rien s'il n'y a rien de bon |
+| Résumé hebdomadaire | jour et heure choisis |
+| Analyse IA demandée prête, lien vers la fiche | dans l'heure qui suit la demande |
+| Panne : zone en erreur ou pas lue depuis 36 h, fichier .fr en erreur, pause .fr de plus d'une heure, notation IA muette depuis 36 h | à l'apparition, puis « Réglé » à la disparition |
+| Passe DNS arrêtée (refus ou silence du registre) | à l'arrêt |
+
+Les liens utilisent `APP_URL`, sinon l'adresse vue par le navigateur à la dernière ouverture de l'appli.
+
 ### Apparence
 
 Paramètres, Apparence : nom affiché en haut à gauche, logo (PNG, JPEG, WebP ou SVG, 300 Ko maximum,

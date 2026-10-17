@@ -811,6 +811,28 @@
       </div>
 
       <div>
+        <h2>Résumé du matin</h2>
+        <template x-if="cfg && cfg.morning">
+          <div class="setting-lines">
+            <label class="check"><input type="checkbox" x-model="cfg.morning.enabled" @change="saveMorning()"> Envoyer chaque matin les bons noms des dernières 24 h</label>
+            <p class="inline-form">
+              <select x-model.number="cfg.morning.hour" @change="saveMorning()" :disabled="!cfg.morning.enabled" aria-label="Heure">
+                <template x-for="h in 24" :key="h"><option :value="h - 1" x-text="(h - 1) + ' h'" :selected="h - 1 === cfg.morning.hour"></option></template>
+              </select>
+              <label class="small" for="morning-min">Score minimum</label>
+              <input id="morning-min" type="number" min="0" max="100" step="5" class="filter-input num-input" x-model.number="cfg.morning.min_score" @change="saveMorning()" :disabled="!cfg.morning.enabled">
+            </p>
+            <p class="muted small">Noms libérés, noms entrés en rédemption ou en suppression, noms .co / .ai / .io sortis du DNS. Score minimum ou avis IA « À prendre » / « À surveiller ». Lien direct vers chaque fiche. Rien de bon : pas de message.</p>
+            <p class="muted small">Alertes de panne, sans réglage : zone en erreur ou pas lue depuis 36 h, fichier .fr en erreur, vérifications .fr en pause plus d'une heure, notation IA de nuit muette depuis 36 h. Un message quand le problème apparaît, un autre quand il est réglé.</p>
+            <p class="setting-actions">
+              <button type="button" class="btn-ghost" @click="sendMorning()" :disabled="!cfg.telegram.chat_set">Envoyer maintenant</button>
+              <span class="muted small" x-show="cfg.morning.last_sent" x-text="'Dernier envoi : ' + cfg.morning.last_sent"></span>
+            </p>
+          </div>
+        </template>
+      </div>
+
+      <div>
         <h2>Résumé hebdomadaire</h2>
         <template x-if="cfg">
           <div class="setting-lines">
