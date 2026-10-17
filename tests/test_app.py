@@ -557,3 +557,18 @@ def test_ai_analysis_on_request(logged):
                        follow_redirects=False)
     assert evil.headers["location"] == "/"
     client.__exit__(None, None, None)
+
+
+def test_hidden_drops_leave_the_screen(logged):
+    client = logged()
+    now = datetime.now(timezone.utc)
+    client.app.state.drops.record("fr", ["ciel", "mai"], [], now)
+    client.app.state.conn.execute("UPDATE drops SET state = 'available', available_since = ?", (now.isoformat(),))
+    names = {i["name"] for i in client.get("/api/drops").json()["items"]}
+    assert {"ciel.fr", "mai.fr"} <= names
+    assert client.post("/api/drops/hide", json={"names": ["ciel.fr"]}).json() == {"hidden": 1}
+    data = client.get("/api/drops").json()
+    assert "ciel.fr" not in {i["name"] for i in data["items"]} and data["hidden"] == 1
+    client.post("/api/drops/unhide")
+    assert "ciel.fr" in {i["name"] for i in client.get("/api/drops").json()["items"]}
+    client.__exit__(None, None, None)

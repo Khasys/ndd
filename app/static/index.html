@@ -316,11 +316,13 @@
           </select>
         </div>
         <p class="muted small" x-show="!dropsReleased.length" x-text="dropActive().length || dropTld ? 'Aucun nom libéré pour ces filtres.' : 'Aucun nom libéré ces ' + dropsData.keep_days + ' derniers jours.'"></p>
+        <button type="button" class="btn-text small drops-pick-all" x-show="dropsReleased.length" @click="dropPickAll('free', !dropAllPicked('free'))" x-text="dropAllPicked('free') ? 'Tout désélectionner' : 'Tout sélectionner (affichés)'"></button>
         <table class="drops-table" x-show="dropsReleased.length">
-          <thead><tr><th>Nom</th><th>Type</th><th>Libéré</th><th>Vu libre</th><th><span class="visually-hidden">Action</span></th></tr></thead>
+          <thead><tr><th class="drop-pick"><input type="checkbox" :checked="dropAllPicked('free')" @change="dropPickAll('free', $event.target.checked)" aria-label="Tout sélectionner"></th><th>Nom</th><th>Type</th><th>Libéré</th><th>Vu libre</th><th><span class="visually-hidden">Action</span></th></tr></thead>
           <tbody>
             <template x-for="d in dropsReleased.slice(0, dropShowFree)" :key="d.name">
-              <tr>
+              <tr :class="{ picked: dropSelected.includes(d.name) }">
+                <td class="drop-pick"><input type="checkbox" :checked="dropSelected.includes(d.name)" @change="dropToggle(d.name)" :aria-label="'Sélectionner ' + d.name"></td>
                 <td class="drop-name">
                   <button type="button" class="link-like mono" @click="openFiche(d.name)" x-text="d.name"></button>
                   <span class="ex-bar drop-bar" :title="scoreTitle(d)"><i :style="'width:' + d.score + '%'"></i><b x-text="d.score >= 30 ? d.score : ''"></b></span>
@@ -350,11 +352,13 @@
           </select>
         </div>
         <p class="muted small" x-show="!dropsComing.length">Aucun nom en rédemption ou en suppression pour ces filtres.</p>
+        <button type="button" class="btn-text small drops-pick-all" x-show="dropsComing.length" @click="dropPickAll('coming', !dropAllPicked('coming'))" x-text="dropAllPicked('coming') ? 'Tout désélectionner' : 'Tout sélectionner (affichés)'"></button>
         <table class="drops-table" x-show="dropsComing.length">
-          <thead><tr><th>Nom</th><th>Type</th><th>État</th><th>Libération estimée</th><th>Prochaine vérification</th><th>Sorti de la zone</th><th><span class="visually-hidden">Action</span></th></tr></thead>
+          <thead><tr><th class="drop-pick"><input type="checkbox" :checked="dropAllPicked('coming')" @change="dropPickAll('coming', $event.target.checked)" aria-label="Tout sélectionner"></th><th>Nom</th><th>Type</th><th>État</th><th>Libération estimée</th><th>Prochaine vérification</th><th>Sorti de la zone</th><th><span class="visually-hidden">Action</span></th></tr></thead>
           <tbody>
             <template x-for="d in dropsComing.slice(0, dropShowComing)" :key="d.name">
-              <tr>
+              <tr :class="{ picked: dropSelected.includes(d.name) }">
+                <td class="drop-pick"><input type="checkbox" :checked="dropSelected.includes(d.name)" @change="dropToggle(d.name)" :aria-label="'Sélectionner ' + d.name"></td>
                 <td class="drop-name">
                   <button type="button" class="link-like mono" @click="openFiche(d.name)" x-text="d.name"></button>
                   <span class="ex-bar drop-bar" :title="scoreTitle(d)"><i :style="'width:' + d.score + '%'"></i><b x-text="d.score >= 30 ? d.score : ''"></b></span>
@@ -376,6 +380,16 @@
         </table>
         <button type="button" class="btn-ghost drops-more" x-show="dropsComing.length > dropShowComing" @click="dropShowComing += 100"
                 x-text="'Afficher 100 de plus (' + (dropsComing.length - dropShowComing) + ' restants)'"></button>
+
+        <div class="ex-bulk drops-bulk" x-show="dropSelected.length" x-transition>
+          <span x-text="dropSelected.length + ' sélectionné(s)'"></span>
+          <button type="button" class="btn-ghost sm" @click="dropBulk('watch')" :disabled="dropBulkRunning">Surveiller</button>
+          <button type="button" class="btn-ghost sm" @click="dropBulk('ai')" :disabled="dropBulkRunning">Analyse IA</button>
+          <button type="button" class="btn-ghost sm" @click="dropBulk('check')" :disabled="dropBulkRunning">Revérifier</button>
+          <button type="button" class="btn-ghost sm" @click="dropBulk('hide')" :disabled="dropBulkRunning">Masquer</button>
+          <button type="button" class="btn-text" @click="dropSelected = []">Annuler</button>
+          <span class="muted small" x-show="dropBulkRunning" x-text="dropBulkDone + '/' + dropSelected.length"></span>
+        </div>
       </div>
     </template>
   </section>
@@ -907,6 +921,7 @@
             <button type="submit" class="btn-ghost">Enregistrer</button>
           </form>
         </template>
+        <p class="small" x-show="dropsData && dropsData.hidden"><span x-text="(dropsData && dropsData.hidden) + ' nom(s) masqué(s) à la main.'"></span> <button type="button" class="link-like" @click="unhideDrops()">Tout réafficher</button></p>
         <p class="muted small">Ensuite visible dans l'Explorer seulement. Le score minimum s'applique à l'ouverture de l'écran ; le bouton « Tout voir » l'enlève.</p>
       </div>
 
@@ -1390,12 +1405,17 @@
         <span class="badge" :class="badgeClass(fiche.item)" x-text="fiche.item ? fiche.item.status_label : 'Hors des listes suivies'"></span>
         <template x-for="r in (fiche.item ? fiche.item.reserved : [])" :key="r"><span class="ex-reason warn" x-text="r"></span></template>
       </div>
+      <p class="fiche-decision" x-show="ficheDecision(fiche).length">
+        <template x-for="part in ficheDecision(fiche)" :key="part.text">
+          <span :class="part.cls" x-text="part.text"></span>
+        </template>
+      </p>
       <div class="drawer-actions">
-        <button type="button" class="btn-ghost" @click="ficheCheck()" :disabled="!!exBusy[fiche.name]" x-text="exBusy[fiche.name] ? 'Vérification' : 'Vérifier'"></button>
-        <a class="btn-ghost" :href="orderLink(fiche.name)" target="_blank" rel="noopener" x-text="registrarName ? 'Réserver chez ' + registrarName : 'Réserver'"></a>
-        <button type="button" class="btn-ghost" x-show="!fiche.domain_id" @click="ficheWatch()">Surveiller</button>
+        <a :class="fichePrimary(fiche) === 'reserve' ? 'btn' : 'btn-ghost'" :href="orderLink(fiche.name)" target="_blank" rel="noopener" x-text="registrarName ? 'Réserver chez ' + registrarName : 'Réserver'"></a>
+        <button type="button" :class="fichePrimary(fiche) === 'watch' ? 'btn' : 'btn-ghost'" x-show="!fiche.domain_id" @click="ficheWatch()">Surveiller</button>
         <button type="button" class="btn-ghost" x-show="fiche.domain_id" @click="openDomain(fiche.domain_id)">Voir dans Domaines</button>
-        <button type="button" class="btn-ghost" @click="ficheAskAi()" :disabled="fiche.ai_request && !fiche.ai_request.done_at" x-text="aiAskLabel(fiche)"></button>
+        <button type="button" :class="fichePrimary(fiche) === 'ai' ? 'btn' : 'btn-ghost'" @click="ficheAskAi()" :disabled="fiche.ai_request && !fiche.ai_request.done_at" x-text="aiAskLabel(fiche)"></button>
+        <button type="button" class="btn-ghost" @click="ficheCheck()" :disabled="!!exBusy[fiche.name]" x-text="exBusy[fiche.name] ? 'Vérification' : 'Vérifier'"></button>
       </div>
       <div class="details-grid">
         <div x-html="valueHtml(fiche)"></div>

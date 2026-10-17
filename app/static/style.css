@@ -1005,3 +1005,29 @@ button:disabled { cursor: default; opacity: .55; }
 .ex-reason.new { border-color: var(--accent); color: var(--accent); }
 .premium-table { border-collapse: collapse; }
 .premium-table th, .premium-table td { padding: 4px 8px 4px 0; text-align: left; font-weight: normal; }
+
+/* Suppressions : sélection et tri en masse. */
+.drops-table th.drop-pick, .drops-table td.drop-pick { width: 32px; padding-right: 0; }
+.drops-table tr.picked td { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.drops-pick-all { display: none; }
+.drops-bulk { position: sticky; bottom: 8px; }
+@media (max-width: 640px) {
+  .drops-pick-all { display: inline-block; margin: 0 0 6px; }
+  /* Cartes compactes : case, nom et score sur une ligne, détails en petit, actions sur une ligne. */
+  .drops-table tr { grid-template-columns: auto 1fr 1fr; gap: 4px 10px; padding: 10px 12px; margin-bottom: 8px; }
+  .drops-table tr.picked { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
+  .drops-table tr.picked td { background: none; }
+  .drops-table td.drop-pick { grid-row: 1; grid-column: 1; align-self: start; padding-top: 3px; }
+  .drops-table td.drop-name { grid-column: 2 / -1; font-size: 16px; }
+  .drops-table td[data-label] { font-size: 13px; }
+  .drops-table td[data-label]::before { font-size: 10.5px; }
+  .drops-table td.drop-action { display: flex; gap: 6px; grid-column: 1 / -1; }
+  .drops-table td.drop-action .btn-ghost { flex: 1; width: auto; min-height: 36px; }
+  .drops-bulk { bottom: calc(var(--tabbar, 64px) + 8px); flex-wrap: wrap; }
+}
+
+/* Fiche : ligne de décision sous l'état. */
+.fiche-decision { display: flex; flex-wrap: wrap; gap: 6px 12px; margin: 6px 0 10px; font-size: 14px; }
+.fiche-decision .fd-ai { font-weight: 600; }
+.fiche-decision .fd-warn { color: var(--danger); }
+.fiche-decision .fd-price, .fiche-decision .fd-date { color: var(--muted); }

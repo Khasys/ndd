@@ -575,3 +575,10 @@ def test_premium_probable_bookable_and_release_sort(env):
     env.touch("maison.com")
     items = env.rank("com", status="coming", sort="release")["items"]
     assert [i["label"] for i in items] == ["maison"]
+
+
+def test_english_only_and_conjugated_words_count_less_in_fr(env):
+    found = env.value_of(["should.fr", "vais.fr", "maison.fr"])
+    assert "mot anglais en .fr" in found["should.fr"]["reasons"]
+    assert "forme conjuguée" in found["vais.fr"]["reasons"]
+    assert not {"mot anglais en .fr", "forme conjuguée"} & set(found["maison.fr"]["reasons"])

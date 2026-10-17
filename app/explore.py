@@ -188,6 +188,22 @@ class Filters:
         return cls(**{k: v for k, v in kwargs.items() if k in cls.__dataclass_fields__})
 
 
+@functools.lru_cache(maxsize=1)
+def _english_only() -> frozenset[str]:
+    """Mots anglais qui ne sont pas aussi des mots français."""
+    langs = wordlists.languages()
+    return frozenset(langs.get("en", set()) - langs.get("fr", set()))
+
+
+@functools.lru_cache(maxsize=1)
+def _conjugated() -> frozenset[str]:
+    """Formes fléchies qui ne sont que des verbes conjugués (vais, dits), pas des mots de base."""
+    lists = wordlists.lists()
+    natures = wordlists.natures()
+    base = lists.get("word", frozenset())
+    return frozenset(w for w in lists.get("form", ()) if w not in base and natures.get(w) == {"verb"})
+
+
 class Universe:
     def __init__(self):
         self.words = _words()
@@ -744,12 +760,27 @@ class Explorer:
         parts = (value.demand(list(others))[0], 15 if gone else 0, 20)  # SEO : peut arriver à tout moment
         reach = parts[0] * w["demand"] + parts[1] * w["history"] + parts[2] * w["seo"]
         return {"others": others, "gone": gone, "seo": seo, "today": date.today(), "reach": reach,
-                "reach_parts": parts, "weights": w, "status": self.status_bytes(tld), "devalue": self.premium_devalue()}
+                "reach_parts": parts, "weights": w, "status": self.status_bytes(tld), "devalue": self.premium_devalue(),
+                "en_only": _english_only() if tld == "fr" else frozenset(),
+                "conjugated": _conjugated() if tld == "fr" else frozenset()}
 
     def _value(self, tld: str, i: int, label: str, ctx: dict) -> dict:
         taken = [t for t, data in ctx["others"].items() if data[i] in TAKEN_CODES]
         found = value.score(label, taken, ctx["gone"].get(i), ctx["seo"].get(f"{label}.{tld}"), ctx["today"], ctx["weights"])
         found["rank"] = self.best_rank(label)
+        if tld == "fr":
+            # Faux bons .fr : un mot seulement anglais (should, disease) ou une forme conjuguée (vais,
+            # dits) se lit mal en .fr ; la popularité de sa liste compte moitié.
+            why = None
+            if label in ctx["en_only"]:
+                why = "mot anglais en .fr"
+            elif label in ctx["conjugated"]:
+                why = "forme conjuguée"
+            if why:
+                cut = found["parts"]["popularity"] // 2
+                found["parts"]["popularity"] -= cut
+                found["score"] -= cut
+                found["reasons"] = found["reasons"] + [why]
         if ctx.get("devalue") and ctx["status"][i] == PREMIUM:
             # Case « dévaluer les premiums probables » : score divisé par deux, la raison le dit.
             found["score"] //= 2

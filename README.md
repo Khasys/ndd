@@ -91,7 +91,17 @@ entrés en rédemption ou en suppression en 24 h, avec les 5 meilleurs de chaque
 un compteur filtre les tableaux. Score minimum appliqué à l'ouverture (20 par défaut, réglable dans
 Paramètres, bouton « Tout voir »), badge « Nouveau » depuis la visite précédente, 100 lignes par
 tableau. L'état des lectures (zones, .fr, DNS, historique) est dans Paramètres, carte « Sources et
-lectures » ; une ligne d'état reste en haut de l'écran.
+lectures » ; une ligne d'état reste en haut de l'écran. Tri en masse : cases à cocher (« Tout
+sélectionner » pour les noms affichés), puis Surveiller, Analyse IA, Revérifier ou Masquer ; un nom
+masqué quitte l'écran mais reste dans l'Explorer (Paramètres : « Tout réafficher »). Sur téléphone,
+les tableaux deviennent des cartes compactes.
+
+Fiche d'un nom : ligne de décision en tête (libération estimée, premium probable, verdict IA, prix
+utilisateur final) et action mise en avant : Réserver pour un nom libre, Surveiller pour un nom qui
+va se libérer, Analyse IA pour un nom pas encore noté. Surveiller reste disponible dans tous les cas.
+
+En .fr, un mot seulement anglais (should) ou une forme conjuguée (vais) compte moitié moins en
+popularité : ils se lisent mal en .fr.
 
 Menu Suppressions : les noms qui quittent les zones des extensions génériques, suivis jusqu'à leur
 libération. Sont suivis tous les noms de 1 à 4 caractères (lettres, chiffres, tiret), les 20 000

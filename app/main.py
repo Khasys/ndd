@@ -913,6 +913,26 @@ async def set_premium(request: Request, payload: PremiumSettings):
     return {"devalue": payload.devalue, "prices": clean, "off": sorted(explorer.premium_tlds_off())}
 
 
+class DropNames(BaseModel):
+    names: list[str]
+
+
+@app.post("/api/drops/hide")
+async def hide_drops(request: Request, payload: DropNames):
+    """Écarte des noms de l'écran Suppressions (ils restent dans l'Explorer)."""
+    conn = request.app.state.conn
+    now = iso(utcnow())
+    names = [n.strip().lower() for n in payload.names[:1000] if n.strip()]
+    conn.executemany("INSERT OR IGNORE INTO drop_hidden (name, hidden_at) VALUES (?, ?)", [(n, now) for n in names])
+    return {"hidden": conn.execute("SELECT COUNT(*) FROM drop_hidden").fetchone()[0]}
+
+
+@app.post("/api/drops/unhide")
+async def unhide_drops(request: Request):
+    request.app.state.conn.execute("DELETE FROM drop_hidden")
+    return {"hidden": 0}
+
+
 @app.post("/api/drops/fr/import", status_code=202)
 async def import_fr_now(request: Request):
     fr = request.app.state.fr
@@ -943,7 +963,9 @@ async def list_drops(request: Request):
     reserved_names = request.app.state.reserved.names()
     hide_reserved = request.app.state.reserved.mode == "hide"
     held = request.app.state.reserved
-    rows = [r for r in rows if not (hide_reserved and (r["name"] in reserved_names or held.short_reserved(r["name"])))]
+    hidden = {r[0] for r in conn.execute("SELECT name FROM drop_hidden")}
+    rows = [r for r in rows if r["name"] not in hidden
+            and not (hide_reserved and (r["name"] in reserved_names or held.short_reserved(r["name"])))]
     suspended = dict(conn.execute("SELECT tld, COUNT(*) FROM drops WHERE state = ? GROUP BY tld", (drops.SUSPENDED,)).fetchall())
     watched = {r[0] for r in conn.execute("SELECT name FROM domains")}
     # Rafraîchissement de l'état seul (écran ouvert) : pas de liste, quelques Ko au lieu de plusieurs Mo.
@@ -968,6 +990,7 @@ async def list_drops(request: Request):
         "suspended": suspended,
         "keep_days": watcher.keep_days,
         "min_score": _drops_min_score(request.app.state.store),
+        "hidden": len(hidden),
         "kinds": drops.KINDS,
         "natures": explore.NATURES,
         "items": [

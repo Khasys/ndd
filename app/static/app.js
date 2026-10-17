@@ -140,6 +140,9 @@ document.addEventListener("alpine:init", () => {
     fiche: null,
     aiReq: { pending: [], done: [] },
     dropShowFree: 100,
+    dropSelected: [],
+    dropBulkRunning: false,
+    dropBulkDone: 0,
     dropsSeenBefore: "",
     dropShowComing: 100,
     aiToken: "",
@@ -378,6 +381,29 @@ document.addEventListener("alpine:init", () => {
       } catch (e) {
         this.say(`${name} : ${e.message}`, "error");
       }
+    },
+
+    // En-tête de fiche : de quoi décider d'un coup d'œil (état, libération, avis IA, prix).
+    ficheDecision(f) {
+      const parts = [];
+      const item = f.item;
+      const opinion = f.ai || (item && item.ai);
+      if (item && item.status === 4 && item.release_at) parts.push({ text: `libre ~${this.shortDate(item.release_at)}`, cls: "fd-date" });
+      if (item && item.status === 8) parts.push({ text: item.premium_price ? `premium probable, ~${this.fmt(item.premium_price)} €` : "premium probable", cls: "fd-warn" });
+      if (opinion) {
+        parts.push({ text: opinion.comment.split(".")[0], cls: "fd-ai " + this.aiClass(opinion) });
+        parts.push({ text: `utilisateur final ${this.priceRange(opinion.final_low, opinion.final_high)}`, cls: "fd-price" });
+      }
+      return parts;
+    },
+
+    // Action mise en avant : réserver un nom libre, surveiller un nom qui va se libérer, sinon faire noter.
+    fichePrimary(f) {
+      const s = f.item ? f.item.status : null;
+      if ([2, 3, 5].includes(s)) return "reserve";
+      if (s === 4 && !f.domain_id) return "watch";
+      if (!(f.ai || (f.item && f.item.ai))) return "ai";
+      return "";
     },
 
     aiAskLabel(f) {
@@ -961,6 +987,66 @@ document.addEventListener("alpine:init", () => {
 
     async recheckDrop(d) {
       if (await this.verifyName(d.name)) await this.loadDrops();
+    },
+
+    // Tri en masse dans Suppressions : sélection, puis une action pour tous.
+    dropToggle(name) {
+      this.dropSelected = this.dropSelected.includes(name) ? this.dropSelected.filter((n) => n !== name) : [...this.dropSelected, name];
+    },
+
+    dropShown(kind) {
+      return kind === "free" ? this.dropsReleased.slice(0, this.dropShowFree) : this.dropsComing.slice(0, this.dropShowComing);
+    },
+
+    dropAllPicked(kind) {
+      const shown = this.dropShown(kind);
+      return shown.length > 0 && shown.every((d) => this.dropSelected.includes(d.name));
+    },
+
+    dropPickAll(kind, on) {
+      const names = this.dropShown(kind).map((d) => d.name);
+      const rest = this.dropSelected.filter((n) => !names.includes(n));
+      this.dropSelected = on ? [...rest, ...names] : rest;
+    },
+
+    async dropBulk(action) {
+      const names = [...this.dropSelected];
+      const items = this.dropsData.items.filter((d) => names.includes(d.name));
+      this.dropBulkRunning = true;
+      this.dropBulkDone = 0;
+      try {
+        if (action === "hide") {
+          const r = await this.api("POST", "/api/drops/hide", { names });
+          this.dropsData.items = this.dropsData.items.filter((d) => !names.includes(d.name));
+          this.dropsData.hidden = r.hidden;
+          this._dropsVer = (this._dropsVer || 0) + 1;
+          this.say(`${names.length} nom(s) masqué(s). Réaffichage possible dans Paramètres.`);
+        } else {
+          for (const d of items) {
+            if (action === "watch" && !d.watched) await this.watchDrop(d);
+            else if (action === "ai") await this.api("POST", "/api/ai/request", { name: d.name });
+            else if (action === "check") await this.verifyName(d.name);
+            this.dropBulkDone += 1;
+          }
+          if (action === "ai") { this.loadAiRequests(); this.say(`${items.length} analyse(s) IA demandée(s). Traitement dans l'heure.`); }
+          if (action === "check") await this.loadDrops();
+        }
+        this.dropSelected = [];
+      } catch (e) {
+        this.say(e.message, "error");
+      } finally {
+        this.dropBulkRunning = false;
+      }
+    },
+
+    async unhideDrops() {
+      try {
+        await this.api("POST", "/api/drops/unhide");
+        await this.loadDrops();
+        this.say("Noms masqués réaffichés.");
+      } catch (e) {
+        this.say(e.message, "error");
+      }
     },
 
     fmt(n) { return (n || 0).toLocaleString("fr-FR"); },
