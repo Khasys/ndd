@@ -1015,11 +1015,13 @@ button:disabled { cursor: default; opacity: .55; }
 @media (max-width: 640px) {
   .drops-pick-all { display: inline-block; margin: 0 0 6px; }
   /* Cartes compactes : case, nom et score sur une ligne, détails en petit, actions sur une ligne. */
-  .drops-table tr { grid-template-columns: auto 1fr 1fr; gap: 4px 10px; padding: 10px 12px; margin-bottom: 8px; }
+  /* Case à cocher hors grille, en haut à gauche : la grille garde ses deux colonnes. */
+  .drops-table tr { position: relative; grid-template-columns: 1fr 1fr; gap: 4px 10px; padding: 10px 12px; margin-bottom: 8px; }
   .drops-table tr.picked { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
   .drops-table tr.picked td { background: none; }
-  .drops-table td.drop-pick { grid-row: 1; grid-column: 1; align-self: start; padding-top: 3px; }
-  .drops-table td.drop-name { grid-column: 2 / -1; font-size: 16px; }
+  .drops-table td.drop-pick { position: absolute; top: 12px; left: 12px; width: auto; padding: 0; }
+  .drops-table td.drop-pick input { width: 20px; height: 20px; margin: 0; }
+  .drops-table td.drop-name { grid-column: 1 / -1; font-size: 16px; padding-left: 30px; }
   .drops-table td[data-label] { font-size: 13px; }
   .drops-table td[data-label]::before { font-size: 10.5px; }
   .drops-table td.drop-action { display: flex; gap: 6px; grid-column: 1 / -1; }

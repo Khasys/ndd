@@ -203,6 +203,7 @@
               <div class="night-col">
                 <button type="button" class="night-count" :class="{ on: df.night === g.key }" @click="df.night = df.night === g.key ? '' : g.key">
                   <strong class="num" x-text="fmt(g.count)"></strong> <span x-text="g.label"></span>
+                  <span class="muted small" x-show="g.total > g.count" x-text="'(' + fmt(g.total) + ' sans les filtres)'"></span>
                 </button>
                 <ul class="night-list">
                   <template x-for="d in g.best" :key="d.name">

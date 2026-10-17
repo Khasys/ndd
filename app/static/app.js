@@ -1193,7 +1193,7 @@ document.addEventListener("alpine:init", () => {
       return this._memo[kind].list;
     },
 
-    dropMatches(d) {
+    dropMatches(d, ignoreNight = false) {
       const f = this.df;
       const len = f.len ? Number(f.len) : 0;
       const label = d.name.slice(0, -(d.tld.length + 1));
@@ -1208,7 +1208,7 @@ document.addEventListener("alpine:init", () => {
         && (!len || (len < 0 ? label.length <= -len : len >= 5 ? label.length >= 5 : label.length === len))
         && (!f.rank || (d.rank && d.rank <= Number(f.rank)))
         && (!this.dropMin || d.score >= this.dropMin)
-        && (!f.night || this.nightMatch(d, f.night))
+        && (ignoreNight || !f.night || this.nightMatch(d, f.night))
         && (f.junk || d.good !== false);
     },
 
@@ -1232,10 +1232,12 @@ document.addEventListener("alpine:init", () => {
 
     nightGroups() {
       if (!this.dropsData || !this.dropsData.items.length) return [];
+      // Mêmes filtres que les tableaux (sauf « Cette nuit » lui-même) : le compteur annonce ce que la liste montrera.
       return this.dropsMemo("night", () => NIGHT_GROUPS.map((g) => {
         const all = this.dropsData.items.filter((d) => this.nightMatch(d, g.key));
-        const best = all.filter((d) => !d.premium).sort((a, b) => b.score - a.score || this.aiValue(b) - this.aiValue(a));
-        return { ...g, count: all.length, best: best.slice(0, 5) };
+        const shown = all.filter((d) => this.dropMatches(d, true));
+        const best = shown.filter((d) => !d.premium).sort((a, b) => b.score - a.score || this.aiValue(b) - this.aiValue(a));
+        return { ...g, count: shown.length, total: all.length, best: best.slice(0, 5) };
       }));
     },
 
