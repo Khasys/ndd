@@ -116,8 +116,9 @@ Fiche d'un nom : ligne de décision en tête (libération estimée, premium prob
 utilisateur final) et action mise en avant : Réserver pour un nom libre, Surveiller pour un nom qui
 va se libérer, Analyse IA pour un nom pas encore noté. Surveiller reste disponible dans tous les cas.
 
-En .fr, un mot seulement anglais (should) ou une forme conjuguée (vais) compte moitié moins en
-popularité : ils se lisent mal en .fr.
+En .fr, un mot seulement anglais (should) ou une forme conjuguée (vais) perd une vingtaine de
+points de forme et de sens par rapport au même mot bien placé : ils se lisent mal en .fr. La raison
+est affichée sur la carte.
 
 Menu Veille : les noms qui quittent les zones des extensions génériques, suivis jusqu'à leur
 libération. Sont suivis tous les noms de 1 à 4 caractères (lettres, chiffres, tiret), les 20 000
@@ -302,7 +303,7 @@ Score (`app/value.py`, `app/quality.py`), chaque critère pondérable de 0 à 2 
 Forme et sens : poids calés sur des avis IA détaillés (grille v5) d'un échantillon de noms de toutes
 les catégories, une famille de poids par sorte de nom (mots, noms de personnes, suites courtes),
 dans `app/data/score_model.json`. Concordance de rang avec les avis IA, sur des noms gardés hors du
-calage : 0,26 pour l'ancien barème, 0,83 pour celui-ci. Point faible connu : entre deux mots
+calage : 0,25 pour l'ancien barème, 0,85 pour celui-ci. Point faible connu : entre deux mots
 courants, la valeur tient au sens et au marché, que seule la notation IA juge bien. Demande et
 historique : taux de base par extension et par forme (1 à 4 lettres prononçables ou non, chiffres,
 mélanges, mots), mesurés sur les zones lues ; la raison dit « courant pour cette forme » quand le
@@ -328,7 +329,7 @@ d'exploitation et de revente sur 100 et le verdict sont calculés par le NAS dep
 tomber dans le palier de la note pour son extension (repères indicatifs, un palier de tolérance ;
 pas de plafond pour les noms de 1 ou 2 caractères ni pour une note de 90 et plus). Validation de
 la grille : 50 noms témoins notés par plusieurs agents indépendants, écart-type moyen de 3 points,
-même verdict dans 93 % des cas.
+même verdict dans 94 % des cas.
 
 Second passage : chaque nuit, les 50 avis les plus éloignés de l'estimation du score (25 points
 d'écart au moins) reviennent en tête de lot, avec l'ancienne note et l'estimation ; l'IA les renote à
@@ -341,7 +342,8 @@ contrôle du format, le même pour chaque avis : exactement quinze champs, sous-
 à 10, prix sur une échelle fixe (0, 50, 100, 150, 200, 300, 500, 800, 1 000…), revente rapide à 40 %
 du prix final au plus, raison sur le gabarit « Raison. Acheteur type : … » (180 caractères, sans
 emoji ni tiret long, sans verdict). Le verdict calculé est « À prendre » (meilleure note d'au moins
-60, risque de 4 au plus), « À surveiller » ou « À laisser » (40 au plus, ou risque de 8 et plus) ; il
+60, risque de 4 au plus, acheteurs à 4 au moins), « À surveiller » ou « À laisser » (40 au plus, ou
+risque de 8 et plus) ; il
 apparaît en tête de l'étiquette dans les listes. Les avis à l'ancien format (version 4) restent
 acceptés pendant la transition. Le script applique le même contrôle avant l'envoi (`check`). Une tâche planifiée fait l'échange
 chaque nuit avec `scripts/ai_exchange.py` (variables `DW_URL` et `DW_AI_TOKEN`).
