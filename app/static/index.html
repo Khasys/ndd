@@ -405,7 +405,8 @@
     <template x-if="pf">
       <div>
         <div class="drops-card pf-totals">
-          <div><span class="muted small">Possédés</span><strong class="num" x-text="pf.totals.count.owned + pf.totals.count.for_sale"></strong></div>
+          <div><span class="muted small">Possédés</span><strong class="num" x-text="pf.totals.kept"></strong></div>
+          <div><span class="muted small">En exploitation</span><strong class="num" x-text="pf.totals.count.in_use"></strong></div>
           <div><span class="muted small">En vente</span><strong class="num" x-text="pf.totals.count.for_sale"></strong></div>
           <div><span class="muted small">Vendus</span><strong class="num" x-text="pf.totals.count.sold"></strong></div>
           <div><span class="muted small">Investi</span><strong class="num" x-text="euros(pf.totals.invested)"></strong></div>

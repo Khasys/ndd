@@ -218,7 +218,7 @@ Quand les listes suivies changent (formes fléchies ajoutées, par exemple), le 
 #### Portefeuille
 
 Les noms que tu possèdes : prix et date d'achat, renouvellement par an, échéance, prix demandé,
-meilleure offre, statut (possédé, en vente, vendu, abandonné), prix et date de vente, notes. Totaux :
+meilleure offre, statut (possédé, en exploitation, pas à vendre, en vente, vendu, abandonné), prix et date de vente, notes. Totaux :
 investi, renouvellements par an, ventes, bénéfice. « J'ai acheté » dans la fiche d'un nom l'ajoute
 avec la date du jour. Un nom ajouté est aussi surveillé : l'échéance réelle vient du RDAP (sinon la
 date saisie), rappel Telegram 30 puis 7 jours avant. Les ventes et les offres reçues sont ajoutées à

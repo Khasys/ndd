@@ -602,6 +602,8 @@ def test_portfolio_tracks_purchases_sales_and_reminders(logged):
     token = client.post("/api/settings/ai-token").json()["token"]
     guide = client.get("/api/ai/pending", params={"limit": 1}, headers={"Authorization": f"Bearer {token}"}).json()["guide"]
     assert "forumdomotique.fr : 900 euros (vendu)" in guide
+    in_use = client.put(f"/api/portfolio/{item['id']}", json={"status": "in_use"}).json()
+    assert in_use["items"][0]["status_label"] == "En exploitation" and in_use["totals"]["kept"] == 1
     assert client.put(f"/api/portfolio/{item['id']}", json={"status": "volé"}).status_code == 422
     assert client.delete(f"/api/portfolio/{item['id']}").json()["items"] == []
     client.__exit__(None, None, None)

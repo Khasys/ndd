@@ -11,8 +11,9 @@ from datetime import datetime, timezone
 from . import ai, states
 from .checker import iso, parse_iso
 
-STATUSES = {"owned": "Possédé", "for_sale": "En vente", "sold": "Vendu", "dropped": "Abandonné"}
-KEPT = ("owned", "for_sale")       # encore à toi : renouvellements à payer
+STATUSES = {"owned": "Possédé", "in_use": "En exploitation", "not_for_sale": "Pas à vendre",
+            "for_sale": "En vente", "sold": "Vendu", "dropped": "Abandonné"}
+KEPT = ("owned", "in_use", "not_for_sale", "for_sale")  # encore à toi : renouvellements à payer
 REMIND_DAYS = (30, 7)
 FIELDS = ("status", "bought_on", "buy_price", "renew_price", "expires_at", "asking_price", "best_offer",
           "sold_on", "sold_price", "notes")
@@ -26,7 +27,8 @@ def _expiry(row, domain, now: datetime) -> datetime | None:
 
 
 def items(conn, now: datetime) -> list[dict]:
-    rows = conn.execute("SELECT * FROM portfolio ORDER BY status, name").fetchall()
+    rows = conn.execute("""SELECT * FROM portfolio ORDER BY CASE status WHEN 'for_sale' THEN 0 WHEN 'in_use' THEN 1
+                           WHEN 'owned' THEN 2 WHEN 'not_for_sale' THEN 3 WHEN 'sold' THEN 4 ELSE 5 END, name""").fetchall()
     names = [r["name"] for r in rows]
     domains = {r["name"]: r for r in conn.execute("SELECT * FROM domains")}
     opinions = ai.load(conn, names)
@@ -52,6 +54,7 @@ def totals(found: list[dict]) -> dict:
     sold = [i for i in found if i["status"] == "sold"]
     return {
         "count": {k: sum(1 for i in found if i["status"] == k) for k in STATUSES},
+        "kept": len(kept),
         "invested": sum(i["buy_price"] or 0 for i in found),
         "yearly_renewals": sum(i["renew_price"] or 0 for i in kept),
         "sold_total": sum(i["sold_price"] or 0 for i in sold),
