@@ -1,5 +1,6 @@
 # Mots à risque pour le score (app/quality.py) : la liste des médias (scripts/lists/negatifs.txt),
-# plus des mots négatifs ou vulgaires courants en français et en anglais.
+# des mots négatifs ou vulgaires courants en français et en anglais, et ceux que la notation IA de
+# l'échantillon a jugés vulgaires, violents ou morbides (risque de 7 et plus ; marques et pays exclus).
 abruti
 abrutis
 accident
@@ -12,6 +13,7 @@ arnaque
 arnaqueur
 assassin
 assassinat
+baiseur
 balle
 balles
 bastard
@@ -23,6 +25,7 @@ bomb
 bombe
 bombes
 bordel
+butt
 cadavre
 cadavres
 cancer
@@ -43,6 +46,7 @@ condoleances
 connard
 connards
 conne
+connes
 cons
 crap
 crasse
@@ -56,10 +60,15 @@ cul
 damn
 dead
 death
+decapitation
+decapiter
 dechet
 dechets
+degueulasse
+degueulis
 demon
 demons
+depressive
 dette
 dettes
 deuil
@@ -88,9 +97,13 @@ fail
 faillite
 failure
 fake
+fart
+farts
 filthy
+flagellation
 flic
 flics
+foutre
 fraud
 fraude
 fraudeur
@@ -99,6 +112,8 @@ fucking
 funerailles
 fusil
 garbage
+genital
+genitals
 gerber
 guerre
 guerres
@@ -107,18 +122,26 @@ hair
 hate
 hell
 heroine
+herpes
+hitler
 honte
 hurt
 idiot
 idiots
 imbecile
+impuissant
 ivrogne
+kidnappe
+kidnapping
 kill
 killer
 laid
 laide
+laviolence
 liar
 loser
+lupanar
+mafieux
 malade
 malades
 maladie
@@ -126,6 +149,7 @@ maladies
 massacre
 merde
 merdique
+meure
 meurtre
 meurtres
 meurtrier
@@ -139,6 +163,7 @@ morts
 mouche
 mouches
 murder
+mutilation
 naked
 nasty
 nazi
@@ -146,6 +171,8 @@ nazis
 nude
 nul
 nulle
+obscene
+obscenite
 obseques
 ordure
 ordures
@@ -155,6 +182,8 @@ pauvres
 perdant
 peur
 peurs
+pisse
+pisser
 poison
 police
 poor
@@ -165,17 +194,23 @@ porno
 poubelle
 pourri
 pourrie
+pourrissant
 pourriture
 prison
 prisonnier
 prisons
+prostitue
+prostituee
+prostitution
 puant
 puante
 pue
 puer
+puke
 pus
 putain
 pute
+putrefaction
 rape
 rat
 rate
@@ -197,6 +232,9 @@ slut
 smelly
 souffrance
 souffrances
+stabbing
+stalker
+stalking
 stink
 stinks
 suck
@@ -230,3 +268,5 @@ vomit
 war
 waste
 whore
+zob
+zobs
