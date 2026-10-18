@@ -431,10 +431,11 @@ requête : zones ICANN lues chaque jour, open data de l'Afnic, données de la Ve
   même longueur) et de longueur proche (un caractère d'écart au plus), les plus proches par note
   de revente (sans avis sur le nom, par l'estimation du score) ; avec, pour chacun, verdict, notes,
   prix final et état. **Repères** : trois ventes ou offres reçues du portefeuille, les plus proches
-  en longueur. **Ligne de temps** : tout ce que la base sait du nom, daté et trié : création et
-  suppression (Afnic), sortie de zone, entrée en rédemption ou en suppression, libération
-  constatée, reprise, avis IA (noté, renoté), surveillance et changements d'état ou de registrar,
-  achat et vente ; repliée par défaut sur téléphone. Sous le verdict IA, « Pourquoi » (`why`) quand l'avis
+  en longueur. **Dates clés** (ligne de temps, juste sous les boutons, ouverte partout) : tout ce que la
+  base sait du nom, daté et trié : création (Afnic ou registre) et suppression, expiration, sortie de
+  zone, entrée en rédemption ou en suppression, libération constatée, reprise, avis IA (noté, renoté),
+  surveillance et changements d'état ou de registrar, achat et vente ; puis, après un trait
+  « aujourd'hui », ce qui est à venir : expiration, libération estimée, prochaine vérification. Sous le verdict IA, « Pourquoi » (`why`) quand l'avis
   est réservé, et la mention « Avis à l'ancienne grille, renoté bientôt » pour un avis de version 4 ; les
   cartes de la Veille et de l'Explorer ajoutent ce « pourquoi » en fin de phrase.
 - **Avancé** (panneau du bas sur téléphone) : catégorie, nature des mots (verbes, noms communs,

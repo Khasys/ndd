@@ -1138,3 +1138,17 @@ def test_recent_rank_is_a_reason_not_points(env, tmp_path):
     assert after["reasons"].index("4e prénom donné en 2024") < after["reasons"].index("260e prénom le plus donné")
     assert env.fiche("gabriel.fr")["item"]["reasons"].count("1er prénom donné en 2024") == 1
     assert not any("donné en" in r for r in {i["tld"]: i for i in env.card("jean")["items"]}["fr"]["reasons"])
+
+
+def test_timeline_shows_what_is_coming(env):
+    """Dates à venir dans la ligne de temps : expiration, libération estimée, prochaine vérification."""
+    env.conn.execute("""INSERT INTO drops (name, tld, label, kind, removed_on, state, state_since, release_at, next_check_at)
+                        VALUES ('velo.com', 'com', 'velo', 'word', '2026-03-01', 'redemption', '2026-03-02T06:00:00Z',
+                                '2099-01-05T12:00:00Z', '2099-01-05T12:05:00Z')""")
+    line = env.fiche("velo.com")["timeline"]
+    kinds = [(e["kind"], e["future"]) for e in line]
+    assert ("drop_redemption", False) in kinds and ("release", True) in kinds and ("next_check", True) in kinds
+    assert line[-2]["label"] == "Libération estimée" and line[-1]["label"] == "Prochaine vérification"
+    # Une fois libre, plus de libération « estimée ».
+    env.conn.execute("UPDATE drops SET state = 'available', available_since = '2099-01-05T13:00:00Z' WHERE name = 'velo.com'")
+    assert all(e["kind"] != "release" for e in env.fiche("velo.com")["timeline"])

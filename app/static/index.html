@@ -215,7 +215,7 @@
       <dt>Mesure a posteriori</dt><dd>Chaque nuit, les avis d'il y a 30 jours au moins sur des noms alors libres sont confrontés à l'état du jour : part des noms repris par quelqu'un d'autre, par verdict et par tranche de note de revente. Paramètres, carte Avis IA, « Fiabilité des verdicts ».</dd>
       <dt>Alertes</dt><dd>Un nom « À prendre » dont la note de revente atteint le seuil réglé (70 par défaut, Paramètres, carte Alertes) part sur Telegram dès qu'il se libère ou entre en rédemption, une fois par état ; une vue enregistrée marquée « alerte » (Explorer, panneau Avancé) signale ses nouveaux noms libres, une fois par heure au plus.</dd>
     </dl>
-    <p class="small muted">La fiche montre aussi la ligne de temps du nom (création, suppression, rédemption, libération, avis IA, surveillance, achat, vente), repliée sur téléphone, et le résumé de l'avis IA des autres extensions. Portefeuille : bilan par année, liens de mise en vente (Sedo, Dan, Afternic : liens de recherche, pas une mise en vente automatique), export CSV, confirmation de chaque changement.</p>
+    <p class="small muted">La fiche montre aussi les dates clés du nom (création, expiration, rédemption, libération, avis IA, surveillance, achat, vente, puis les dates à venir : expiration, libération estimée, prochaine vérification), et le résumé de l'avis IA des autres extensions. Portefeuille : bilan par année, liens de mise en vente (Sedo, Dan, Afternic : liens de recherche, pas une mise en vente automatique), export CSV, confirmation de chaque changement.</p>
 
     <h3 id="help-lists">Listes de noms</h3>
     <dl class="help-dl">
@@ -1509,6 +1509,18 @@
         <button type="button" class="btn-ghost" x-show="fiche.in_portfolio" @click="fiche = null; openSheet('portfolio')">Voir dans Portefeuille</button>
         <button type="button" class="btn-ghost danger" x-show="fiche.domain_id" @click="ficheUnwatch()" :disabled="ficheBusy()">Supprimer de la surveillance</button>
       </div>
+      <!-- Ligne de temps : les dates du nom, passées puis à venir (expiration, libération estimée). -->
+      <section class="fiche-timeline" x-show="(fiche.timeline || []).length">
+        <h3>Dates clés</h3>
+        <ol>
+          <template x-for="(t, n) in fiche.timeline || []" :key="n">
+            <li :class="{ future: t && t.future, now: timelineNow(n) }">
+              <span class="when" :title="t.at" x-text="timelineDate(t.at)"></span>
+              <span class="what" :class="'tl-' + t.kind" x-text="t.label + (t.future ? ' (à venir)' : '')"></span>
+            </li>
+          </template>
+        </ol>
+      </section>
       <div class="details-grid">
         <!-- Nom surveillé (Domaines) : état du suivi, dates, registrar, DNS, tags, signaux, puis l'historique des changements. -->
         <template x-if="ficheDomain">
@@ -1613,18 +1625,6 @@
             </template>
           </ol>
         </div>
-        <!-- Ligne de temps : tout ce que la base sait du nom, daté ; repliée par défaut sur téléphone. -->
-        <details class="history fiche-timeline" x-show="(fiche.timeline || []).length" :open="!mobile">
-          <summary><h3>Ligne de temps</h3></summary>
-          <ol>
-            <template x-for="(t, n) in fiche.timeline || []" :key="n">
-              <li>
-                <span class="when" :title="t.at" x-text="timelineDate(t.at)"></span>
-                <span class="what" :class="'tl-' + t.kind" x-text="t.label"></span>
-              </li>
-            </template>
-          </ol>
-        </details>
         <div class="history" x-show="(fiche.others || []).length">
           <h3>Autres extensions</h3>
           <ol>

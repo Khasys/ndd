@@ -1594,11 +1594,11 @@ class Explorer:
                 "registered_at": domain["registered_at"], "updated_at": domain["updated_at"],
                 "expires_at": domain["expires_at"], "nameservers": json.loads(domain["nameservers"] or "[]"),
             }
-            if main is not None and domain["state"] and domain["state"] != states.AVAILABLE:
-                # Nom que l'Explorer croit libre (zone, open data qui datent) mais que le dernier check voit
-                # enregistré ou en fin de vie : l'état du check l'emporte, sinon la fiche dirait « Jamais enregistré ».
-                code = COMING if domain["state"] in (states.REDEMPTION, states.PENDING_DELETE) else REGISTERED
-                main = {**main, "status": code, "status_label": states.LABELS.get(domain["state"], main["status_label"])}
+        if main is not None and domain is not None and domain["state"] and domain["state"] != states.AVAILABLE:
+            # Nom surveillé : l'état connu du suivi (même si le dernier check a échoué) l'emporte sur celui de
+            # l'Explorer (zone, open data qui datent) ; sinon la fiche dirait « Enregistré » d'un nom en rédemption.
+            code = COMING if domain["state"] in (states.EXPIRED, states.REDEMPTION, states.PENDING_DELETE) else REGISTERED
+            main = {**main, "status": code, "status_label": states.LABELS.get(domain["state"], main["status_label"])}
         seo = self.conn.execute("SELECT * FROM domain_seo WHERE name = ?", (name,)).fetchone()
         others = [i for t, i in items.items() if t != tld]
         for other in others:
@@ -1609,7 +1609,7 @@ class Explorer:
             "others": others,
             "comparables": self.comparables(name) if card["known"] else [],
             "references": self.references(name),
-            "timeline": self.timeline(name, domain),
+            "timeline": self.timeline(name, domain, rdap),
             "categories": card.get("categories", []),
             "natures": sorted(wordlists.natures().get(label, ())),
             "rank": self.best_rank(label),
@@ -1672,8 +1672,9 @@ class Explorer:
                  "sold_price": r["sold_price"] if r["status"] == "sold" else None, "best_offer": r["best_offer"],
                  "sold_on": r["sold_on"]} for r in rows[:COMPARABLES]]
 
-    def timeline(self, name: str, domain=None) -> list[dict]:
-        """Ce que la base sait du nom, daté : Afnic, zones et Veille, avis IA, surveillance, portefeuille."""
+    def timeline(self, name: str, domain=None, rdap: dict | None = None, release: str | None = None) -> list[dict]:
+        """Ce que la base sait du nom, daté : Afnic, registre, zones et Veille, avis IA, surveillance, portefeuille ;
+        puis ce qui est à venir (expiration, libération estimée, prochaine vérification), marqué future."""
         label, _, tld = name.partition(".")
         found: list[tuple[str, str, str]] = []
 
@@ -1681,11 +1682,20 @@ class Explorer:
             if at:
                 found.append((str(at), kind, text))
 
+        created = None
         if tld == "fr":
-            fr = self.conn.execute("SELECT created_on, removed_on FROM fr_names WHERE label = ?", (label,)).fetchone()
+            fr = self.conn.execute("SELECT created_on, removed_on, expires_at FROM fr_names WHERE label = ?", (label,)).fetchone()
             if fr is not None:
+                created = fr["created_on"]
                 add(fr["created_on"], "created", "Créé (Afnic)")
                 add(fr["removed_on"], "removed", "Supprimé (Afnic)")
+                if not (rdap or {}).get("expires_at"):
+                    add(fr["expires_at"], "expires", "Expiration")
+        rdap = rdap or {}
+        if rdap.get("registered_at") and not created:
+            add(rdap["registered_at"], "created", "Enregistré (registre)")
+        if rdap.get("expires_at") and not rdap.get("available"):
+            add(rdap["expires_at"], "expires", "Expiration")
         drop = self.conn.execute("SELECT * FROM drops WHERE name = ?", (name,)).fetchone()
         if drop is not None:
             if tld != "fr":
@@ -1693,24 +1703,41 @@ class Explorer:
             if drop["state"] in TIMELINE_DROP_STATES:
                 add(drop["state_since"], "drop_" + drop["state"], TIMELINE_DROP_STATES[drop["state"]])
             add(drop["available_since"], "available", "Libération constatée")
+            if drop["state"] != states.AVAILABLE and not drop["available_since"]:
+                release = drop["release_at"] or release
+        if release:
+            add(release, "release", "Libération estimée")
         rated = self.conn.execute("SELECT rated_at, reviewed_at FROM domain_ai WHERE name = ?", (name,)).fetchone()
         if rated is not None:
             add(rated["rated_at"], "rated", "Noté par l'IA" if not rated["reviewed_at"] else "Renoté par l'IA (second passage)")
         if domain is not None:
             add(domain["added_at"], "watched", "Surveillé")
+            # Dernier check en erreur : l'échéance connue du suivi reste une date utile.
+            if not rdap.get("expires_at") and domain["expires_at"] and domain["state"] != states.AVAILABLE:
+                add(domain["expires_at"], "expires", "Expiration")
+            changes = 0
             for h in self.conn.execute("SELECT at, field, old_value, new_value FROM history WHERE domain_id = ? "
                                        "AND field IN ('state', 'registrar') ORDER BY at", (domain["id"],)):
                 if h["field"] == "state":
+                    changes += 1
                     add(h["at"], "state", states.LABELS.get(h["new_value"], h["new_value"] or "inconnu"))
                 else:
                     add(h["at"], "registrar", f"Registrar : {h['new_value'] or 'inconnu'}")
+            # Pas d'historique d'état (vu d'emblée dans cet état) : l'entrée dans l'état courant, si elle est datée.
+            if not changes and domain["state"] and domain["state_since"]:
+                add(domain["state_since"], "state", "Depuis : " + states.LABELS.get(domain["state"], domain["state"]).lower())
         owned = self.conn.execute("SELECT bought_on, sold_on, status, sold_price FROM portfolio WHERE name = ?", (name,)).fetchone()
         if owned is not None:
             add(owned["bought_on"], "bought", "Acheté")
             if owned["status"] == "sold":
                 add(owned["sold_on"], "sold", "Vendu" + (f" ({owned['sold_price']} €)" if owned["sold_price"] is not None else ""))
+        nxt = self._rdap_next(name, tld, domain).get("at")
+        add(nxt, "next_check", "Prochaine vérification")
         found.sort(key=lambda x: x[0])  # stable : au même instant, l'ordre d'enregistrement
-        return [{"at": at, "kind": kind, "label": text} for at, kind, text in found]
+        now = iso(utcnow())
+        # Une date seule (AAAA-MM-JJ) est à venir si elle tombe après aujourd'hui.
+        return [{"at": at, "kind": kind, "label": text, "future": (at > now[:10]) if len(at) <= 10 else at > now}
+                for at, kind, text in found]
 
     def _rdap_next(self, name: str, tld: str, domain) -> dict:
         """Prochaine lecture RDAP prévue pour ce nom, et pourquoi ; sinon, pourquoi aucune."""

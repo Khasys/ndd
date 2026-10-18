@@ -1160,13 +1160,17 @@ button:disabled { cursor: default; opacity: .55; }
 .fiche-other-line { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px 10px; }
 .fiche-other-line .fiche-other-ai { flex: 1 1 auto; }
 .fiche-other { display: block; }
-.fiche-timeline summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 6px; }
-.fiche-timeline summary::-webkit-details-marker { display: none; }
-.fiche-timeline summary::before { content: "▸"; font-size: 11px; color: var(--muted); }
-.fiche-timeline[open] summary::before { content: "▾"; }
-.fiche-timeline summary h3 { margin: 0; }
-.fiche-timeline ol { margin-top: 6px; }
-.fiche-timeline .what.tl-bought, .fiche-timeline .what.tl-sold { font-weight: 600; }
+.fiche-timeline { margin: 10px 0 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
+.fiche-timeline h3 { margin: 0 0 6px; }
+.fiche-timeline ol { list-style: none; margin: 0; padding: 0 0 0 14px; border-left: 2px solid var(--line); }
+.fiche-timeline li { position: relative; display: flex; flex-wrap: wrap; gap: 2px 10px; padding: 3px 0; color: var(--muted); }
+.fiche-timeline li::before { content: ""; position: absolute; left: -19px; top: 9px; width: 8px; height: 8px; border-radius: 50%; background: var(--line); }
+.fiche-timeline li .when { min-width: 82px; font-variant-numeric: tabular-nums; }
+.fiche-timeline li.future { color: var(--text); }
+.fiche-timeline li.future::before { background: var(--accent); }
+/* Trait « aujourd'hui » avant la première date à venir. */
+.fiche-timeline li.now { margin-top: 6px; padding-top: 8px; border-top: 1px dashed var(--accent); }
+.fiche-timeline .what.tl-release, .fiche-timeline .what.tl-expires { font-weight: 600; }
 .fiche-timeline .what.tl-drop_taken { color: var(--danger); }
 /* Sur ordinateur, les puces (types, listes du Top, extensions) passent à la ligne : un défilement
    horizontal sans barre visible cacherait les dernières (Métiers, Sport, Animaux, Cuisine). */
@@ -1175,7 +1179,7 @@ button:disabled { cursor: default; opacity: .55; }
 }
 /* Sur téléphone, un comparable ou une étape de la ligne de temps reste sur une ligne (qui passe à la ligne si besoin). */
 @media (max-width: 899px) {
-  .history li.fiche-comp, .fiche-timeline li { flex-direction: row; flex-wrap: wrap; gap: 4px 10px; }
+  .history li.fiche-comp { flex-direction: row; flex-wrap: wrap; gap: 4px 10px; }
 }
 
 /* Sous-titre d'un écran : une ligne, discrète. */

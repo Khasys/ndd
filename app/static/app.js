@@ -597,6 +597,12 @@ document.addEventListener("alpine:init", () => {
       }
     },
 
+    // Trait « aujourd'hui » avant la première date à venir (la fiche peut se fermer pendant le rendu).
+    timelineNow(n) {
+      const line = (this.fiche && this.fiche.timeline) || [];
+      return !!(line[n] && line[n].future && (n === 0 || !(line[n - 1] && line[n - 1].future)));
+    },
+
     // Ligne de temps : date seule (AAAA-MM-JJ) ou instant ISO, en court.
     timelineDate(at) {
       return at && at.length <= 10 ? this.shortDate(at + "T12:00:00") : this.shortDate(at);

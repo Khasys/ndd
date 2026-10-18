@@ -2060,6 +2060,11 @@ async def explore_fiche(request: Request):
         raise HTTPException(422, str(exc)) from None
     explorer = request.app.state.explorer
     found = await _off(explorer.fiche, name)
+    # Nom surveillé : la libération estimée du suivi (Domaines) entre dans la ligne de temps.
+    row = request.app.state.conn.execute("SELECT * FROM domains WHERE name = ?", (name,)).fetchone()
+    estimate = request.app.state.checker.release_estimate(row) if row is not None else None
+    if estimate is not None and not any(t["kind"] == "release" for t in found.get("timeline", [])):
+        found["timeline"] = await _off(explorer.timeline, name, row, found.get("rdap"), iso(estimate))
     found["ai_eta"] = await _ai_eta(explorer, found)
     found["ai_request"] = ai.request_state(request.app.state.conn, name)
     found["in_portfolio"] = request.app.state.conn.execute("SELECT 1 FROM portfolio WHERE name = ?", (name,)).fetchone() is not None
