@@ -1254,3 +1254,7 @@ button:disabled { cursor: default; opacity: .55; }
 .fiche-acts svg.spin { animation: fa-spin 1s linear infinite; }
 @keyframes fa-spin { to { transform: rotate(360deg); } }
 @media (min-width: 900px) { .fiche-acts { grid-template-columns: repeat(auto-fit, minmax(84px, 110px)); } }
+.fiche-acts .ia-icon text { fill: currentColor; stroke: none; font: 700 8px/1 system-ui, sans-serif; letter-spacing: .2px; }
+.fiche-acts .ia-icon.pending rect { stroke-dasharray: 2.5 2.5; }
+.fiche-acts .ia-icon .ia-badge { fill: var(--surface); stroke: currentColor; stroke-width: 1.6; }
+.fiche-acts .ia-icon .ia-check { stroke-width: 1.6; }

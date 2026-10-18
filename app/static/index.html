@@ -1514,9 +1514,12 @@
         </button>
         <button type="button" class="fa" :class="{ on: ficheAiState(fiche) === 'done', wait: ficheAiState(fiche) === 'pending', primary: fichePrimary(fiche) === 'ai' }"
                 :disabled="ficheAiState(fiche) === 'pending'" @click="ficheAi()" :title="aiAskLabel(fiche)">
-          <svg viewBox="0 0 24 24" aria-hidden="true" x-show="ficheAiState(fiche) === 'none'"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M18 15l.8 2.2 2.2.8-2.2.8L18 21l-.8-2.2-2.2-.8 2.2-.8z"/></svg>
-          <svg viewBox="0 0 24 24" aria-hidden="true" x-show="ficheAiState(fiche) === 'pending'"><path d="M7 3h10M7 21h10M8 3c0 5 8 5 8 9s-8 4-8 9M16 3c0 5-8 5-8 9"/></svg>
-          <svg viewBox="0 0 24 24" aria-hidden="true" x-show="ficheAiState(fiche) === 'done'"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.8 2.8L16.5 9.5"/></svg>
+          <!-- Picto « IA » : pointillés pendant l'analyse, petite coche une fois l'avis reçu. -->
+          <svg viewBox="0 0 24 24" aria-hidden="true" class="ia-icon" :class="{ pending: ficheAiState(fiche) === 'pending' }">
+            <rect x="2" y="4" width="17" height="13" rx="3.2"/>
+            <text x="10.5" y="14" text-anchor="middle">IA</text>
+            <g x-show="ficheAiState(fiche) === 'done'"><circle cx="19.2" cy="18.6" r="3.9" class="ia-badge"/><path d="M17.5 18.7l1.2 1.2 2.2-2.4" class="ia-check"/></g>
+          </svg>
           <span x-text="{ none: 'Analyser', pending: 'En cours', done: 'Analysé' }[ficheAiState(fiche)]"></span>
         </button>
         <button type="button" class="fa" :class="{ wait: ficheBusy() }" :disabled="ficheBusy()" @click="ficheCheck()" title="Vérifier auprès du registre">
