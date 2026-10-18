@@ -168,6 +168,28 @@ def price_limits(resale: int, tld: str, label: str = "") -> tuple[int, int]:
     return floor, ceiling
 
 
+
+def default_prices(item: dict) -> dict:
+    """Prix par défaut d'un avis v5 dont seules les sous-notes sont données : le palier de la note de revente,
+    placé plus haut quand marché et acheteurs sont forts ; revente rapide à 40 % du prix final au plus.
+    Sert au format compact de la tâche de notation (prix « - »), qui peut toujours donner les siens."""
+    resale = derive(item)["resale"]
+    label, _, tld = item["name"].rpartition(".")
+    low, high = price_band(resale, tld)
+    floor, ceiling = price_limits(resale, tld, label)
+    strength = item["marche"] + item["acheteurs"]
+    weight = 0.25 if strength <= 4 else 0.5 if strength <= 10 else 0.8
+    final_low, final_high = low, max(low, _step_down(low + (high - low) * weight))
+    if resale < 10:
+        final_low, final_high = 0, 50 if item["acheteurs"] >= 2 else 0
+    final_low = max(final_low, floor)
+    final_high = min(max(final_high, final_low), ceiling)
+    quick_high = _step_down(final_high * QUICK_SHARE)
+    quick_low = _step_down(quick_high * QUICK_SHARE)
+    if resale < 25 or quick_high < 50:
+        quick_low = quick_high = 0
+    return {"quick_low": quick_low, "quick_high": quick_high, "final_low": final_low, "final_high": final_high}
+
 def check_v5(item, known) -> str | None:
     """Raison du refus d'un avis v5, ou None. Même règle pour la tâche de notation et pour le NAS."""
     if not isinstance(item, dict):

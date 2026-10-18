@@ -557,6 +557,45 @@ def test_exchange_script_checks_the_format_before_sending(tmp_path):
     assert "1 avis conformes, 2 problèmes" in out and "autre.fr : nom inconnu" in out and "mai.fr : pas d'avis" in out
 
 
+
+def test_exchange_script_compact_format_keeps_every_field_and_the_rules(tmp_path):
+    """Format compact de la tâche de notation : une ligne par nom à lire (mêmes informations que le JSON),
+    une ligne par avis à écrire ; prix « - » au palier standard ; le contrôle reste celui du NAS."""
+    import subprocess
+    import sys
+    from app.ai_format import check_v5, default_prices, derive
+    lot = tmp_path / "lot.json"
+    lot.write_text(json.dumps({"guide": "Consigne.", "names": [
+        {"name": "velo.fr", "status": "Libre (vérifié)", "categories": ["letters", "word"], "ranks": {"word": 12},
+         "natures": ["noun"], "taken_elsewhere": ["com"], "base": 60, "fr_history": {"created_on": "2001-01-01", "removed_on": "2026-01-01"},
+         "review": {"previous_note": 50, "score_estimate": 70}, "seo": {"pr": 2}},
+        {"name": "mai.fr", "status": "Jamais enregistré", "categories": [], "taken_elsewhere": []}]}, ensure_ascii=False))
+    run = lambda *args: subprocess.run([sys.executable, "scripts/ai_exchange.py", *args], capture_output=True, text=True, check=True).stdout
+    shown = run("show", str(lot), "0", "10").splitlines()
+    assert shown[0].startswith("# noms 0 à 1 sur 2") and "oral,radio,memo,sens,marque,marche,ext,acheteurs,risque" in shown[0]
+    velo = shown[1]
+    for part in ("velo.fr", "Libre (vérifié)", "lettres", "mots 12e", "nature noms communs", "pris en .com", "base 60",
+                 ".fr créé 2001-01-01, supprimé 2026-01-01", "ancienne note 50", 'seo {"pr": 2}'):
+        assert part in velo, part
+    assert run("guide", str(lot)).strip() == "Consigne."
+    txt = tmp_path / "avis-1.txt"
+    txt.write_text("# tranche 1\n"
+                   "velo.fr|10,10,10,10,9,8,10,9,0|-|Mot que tout le monde tape.|enseigne vélo\n"
+                   "mai.fr|8,8,8,6,5,4,8,3,0|100,300,500,1000|Mois court.|agence événementielle.\n"
+                   "inconnu.fr|1,1,1,1,1,1,1,1,1|-|x|y\n"
+                   "mai.fr|8,8|-|trop court|y\n", encoding="utf-8")
+    avis = tmp_path / "avis.json"
+    out = run("pack", str(lot), str(avis), str(txt))
+    assert "2 ligne(s) illisible(s)" in out and "inconnu.fr : nom absent du lot" in out and "9 sous-notes attendues" in out
+    items = json.loads(avis.read_text(encoding="utf-8"))
+    velo_item = items[0]
+    assert velo_item["comment"] == "Mot que tout le monde tape. Acheteur type : enseigne vélo."
+    assert {k: velo_item[k] for k in ("quick_low", "quick_high", "final_low", "final_high")} == default_prices(velo_item)
+    assert items[1]["final_high"] == 1000 and items[1]["comment"].endswith("Acheteur type : agence événementielle.")
+    assert all(check_v5(i, lambda n: True) is None for i in items) and derive(velo_item)["verdict"] == "À prendre"
+    assert "2 avis conformes, 0 problèmes" in run("check", str(lot), str(avis))
+
+
 def test_top_follows_language_and_extensions(logged):
     client = logged()
     client.app.state.conn.execute("INSERT INTO fr_names (label, created_on) VALUES ('assurance', '2001-01-01')")

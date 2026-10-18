@@ -2,8 +2,17 @@
 
   python scripts/ai_exchange.py pull 1000 lot.json      # liste à noter + consigne + format
   python scripts/ai_exchange.py requested lot.json      # analyses demandées depuis l'appli (tâche horaire)
+  python scripts/ai_exchange.py guide lot.json          # la consigne seule, à lire une fois
+  python scripts/ai_exchange.py show lot.json 0 250     # noms 0 à 249, une ligne par nom (format compact)
+  python scripts/ai_exchange.py pack lot.json avis.json avis-1.txt avis-2.txt...  # lignes compactes vers JSON
   python scripts/ai_exchange.py check lot.json avis.json # contrôle le format, sans rien envoyer
   python scripts/ai_exchange.py push lot.json avis.json  # contrôle puis envoie les avis conformes
+
+Format compact (moins de texte à lire et à écrire, mêmes informations, même grille) : une ligne par nom,
+  nom|oral,radio,memo,sens,marque,marche,ext,acheteurs,risque|prix|raison|acheteur type
+prix : « - » pour le palier standard de la note de revente (calculé comme au NAS), ou
+« revente rapide basse,haute,utilisateur final bas,haut » quand le nom s'écarte du palier.
+Le verdict et les notes sur 100 sont calculés depuis les sous-notes.
 
 Variables d'environnement : DW_URL (ex. https://domaines.exemple.fr) et DW_AI_TOKEN (jeton créé
 dans Paramètres > Avis IA). Le jeton n'est jamais affiché ni écrit dans un fichier.
@@ -16,7 +25,8 @@ import sys
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from app.ai_format import check_any, derive, is_v5, summary  # noqa: E402  même règle que le NAS, sans dépendance
+from app.ai_format import CRITERIA_V5, check_any, default_prices, derive, is_v5, summary  # noqa: E402  même règle que le NAS, sans dépendance
+from app.wordlists import LABELS, NATURES  # noqa: E402
 
 
 def call(method: str, path: str, body: dict | None = None) -> dict:
@@ -56,6 +66,79 @@ def verify(lot_path: str, results_path: str) -> tuple[list, list]:
     return good, problems
 
 
+# Libellés courts du format compact : catégories de forme, puis celles des listes (wordlists.LABELS).
+SHAPES = {"letters": "lettres", "digits": "chiffres", "mixed": "lettres et chiffres", "hyphen": "tiret", "long": "long"}
+
+
+def line(n: dict) -> str:
+    """Un nom du lot sur une ligne : les mêmes informations que le JSON, sans clés ni indentation."""
+    ranks = n.get("ranks") or {}
+    cats = []
+    for c in n.get("categories") or []:
+        label = SHAPES.get(c) or LABELS.get(c, c).lower()
+        cats.append(f"{label} {ranks[c]}e" if c in ranks else label)
+    cats += [f"{LABELS.get(c, c).lower()} {r}e" for c, r in ranks.items() if c not in (n.get("categories") or [])]
+    parts = [n["name"], n.get("status") or "", ", ".join(cats) or "hors listes"]
+    if n.get("natures"):
+        parts.append("nature " + ", ".join(NATURES.get(x, x).lower() for x in n["natures"]))
+    parts.append("pris en " + ", ".join("." + t for t in n["taken_elsewhere"]) if n.get("taken_elsewhere") else "pris ailleurs : non")
+    if n.get("base") is not None:
+        parts.append(f"base {n['base']}")
+    h = n.get("fr_history")
+    if h:
+        parts.append(f".fr créé {h.get('created_on') or '?'}" + (f", supprimé {h['removed_on']}" if h.get("removed_on") else ""))
+    if n.get("requested"):
+        parts.append("analyse demandée")
+    r = n.get("review")
+    if r:
+        parts.append(f"second passage : ancienne note {r.get('previous_note')}, estimation du score {r.get('score_estimate')}")
+    known = {"name", "status", "categories", "ranks", "natures", "taken_elsewhere", "base", "fr_history", "review", "requested"}
+    parts += [f"{k} {json.dumps(v, ensure_ascii=False)}" for k, v in n.items() if k not in known]  # rien de perdu
+    return " | ".join(parts)
+
+
+def pack(lot_path: str, out_path: str, sources: list[str]) -> list[tuple[str, str]]:
+    """Lignes compactes vers la liste JSON du format v5 ; problèmes de lecture, nom par nom."""
+    with open(lot_path, encoding="utf-8") as f:
+        asked = {n["name"] for n in json.load(f)["names"]}
+    items, problems = [], []
+    for path in sources:
+        with open(path, encoding="utf-8") as f:
+            rows = [r.strip() for r in f if r.strip() and not r.lstrip().startswith("#")]
+        for row in rows:
+            cells = [c.strip() for c in row.split("|")]
+            name = cells[0]
+            if len(cells) != 5:
+                problems.append((name, "5 champs séparés par | attendus : nom|9 sous-notes|prix|raison|acheteur type"))
+                continue
+            name, notes, prices, reason, buyer = cells
+            try:
+                values = [int(v) for v in notes.split(",")]
+            except ValueError:
+                values = []
+            if len(values) != len(CRITERIA_V5):
+                problems.append((name, f"{len(CRITERIA_V5)} sous-notes attendues ({','.join(CRITERIA_V5)})"))
+                continue
+            item = {"name": name, **dict(zip(CRITERIA_V5, values))}
+            if name not in asked:
+                problems.append((name, "nom absent du lot"))
+                continue
+            if prices in ("-", ""):
+                item.update(default_prices(item))
+            else:
+                try:
+                    ql, qh, fl, fh = (int(v) for v in prices.split(","))
+                except ValueError:
+                    problems.append((name, "prix : « - » ou quatre nombres séparés par des virgules"))
+                    continue
+                item.update(quick_low=ql, quick_high=qh, final_low=fl, final_high=fh)
+            item["comment"] = f"{reason.rstrip('. ')}. Acheteur type : {buyer.rstrip('. ')}."
+            items.append(item)
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(items, f, ensure_ascii=False)
+    return problems
+
+
 def main() -> None:
     action = sys.argv[1] if len(sys.argv) > 1 else ""
     if action == "pull":
@@ -75,6 +158,23 @@ def main() -> None:
             json.dump(found, f, ensure_ascii=False, indent=1)
         # Première ligne lue par la tâche horaire : à 0, elle s'arrête sans rien faire d'autre.
         print(f"DEMANDES {len(found['names'])}")
+    elif action == "guide":
+        with open(sys.argv[2], encoding="utf-8") as f:
+            print(json.load(f)["guide"])
+    elif action == "show":
+        with open(sys.argv[2], encoding="utf-8") as f:
+            names = json.load(f)["names"]
+        start, count = int(sys.argv[3]), int(sys.argv[4])
+        print(f"# noms {start} à {min(start + count, len(names)) - 1} sur {len(names)} ; réponse : "
+              f"nom|{','.join(CRITERIA_V5)}|prix ou -|raison|acheteur type")
+        for n in names[start:start + count]:
+            print(line(n))
+    elif action == "pack":
+        problems = pack(sys.argv[2], sys.argv[3], sys.argv[4:])
+        print(f"{len(problems)} ligne(s) illisible(s)")
+        for name, reason in problems[:30]:
+            print(f"  {name} : {reason}")
+        print(f"Avis écrits dans {sys.argv[3]} ; contrôle complet : check")
     elif action in ("check", "push"):
         good, problems = verify(sys.argv[2], sys.argv[3])
         print(f"{len(good)} avis conformes, {len(problems)} problèmes")
@@ -103,7 +203,8 @@ def main() -> None:
             for r in rejected[:20]:
                 print(f"  {r['name']} : {r['reason']}")
     else:
-        sys.exit("Usage : pull <nombre> <lot.json> | requested <lot.json> | check <lot.json> <avis.json> | push <lot.json> <avis.json>")
+        sys.exit("Usage : pull <nombre> <lot.json> | requested <lot.json> | guide <lot.json> | show <lot.json> <début> <nombre> | "
+                 "pack <lot.json> <avis.json> <avis-1.txt>... | check <lot.json> <avis.json> | push <lot.json> <avis.json>")
 
 
 if __name__ == "__main__":
