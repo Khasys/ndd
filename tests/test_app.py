@@ -1821,3 +1821,16 @@ def test_gandi_token_is_write_only_and_test_keeps_raw_answers(logged):
     assert not refused["ok"] and "refusé" in refused["error"]
     assert client.put("/api/settings/gandi", json={"key": ""}).json()["key_set"] is False
     client.__exit__(None, None, None)
+
+
+def test_interface_fiche_actions_refresh_the_screen_underneath():
+    """Vérifier, Suivre ou Arrêter le suivi depuis la fiche relisent l'écran resté ouvert dessous (Aujourd'hui,
+    Veille, Explorer) : sinon la carte d'Aujourd'hui gardait « Suppression imminente » d'un nom repris."""
+    from pathlib import Path
+
+    js = (Path(__file__).resolve().parent.parent / "app" / "static" / "app.js").read_text(encoding="utf-8")
+    under = js.split("async refreshUnderFiche()")[1].split("\n    },")[0]
+    assert "this.todayOpen" in under and "this.loadToday()" in under and "this.loadDrops()" in under
+    for fn in ("async ficheCheck()", "async ficheWatch()", "async ficheUnwatch()"):
+        body = js.split(fn)[1].split("\n    },")[0]
+        assert "this.refreshUnderFiche()" in body, fn

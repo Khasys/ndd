@@ -1009,13 +1009,22 @@ document.addEventListener("alpine:init", () => {
       const d = this.ficheDomain;
       if (d) {
         await this.check(d, true);
-        return this.ficheReload();
+      } else {
+        const item = await this.verifyName(this.fiche.name);
+        if (!item) return;
+        this.exReplace(item);
       }
-      const item = await this.verifyName(this.fiche.name);
-      if (!item) return;
-      this.exReplace(item);
-      if (this.dropsOpen) this.loadDrops();
-      await this.ficheReload();
+      await Promise.all([this.ficheReload(), this.refreshUnderFiche()]);
+    },
+
+    // Écran resté ouvert sous la fiche (Aujourd'hui, Veille, carte de l'Explorer) : relu après une action de la
+    // fiche, pour que ses cartes disent le nouvel état. Les autres se relisent à leur ouverture.
+    async refreshUnderFiche() {
+      const jobs = [];
+      if (this.todayOpen) jobs.push(this.loadToday());
+      if (this.dropsOpen) jobs.push(this.loadDrops());
+      if (this.exploreOpen) jobs.push(this.exLoadMap());
+      await Promise.all(jobs);
     },
 
     async ficheWatch() {
@@ -1023,7 +1032,7 @@ document.addEventListener("alpine:init", () => {
       this.newName = name;
       await this.add();
       if (this.domains.some((x) => x.name === name)) this.markWatched(name);
-      await this.ficheReload();
+      await Promise.all([this.ficheReload(), this.refreshUnderFiche()]);
     },
 
     ficheBusy() {
@@ -1035,7 +1044,7 @@ document.addEventListener("alpine:init", () => {
       const d = this.ficheDomain;
       if (d && await this.remove(d)) {
         this.markWatched(d.name, false);
-        await this.ficheReload();
+        await Promise.all([this.ficheReload(), this.refreshUnderFiche()]);
       }
     },
 
