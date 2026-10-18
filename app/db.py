@@ -67,6 +67,15 @@ def backup(conn: sqlite3.Connection, backup_dir: Path) -> Path:
     return target
 
 
+def _execute(conn: sqlite3.Connection, statement: str) -> None:
+    try:
+        conn.execute(statement)
+    except sqlite3.OperationalError as exc:
+        # Une migration est idempotente ; SQLite n'a pas de « ADD COLUMN IF NOT EXISTS ».
+        if "duplicate column name" not in str(exc) or "ADD COLUMN" not in statement.upper():
+            raise
+
+
 def migrate(conn: sqlite3.Connection, backup_dir: Path) -> None:
     current = conn.execute("PRAGMA user_version").fetchone()[0]
     pending = [(v, p) for v, p in _migrations() if v > current]
@@ -83,7 +92,7 @@ def migrate(conn: sqlite3.Connection, backup_dir: Path) -> None:
             sql = "\n".join(line for line in path.read_text().splitlines() if not line.lstrip().startswith("--"))
             for statement in sql.split(";"):
                 if statement.strip():
-                    conn.execute(statement)
+                    _execute(conn, statement)
             conn.execute(f"PRAGMA user_version = {version}")
             conn.execute("COMMIT")
         except Exception:

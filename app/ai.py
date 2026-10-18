@@ -11,6 +11,7 @@ import hashlib
 import hmac
 import json
 import secrets
+from datetime import timedelta
 
 from . import rdapinfo, value, wordlists
 from .checker import iso, utcnow
@@ -344,8 +345,9 @@ def _describe(explorer, picked, data) -> list[dict]:
     return out
 
 
-def save(conn, results: list, known) -> dict:
-    """Enregistre les avis au bon format ; les autres sont rejetés avec la raison, sans bloquer le lot."""
+def save(conn, results: list, known, status_of=None) -> dict:
+    """Enregistre les avis au bon format ; les autres sont rejetés avec la raison, sans bloquer le lot.
+    `status_of(name)` : code d'état de l'Explorer au moment de l'avis, gardé pour la mesure a posteriori."""
     now = iso(utcnow())
     saved, rejected, names = 0, [], []
     # Noms déjà notés avec la grille, avant ce lot : un avis à l'ancien format ne les remplace pas, et un
@@ -370,18 +372,105 @@ def save(conn, results: list, known) -> dict:
         again = row["name"] in detailed
         conn.execute(
             """INSERT INTO domain_ai (name, exploit, resale, quick_low, quick_high, final_low, final_high,
-                                      comment, rated_at, version, grid, reviewed_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                      comment, rated_at, version, grid, reviewed_at, status_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(name) DO UPDATE SET exploit = excluded.exploit, resale = excluded.resale,
                  quick_low = excluded.quick_low, quick_high = excluded.quick_high,
                  final_low = excluded.final_low, final_high = excluded.final_high,
                  comment = excluded.comment, rated_at = excluded.rated_at, version = excluded.version,
-                 grid = excluded.grid, reviewed_at = COALESCE(excluded.reviewed_at, domain_ai.reviewed_at)""",
-            (*(row[k] for k in FIELDS), now, version, grid, now if again and version >= VERSION else None),
+                 grid = excluded.grid, reviewed_at = COALESCE(excluded.reviewed_at, domain_ai.reviewed_at),
+                 status_at = excluded.status_at""",
+            (*(row[k] for k in FIELDS), now, version, grid, now if again and version >= VERSION else None,
+             status_of(row["name"]) if status_of else None),
         )
         saved += 1
         names.append(item["name"])
     return {"saved": saved, "rejected": rejected, "names": names}
+
+
+def status_lookup(explorer):
+    """Code d'état de l'Explorer d'un nom (None hors de l'univers ou sur une extension sans données)."""
+    u = explorer.universe
+    data = {t: explorer.status_bytes(t) for t in explorer.tlds()}
+
+    def status(name: str) -> int | None:
+        label, _, tld = name.partition(".")
+        i = u.index(label)
+        return int(data[tld][i]) if tld in data and i is not None else None
+
+    return status
+
+
+# --- Mesure a posteriori : les noms notés libres sont-ils repris ? --------------------
+
+OUTCOME_AGE = timedelta(days=30)
+FREE_CODES = (*MAYBE_FREE, FREE_SOON[0])   # supprimé non repris, jamais vu, libre vérifié
+TAKEN_NOW = (1, 6)                         # enregistré, suspendu
+RESALE_BANDS = (("0-39", 0, 39), ("40-59", 40, 59), ("60-79", 60, 79), ("80-100", 80, 100))
+
+
+def update_outcomes(conn, explorer, now) -> int:
+    """Tâche de nuit : pour chaque avis vieux de 30 jours au moins, donné quand le nom était libre ou
+    probablement libre, l'état d'aujourd'hui. Enregistré par quelqu'un d'autre (ni surveillé ni au
+    portefeuille) : repris, daté du premier passage qui l'a vu. Renvoie le nombre de noms revus."""
+    rows = conn.execute(
+        f"SELECT name, resale, comment, rated_at FROM domain_ai WHERE rated_at <= ? AND status_at IN ({','.join('?' * len(FREE_CODES))})",
+        (iso(now - OUTCOME_AGE), *FREE_CODES)).fetchall()
+    u = explorer.universe
+    data = {t: explorer.status_bytes(t) for t in explorer.tlds()}
+    mine = {r[0] for r in conn.execute("SELECT name FROM domains")} | {r[0] for r in conn.execute("SELECT name FROM portfolio")}
+    before = dict(conn.execute("SELECT name, taken_at FROM ai_outcomes").fetchall())
+    stamp = iso(now)
+    count = 0
+    conn.execute("BEGIN")
+    try:
+        for r in rows:
+            label, _, tld = r["name"].partition(".")
+            i = u.index(label)
+            if tld not in data or i is None:
+                continue
+            taken_now = data[tld][i] in TAKEN_NOW and r["name"] not in mine
+            earlier = before.get(r["name"])
+            # Repris une fois depuis l'avis : ça reste un regret, même si le nom retombe ; renoté depuis : on repart.
+            taken_at = earlier if earlier and earlier >= r["rated_at"] else (stamp if taken_now else None)
+            conn.execute(
+                """INSERT INTO ai_outcomes (name, verdict, resale, rated_at, free_at_rating, taken_at, checked_at)
+                   VALUES (?, ?, ?, ?, 1, ?, ?)
+                   ON CONFLICT(name) DO UPDATE SET verdict = excluded.verdict, resale = excluded.resale,
+                     rated_at = excluded.rated_at, taken_at = excluded.taken_at, checked_at = excluded.checked_at""",
+                (r["name"], r["comment"].split(".")[0], r["resale"], r["rated_at"], taken_at, stamp),
+            )
+            count += 1
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    return count
+
+
+def outcomes(conn) -> dict:
+    """Résumé : par verdict et par tranche de note de revente, nombre de noms et part reprise."""
+    rows = conn.execute("SELECT verdict, resale, taken_at, checked_at FROM ai_outcomes WHERE free_at_rating = 1").fetchall()
+
+    def cell() -> dict:
+        return {"count": 0, "taken": 0, "share": None}
+
+    def band_of(resale: int) -> str:
+        return next(key for key, low, high in RESALE_BANDS if low <= resale <= high)
+
+    by_verdict, by_resale, cross = {}, {key: cell() for key, _, _ in RESALE_BANDS}, {}
+    for r in rows:
+        band = band_of(max(0, min(100, r["resale"])))
+        for bucket in (by_verdict.setdefault(r["verdict"], cell()), by_resale[band],
+                       cross.setdefault((r["verdict"], band), cell())):
+            bucket["count"] += 1
+            bucket["taken"] += r["taken_at"] is not None
+    for bucket in (*by_verdict.values(), *by_resale.values(), *cross.values()):
+        bucket["share"] = round(bucket["taken"] / bucket["count"], 2) if bucket["count"] else None
+    return {"min_age_days": OUTCOME_AGE.days, "total": len(rows),
+            "checked_at": max((r["checked_at"] for r in rows), default=None),
+            "by_verdict": by_verdict, "by_resale": by_resale,
+            "cross": [{"verdict": v, "band": b, **c} for (v, b), c in sorted(cross.items())]}
 
 
 def known_name(explorer):

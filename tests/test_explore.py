@@ -918,3 +918,81 @@ def test_price_tiers_are_smooth_above_80():
     for floor, low, high in ai_format.PRICE_TIERS[:-1]:
         euros = lambda n: f"{n:,}".replace(",", " ")  # noqa: E731
         assert f"{floor}{' et plus' if floor == ai_format.PRICE_TIERS[0][0] else ''}, {euros(low)} à {euros(high)}" in ai.GUIDE
+
+def _opinion(conn, name, verdict, resale, rated_at="2026-10-01T00:00:00+00:00", status_at=None):
+    conn.execute(
+        "INSERT INTO domain_ai (name, exploit, resale, quick_low, quick_high, final_low, final_high, comment, rated_at, version, status_at) "
+        "VALUES (?, 80, ?, 500, 1000, 3000, 8000, ?, ?, 5, ?)",
+        (name, resale, f"{verdict}. Mot courant, rare en 4 lettres. Acheteur type : enseigne.", rated_at, status_at))
+
+
+def test_take_alert_once_per_state_grouped_and_thresholded(env):
+    from app import notify
+
+    store = env.fr.store
+    now = datetime.now(timezone.utc)
+    labels = ["velo", "mai"] + [f"v{n:03d}" for n in range(12)]
+    env.drops.record("fr", labels, [], now)
+    env.conn.execute("UPDATE drops SET state = 'available', available_since = ? WHERE name != 'mai.fr'", (now.isoformat(),))
+    env.conn.execute("UPDATE drops SET state = 'redemption', state_since = ?, release_at = ? WHERE name = 'mai.fr'",
+                     (now.isoformat(), (now + timedelta(days=30)).isoformat()))
+    _opinion(env.conn, "velo.fr", "À prendre", 90)
+    _opinion(env.conn, "mai.fr", "À prendre", 75)
+    for n in range(12):
+        _opinion(env.conn, f"v{n:03d}.fr", "À prendre" if n < 10 else "À surveiller", 70)
+    args = (env.conn, env, store, "https://nas.exemple", "https://shop/?s={domain}")
+    # Seuil : 80 ne garde que velo.fr.
+    store.set("alert_take_min", "80")
+    text, pairs = notify.take_message(*args, now)
+    assert pairs == [("velo.fr", "free")] and text.startswith("À prendre : 1 nom")
+    assert "velo.fr : libre" in text and "Exploitation 80, revente 90" in text and "3000 à 8000 €" in text
+    assert "https://nas.exemple/?fiche=velo.fr" in text and "Réserver : https://shop/?s=velo.fr" in text
+    assert "Acheteur type : enseigne." in text and "mai.fr" not in text
+    # Seuil par défaut (70) : 12 noms, les 10 meilleurs détaillés, puis « et 2 autres » ; la rédemption est datée.
+    store.delete("alert_take_min")
+    text, pairs = notify.take_message(*args, now)
+    assert len(pairs) == 12 and ("mai.fr", "coming") in pairs and "et 2 autres" in text and "v010.fr" not in text
+    assert text.count("Réserver : ") == 10 and "mai.fr : libre ~" in text
+    # Une fois envoyée, plus jamais pour le même état ; un nom masqué ne part pas.
+    notify.mark_sent(env.conn, pairs, now)
+    assert notify.take_message(*args, now) == (None, [])
+    env.conn.execute("UPDATE drops SET state = 'available', available_since = ? WHERE name = 'mai.fr'", (now.isoformat(),))
+    env.conn.execute("INSERT INTO drop_hidden (name, hidden_at) VALUES ('mai.fr', 'x')")
+    assert notify.take_message(*args, now) == (None, [])
+    env.conn.execute("DELETE FROM drop_hidden")
+    text, pairs = notify.take_message(*args, now)
+    assert pairs == [("mai.fr", "free")] and "mai.fr : libre\n" in text
+    # Désactivée : rien.
+    store.set("alert_take_enabled", "0")
+    assert notify.take_message(*args, now) == (None, [])
+
+
+def test_ai_outcomes_measure_names_taken_after_rating(env):
+    from app import ai
+
+    add_fr(env, "mot")                        # enregistré aujourd'hui
+    add_fr(env, "velo", removed="2025-01-01")  # toujours supprimé
+    add_fr(env, "chat")                        # enregistré, mais au portefeuille : pas repris par un autre
+    add_fr(env, "ciel")
+    env.conn.execute("INSERT INTO portfolio (name, created_at) VALUES ('chat.fr', 'x')")
+    old = "2026-09-01T00:00:00+00:00"
+    _opinion(env.conn, "mot.fr", "À prendre", 85, rated_at=old, status_at=explore.GONE)
+    _opinion(env.conn, "velo.fr", "À surveiller", 50, rated_at=old, status_at=explore.GONE)
+    _opinion(env.conn, "chat.fr", "À prendre", 85, rated_at=old, status_at=explore.FREE)
+    _opinion(env.conn, "ciel.fr", "À prendre", 85, rated_at=old, status_at=explore.REGISTERED)  # noté déjà pris : hors mesure
+    _opinion(env.conn, "mai.fr", "À prendre", 85, rated_at="2026-10-10T00:00:00+00:00", status_at=explore.ABSENT)  # trop récent
+    now = datetime(2026, 10, 18, tzinfo=timezone.utc)
+    assert ai.update_outcomes(env.conn, env, now) == 3
+    rows = {r["name"]: r for r in env.conn.execute("SELECT * FROM ai_outcomes")}
+    assert set(rows) == {"mot.fr", "velo.fr", "chat.fr"}
+    assert rows["mot.fr"]["taken_at"] == now.isoformat() and rows["velo.fr"]["taken_at"] is None and rows["chat.fr"]["taken_at"] is None
+    summary = ai.outcomes(env.conn)
+    assert summary["total"] == 3 and summary["by_verdict"]["À prendre"] == {"count": 2, "taken": 1, "share": 0.5}
+    assert summary["by_resale"]["80-100"] == {"count": 2, "taken": 1, "share": 0.5}
+    assert summary["by_resale"]["40-59"] == {"count": 1, "taken": 0, "share": 0.0} and summary["by_resale"]["0-39"]["share"] is None
+    assert {"verdict": "À prendre", "band": "80-100", "count": 2, "taken": 1, "share": 0.5} in summary["cross"]
+    # Nuit suivante : la date de reprise ne bouge pas, même si le nom retombe.
+    env.conn.execute("UPDATE fr_names SET removed_on = '2026-10-19' WHERE label = 'mot'")
+    env.invalidate("fr")
+    ai.update_outcomes(env.conn, env, now + timedelta(days=1))
+    assert env.conn.execute("SELECT taken_at FROM ai_outcomes WHERE name = 'mot.fr'").fetchone()[0] == now.isoformat()

@@ -65,6 +65,8 @@ Messages envoyés :
 |---|---|
 | Changement d'un domaine surveillé (état, registrar, libération estimée), lien vers sa fiche | à chaque changement ; vérification toutes les 5 min en suppression |
 | Résumé du matin : libérés, entrés en rédemption ou en suppression, .co / .ai / .io sortis du DNS, bons noms seulement, lien vers chaque fiche | chaque jour à l'heure choisie (8 h par défaut), rien s'il n'y a rien de bon |
+| « À prendre » : nom de la Veille qui passe libre ou entre en rédemption avec un avis IA « À prendre » et une note de revente au seuil réglé (70 par défaut, Paramètres) ; verdict, notes, prix utilisateur final, raison, lien vers la fiche et lien Réserver | dans les 10 minutes, une fois par nom et par état ; les noms d'un même passage dans un seul message (10 détaillés, puis « et N autres ») |
+| Vue enregistrée en alerte : « Vue « X » : N nouveaux noms », les noms devenus libres ou bientôt libres depuis le dernier passage qui répondent aux filtres de la vue, lien vers chaque fiche | une fois par heure au plus, après les lectures de la nuit comme en journée |
 | Résumé hebdomadaire | jour et heure choisis |
 | Analyse IA demandée prête, lien vers la fiche | dans l'heure qui suit la demande |
 | Panne : zone en erreur ou pas lue depuis 36 h, fichier .fr en erreur, pause .fr de plus d'une heure, notation IA muette depuis 36 h | à l'apparition, puis « Réglé » à la disparition |
@@ -107,8 +109,11 @@ Chaque nom est une carte : le nom, le score, et une phrase (verdict IA, puis not
 prix utilisateur final, ou note d'exploitation ; sinon les raisons du score, par exemple « 5 lettres · 153e mot le plus courant »).
 Dans la Veille, **Nouveaux cette nuit** ne garde que les noms libérés ou entrés en rédemption depuis
 24 h ; Réserver et Surveiller sont sur chaque carte. Tri en masse : cases à cocher (« Tout
-sélectionner » pour les noms affichés), puis Surveiller, Analyse IA, Revérifier ou Masquer ; un nom
-masqué quitte la Veille mais reste dans l'Explorer (Paramètres : « Tout réafficher »). L'état des
+sélectionner » pour les noms affichés), puis Surveiller, Analyse IA, Revérifier ou Ignorer ; un nom
+ignoré quitte la Veille mais reste dans l'Explorer (Paramètres : « Tout réafficher », ou un nom à la
+fois). La décision est gardée (`decisions`), comme « J'ai acheté » : si un nom ignoré est ensuite
+enregistré par quelqu'un d'autre, la liste des décisions le dit (« repris », avec la date quand elle est
+connue) et compte ces regrets. L'état des
 lectures (zones, .fr, DNS, historique) est dans Paramètres, carte « Sources et lectures » ; une
 ligne d'état reste en haut de la Veille. Sur téléphone, l'en-tête défile avec la liste.
 
@@ -358,6 +363,18 @@ même verdict dans 94 % des cas.
 Second passage : chaque nuit, les 50 avis les plus éloignés de l'estimation du score (25 points
 d'écart au moins) reviennent en tête de lot, avec l'ancienne note et l'estimation ; l'IA les renote à
 froid, une seule fois.
+
+Mesure a posteriori : chaque avis garde l'état du nom au moment où il est donné (`status_at`). Chaque
+nuit, les avis vieux de 30 jours au moins sur des noms alors libres ou probablement libres sont
+confrontés à l'état du jour : enregistré par quelqu'un d'autre (ni surveillé ni au portefeuille), le
+nom compte comme repris, daté du premier passage qui l'a vu (`ai_outcomes`). `GET /api/ai/outcomes`
+résume, par verdict et par tranche de note de revente (0-39, 40-59, 60-79, 80-100), le nombre de noms
+et la part reprise : si les « À prendre » partent vraiment, la grille tient.
+
+Alerte « À prendre » : dès qu'un nom de la Veille passe libre ou entre en rédemption avec un avis « À
+prendre » et une note de revente au seuil réglé (70 par défaut, désactivable), un message Telegram
+part avec le verdict, les notes, le prix utilisateur final, la raison, le lien vers la fiche et le lien
+Réserver. Une alerte par nom et par état ; le résumé du matin reste, lui récapitule.
 
 Le NAS publie la liste à noter (`GET /api/ai/pending`) : noms libres ou bientôt libres d'abord, puis
 probablement libres, puis enregistrés, les plus prometteurs d'abord, avec la consigne et des exemples

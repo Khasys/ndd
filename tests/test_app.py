@@ -355,7 +355,7 @@ def test_explorer_and_drops_settings(logged):
 def test_views_weights_order_url(logged):
     client = logged()
     views = client.put("/api/explore/views", json={"views": [{"name": "Prénoms top", "filters": {"cat": "firstname", "rank": 500}}, {"name": ""}]}).json()
-    assert views == [{"name": "Prénoms top", "filters": {"cat": "firstname", "rank": "500"}}]
+    assert views == [{"name": "Prénoms top", "filters": {"cat": "firstname", "rank": "500"}, "alert": False}]
     assert client.get("/api/explore/views").json() == views
     too_many = {"name": "Trop", "filters": {f"f{i}": "1" for i in range(41)}}
     assert client.put("/api/explore/views", json={"views": [too_many]}).status_code == 422
@@ -478,6 +478,7 @@ def test_ai_opinions_round_trip_with_a_token(logged):
     row = client.app.state.conn.execute("SELECT * FROM domain_ai WHERE name = 'velo.fr'").fetchone()
     assert row["version"] == 5 and row["exploit"] == 95 and row["resale"] == 90 and row["comment"].startswith("À prendre. Mot")
     assert json.loads(row["grid"])["oral"] == 10 and row["reviewed_at"] is None
+    assert row["status_at"] == 2  # supprimé non repris au moment de l'avis : la mesure a posteriori s'en sert
     # Second passage : le même nom renoté en v5 est marqué revu.
     client.post("/api/ai/results", headers=headers, json={"results": [v5]})
     assert client.app.state.conn.execute("SELECT reviewed_at FROM domain_ai WHERE name = 'velo.fr'").fetchone()[0]
@@ -895,4 +896,94 @@ def test_portfolio_gives_yearly_figures_sale_links_and_a_csv_export(logged):
     token = client.post("/api/settings/ai-token").json()["token"]
     client.cookies.clear()  # le jeton en lecture seule n'ouvre pas le portefeuille
     assert client.get("/api/portfolio/export", headers={"Authorization": f"Bearer {token}"}).status_code == 401
+
+def _opinion(conn, name, verdict, resale, exploit=80):
+    conn.execute(
+        "INSERT INTO domain_ai (name, exploit, resale, quick_low, quick_high, final_low, final_high, comment, rated_at, version) "
+        "VALUES (?, ?, ?, 500, 1000, 3000, 8000, ?, '2026-10-01T00:00:00+00:00', 5)",
+        (name, exploit, resale, f"{verdict}. Mot courant, rare en 4 lettres. Acheteur type : enseigne."))
+
+
+def test_alert_settings_take_alert_and_view_alerts(logged):
+    client = logged()
+    st = client.app.state
+    sent = []
+
+    async def send(text, chat_id=None):
+        sent.append(text)
+
+    st.telegram.send = send
+    st.store.set("telegram_token", "123:abc")
+    st.store.set("telegram_chat_id", "1")
+    st.store.set("public_url", "https://nas.exemple")
+    # Réglages : seuil entre 0 et 100, activation.
+    assert client.get("/api/settings/alerts").json() == {"take_enabled": True, "take_min": 70}
+    assert client.put("/api/settings/alerts", json={"take_enabled": True, "take_min": 101}).status_code == 422
+    assert client.put("/api/settings/alerts", json={"take_enabled": True, "take_min": 80}).json() == {"take_enabled": True, "take_min": 80}
+    assert client.get("/api/settings").json()["alerts"] == {"take_enabled": True, "take_min": 80}
+    now = datetime.now(timezone.utc)
+    st.conn.execute("INSERT INTO fr_names (label, created_on) VALUES ('mot', '2010-01-01')")  # le .fr a des données
+    st.drops.record("fr", ["velo", "mai"], [], now)
+    st.conn.execute("UPDATE drops SET state = 'available', available_since = ?", (now.isoformat(),))
+    _opinion(st.conn, "velo.fr", "À prendre", 90)
+    _opinion(st.conn, "mai.fr", "À prendre", 60)  # sous le seuil
+    for name in ("velo.fr", "mai.fr"):
+        st.explorer.touch(name)
+    views = [{"name": "Quatre lettres", "filters": {"len": "4"}, "alert": True},
+             {"name": "Prénoms", "filters": {"cat": "firstname", "min": "99"}, "alert": True},
+             {"name": "Sans alerte", "filters": {}}]
+    assert [v["alert"] for v in client.put("/api/explore/views", json={"views": views}).json()] == [True, True, False]
+    client.portal.call(st.send_alerts)
+    # Un message « À prendre » (velo.fr seul), puis un par vue qui a du nouveau (« Prénoms » n'a rien).
+    assert len(sent) == 2 and sent[0].startswith("À prendre : 1 nom")
+    assert "velo.fr : libre" in sent[0] and "revente 90" in sent[0] and "3000 à 8000 €" in sent[0]
+    assert "https://nas.exemple/?fiche=velo.fr" in sent[0] and "Réserver : https://shop.gandi.net" in sent[0] and "mai.fr" not in sent[0]
+    assert sent[1].startswith("Vue « Quatre lettres » : 1 nouveau nom") and "velo.fr (libre)" in sent[1] and "mai.fr" not in sent[1]
+    assert set(json.loads(st.store.get("view_alert_last"))) == {"Quatre lettres", "Prénoms"}
+    # Second passage : rien de nouveau, et les vues attendent une heure.
+    client.portal.call(st.send_alerts)
+    assert len(sent) == 2
+    assert client.get("/api/ai/outcomes").json()["total"] == 0  # tâche de nuit : avis trop récents
+    client.__exit__(None, None, None)
+
+
+def test_decisions_regrets_and_targeted_unhide(logged):
+    client = logged()
+    st = client.app.state
+    added = []
+
+    async def add(name):
+        added.append(name)
+
+    st.checker.add = add
+    now = datetime.now(timezone.utc)
+    st.conn.execute("INSERT INTO fr_names (label, created_on) VALUES ('mot', '2010-01-01')")  # le .fr a des données
+    st.drops.record("fr", ["ciel", "mai", "lune"], [], now)
+    st.conn.execute("UPDATE drops SET state = 'available', available_since = ?", (now.isoformat(),))
+    assert client.post("/api/drops/hide", json={"names": ["ciel.fr", "mai.fr"]}).json() == {"hidden": 2}
+    found = client.get("/api/decisions").json()
+    assert {(i["name"], i["decision"]) for i in found["items"]} == {("ciel.fr", "ignored"), ("mai.fr", "ignored")}
+    assert found["regrets"] == 0 and all(i["outcome"] is None for i in found["items"])
+    # Masquage annulé pour un seul nom : sa décision part avec.
+    assert client.post("/api/drops/unhide", json={"names": ["mai.fr"]}).json() == {"hidden": 1}
+    assert "mai.fr" in {i["name"] for i in client.get("/api/drops").json()["items"]}
+    assert [i["name"] for i in client.get("/api/decisions").json()["items"]] == ["ciel.fr"]
+    # Le nom ignoré est repris par quelqu'un d'autre : regret, daté.
+    st.conn.execute("UPDATE drops SET state = 'taken', state_since = '2026-10-10T00:00:00+00:00' WHERE name = 'ciel.fr'")
+    st.explorer.touch("ciel.fr")
+    found = client.get("/api/decisions").json()
+    assert found["regrets"] == 1 and found["items"][0]["outcome"] == "repris" and found["items"][0]["taken_at"] == "2026-10-10T00:00:00+00:00"
+    assert found["items"][0]["state_label"] == "Enregistré"
+    # Décision posée à la main, puis « J'ai acheté » par le portefeuille.
+    assert client.put("/api/decisions/lune.fr", json={"decision": "peut-être"}).status_code == 422
+    assert client.put("/api/decisions/pas un nom", json={"decision": "bought"}).status_code == 422
+    items = client.put("/api/decisions/Lune.fr", json={"decision": "ignored", "note": "  trop  cher "}).json()["items"]
+    assert {i["name"]: (i["decision"], i["note"]) for i in items}["lune.fr"] == ("ignored", "trop cher")
+    client.post("/api/portfolio", json={"name": "velo.fr", "buy_price": 12})
+    assert {i["name"]: i["decision"] for i in client.get("/api/decisions").json()["items"]}["velo.fr"] == "bought"
+    assert client.delete("/api/decisions/lune.fr").status_code == 204
+    assert client.delete("/api/decisions/lune.fr").status_code == 404
+    # Tout réafficher : les décisions « ignoré » des noms masqués s'effacent, l'achat reste.
+    assert client.post("/api/drops/unhide").json() == {"hidden": 0}
+    assert {i["name"] for i in client.get("/api/decisions").json()["items"]} == {"velo.fr"}
     client.__exit__(None, None, None)

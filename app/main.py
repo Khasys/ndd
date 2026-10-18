@@ -26,7 +26,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import ai, bot, calendar_ics, ccdns, db, morning, portfolio, digest, drops, explore, frdata, frdns, reserved, seo, signals, states, updates, value, wordlists
+from . import ai, bot, calendar_ics, ccdns, db, decisions, morning, notify, portfolio, digest, drops, explore, frdata, frdns, reserved, seo, signals, states, updates, value, wordlists
 from .auth import (
     COOKIE_NAME,
     LoginGuard,
@@ -97,7 +97,7 @@ PWA_PATHS = {"/manifest.webmanifest", "/sw.js", "/offline"}
 AI_PATHS = {"/api/ai/pending", "/api/ai/results"}
 # Lecture seule avec le même jeton : de quoi observer et analyser, jamais modifier ni lire un réglage.
 # Explorer : les écrans seulement (liste, classement, carte, fiches, export), pas les vues enregistrées.
-READ_PATHS = re.compile(r"^/api/(meta|diag|domains|domains/\d+/history|drops|explore(/(rank|top|map|name|fiche|export))?|ai/(status|rated))$")
+READ_PATHS = re.compile(r"^/api/(meta|diag|domains|domains/\d+/history|drops|explore(/(rank|top|map|name|fiche|export))?|ai/(status|rated|outcomes))$")
 PUBLIC_PATHS = {"/login", "/health", "/favicon.svg", "/logo", *PWA_PATHS}
 SETUP_PATHS = {"/setup", "/health", "/favicon.svg", "/logo"}
 BCRYPT_HASH = re.compile(r"\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}")
@@ -172,6 +172,25 @@ async def lifespan(app: FastAPI):
     async def refresh_signals() -> None:
         await signals.update_due(conn, limit=20)
 
+    async def send_alerts() -> None:
+        """Alertes immédiates (notify) : « À prendre » qui se libère, puis vues enregistrées en alerte."""
+        if not telegram.configured:
+            return
+        state, now = app.state, utcnow()
+        text, pairs = await _off(notify.take_message, conn, state.explorer, store, _public_url(state), _order_url(store), now)
+        if text and await telegram.send(text) is None:
+            notify.mark_sent(conn, pairs, now)
+        if notify.views_due(store, now):
+            for view in await _off(notify.view_messages, conn, state.explorer, store, _public_url(state), now,
+                                   lambda filters: _view_params(state.explorer, filters)):
+                if view["text"] is None or await telegram.send(view["text"]) is None:
+                    notify.mark_view(store, view["view"], now)
+
+    async def update_outcomes() -> None:
+        """Nuit : les avis d'il y a 30 jours sur des noms libres, revus à l'état d'aujourd'hui (ai_outcomes)."""
+        count = await _off(ai.update_outcomes, conn, app.state.explorer, utcnow())
+        log.info("Mesure a posteriori des avis IA : %s noms revus", count)
+
     # Chargées au démarrage : un fichier de liste absent de l'image doit se voir tout de suite,
     # pas au milieu de la lecture de nuit.
     sizes = {k: len(v) for k, v in wordlists.lists().items()}
@@ -233,6 +252,8 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(check_health, "interval", hours=1, next_run_time=now + timedelta(minutes=20), max_instances=1)
     scheduler.add_job(remind_renewals, "interval", hours=6, next_run_time=now + timedelta(minutes=25), max_instances=1)
     scheduler.add_job(refresh_signals, "interval", hours=1, next_run_time=now + timedelta(minutes=2), max_instances=1)
+    scheduler.add_job(send_alerts, "interval", minutes=10, next_run_time=now + timedelta(minutes=7), max_instances=1)
+    scheduler.add_job(update_outcomes, "cron", hour=4, minute=40, max_instances=1, id="ai_outcomes")
     scheduler.add_job(scan_zones, "interval", minutes=15, next_run_time=now + timedelta(minutes=1), max_instances=1)
     scheduler.add_job(check_drops, "interval", minutes=5, next_run_time=now + timedelta(minutes=3), max_instances=1)
     scheduler.add_job(import_fr, "interval", hours=6, next_run_time=now + timedelta(minutes=4), max_instances=1)
@@ -249,6 +270,8 @@ async def lifespan(app: FastAPI):
     telegram.start()
 
     app.state.refresh_latest = refresh_latest
+    app.state.send_alerts = send_alerts
+    app.state.update_outcomes = update_outcomes
     app.state.scheduler = scheduler
     app.state.drops = watcher
     app.state.fr = fr
@@ -847,6 +870,7 @@ async def get_settings(request: Request):
         "reserved": state.reserved.status(),
         "weights": {"values": value.weights_from(store.get("score_weights")), "labels": value.CRITERIA},
         "order_url": _order_url(store),
+        "alerts": _alert_settings(store),
         "appearance": {
             "app_name": store.get("app_name") or DEFAULT_NAME,
             "theme": store.get("theme", "system"),
@@ -1014,16 +1038,29 @@ async def hide_drops(request: Request, payload: DropNames):
     """Écarte des noms de l'écran Suppressions (ils restent dans l'Explorer)."""
     conn = request.app.state.conn
     now = iso(utcnow())
-    # Noms de domaine seulement (lettres, chiffres, tirets, points ; 253 caractères au plus).
-    names = [n for n in (x.strip().lower() for x in payload.names[:20000]) if re.fullmatch(r"[a-z0-9.-]{3,253}", n) and "." in n]
+    names = _domain_names(payload.names)
     conn.executemany("INSERT OR IGNORE INTO drop_hidden (name, hidden_at) VALUES (?, ?)", [(n, now) for n in names])
+    decisions.set_many(conn, names, "ignored", utcnow())  # « Ignorer » : la décision est gardée (regrets)
     return {"hidden": conn.execute("SELECT COUNT(*) FROM drop_hidden").fetchone()[0]}
 
 
+def _domain_names(raw: list[str]) -> list[str]:
+    """Noms de domaine seulement (lettres, chiffres, tirets, points ; 253 caractères au plus)."""
+    return [n for n in (x.strip().lower() for x in raw[:20000]) if re.fullmatch(r"[a-z0-9.-]{3,253}", n) and "." in n]
+
+
 @app.post("/api/drops/unhide")
-async def unhide_drops(request: Request):
-    request.app.state.conn.execute("DELETE FROM drop_hidden")
-    return {"hidden": 0}
+async def unhide_drops(request: Request, payload: DropNames | None = None):
+    """Sans corps : tout réafficher. Avec des noms : ces masquages seulement. La décision « ignoré » part avec."""
+    conn = request.app.state.conn
+    if payload is None:
+        decisions.forget_ignored(conn)
+        conn.execute("DELETE FROM drop_hidden")
+    else:
+        names = _domain_names(payload.names)
+        decisions.forget_ignored(conn, names)
+        conn.executemany("DELETE FROM drop_hidden WHERE name = ?", [(n,) for n in names])
+    return {"hidden": conn.execute("SELECT COUNT(*) FROM drop_hidden").fetchone()[0]}
 
 
 @app.post("/api/drops/fr/import", status_code=202)
@@ -1136,8 +1173,11 @@ async def recheck_drop(request: Request, payload: NameCheck):
 
 
 def _explore_params(request: Request) -> dict:
-    p = request.query_params
-    explorer = request.app.state.explorer
+    return _explore_params_of(request.query_params, request.app.state.explorer)
+
+
+def _explore_params_of(p, explorer) -> dict:
+    """Filtres de l'Explorer depuis des paramètres d'adresse (ou les filtres d'une vue enregistrée)."""
     tlds = explorer.tlds()
     # Une ou plusieurs extensions, séparées par des virgules, dans l'ordre de la liste connue.
     # Une extension inconnue (zone retirée, vue ancienne) est ignorée si une autre est connue ;
@@ -1466,7 +1506,8 @@ async def ai_results(request: Request, payload: AiResults):
     conn = request.app.state.conn
     known = ai.known_name(explorer)
     asked = {r["name"] for r in ai.requests(conn)["pending"]}
-    saved = ai.save(conn, payload.results, lambda name: name in asked or known(name))
+    status_of = await _off(ai.status_lookup, explorer)  # état au moment de l'avis : mesure a posteriori
+    saved = ai.save(conn, payload.results, lambda name: name in asked or known(name), status_of)
     explorer.ai_changed()  # compteurs filtrés sur l'avis
     for name in ai.finish(conn, saved.pop("names")):
         await _notify_ai_done(request, name)
@@ -1515,6 +1556,7 @@ async def add_portfolio(request: Request, payload: dict):
     cols = ["name", "created_at", *values]
     conn.execute(f"INSERT INTO portfolio ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
                  (name, iso(utcnow()), *values.values()))
+    decisions.set_decision(conn, name, "bought", None, utcnow())  # « J'ai acheté » : décision gardée
     # Surveillé aussi : l'échéance réelle vient du RDAP, et les changements arrivent sur Telegram.
     if not conn.execute("SELECT 1 FROM domains WHERE name = ?", (name,)).fetchone():
         try:
@@ -1661,7 +1703,8 @@ async def set_views(request: Request, payload: Views):
         # La liste des extensions peut être longue (« Toutes ») : pas de coupure pour elle.
         clean = {str(k)[:20]: ("" if v is None else str(v))[:400 if k == "tld" else 40]
                  for k, v in filters.items() if v is None or isinstance(v, (str, int, float, bool))}
-        keep.append({"name": name, "filters": clean})
+        # alert : les nouveaux noms libres qui répondent aux filtres partent sur Telegram (notify).
+        keep.append({"name": name, "filters": clean, "alert": bool(view.get("alert"))})
     request.app.state.store.set("explore_views", json.dumps(keep))
     return keep
 
@@ -2004,3 +2047,77 @@ async def delete_logo(request: Request):
     if old:
         old.unlink()
     return await get_settings(request)
+
+
+# --- Alertes immédiates, mesure a posteriori des avis, décisions gardées ------------------
+
+def _alert_settings(store) -> dict:
+    return {"take_enabled": notify.enabled(store), "take_min": notify.min_resale(store)}
+
+
+def _view_params(explorer, filters: dict) -> dict | None:
+    """Filtres d'une vue enregistrée traduits pour l'Explorer ; None s'ils ne passent plus (zone retirée…)."""
+    try:
+        return _explore_params_of({k: str(v) for k, v in filters.items()}, explorer)
+    except HTTPException:
+        return None
+
+
+class AlertSettings(BaseModel):
+    take_enabled: bool
+    take_min: int
+
+
+@app.get("/api/settings/alerts")
+async def get_alert_settings(request: Request):
+    return _alert_settings(request.app.state.store)
+
+
+@app.put("/api/settings/alerts")
+async def set_alert_settings(request: Request, payload: AlertSettings):
+    if not 0 <= payload.take_min <= 100:
+        raise HTTPException(422, "Seuil de revente entre 0 et 100 attendu.")
+    store = request.app.state.store
+    store.set("alert_take_enabled", "1" if payload.take_enabled else "0")
+    store.set("alert_take_min", str(payload.take_min))
+    return _alert_settings(store)
+
+
+@app.get("/api/ai/outcomes")
+async def ai_outcomes(request: Request):
+    """Mesure a posteriori : par verdict et par tranche de note de revente, part des noms repris."""
+    return ai.outcomes(request.app.state.conn)
+
+
+class Decision(BaseModel):
+    decision: str
+    note: str | None = None
+
+
+def _decision_name(name: str) -> str:
+    names = _domain_names([name])
+    if not names:
+        raise HTTPException(422, "Nom de domaine attendu.")
+    return names[0]
+
+
+@app.get("/api/decisions")
+async def list_decisions(request: Request):
+    state = request.app.state
+    return await _off(decisions.listing, state.conn, state.explorer)
+
+
+@app.put("/api/decisions/{name}")
+async def put_decision(request: Request, name: str, payload: Decision):
+    if payload.decision not in decisions.KINDS:
+        raise HTTPException(422, "Décision : ignored ou bought.")
+    note = " ".join((payload.note or "").split())[:decisions.NOTE_MAX] or None
+    decisions.set_decision(request.app.state.conn, _decision_name(name), payload.decision, note, utcnow())
+    return await list_decisions(request)
+
+
+@app.delete("/api/decisions/{name}", status_code=204)
+async def delete_decision(request: Request, name: str):
+    if not decisions.delete(request.app.state.conn, _decision_name(name)):
+        raise HTTPException(404, "Aucune décision pour ce nom.")
+    return Response(status_code=204)
