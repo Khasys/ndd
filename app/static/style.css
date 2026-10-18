@@ -872,10 +872,20 @@ button:disabled { cursor: default; opacity: .55; }
   .drawer-actions .btn-ghost, .drawer-actions a.btn-ghost { flex: 1 1 45%; }
 }
 
-.ex-reason.ai { border-color: var(--accent); color: var(--accent); }
-.ex-reason.ai.take { border-color: var(--s-available-dot); color: var(--s-available-fg); background: var(--s-available-bg); font-weight: 600; }
-.ex-reason.ai.skip { border-color: var(--line-strong); color: var(--muted); }
+/* Verdict IA : une pastille discrète, la même partout (cartes, fiche, Domaines, Aujourd'hui) ; texte normal,
+   couleur douce. À prendre vert, À surveiller ambre, À laisser gris. Le prix qui suit reste en texte normal. */
+.verdict {
+  display: inline-block; padding: 0 8px; border-radius: 999px; font-size: 12.5px; font-weight: 400; line-height: 1.6;
+  white-space: nowrap; vertical-align: baseline; background: var(--s-active-bg); color: var(--s-active-fg);
+}
+.verdict.take { background: var(--s-available-bg); color: var(--s-available-fg); }
+.verdict.watch { background: var(--s-expiring-bg); color: var(--s-expiring-fg); }
+.verdict.skip { background: var(--s-active-bg); color: var(--s-active-fg); }
 .ai-comment { font-style: italic; }
+/* Fiche : rien ne doit l'élargir (puce de raison longue, nom de serveur DNS, liste d'extensions). */
+.drawer { overflow-x: hidden; }
+.fiche-sec dd, .fiche .details-grid dd { min-width: 0; overflow-wrap: anywhere; }
+.details .ex-reason { white-space: normal; max-width: 100%; overflow-wrap: anywhere; }
 
 /* Fiche en sections et groupes de filtres : un titre discret, un filet au-dessus. */
 .fiche-sec { margin: 0 0 4px; }
@@ -894,7 +904,20 @@ button:disabled { cursor: default; opacity: .55; }
 .filter-group { display: inline-flex; flex-wrap: wrap; gap: 6px; padding-left: 6px; border-left: 1px solid var(--line); }
 .col-score { width: 1%; }
 .col-score .ex-bar { display: block; }
-.col-score .ex-reason.ai { display: inline-block; margin-top: 4px; white-space: normal; max-width: 190px; }
+/* Verdict et prix sous la barre : le prix passe à la ligne entier, sans boîte étroite. */
+.dom-ai { display: block; margin-top: 4px; min-width: 170px; line-height: 1.4; }
+.dom-ai-price { color: var(--muted); font-size: 12.5px; }
+/* Tri de Domaines sur téléphone (les en-têtes du tableau y sont masqués). */
+.dom-sort { display: none; gap: 6px; align-items: center; }
+.dom-sort select { width: auto; max-width: 100%; }
+@media (max-width: 899px) {
+  .dom-sort { display: inline-flex; flex: 1 1 100%; min-width: 0; }
+  /* Largeur 0 puis flex : le libellé d'option le plus long n'élargit plus la ligne. */
+  .dom-sort select { flex: 1; width: 0; min-width: 0; height: 40px; }
+  .dom-sort .btn-ghost { min-width: 44px; height: 40px; }
+  .domains .row .col-score { grid-column: 1 / -1; width: auto; }
+  .dom-ai { min-width: 0; }
+}
 .drops-sticky { margin-top: 4px; }
 
 /* Démarrer en 3 étapes (Aujourd'hui, Paramètres). */
@@ -971,7 +994,6 @@ button:disabled { cursor: default; opacity: .55; }
 
 /* Fiche : ligne de décision sous l'état. */
 .fiche-decision { display: flex; flex-wrap: wrap; gap: 6px 12px; margin: 6px 0 10px; font-size: 14px; }
-.fiche-decision .fd-ai { font-weight: 600; }
 .fiche-decision .fd-warn { color: var(--danger); }
 .fiche-decision .fd-price, .fiche-decision .fd-date { color: var(--muted); }
 
@@ -1027,8 +1049,7 @@ button:disabled { cursor: default; opacity: .55; }
 .help-btn:hover { color: var(--accent); border-color: var(--accent); }
 .simple-block { display: flex; flex-direction: column; gap: 8px; }
 .nc-line { margin: 3px 0 0; font-size: 14px; }
-.nc-ai.take { color: var(--accent); font-weight: 600; }
-.nc-ai.watch { font-weight: 600; }
+.nc-freq { margin: 2px 0 0; color: var(--muted); }
 .nc-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 3px 0 0; color: var(--muted); }
 .nc-meta:empty { display: none; }
 .warn-text { color: var(--danger); }
@@ -1132,9 +1153,6 @@ button:disabled { cursor: default; opacity: .55; }
 
 /* Fiche : comparables, repères, ligne de temps, autres extensions avec leur avis. */
 .fiche-comp { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 6px 0; }
-.fiche-comp-ai, .fiche-other-ai { font-weight: 600; }
-.fiche-comp-ai.take, .fiche-other-ai.take { color: var(--accent); }
-.fiche-comp-ai.skip, .fiche-other-ai.skip { color: var(--muted); font-weight: 500; }
 .fiche-other-line { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px 10px; }
 .fiche-other-line .fiche-other-ai { flex: 1 1 auto; }
 .fiche-other { display: block; }

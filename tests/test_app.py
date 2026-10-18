@@ -1264,3 +1264,144 @@ def test_interface_home_today_single_fiche_and_settings_order():
     # Aide : « Par écran » d'abord.
     toc = html.split('class="help-toc')[1].split("</nav>")[0]
     assert toc.index("Par écran") < toc.index("Vocabulaire")
+
+
+def test_rank_sorts_keep_every_filter(logged):
+    """Chaque tri de l'Explorer (chemins différents côté serveur : rank, _by_release, _ordered, _by_frequency,
+    _by_ai, _by_seo, _candidates) croisé avec chaque filtre : chaque nom renvoyé respecte tous les filtres."""
+    from app import drops as drops_mod, explore, wordlists
+
+    client = logged()
+    state = client.app.state
+    conn = state.conn
+    now = datetime.now(timezone.utc)
+    first, sur = wordlists.ranks()["firstname"], wordlists.ranks()["surname"]
+    prenoms = sorted(first, key=first.get)[:60]
+    noms = sorted(sur, key=sur.get)[:60]
+    mots = ["maison", "deal", "chat", "marche", "manger", "lampe", "velo", "ciel", "jardin", "voyage", "mai", "ma", "dea"]
+    labels = list(dict.fromkeys(prenoms + noms + mots))
+    # .fr : un tiers enregistré, un tiers supprimé (probablement libre), le reste jamais vu ; des noms en rédemption et libres.
+    for n, label in enumerate(labels):
+        if n % 3 < 2:
+            conn.execute("INSERT INTO fr_names (label, created_on, removed_on) VALUES (?, '2010-02-01', ?)",
+                         (label, None if n % 3 == 0 else "2026-01-01"))
+    for n, label in enumerate(labels[::4]):
+        state_ = ["redemption", "pending_delete", "available"][n % 3]
+        release = None if state_ == "available" or n % 5 == 4 else (now + timedelta(days=1 + (n * 7) % 25)).isoformat()
+        conn.execute("INSERT INTO drops (name, tld, label, kind, removed_on, state, state_since, release_at, available_since, lists) "
+                     "VALUES (?, 'fr', ?, 'long', '2026-10-01', ?, ?, ?, ?, '')",
+                     (f"{label}.fr", label, state_, now.isoformat(), release, now.isoformat() if state_ == "available" else None))
+    # .com : une partie des mêmes noms pris (filtre « pris ailleurs »).
+    state.store.set("czds_approved", '["com"]')
+    bits = bytearray(drops_mod.BITMAP_BYTES)
+    for label in ("ma", "mai", "dea", "chat", "ciel", "velo"):
+        i = drops_mod.encode(label)
+        bits[i // 8] |= 1 << (i % 8)
+    state.drops._save("com", bits, set(labels[::2]))
+    # Avis IA de chaque verdict, SEO sur quelques noms.
+    for n, label in enumerate(labels[::3]):
+        verdict = ["À prendre", "À surveiller", "À laisser"][n % 3]
+        resale = {"À prendre": 70, "À surveiller": 50, "À laisser": 30}[verdict] + n % 7
+        conn.execute("INSERT INTO domain_ai (name, exploit, resale, quick_low, quick_high, final_low, final_high, comment, rated_at, version) "
+                     "VALUES (?, ?, ?, 50, ?, 300, ?, ?, 'x', 5)",
+                     (f"{label}.fr", resale - 3, resale, 100 + n * 10, 1000 + n * 50, f"{verdict}. Raison. Acheteur type : x."))
+    for n, label in enumerate(labels[1::5]):
+        conn.execute("INSERT INTO domain_seo (name, pr, wb_years, checked_at) VALUES (?, ?, ?, 'x')", (f"{label}.fr", n % 6, n % 9))
+    state.explorer.invalidate()
+    state.explorer.ai_changed()
+
+    fr = state.explorer.status_bytes("fr")
+    com = state.explorer.status_bytes("com")
+    u = state.explorer.universe
+    seo = {r[0]: r for r in conn.execute("SELECT name, pr, wb_years FROM domain_seo")}
+    verdicts = {"take": "À prendre", "watch": "À surveiller", "skip": "À laisser"}
+    filters = [
+        {}, {"q": "ma"}, {"q": "mar", "mode": "contains"}, {"cat": "firstname"}, {"cat": "surname"}, {"cat": "word"},
+        {"cat": "letters"}, {"len": "4"}, {"len": "-3"}, {"len": "5"}, {"nat": "noun"}, {"nat": "verb"}, {"lang": "fr"},
+        {"lang": "en"}, {"rank": "20", "cat": "firstname"}, {"rank": "500"}, {"taken": "com"}, {"taken": "any"},
+        {"min": "35"}, {"junk": "1"}, {"seo": "any"}, {"seo": "pr3"}, {"ai_v": "take"}, {"ai_v": "watch,skip"},
+        {"ai_resale_min": "60"}, {"ai_final_high_max": "1200"}, {"premium": "1"}, {"level": ""},
+        {"q": "ma", "ai_v": "take,watch"}, {"cat": "surname", "seo": "any"}, {"cat": "firstname", "level": "", "min": "20"},
+    ]
+    # Bientôt libres : tous les filtres (liste courte, parcours rapides) ; Libres et Tous : les filtres qui
+    # passent par d'autres chemins (recherche, liste, SEO, avis IA, pris ailleurs), le parcours complet coûte cher.
+    plan = {"coming": filters,
+            "bookable": [{"q": "ma"}, {"cat": "firstname"}, {"ai_v": "take"}, {"seo": "any"}, {"taken": "com", "cat": "surname"}],
+            "all": [{"q": "ma", "ai_v": "take,watch"}, {"cat": "surname", "level": ""}]}
+    checked = 0
+    for sort in ("resale", "score", "release", "length", "freq", "seo", "ai"):
+        for status, chosen in plan.items():
+            codes = explore.STATUS_FILTERS[status]
+            for f in chosen:
+                params = {"tld": "fr", "status": status, "sort": sort, "limit": 15, "level": "good", **f}
+                data = client.get("/api/explore/rank", params=params)
+                assert data.status_code == 200, params
+                items = data.json()["items"]
+                # « Un tri ne filtre pas » : avec SEO ou avis IA, les noms analysés d'abord, puis les autres, mais tous filtrés.
+                for it in items:
+                    label, i = it["label"], u.index(it["label"])
+                    ai_row = conn.execute("SELECT * FROM domain_ai WHERE name = ?", (it["name"],)).fetchone()
+                    verdict = ai_row["comment"].split(".")[0] if ai_row else ""
+                    n = int(f.get("len") or 0)
+                    why = {
+                        "état": fr[i] in codes,
+                        "recherche": not f.get("q") or (f["q"] in label if f.get("mode") == "contains" else label.startswith(f["q"])),
+                        "catégorie": not f.get("cat") or f["cat"] in u.categories(label),
+                        "longueur": not n or (len(label) <= -n if n < 0 else len(label) >= 5 if n >= 5 else len(label) == n),
+                        "nature": not f.get("nat") or f["nat"] in wordlists.natures().get(label, ()),
+                        "langue": not f.get("lang") or label in wordlists.languages()[f["lang"]],
+                        "fréquence": not f.get("rank") or (state.explorer.best_rank(label, f.get("cat", "")) or 10**9) <= int(f["rank"]),
+                        "pris ailleurs": not f.get("taken") or com[i] in explore.TAKEN_CODES,
+                        "score minimum": not f.get("min") or it["score"] >= int(f["min"]),
+                        "imprononçables": f.get("junk") == "1" or bool(u.good[i]),
+                        "SEO": not f.get("seo") or (it["name"] in seo and (seo[it["name"]][1] >= 3 if f["seo"] == "pr3"
+                                                                           else seo[it["name"]][1] > 0 or seo[it["name"]][2] > 0)),
+                        "verdict IA": not f.get("ai_v") or verdict in {verdicts[v] for v in f["ai_v"].split(",")},
+                        "revente IA": not f.get("ai_resale_min") or (ai_row and ai_row["resale"] >= int(f["ai_resale_min"])),
+                        "prix IA": not f.get("ai_final_high_max") or (ai_row and ai_row["final_high"] <= int(f["ai_final_high_max"])),
+                        "noms faibles": params["level"] != "good" or (verdict != "À laisser" if verdict else it["score"] >= 30),
+                    }
+                    assert all(why.values()), (params, label, [k for k, v in why.items() if not v])
+                    checked += 1
+                if sort == "release":
+                    dates = [it["release_at"] or "9" for it in items]
+                    assert dates == sorted(dates), params
+                if sort == "freq":
+                    key = f.get("cat") if f.get("cat") in wordlists.LABELS else ""
+                    sizes = {k: len(r) for k, r in wordlists.ranks().items()}
+                    pos = [it["ranks"][key] if key else min(r / sizes[k] for k, r in it["ranks"].items()) for it in items]
+                    assert pos == sorted(pos), params
+                    assert all(it["freq_list"] in it["ranks"] for it in items)
+    assert checked > 2000
+    # Les plus fréquents, en Prénoms : du plus donné au moins donné (Insee), avec ou sans les noms faibles.
+    for level in ("good", ""):
+        items = client.get("/api/explore/rank", params={"tld": "fr", "status": "all", "sort": "freq", "cat": "firstname",
+                                                        "level": level, "limit": 30}).json()["items"]
+        ranks = [it["ranks"]["firstname"] for it in items]
+        assert ranks and ranks == sorted(ranks) and all(it["freq_list"] == "firstname" for it in items)
+    # Par avis IA, noms faibles masqués : les « À laisser » écartés ne laissent pas leur place à des noms sans avis.
+    items = client.get("/api/explore/rank", params={"tld": "fr", "status": "all", "sort": "ai", "level": "good", "limit": 5}).json()["items"]
+    assert len(items) == 5 and all(it["ai"] and not it["ai"]["comment"].startswith("À laisser") for it in items)
+    client.__exit__(None, None, None)
+
+
+def test_interface_verdict_badges_sorts_and_fiche_labels():
+    """Chantier G1 : verdict IA en pastille partout, tris par fréquence et sur téléphone, fiche sans valeurs brutes."""
+    from pathlib import Path
+
+    static = Path(__file__).resolve().parent.parent / "app" / "static"
+    js = (static / "app.js").read_text(encoding="utf-8")
+    html = (static / "index.html").read_text(encoding="utf-8")
+    css = (static / "style.css").read_text(encoding="utf-8")
+    # Une seule classe de pastille pour le verdict, sans gras ; plus de verdict en texte gras coloré.
+    assert ".verdict {" in css and "font-weight: 400" in css.split(".verdict {")[1].split("}")[0]
+    for gone in (".nc-ai", ".fd-ai", ".fiche-comp-ai", ".ex-reason.ai", "lineClass"):
+        assert gone not in css + js + html, gone
+    assert html.count('class="verdict"') >= 4 and 'cls: "verdict "' in js and 'class="verdict ${' in js
+    # Tri « Les plus fréquents » dans la Veille et l'Explorer ; « Libération » grisé hors de Bientôt libres.
+    assert html.count('<option value="freq"') == 2 and "Les plus fréquents" in html
+    assert ":disabled=\"dropTab !== 'coming'\"" in html and ":disabled=\"ex.status !== 'coming'\"" in html
+    # Domaines : tri au menu sur téléphone ; la barre du bas ne remet plus le filtre d'état à zéro.
+    assert 'class="dom-sort"' in html and "openDomains(); filter = null" not in html
+    # Fiche : catégories et nature traduites même sans écran chargé, rang en clair.
+    assert 'noun: "nom commun"' in js and 'letters: "Lettres"' in js and 'firstname: "prénom le plus donné"' in js

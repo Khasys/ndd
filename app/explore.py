@@ -872,6 +872,8 @@ class Explorer:
         recent = self.recent.rank_of(label) if self.recent is not None else None
         if recent:
             found["reasons"] = self._with_recent(found.get("reasons", []), label, recent[0])
+        # Rang dans chaque liste : tri « les plus portés » et « 12e prénom le plus donné » sur la carte.
+        found["ranks"] = {k: r[label] for k, r in wordlists.ranks().items() if label in r}
         if ctx.get("devalue") and ctx["status"][i] == PREMIUM:
             # Case « dévaluer les premiums probables » : score divisé par deux, la raison le dit.
             found["score"] //= 2
@@ -1059,6 +1061,9 @@ class Explorer:
         others = self._others(tld, f)
         u = self.universe
         ctx = self._bonus_context(tld)
+        # Recherche, SEO et avis IA filtrent aussi ce tri (ils passaient sans contrôle).
+        q = self.normalize(f.q, tld)
+        allowed = self._restrict(tld, f)
         hits = []
         # Sans date estimée (délais du registre inconnus, échéance absente) : à la fin, pas masqué.
         for (name,) in self.conn.execute(
@@ -1066,7 +1071,7 @@ class Explorer:
             i = u.index(name.rsplit(".", 1)[0])
             if i is None or data[i] not in codes or not self._good_ok(i, f) or not self._taken_ok(i, others):
                 continue
-            if not self._keep(u.label(i), f):
+            if (allowed is not None and i not in allowed) or not self._matches(u.label(i), f, q) or not self._keep(u.label(i), f):
                 continue
             hits.append(i)
         scored = self._scored(tld, f, hits, data, ctx)["items"]
@@ -1193,6 +1198,8 @@ class Explorer:
         rows = self.conn.execute("SELECT name FROM domain_ai WHERE name LIKE ? ORDER BY quick_high DESC, resale DESC, "
                                  "final_high DESC, name", (f"%.{tld}",))
         allowed = self._restrict(tld, f)
+        ctx = self._bonus_context(tld)
+        items = []
         for (name,) in rows:
             label = name[: -len(tld) - 1]
             i = u.index(label)
@@ -1201,9 +1208,15 @@ class Explorer:
             if (i is not None and data[i] in codes and self._good_ok(i, f) and self._taken_ok(i, others)
                     and self._matches(label, f, q) and self._keep(label, f)):
                 hits.append(i)
-                if len(hits) >= limit * (4 if f.min_score else 1):
-                    break
-        return {"items": self._scored(tld, f, hits, data, self._bonus_context(tld))["items"][:limit]}
+                # Score minimum et niveau écartent après notation : on note par paquets jusqu'à remplir la page,
+                # sinon les noms notés écartés laissaient leur place à des noms sans avis.
+                if len(hits) >= limit:
+                    items += self._scored(tld, f, hits, data, ctx)["items"]
+                    hits = []
+                    if len(items) >= limit:
+                        break
+        items += self._scored(tld, f, hits, data, ctx)["items"]
+        return {"items": items[:limit]}
 
     def _by_recent(self, tld: str, f: Filters, limit: int) -> dict:
         """Prénoms les plus donnés l'année la plus récente (Insee), avec tous les filtres."""
@@ -1239,7 +1252,8 @@ class Explorer:
         others = self._others(tld, f)
         u = self.universe
         ctx = self._bonus_context(tld)
-        order = u.by_frequency.get(f.category if f.category in wordlists.LABELS else "", u.by_frequency[""])
+        key = f.category if f.category in wordlists.LABELS else ""
+        order = u.by_frequency[key]
         q = self.normalize(f.q, tld)
         allowed = self._restrict(tld, f)
         items = []
@@ -1256,7 +1270,12 @@ class Explorer:
             items += self._scored(tld, f, hits, data, ctx)["items"]
             if len(items) >= limit:
                 break
-        return {"items": items[:limit]}
+        items = items[:limit]
+        # Liste qui donne le rang : celle du filtre, sinon celle où le nom est le mieux placé (même calcul que l'ordre).
+        sizes = {k: len(r) for k, r in wordlists.ranks().items()}
+        for item in items:
+            item["freq_list"] = key or min(item["ranks"], key=lambda k: item["ranks"][k] / sizes[k], default=None)
+        return {"items": items}
 
     # --- Compteurs -------------------------------------------------------------------
 

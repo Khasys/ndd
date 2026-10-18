@@ -151,8 +151,10 @@ Réglages communs, gardés d'un écran à l'autre :
 Chaque nom est une carte, la même dans Aujourd'hui, la Veille, l'Explorer et la recherche (gabarit `#name-card`,
 fonction `nameCard` dans `app.js`) : le nom ; en pastille principale la valeur qui trie pour l'usage
 en cours (note IA de revente ou d'exploitation, étiquetée « IA 75 », sinon le score, étiqueté
-« score 53 »), l'autre valeur en retrait ; une phrase (verdict IA et prix utilisateur final, sinon les
-raisons du score, par exemple « 5 lettres · 153e mot le plus courant ») ; l'état en toutes lettres
+« score 53 »), l'autre valeur en retrait ; une phrase (verdict IA en pastille, « À prendre » vert, « À surveiller »
+ambre, « À laisser » gris, puis le prix utilisateur final en texte normal ; sans avis, les raisons du score, par
+exemple « 5 lettres · 153e mot le plus courant ») ; avec le tri « Les plus fréquents », le rang du nom dans sa
+liste (« 12e prénom le plus donné ») ; l'état en toutes lettres
 avec sa date (« probablement libre », « libre, vérifié il y a 3 h », « En rédemption, libération
 ~09/11 », « pris », « réservé », « premium probable ») ; les actions Réserver (nom libre ou
 probablement libre), Vérifier (nom probablement libre), Surveiller ; une case de sélection ; les badges
@@ -347,9 +349,14 @@ Le moins de requêtes possible : un nom n'est revérifié que quand quelque chos
 
 Un nom libre reste dans la Veille 30 jours (réglable dans Paramètres). Rien n'est effacé de la
 base : passé ce délai, il reste visible dans l'Explorer. La Veille a les mêmes filtres avancés que
-l'Explorer, gardés d'une visite à l'autre. Tri : les meilleurs d'abord (selon revendre ou
-exploiter), les plus récents, ou la libération la plus proche. Chaque nom ouvre la même fiche.
-Domaines (un clic sur un nom ouvre sa fiche) a aussi une colonne Valeur (score et avis IA), triable, des filtres par extension et
+l'Explorer, gardés d'une visite à l'autre avec le tri et la case des noms faibles. Tri : les meilleurs
+d'abord (selon revendre ou exploiter), les plus récents, la libération la plus proche (Bientôt libres
+seulement : grisée dans Libérés, où la liste suit les meilleurs, et de retour sur Bientôt libres), ou les plus
+fréquents (rang Insee pour prénoms et noms de famille, rang de fréquence pour les mots ; avec une seule
+liste cochée dans Avancé, son rang ; sinon le meilleur rang toutes listes confondues). Un tri ne retire
+aucun filtre, un filtre ne change pas le tri. Chaque nom ouvre la même fiche.
+Domaines (un clic sur un nom ouvre sa fiche) a aussi une colonne Valeur (score, verdict IA en pastille et prix
+utilisateur final), triable, des filtres par extension et
 par verdict IA, et une sélection multiple (case devant chaque nom, « Sélectionner » pour les lignes
 affichées) avec Vérifier et Analyse IA groupés, bilan en un message (« 3 vérifiés, 1 échec »).
 
@@ -407,13 +414,16 @@ requête : zones ICANN lues chaque jour, open data de l'Afnic, données de la Ve
 - **Carte** : extension × catégorie (1 à 3 caractères, 4 lettres, mots, formes fléchies, noms,
   prénoms), nombre de noms réservables par case, le même compte que la puce « Libres » de la liste
   (libération à venir exclue). Une case ouvre la liste filtrée et referme la carte.
-- **Liste** : les meilleurs d'abord (selon revendre ou exploiter), libération la plus proche, les plus
-  courts, les plus courants, ou score seul ; avec le type Prénoms et le fichier de l'Insee lu, « Les plus
-  donnés en 2024 » (`sort=recent`) : prénoms de l'année la plus récente dans l'ordre de l'Insee, tous les
-  filtres appliqués, puis les autres par fréquence. Un prénom classé porte la raison « 12e prénom donné
-  en 2024 » sur sa carte et sa fiche, sans point de score. Une carte ouvre la fiche du nom.
+- **Liste** : les meilleurs d'abord (selon revendre ou exploiter), libération la plus proche (état Bientôt
+  libres seulement), les plus courts, les plus fréquents, ou score seul. Les plus fréquents : avec le type
+  Prénoms ou Noms de famille, du plus donné au moins donné (Insee), « Masquer les noms faibles » coché ou non ;
+  chaque carte dit le rang (« 12e prénom le plus donné »). Un type ne remet pas la longueur ni la nature à
+  zéro. Avec le type Prénoms et le fichier de l'Insee lu,
+  « Les plus donnés en 2024 » (`sort=recent`) : prénoms de l'année la plus récente dans l'ordre de l'Insee,
+  tous les filtres appliqués, puis les autres par fréquence ; un prénom classé porte la raison « 12e prénom
+  donné en 2024 », sans point de score. Une carte ouvre la fiche du nom.
 - **Fiche** : la même dans Domaines, Veille et Explorer. État, score détaillé, raisons,
-  catégories, nature, fréquence, historique .fr, SEO, dernière réponse RDAP ou WHOIS (registrar,
+  catégories et nature en français, fréquence (rang dans chaque liste, « 442e mot anglais le plus courant »), historique .fr, SEO, dernière réponse RDAP ou WHOIS (registrar,
   dates, statuts, DNS ; pour un nom surveillé, la section Suivi la remplace), autres extensions (avec le
   résumé de leur avis IA : verdict, note de revente, prix final), et les actions (Vérifier, Réserver chez
   Gandi, Surveiller ou Supprimer de la surveillance, J'ai acheté, SEO, Réservé). **Comparables** : jusqu'à trois noms déjà notés avec la grille sur la
@@ -488,7 +498,7 @@ note de 0 à 10 tirée des liens (Common Crawl), avec une clé gratuite à saisi
 la Wayback Machine donne les années où le site a été archivé, sans clé. Le nombre exact de
 backlinks n'existe que chez des services payants (Ahrefs, Majestic, Moz).
 
-Tri : score, fréquence (mot, nom ou prénom du plus courant au moins courant), prénoms de l'année la plus récente (Insee), longueur, SEO, avis IA. Un tri ne filtre pas : avec SEO ou avis IA, les noms analysés viennent d'abord, puis les autres par score.
+Tri : score, fréquence (mot, nom ou prénom du plus courant au moins courant), prénoms de l'année la plus récente (Insee), longueur, SEO, avis IA. Un tri ne filtre pas : avec SEO ou avis IA, les noms analysés viennent d'abord, puis les autres par score. Chaque tri applique tous les filtres (recherche, SEO et avis IA compris pour la libération la plus proche). Les éléments de `/api/explore/rank`, `/api/drops`, `/api/today` et de la fiche portent `ranks` (rang du nom dans chaque liste, `{"firstname": 12, "word": 4881}`) ; avec `sort=freq`, `freq_list` dit la liste qui donne l'ordre (celle du filtre de catégorie, sinon celle où le nom est le mieux placé).
 
 #### Avis IA
 
@@ -668,8 +678,10 @@ Les durées acceptent `30s`, `5m`, `6h`, `7d`, ou un nombre de secondes.
 - Pour .com et .net, la date de libération estimée porte aussi une heure : le début de la fenêtre
   quotidienne de suppression de Verisign, vers 12:00 UTC depuis le 1er octobre 2026 d'après la
   presse spécialisée. Pas d'annonce officielle trouvée, d'où l'affichage en estimation.
-- Filtres (nom, état, tag, signes d'abandon) et tri sont gardés par le navigateur d'une visite à
-  l'autre. Tags libres par domaine, ajoutés dans la fiche du nom.
+- Filtres (nom, état, tag, signes d'abandon, extension, verdict IA) et tri sont gardés par le navigateur d'une
+  visite à l'autre ; revenir sur Domaines par la navigation ne remet pas le filtre d'état à zéro. Sur téléphone,
+  où les en-têtes du tableau sont masqués, un menu donne les mêmes tris (état, nom, valeur, jours restants,
+  libération, prochain check) et un bouton inverse le sens. Tags libres par domaine, ajoutés dans la fiche du nom.
 - Certains registres n'ont ni RDAP ni WHOIS public, ou réservent leur WHOIS à des accès
   authentifiés : leurs domaines restent en erreur de check.
 - Erreurs réseau dans l'interface : un message technique courant (ProxyError, ConnectError,

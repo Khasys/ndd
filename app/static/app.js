@@ -7,8 +7,27 @@ const AI_GRID = [["oral", "prononciation"], ["radio", "test radio"], ["memo", "m
   ["marque", "marque"], ["marche", "marché"], ["ext", "extension"], ["acheteurs", "acheteurs"], ["risque", "risque"]];
 // Catégories de forme ; les autres viennent des listes de noms.
 const SHAPE_KINDS = ["letters", "digits", "mixed", "hyphen"];
+// Libellés des valeurs brutes (catégories, nature) : la fiche s'ouvre aussi depuis Domaines, avant que la
+// Veille ou l'Explorer aient chargé les leurs. Mêmes mots que drops.KINDS et wordlists.LABELS / NATURES.
+const KIND_LABELS = {
+  letters: "Lettres", digits: "Chiffres", mixed: "Lettres et chiffres", hyphen: "Avec tiret", word: "Mots",
+  form: "Formes fléchies", surname: "Noms de famille", firstname: "Prénoms", english: "Mots anglais",
+  sector: "Secteurs porteurs", trend: "Tendances", combo: "Combinaisons", niche: "Sites de niche", expr: "Expressions",
+  media: "Médias et marques", startup: "Tech et startups", job: "Métiers", sport: "Sport", animal: "Animaux", food: "Cuisine",
+};
+const NATURE_LABELS = { noun: "nom commun", verb: "verbe", adj: "adjectif", adv: "adverbe", other: "mot outil" };
+// Rang dans une liste, en clair : « 12e prénom le plus donné » (mêmes mots que les raisons du score, value.py).
+const FREQ_PHRASES = {
+  word: "mot le plus courant", form: "forme la plus courante", surname: "nom de famille le plus porté",
+  firstname: "prénom le plus donné", english: "mot anglais le plus courant", sector: "secteur porteur", trend: "tendance",
+  combo: "combinaison", niche: "site de niche", expr: "expression courante", media: "nom de média",
+  startup: "mot tech et startups", job: "métier le plus demandé", sport: "mot du sport", animal: "animal", food: "mot de cuisine",
+};
+const VERDICT_CLASSES = { "À prendre": "take", "À surveiller": "watch", "À laisser": "skip" };
 // min : score minimum des filtres avancés ; 0 = tout voir.
 const DROP_FILTER_DEFAULTS = { q: "", nat: "", lang: "", len: "", rank: "", min: 0, junk: false, ai: [], quick: "" };
+// Tris de la Veille ; « release » ne vaut que pour Bientôt libres.
+const DROP_SORTS = ["best", "recent", "release", "freq"];
 // Filtres vierges de l'Explorer ; l'extension choisie reste.
 const EX_BLANK = { cat: "", nat: "", lang: "", len: "", rank: "", taken: "", min: "", junk: "", seo: "", premium: "", status: "bookable", sort: "best", level: "good", ...AI_FILTER_DEFAULTS };
 // Tris de la liste ; « best » suit l'usage (revendre / exploiter) ; « recent » : prénoms de la dernière année Insee.
@@ -257,6 +276,7 @@ document.addEventListener("alpine:init", () => {
         this.$watch(key, () => { this.dropSave(); this.dropSelected = []; });
       }
       for (const key of ["dropLevel", "dropNewOnly"]) this.$watch(key, () => (this.dropSelected = []));
+      for (const key of ["dropLevel", "dropSortMode"]) this.$watch(key, () => this.dropSave());
       this.load();
       this.loadToday();
       this.loadAiRequests();
@@ -479,12 +499,18 @@ document.addEventListener("alpine:init", () => {
       const st = this.cardState(i, list);
       const veilleLike = list === "veille" || list === "today";
       const verdict = this.aiVerdict(ai);
+      // Tri « les plus fréquents » : le rang du nom dans sa liste (« 12e prénom le plus donné »).
+      const byFreq = (list === "explore" && this.ex.sort === "freq") || (list === "veille" && this.dropSort === "freq");
+      const freq = byFreq ? this.freqText(i, list === "explore" ? this.ex.cat : this.dropFreqList()) : "";
       return {
         name: i.name, list, item: i,
         primary: scoreFirst ? score : note,
         secondary: scoreFirst ? note : score,
-        line: ai ? `${verdict} · utilisateur final ${this.priceRange(ai.final_low, ai.final_high)}` : (i.reasons || []).slice(0, 2).join(" · "),
-        lineClass: this.aiClass(ai),
+        // Verdict en pastille (classe .verdict), le prix et les raisons en texte normal.
+        verdict, verdictClass: this.aiClass(ai),
+        // Le rang affiché à part (tri par fréquence) n'est pas répété dans les raisons.
+        line: ai ? `utilisateur final ${this.priceRange(ai.final_low, ai.final_high)}` : (i.reasons || []).filter((r) => r !== freq).slice(0, 2).join(" · "),
+        freq,
         // Pourquoi « À laisser » ou « À surveiller », en fin de phrase, discret.
         why: ai && ai.why && verdict !== "À prendre" ? ai.why : "",
         ...st,
@@ -700,7 +726,7 @@ document.addEventListener("alpine:init", () => {
       if (item && item.status === 4 && item.release_at) parts.push({ text: `libre ~${this.shortDate(item.release_at)}`, cls: "fd-date" });
       if (item && item.status === 8) parts.push({ text: item.premium_price ? `premium probable, ~${this.fmt(item.premium_price)} €` : "premium probable", cls: "fd-warn" });
       if (opinion) {
-        parts.push({ text: opinion.comment.split(".")[0], cls: "fd-ai " + this.aiClass(opinion) });
+        parts.push({ text: opinion.comment.split(".")[0], cls: "verdict " + this.aiClass(opinion) });
         parts.push({ text: `utilisateur final ${this.priceRange(opinion.final_low, opinion.final_high)}`, cls: "fd-price" });
       }
       return parts;
@@ -810,7 +836,9 @@ document.addEventListener("alpine:init", () => {
           : esc(`pas dans les ${e.horizon} prochaines nuits : d'autres noms passent avant`)]);
       }
       if (opinion) {
-        ai.push(["Verdict", `<span class="ai-comment">${esc(opinion.comment)}</span>`]);
+        const verdict = this.aiVerdict(opinion);
+        const rest = opinion.comment.slice(verdict.length).replace(/^\.\s*/, "");
+        ai.push(["Verdict", `<span class="verdict ${this.aiClass(opinion)}">${esc(verdict)}</span> <span class="ai-comment">${esc(rest)}</span>`]);
         // Pourquoi « À laisser » ou « À surveiller » : la cause principale, en mots simples.
         if (opinion.why) ai.push(["Pourquoi", esc(opinion.why)]);
         if ((opinion.version || 0) < 5) ai.push(["Grille", `<span class="muted">Avis à l'ancienne grille, renoté bientôt.</span>`]);
@@ -831,9 +859,12 @@ document.addEventListener("alpine:init", () => {
       }
       const kinds = (this.exData && this.exData.kinds) || (this.dropsData && this.dropsData.kinds) || {};
       if (f.categories && f.categories.length) name.push(["Catégories", esc(f.categories.map((c) => this.kindLabel(kinds, c)).join(", "))]);
-      const natures = (this.exData && this.exData.natures) || (this.dropsData && this.dropsData.natures) || {};
-      if (f.natures && f.natures.length) name.push(["Nature", esc(f.natures.map((n) => natures[n] || n).join(", "))]);
-      if (f.rank) name.push(["Fréquence", `n° ${esc(this.fmt(f.rank))} de sa liste`]);
+      if (f.natures && f.natures.length) name.push(["Nature", esc(f.natures.map((n) => NATURE_LABELS[n] || n).join(", "))]);
+      // Rang dans chaque liste, du mieux placé au moins bien placé : « 442e mot anglais le plus courant ».
+      const ranks = (item && item.ranks) || {};
+      const ranked = Object.keys(ranks).sort((a, b) => ranks[a] - ranks[b]).map((k) => this.freqText(item, k));
+      if (ranked.length) name.push(["Fréquence", esc(ranked.join(", "))]);
+      else if (f.rank) name.push(["Fréquence", `n° ${esc(this.fmt(f.rank))} de sa liste`]);
       if (item && item.created_on) past.push(["Open data .fr", esc(`créé le ${this.shortDate(item.created_on)}` + (item.removed_on ? `, supprimé le ${this.shortDate(item.removed_on)}` : ""))]);
       if (item && item.release_at) past.push(["Libération", esc("~" + this.shortDate(item.release_at))]);
       if (item && item.checked_at) past.push(["Vérifié", esc(this.relative(item.checked_at))]);
@@ -875,7 +906,8 @@ document.addEventListener("alpine:init", () => {
     priceRange(low, high) {
       if (!high) return "0 €";
       const n = (v) => Number(v).toLocaleString("fr-FR");
-      return low !== high ? `${n(low || 0)} à ${n(high)} €` : `${n(high)} €`;
+      // Espace insécable avant « € » : le symbole ne passe jamais seul à la ligne.
+      return low !== high ? `${n(low || 0)} à ${n(high)}\u00a0€` : `${n(high)}\u00a0€`;
     },
 
     // Étiquette de la colonne Valeur : verdict, puis prix utilisateur final (même formule que les cartes).
@@ -886,7 +918,19 @@ document.addEventListener("alpine:init", () => {
 
     aiVerdict(a) { return a && a.comment ? a.comment.split(".")[0] : ""; },
 
-    aiClass(a) { return { "À prendre": "take", "À surveiller": "watch", "À laisser": "skip" }[this.aiVerdict(a)] || ""; },
+    aiClass(a) { return this.verdictClass(this.aiVerdict(a)); },
+
+    verdictClass(v) { return VERDICT_CLASSES[v] || ""; },
+
+    // « 12e prénom le plus donné » : rang dans la liste key si le nom y est, sinon dans la liste choisie par le
+    // serveur (freq_list), sinon dans celle où son rang est le meilleur.
+    freqText(i, key) {
+      const r = (i && i.ranks) || {};
+      const k = key && r[key] ? key : i.freq_list && r[i.freq_list] ? i.freq_list : Object.keys(r).sort((a, b) => r[a] - r[b])[0];
+      if (!k) return "";
+      const first = ["form", "combo", "trend", "expr"].includes(k) ? "1re" : "1er";
+      return `${r[k] === 1 ? first : this.fmt(r[k]) + "e"} ${FREQ_PHRASES[k] || "de la liste " + this.kindLabel(null, k)}`;
+    },
 
     async newAiToken() {
       if (this.aiStatus && this.aiStatus.token_set && !confirm("Un nouveau jeton remplace l'ancien : la tâche de notation devra utiliser le nouveau. Continuer ?")) return;
@@ -1009,7 +1053,8 @@ document.addEventListener("alpine:init", () => {
     // Filtres : un seul point d'entrée, mémorisé pour la prochaine ouverture.
     async exSet(patch) {
       Object.assign(this.ex, patch);
-      if ("cat" in patch && patch.cat && !["word", "form"].includes(patch.cat)) this.ex.nat = "";
+      // « Libération la plus proche » ne vaut que pour Bientôt libres : ailleurs, retour aux meilleurs.
+      if (this.ex.status !== "coming" && this.ex.sort === "release") this.ex.sort = "best";
       // Mélanges et tirets ne sont jamais « prononçables » : sans les suites incluses, la liste serait vide.
       if (patch.cat === "mixed") this.ex.junk = "1";
       // « Les plus donnés en … » n'existe qu'avec le type Prénoms.
@@ -1035,6 +1080,7 @@ document.addEventListener("alpine:init", () => {
       const { v, ...f } = filters || {};
       if (f.status && !EX_STATES.some((s) => s.k === f.status)) f.status = ["available", "maybe_free", "free"].includes(f.status) ? "bookable" : "all";
       if (f.sort && !EX_SORTS.includes(f.sort)) f.sort = "best";
+      if (f.sort === "release" && f.status && f.status !== "coming") f.sort = "best";
       if (f.level && f.level !== "good") f.level = "good";
       return f;
     },
@@ -1072,7 +1118,8 @@ document.addEventListener("alpine:init", () => {
 
     exTypeOn(t) { return t.k === "short" ? this.ex.len === "-4" && !this.ex.cat : this.ex.cat === t.k && this.ex.len !== "-4"; },
 
-    exSetType(t) { return this.exSet(t.k === "short" ? { cat: "", len: "-4" } : { cat: t.k, len: "" }); },
+    // Un type ne touche pas à la longueur choisie dans Avancé ; seul « Courts (1 à 4) » est une longueur.
+    exSetType(t) { return this.exSet(t.k === "short" ? { cat: "", len: "-4" } : { cat: t.k, len: this.ex.len === "-4" ? "" : this.ex.len }); },
 
     setLens(k) {
       this.lens = k;
@@ -1604,7 +1651,7 @@ document.addEventListener("alpine:init", () => {
     // plus filtrés et triés à chaque rafraîchissement de l'affichage.
     dropsMemo(kind, build) {
       const key = JSON.stringify([kind, this._dropsVer, this.df, this.dropTld, this.dropKinds, this.dropsSeenBefore,
-        this.dropTab, this.dropNewOnly, this.dropLevel, this.dropSortMode, this.lens, Math.floor(this.now / 600000)]);
+        this.dropTab, this.dropNewOnly, this.dropLevel, this.dropSort, this.lens, Math.floor(this.now / 600000)]);
       this._memo = this._memo || {};
       if (this._memo[kind]?.key !== key) this._memo[kind] = { key, list: build() };
       return this._memo[kind].list;
@@ -1665,20 +1712,37 @@ document.addEventListener("alpine:init", () => {
       return this.dropsMemo("list", () => {
         const list = this.dropsData.items.filter((d) => this.dropInTab(d, this.dropTab) && this.dropMatches(d) && this.dropLevelOk(d)
           && (!this.dropNewOnly || this.dropNew(d)));
-        if (this.dropSortMode === "recent") {
+        const best = (a, b) => this.dropLensTier(b) - this.dropLensTier(a) || this.dropLensValue(b) - this.dropLensValue(a) || b.score - a.score;
+        const sort = this.dropSort;
+        if (sort === "recent") {
           const at = (d) => (d.state === "available" ? d.available_since : d.state_since) || "";
           return list.sort((a, b) => at(b).localeCompare(at(a)));
         }
-        if (this.dropSortMode === "release") return list.sort((a, b) => (a.release_at || "9").localeCompare(b.release_at || "9"));
-        return list.sort((a, b) => this.dropLensTier(b) - this.dropLensTier(a) || this.dropLensValue(b) - this.dropLensValue(a) || b.score - a.score);
+        if (sort === "release") return list.sort((a, b) => (a.release_at || "9").localeCompare(b.release_at || "9"));
+        if (sort === "freq") {
+          // Du plus donné au moins donné (Insee pour prénoms et noms) ; les noms hors des listes à la fin.
+          const key = this.dropFreqList();
+          const rank = (d) => { const r = d.ranks || {}; return key ? r[key] ?? Infinity : Math.min(Infinity, ...Object.values(r)); };
+          return list.sort((a, b) => rank(a) - rank(b) || best(a, b));
+        }
+        return list.sort(best);
       });
+    },
+
+    // Tri appliqué : le choix de l'utilisateur, sauf « Libération la plus proche » hors de Bientôt libres
+    // (les meilleurs d'abord) ; ce choix revient de lui-même au retour sur Bientôt libres.
+    get dropSort() { return this.dropSortMode === "release" && this.dropTab !== "coming" ? "best" : this.dropSortMode; },
+
+    // Une seule liste cochée dans Avancé (Prénoms, Noms de famille…) : le rang se lit dans celle-ci.
+    dropFreqList() {
+      const lists = this.dropKinds.filter((k) => !SHAPE_KINDS.includes(k));
+      return lists.length === 1 ? lists[0] : "";
     },
 
     dropSetTab(tab) {
       this.dropTab = tab;
       this.dropShow = 100;
       this.dropSelected = [];
-      if (tab === "free" && this.dropSortMode === "release") this.dropSortMode = "best";
     },
 
     // « Nouveaux depuis ma dernière visite » (bouton et étiquette, même règle) : libéré ou entré en
@@ -1759,7 +1823,7 @@ document.addEventListener("alpine:init", () => {
 
     kindLabel(kinds, k, fallback) {
       const type = EX_TYPES.find((t) => t.k === k);
-      return type ? type.label : fallback || (kinds && kinds[k]) || k;
+      return type ? type.label : fallback || (kinds && kinds[k]) || KIND_LABELS[k] || k;
     },
 
     dropActive() {
@@ -1791,7 +1855,7 @@ document.addEventListener("alpine:init", () => {
     dropSave() {
       try {
         localStorage.setItem("drops.filters", JSON.stringify({
-          v: 2, df: this.df, tld: this.dropTld, kinds: this.dropKinds,
+          v: 2, df: this.df, tld: this.dropTld, kinds: this.dropKinds, level: this.dropLevel, sort: this.dropSortMode,
         }));
       } catch (_) {}
     },
@@ -1804,6 +1868,8 @@ document.addEventListener("alpine:init", () => {
         this.df.min = Number(this.df.min) || 0;  // anciens filtres : null voulait dire « pas choisi »
         this.dropTld = saved.tld || "";
         this.dropKinds = Array.isArray(saved.kinds) ? saved.kinds : [];
+        if (typeof saved.level === "string") this.dropLevel = saved.level;
+        if (DROP_SORTS.includes(saved.sort)) this.dropSortMode = saved.sort;
       } catch (_) {}
     },
 
@@ -2551,6 +2617,16 @@ document.addEventListener("alpine:init", () => {
     sortBy(key) {
       if (this.sortKey === key) this.sortDir = -this.sortDir;
       else { this.sortKey = key; this.sortDir = 1; }
+    },
+
+    // Sur téléphone, les en-têtes du tableau sont masqués : un menu donne les mêmes tris, un bouton inverse le sens.
+    DOM_SORTS: [{ k: "urgency", label: "État, le plus urgent d'abord" }, { k: "name", label: "Nom, de A à Z" },
+      { k: "score", label: "Valeur, la meilleure d'abord" }, { k: "days", label: "Jours restants, le moins d'abord" },
+      { k: "release", label: "Libération, la plus proche d'abord" }, { k: "next", label: "Prochain check, le plus proche d'abord" }],
+
+    setDomSort(key) {
+      this.sortKey = key;
+      this.sortDir = 1;
     },
 
     arrow(key) {
