@@ -1070,6 +1070,10 @@ button:disabled { cursor: default; opacity: .55; }
   .ex-list-head { position: sticky; top: calc(-8px - env(safe-area-inset-top)); z-index: 6; gap: 6px; margin: 0 -16px 4px; padding: 4px 16px 6px; background: var(--bg); border-bottom: 1px solid var(--line); }
   .ex-list-head .filter-input { height: 38px; flex: 1; min-width: 0; }
   .ex-list-row .ex-tools { flex: none; }
+  /* Le tri sur sa propre ligne : à côté des outils, « Les plus fréquents » était tronqué. */
+  .ex-list-row { flex-wrap: wrap; }
+  .ex-list-row .ex-sort, .ex-list-row .drops-sort { flex: 1 1 100%; }
+  .ex-list-row .ex-tools { margin-left: auto; }
   .ex-list-head .veille-tab { min-height: 38px; }
   .ex-sticky { padding: 2px 16px 6px; }
   .ex-search, .ex-filter-btn { height: 40px; min-height: 40px; }
