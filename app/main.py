@@ -1,4 +1,6 @@
 import asyncio
+import functools
+import hashlib
 import hmac
 import html
 import ipaddress
@@ -23,6 +25,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -324,6 +327,10 @@ async def lifespan(app: FastAPI):
     async def warm_explorer() -> None:
         await asyncio.get_running_loop().run_in_executor(None, lambda: explore.shared_universe().buckets())
         await _off(app.state.explorer.warm)
+        # Files de notation IA et de la passe DNS .fr : la fiche y lit la place d'un nom ; prêtes avant qu'on l'ouvre.
+        await _off(ai.queue_position, app.state.explorer, "")
+        if fr_dns.ready():
+            await _off(fr_dns.position, "")
 
     app.state.explorer_warm = asyncio.create_task(warm_explorer())
     app.state.store = store
@@ -358,6 +365,36 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
+
+
+def _json_default(value):
+    """Ce que json ne sait pas écrire (dates, Row) : la conversion de FastAPI, appelée pour ces valeurs seules."""
+    return jsonable_encoder(value)
+
+
+class FastJSON(JSONResponse):
+    def render(self, content) -> bytes:
+        return json.dumps(content, ensure_ascii=False, allow_nan=False, separators=(",", ":"), default=_json_default).encode("utf-8")
+
+
+def fast_json(endpoint):
+    """Route à grosse réponse (Veille, Explorer, fiche) : JSON écrit directement. La conversion générique de FastAPI
+    parcourt chaque valeur et coûtait plus que le calcul (0,4 s pour 3 600 noms ici, bien plus sur le NAS).
+    Avec une empreinte (ETag) : réponse identique à celle que le navigateur a déjà, 304 sans corps, et l'écran
+    n'a ni à relire plusieurs Mo ni à se redessiner."""
+    @functools.wraps(endpoint)
+    async def wrapper(request: Request):
+        result = await endpoint(request)
+        if isinstance(result, Response):
+            return result
+        response = FastJSON(result)
+        tag = '"' + hashlib.blake2b(response.body, digest_size=12).hexdigest() + '"'
+        if request.headers.get("if-none-match") == tag:
+            return Response(status_code=304, headers={"ETag": tag, "Cache-Control": "no-cache"})
+        response.headers["ETag"] = tag
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+    return wrapper
 
 
 SLOW_REQUEST = 1.0  # secondes : au-delà, la requête est notée au journal (lu par /api/diag)
@@ -447,6 +484,11 @@ async def security_headers(request: Request, call_next):
     for key, value in SECURITY_HEADERS.items():
         response.headers.setdefault(key, value)  # /logo garde sa propre CSP
     return response
+
+
+# Réponses compressées : la Veille pèse plusieurs Mo en JSON (3 600 noms), dix fois moins en gzip, et le NAS
+# envoie à Cloudflare sans compression sinon. Ajouté après les autres middlewares : le plus extérieur.
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=5)
 
 
 THEMES = {"system": ("", "light dark"), "light": (' data-theme="light"', "light"), "dark": (' data-theme="dark"', "dark")}
@@ -745,6 +787,7 @@ def _next_version_check(app_: FastAPI) -> str | None:
 
 
 @app.get("/api/domains")
+@fast_json
 async def list_domains(request: Request):
     checker = request.app.state.checker
     rows = request.app.state.conn.execute("SELECT * FROM domains ORDER BY name").fetchall()
@@ -1225,6 +1268,7 @@ def _drop_items(state, rows, values: dict) -> list[dict]:
 
 
 @app.get("/api/drops")
+@fast_json
 async def list_drops(request: Request):
     state = request.app.state
     watcher = state.drops
@@ -1325,6 +1369,7 @@ def _today(state, sort: str, now: datetime) -> dict:
 
 
 @app.get("/api/today")
+@fast_json
 async def today_screen(request: Request):
     sort = request.query_params.get("sort", "resale")
     if sort not in TODAY_SORTS:
@@ -1475,6 +1520,7 @@ async def _off(fn, *args):
 
 
 @app.get("/api/explore")
+@fast_json
 async def explore_search(request: Request):
     """Liste par ordre des noms (et export) : la vue « par nom »."""
     explorer = request.app.state.explorer
@@ -1498,6 +1544,7 @@ async def explore_search(request: Request):
 
 
 @app.get("/api/explore/rank")
+@fast_json
 async def explore_rank(request: Request):
     """Les meilleures affaires d'abord, avec les compteurs de la sélection."""
     explorer = request.app.state.explorer
@@ -1548,6 +1595,7 @@ def _top_state(tld: str, code: int) -> str:
 
 
 @app.get("/api/explore/top")
+@fast_json
 async def explore_top(request: Request):
     """Les N premiers d'une liste, pris ou non, avec leur état sur chaque extension."""
     explorer = request.app.state.explorer
@@ -1598,6 +1646,7 @@ def _top(explorer, category, size, wanted, lang):
 
 
 @app.get("/api/explore/map")
+@fast_json
 async def explore_map(request: Request):
     return await _off(request.app.state.explorer.map)
 
@@ -2065,6 +2114,7 @@ async def explore_name(request: Request):
 
 
 @app.get("/api/explore/fiche")
+@fast_json
 async def explore_fiche(request: Request):
     try:
         name = clean_domain(request.query_params.get("name", ""))

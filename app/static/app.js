@@ -224,7 +224,8 @@ document.addEventListener("alpine:init", () => {
     dropNewOnly: false,
     dropLevel: "good",
     dropSortMode: "best",
-    dropShow: 100,
+    // Cartes affichées d'abord : une quarantaine suffit à remplir l'écran, chaque carte coûte au premier affichage.
+    dropShow: 40,
     dropSelected: [],
     dropBulkRunning: false,
     dropBulkDone: 0,
@@ -407,12 +408,16 @@ document.addEventListener("alpine:init", () => {
         this.settingsOpen = false;
         this.dropsOpen = opening;
         if (opening) {
-          this.dropSelected = [];
-          // « Nouveau » : depuis la visite précédente ; cette visite devient la référence suivante.
-          try {
-            this.dropsSeenBefore = localStorage.getItem("drops.seen") || "";
-            localStorage.setItem("drops.seen", new Date().toISOString());
-          } catch (_) { this.dropsSeenBefore = ""; }
+          if (this.dropSelected.length) this.dropSelected = [];
+          // « Nouveau » : depuis la visite précédente de l'appli ; cette visite devient la référence suivante.
+          // Lu une fois par chargement de la page : un aller-retour entre onglets ne change rien (ni redessin).
+          if (!this._dropsSeenRead) {
+            this._dropsSeenRead = true;
+            try {
+              this.dropsSeenBefore = localStorage.getItem("drops.seen") || "";
+              localStorage.setItem("drops.seen", new Date().toISOString());
+            } catch (_) { this.dropsSeenBefore = ""; }
+          }
           await this.loadDrops();
         }
       } else if (name === "explore") {
@@ -443,7 +448,9 @@ document.addEventListener("alpine:init", () => {
     async loadToday() {
       this.loadOrderUrl();
       try {
-        const data = await this.api("GET", `/api/today?sort=${this.lens === "exploit" ? "exploit" : "resale"}`);
+        const [data, changed] = await this.apiFresh(`/api/today?sort=${this.lens === "exploit" ? "exploit" : "resale"}`);
+        if (!changed && data === this._todayRaw) return;
+        this._todayRaw = data;
         this.today = data;
         this.setup = data.setup;
       } catch (e) {
@@ -488,7 +495,7 @@ document.addEventListener("alpine:init", () => {
     weakHidden(screen) { return screen === "veille" ? this.dropLevel === "good" : this.ex.level === "good"; },
 
     setWeak(screen, on) {
-      if (screen === "veille") { this.dropLevel = on ? "good" : ""; this.dropShow = 100; return; }
+      if (screen === "veille") { this.dropLevel = on ? "good" : ""; this.dropShow = 40; return; }
       return this.exSet({ level: on ? "good" : "" });
     },
 
@@ -1133,9 +1140,12 @@ document.addEventListener("alpine:init", () => {
       const ticket = (this._exTicket = (this._exTicket || 0) + 1);
       this.exLoading = true;
       try {
-        const data = await this.api("GET", `/api/explore/rank?${this.exQuery(-1)}&limit=${this.exLimit}&sort=${this.exSortParam()}`);
+        const [data, changed] = await this.apiFresh(`/api/explore/rank?${this.exQuery(-1)}&limit=${this.exLimit}&sort=${this.exSortParam()}`);
         // Une frappe ou un filtre plus récent a déjà relancé le chargement : ce résultat est périmé.
         if (ticket !== this._exTicket) return;
+        // Même liste que celle affichée (retour sur l'écran) : rien à redessiner.
+        if (!changed && data === this._exRaw) return;
+        this._exRaw = data;
         this.exError = "";
         this.exData = data;
         this.ex.tld = data.tld;
@@ -1159,7 +1169,8 @@ document.addEventListener("alpine:init", () => {
 
     async exLoadMap() {
       try {
-        this.exMap = await this.api("GET", "/api/explore/map");
+        const [data, changed] = await this.apiFresh("/api/explore/map");
+        if (changed || !this.exMap) this.exMap = data;
       } catch (_) {
         this.exMap = null;
       }
@@ -1809,7 +1820,9 @@ document.addEventListener("alpine:init", () => {
           else this.dropsData = { ...status, items: [] };
           return;
         }
-        this.dropsData = await this.api("GET", "/api/drops");
+        const [data, changed] = await this.apiFresh("/api/drops");
+        if (!changed && this.dropsData) return;
+        this.dropsData = data;
         this._dropsVer = (this._dropsVer || 0) + 1;
       } catch (e) {
         if (!statusOnly) this.sayError(e, "Veille indisponible", () => this.loadDrops());
@@ -1910,7 +1923,7 @@ document.addEventListener("alpine:init", () => {
 
     dropSetTab(tab) {
       this.dropTab = tab;
-      this.dropShow = 100;
+      this.dropShow = 40;
       this.dropSelected = [];
     },
 
@@ -2219,10 +2232,41 @@ document.addEventListener("alpine:init", () => {
       return res.status === 204 ? null : res.json();
     },
 
+    // Lecture avec empreinte (ETag) : si la réponse n'a pas changé, le serveur répond 304 et l'on garde l'objet
+    // déjà affiché, le même : l'écran ne se redessine pas. Renvoie [données, changées ou non].
+    async apiFresh(url) {
+      this._fresh = this._fresh || {};
+      const known = this._fresh[url];
+      let res;
+      try {
+        res = await fetch(url, { headers: known ? { "If-None-Match": known.tag } : {}, credentials: "same-origin", cache: "no-store" });
+      } catch (_) {
+        throw Object.assign(new Error("Réseau injoignable"), { status: 0 });
+      }
+      if (res.status === 304 && known) return [known.data, false];
+      if (res.status === 401) {
+        window.location.href = "/login";
+        throw new Error("Session expirée");
+      }
+      if (!res.ok) {
+        let detail = `erreur ${res.status}`;
+        try {
+          const data = await res.json();
+          if (typeof data.detail === "string") detail = data.detail;
+        } catch (_) {}
+        throw Object.assign(new Error(detail), { status: res.status });
+      }
+      const data = await res.json();
+      const tag = res.headers.get("ETag");
+      if (tag) this._fresh[url] = { tag, data };
+      return [data, true];
+    },
+
     async load(quiet = false) {
       try {
-        const [domains, meta] = await Promise.all([this.api("GET", "/api/domains"), this.api("GET", "/api/meta")]);
-        this.domains = domains;
+        const [[domains, fresh], meta] = await Promise.all([this.apiFresh("/api/domains"), this.api("GET", "/api/meta")]);
+        // Rafraîchissement régulier : la liste n'est remplacée (et redessinée) que si elle a changé.
+        if (fresh || !this.loaded) this.domains = domains;
         this.meta = meta;
         this.bulkRunning = meta.bulk_running;
         this.setup = meta.steps || this.setup;

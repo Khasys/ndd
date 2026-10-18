@@ -1480,3 +1480,37 @@ def test_interface_fiche_layout():
     # Points d'entrée gardés.
     for entry in ("async openFiche(name", "    back() {", "async ficheReload()"):
         assert entry in js, entry
+
+
+def test_heavy_screens_answer_304_when_nothing_changed_and_are_compressed(logged):
+    """Veille, Domaines, Explorer : empreinte (ETag), 304 sans corps si rien n'a changé ; réponses gzip."""
+    client = logged()
+    conn = client.app.state.conn
+    conn.execute("INSERT INTO fr_names (label, created_on) VALUES ('navarro', '2010-02-01')")
+    for path in ("/api/drops", "/api/domains", "/api/today", "/api/explore/rank?cat=surname&limit=5", "/api/explore/map"):
+        first = client.get(path)
+        tag = first.headers["etag"]
+        assert first.status_code == 200 and first.headers["cache-control"] == "no-cache", path
+        again = client.get(path, headers={"If-None-Match": tag})
+        assert again.status_code == 304 and again.content == b"", path
+    # Une donnée change : nouvelle empreinte, réponse complète.
+    tag = client.get("/api/domains").headers["etag"]
+    conn.execute("INSERT INTO domains (name, added_at) VALUES ('autre.fr', 'x')")
+    changed = client.get("/api/domains", headers={"If-None-Match": tag})
+    assert changed.status_code == 200
+    big = client.get("/api/drops", headers={"Accept-Encoding": "gzip"})
+    assert big.headers.get("content-encoding") == "gzip" or len(big.content) < 1024
+    # Dates et autres valeurs que json n'écrit pas seul : converties comme avant.
+    from app.main import FastJSON
+    from datetime import date as day
+    assert FastJSON({"d": day(2026, 1, 2)}).body == b'{"d":"2026-01-02"}'
+    client.__exit__(None, None, None)
+
+
+def test_fr_counters_use_the_covering_index(logged):
+    client = logged()
+    conn = client.app.state.conn
+    plan = conn.execute("EXPLAIN QUERY PLAN SELECT COUNT(*) FROM fr_names WHERE removed_on IS NULL "
+                        "AND next_check_at IS NOT NULL AND next_check_at <= 'x'").fetchall()
+    assert "fr_names_due" in plan[-1][3]
+    client.__exit__(None, None, None)

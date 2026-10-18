@@ -11,6 +11,7 @@ import hashlib
 import hmac
 import json
 import secrets
+import threading
 from datetime import timedelta
 
 from . import rdapinfo, value, wordlists
@@ -193,6 +194,7 @@ def _positions(data: bytearray, codes) -> list[int]:
 PER_NIGHT = 1000   # noms notés par la tâche de nuit
 HORIZON_NIGHTS = 30
 _eta_cache: dict = {}
+_eta_lock = threading.Lock()  # un seul recalcul de la file à la fois
 
 
 # Second passage : chaque nuit, les avis v5 qui s'écartent le plus de l'estimation du score sont
@@ -236,16 +238,31 @@ def pending(explorer, limit: int) -> list[dict]:
 
 def queue_position(explorer, name: str) -> int | None:
     """Place d'un nom dans la file de notation (0 : premier noté la nuit prochaine), None au-delà
-    de l'horizon ou hors file. File recalculée au plus une fois par heure."""
+    de l'horizon ou hors file. File recalculée au plus une fois par heure, en arrière-plan : la fiche
+    lit la dernière file connue (calculer la file prenait plusieurs secondes sur le NAS)."""
     import time
 
-    key = explorer.generation
     cached = _eta_cache.get("positions")
-    if not cached or cached[0] != key or time.monotonic() - cached[1] > 3600:
+    if cached is None:
+        cached = _refresh_positions(explorer)
+    elif cached[0] != explorer.generation or time.monotonic() - cached[1] > 3600:
+        if _eta_lock.acquire(blocking=False):
+            threading.Thread(target=_refresh_positions, args=(explorer, True), daemon=True).start()
+    return cached[2].get(name)
+
+
+def _refresh_positions(explorer, locked: bool = False):
+    import time
+
+    try:
+        key = explorer.generation
         picked, _ = _queue(explorer, PER_NIGHT * HORIZON_NIGHTS)
         cached = (key, time.monotonic(), {f"{label}.{tld}": n for n, (_, label, tld) in enumerate(picked)})
         _eta_cache["positions"] = cached
-    return cached[2].get(name)
+        return cached
+    finally:
+        if locked:
+            _eta_lock.release()
 
 
 def _queue(explorer, limit: int):

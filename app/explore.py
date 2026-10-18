@@ -123,6 +123,10 @@ CACHE_SECONDS = 600
 # Sécurité seulement : chaque nom vérifié ou marqué est corrigé en place (touch), et un import ou
 # une lecture de zone change la version des données, donc la clé.
 MEMO_SECONDS = 6 * 3600
+# Classements gardés en mémoire : courts, les dates (libération, libre depuis) et les vérifications avancent.
+RANK_SECONDS = 600
+MAP_SECONDS = 600  # carte refaite en arrière-plan au-delà
+MEMO_RANKS = 40
 # « Les plus courts » avec un niveau ou un score minimum : noms notés au plus, pour une page.
 ORDERED_BUDGET = 50_000
 MEMO_FACETS = 24  # jeux de filtres gardés, environ 2 Mo chacun
@@ -387,6 +391,13 @@ class Explorer:
         # Prénoms récents de l'Insee (prenoms.RecentNames), posés par main.py : Top, tri « recent », raison.
         self.recent = None
         self._recent_cache: tuple[int, dict] | None = None
+        # Score de chaque nom déjà noté par value_of (Veille, Aujourd'hui), avec la version des données
+        # du calcul : 3 600 noms à noter à chaque ouverture coûtaient plusieurs secondes sur le NAS.
+        self._values: dict[str, tuple[tuple, dict]] = {}
+        # Carte des Explorer (map) : (moment, carte), à refaire (touch), refaite en ce moment en arrière-plan.
+        self._map_cache: tuple[float, dict, tuple] | None = None
+        self._map_dirty = False
+        self._map_running = False
         # Les vérifications automatiques corrigent l'Explorer au fil de l'eau, nom par nom.
         drops_watcher.on_change = self.touch
         fr_watcher.on_change = self.touch
@@ -417,12 +428,17 @@ class Explorer:
             # Ménage : versions de données dépassées, résultats périmés, puis les plus anciens.
             # Chaque entrée pèse quelques Mo (octets d'état, masques) : on en garde peu.
             current = key[1]
-            for old in [k for k, (g, at, _) in self._memos.items() if k[1] != current or g != self.generation or now - at >= ttl]:
+            # Chaque sorte a sa durée : un classement (10 min) ne doit pas emporter les octets d'état (6 h).
+            for old in [k for k, (g, at, _) in self._memos.items()
+                        if k[1] != current or g != self.generation or now - at >= (RANK_SECONDS if k[0][0] == "rank" else MEMO_SECONDS)]:
                 self._memos.pop(old, None)
             # Les compteurs (un par jeu de filtres) sont les seuls à se multiplier : on retire les plus anciens.
             facets = sorted((k for k in self._memos if k[0][0] == "facets"), key=lambda k: self._memos[k][1])
             while facets and len(facets) >= MEMO_FACETS:
                 self._memos.pop(facets.pop(0), None)
+            ranks = sorted((k for k in self._memos if k[0][0] == "rank"), key=lambda k: self._memos[k][1])
+            while ranks and len(ranks) >= MEMO_RANKS:
+                self._memos.pop(ranks.pop(0), None)
             self._memos[key] = (self.generation, now, result)
         return result
 
@@ -432,6 +448,10 @@ class Explorer:
             self.status_bytes(tld)
             self._bonus_context(tld)
         self.map()
+        # Scores des noms de la Veille, d'Aujourd'hui et de Domaines : notés une fois ici plutôt qu'à l'ouverture
+        # de l'écran (une extension sans zone, comme .eu, a aussi son contexte de calcul à préparer).
+        self.value_of([r[0] for r in self.conn.execute(
+            "SELECT name FROM drops WHERE state IS NOT NULL UNION SELECT name FROM domains")])
 
     # --- Extensions et octets d'état -------------------------------------------------
 
@@ -576,6 +596,8 @@ class Explorer:
         with self._memo_lock:
             self.generation += 1
             self._memos.clear()
+            self._values.clear()
+            self._map_cache = None
         if tld:
             self._cache.pop(tld, None)
             self._dns_known.pop(tld, None)
@@ -994,6 +1016,19 @@ class Explorer:
         limit = max(1, min(limit, MAX_LIMIT * 5))
         if self._hopeless(tld, f):
             return {"items": []}
+        # Même liste demandée de nouveau (retour sur l'écran, autre onglet) : gardée quelques minutes ;
+        # ai_changed() l'oublie. Les vérifications changent l'état de noms toutes les minutes sur le NAS :
+        # plutôt que de tout oublier à chaque fois, la liste gardée est refaite si l'un de ses noms a changé.
+        key = ("rank", tld, repr(f), limit, sort)
+        items = self._memo(key, lambda: self._rank(tld, f, limit, sort)["items"], RANK_SECONDS)
+        data = self.status_bytes(tld)
+        u = self.universe
+        if any(data[i] != item["status"] for item in items if (i := u.index(item["label"])) is not None):
+            self._forget_key(key)
+            items = self._memo(key, lambda: self._rank(tld, f, limit, sort)["items"], RANK_SECONDS)
+        return {"items": [dict(i) for i in items]}
+
+    def _rank(self, tld: str, f: "Filters", limit: int, sort: str) -> dict:
         if sort == "length":
             return self._ordered(tld, f, limit)
         if sort == "freq":
@@ -1450,6 +1485,10 @@ class Explorer:
         i = self.universe.index(label)
         if i is None or not tld:
             return
+        with self._memo_lock:
+            # Score du nom dans chaque extension : la demande d'une extension dépend de l'état des autres.
+            for key in [k for k in self._values if k.partition(".")[0] == label]:
+                self._values.pop(key, None)
         base, new = self._code_for(tld, i, label)
         cached = self._cache.get(tld)
         if cached:
@@ -1481,7 +1520,7 @@ class Explorer:
             for key in [k for k in self._memos if k[0][0] == "facets" and k[0][1] == tld and k[0][8]]:
                 self._memos.pop(key, None)
             if changed:
-                self._forget("map")
+                self._map_dirty = True
                 # Les compteurs « pris ailleurs » des autres extensions dépendent de celle-ci.
                 for key in [k for k in self._memos if k[0][0] == "facets" and k[0][1] != tld and k[0][6]]:
                     self._memos.pop(key, None)
@@ -1489,8 +1528,13 @@ class Explorer:
     def ai_changed(self) -> None:
         """Nouveaux avis IA : les avis gardés en mémoire et les compteurs filtrés sur l'avis sont relus, rien d'autre."""
         with self._memo_lock:
-            for key in [k for k in self._memos if k[0][0] == "opinions" or (k[0][0] == "facets" and k[0][9])]:
+            for key in [k for k in self._memos if k[0][0] in ("opinions", "rank") or (k[0][0] == "facets" and k[0][9])]:
                 self._memos.pop(key, None)
+
+    def _forget_key(self, key) -> None:
+        with self._memo_lock:
+            for k in [k for k in self._memos if k[0] == key]:
+                self._memos.pop(k, None)
 
     def _forget(self, kind: str) -> None:
         with self._memo_lock:
@@ -1508,24 +1552,57 @@ class Explorer:
                     value["reach"] = (value["reach_parts"][0] * weights["demand"] + value["reach_parts"][1] * weights["history"]
                                       + value["reach_parts"][2] * weights["seo"])
                     value["devalue"] = devalue
-        self._forget("map")
+            # Scores gardés, classements et carte dépendent du barème et du mode des réservés.
+            self._values.clear()
+            self._map_cache = None
+        self._forget("rank")
 
     def map(self) -> dict:
-        return self._memo(("map",), self._build_map)
+        """Carte gardée à part des autres mémos. Un nom qui change (touch) la marque à refaire : elle est
+        refaite en arrière-plan et l'écran lit la précédente, juste à quelques noms près. Un import ou un
+        réglage (invalidate) l'efface : la suivante est calculée tout de suite."""
+        # Nouvelle zone, import .fr ou passe DNS (version des données) : calculée tout de suite aussi.
+        version = tuple((t, self._version(t)) for t in self.tlds())
+        with self._memo_lock:
+            cached = self._map_cache if self._map_cache and self._map_cache[2] == version else None
+            stale = cached is not None and (self._map_dirty or time.monotonic() - cached[0] > MAP_SECONDS)
+            if stale and not self._map_running:
+                self._map_running = True
+                threading.Thread(target=self._refresh_map, args=(version,), daemon=True).start()
+        if cached is None:
+            return self._refresh_map(version, own=False)
+        return cached[1]
+
+    def _refresh_map(self, version: tuple, own: bool = True) -> dict:
+        try:
+            with self._memo_lock:
+                self._map_dirty = False
+                generation = self.generation
+            found = self._build_map()
+            with self._memo_lock:
+                if self.generation == generation:
+                    self._map_cache = (time.monotonic(), found, version)
+            return found
+        finally:
+            if own:
+                with self._memo_lock:
+                    self._map_running = False
 
     def _build_map(self) -> dict:
         """Carte extension x catégorie : noms à saisir par case (noms qui ont un sens seulement)."""
         tlds = self.tlds()
+        filters = {"short": ("", -3), "l4": ("letters", 4), **{k: (k, None) for k in wordlists.LABELS}}
+        # Mêmes compteurs que la puce « Libres » de la liste (réservables, libération à venir exclue) :
+        # une case et le filtre qu'elle ouvre donnent le même nombre. Le masque d'une ligne ne dépend pas
+        # de l'extension : fait une fois. Seuls les états réservables sont comptés, en un passage par case.
+        masks = {key: self._mask(tlds[0], Filters.of(category=c, length=n)) for key, (c, n) in filters.items()} if tlds else {}
         cells = {}
         for tld in tlds:
-            # Mêmes compteurs que la puce « Libres » de la liste (réservables, libération à venir exclue) :
-            # une case et le filtre qu'elle ouvre donnent le même nombre.
-            cells[tld] = {
-                "short": self.facets(tld, length=-3)["bookable"],
-                "l4": self.facets(tld, category="letters", length=4)["bookable"],
-                **{key: self.facets(tld, category=key)["bookable"] for key in wordlists.LABELS},
-            }
-        filters = {"short": ("", -3), "l4": ("letters", 4), **{k: (k, None) for k in wordlists.LABELS}}
+            data = self.status_bytes(tld)
+            wanted = set(self.codes("bookable", premium=False))
+            hit = int.from_bytes(data.translate(bytes(1 if c in wanted else 0 for c in range(256))), "big")
+            cells[tld] = {key: (hit & mask).bit_count() if mask is not None else bin(hit).count("1")
+                          for key, mask in masks.items()}
         return {"rows": MAP_ROWS, "tlds": tlds, "cells": cells,
                 "filters": {k: {"cat": c, "len": n} for k, (c, n) in filters.items()}}
 
@@ -1597,19 +1674,40 @@ class Explorer:
         return int(price) if price else None
 
     def value_of(self, names: list[str]) -> dict[str, dict]:
-        """Score, raisons et filtres d'une liste de noms (écran Suppressions), mêmes calculs que l'Explorer."""
+        """Score, raisons et filtres d'une liste de noms (écran Suppressions), mêmes calculs que l'Explorer.
+        Un nom déjà noté avec les mêmes données est repris tel quel ; touch() oublie un nom qui change."""
         found = {}
         u = self.universe
+        # Version des données, lue une fois pour toute la liste : ensemble et versions des extensions,
+        # génération (réglages, imports), jour (l'historique compte en jours).
+        stamp = (self.generation, date.today(), tuple((t, self._version(t)) for t in self.tlds()))
+        contexts: dict[str, dict] = {}
+        with self._memo_lock:
+            known = dict(self._values)
+        fresh = {}
         for name in names:
             label, _, tld = name.partition(".")
             i = u.index(label)
             if i is None:
                 found[name] = {"score": 0, "reasons": [], "parts": {}, "natures": [], "rank": None, "good": False}
                 continue
-            item = self._value(tld, i, label, self._bonus_context(tld))
+            hit = known.get(name)
+            if hit is not None and hit[0] == stamp:
+                found[name] = dict(hit[1])
+                continue
+            if tld not in contexts:
+                contexts[tld] = self._bonus_context(tld)
+            item = self._value(tld, i, label, contexts[tld])
             item.update(natures=sorted(wordlists.natures().get(label, ())), good=bool(u.good[i]), length=len(label),
                         langs=wordlists.langs_of(label))
-            found[name] = item
+            fresh[name] = (stamp, item)
+            found[name] = dict(item)
+        if fresh:
+            with self._memo_lock:
+                if self.generation == stamp[0]:
+                    if any(v[0] != stamp for v in self._values.values()):
+                        self._values = {k: v for k, v in self._values.items() if v[0] == stamp}
+                    self._values.update(fresh)
         opinions = ai.load(self.conn, list(found))
         for name, item in found.items():
             item["ai"] = opinions.get(name)

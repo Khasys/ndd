@@ -1338,3 +1338,7 @@ button:disabled { cursor: default; opacity: .55; }
   .fiche-head { margin: 0 -16px 12px; padding: calc(10px + env(safe-area-inset-top)) 6px 10px 16px; }
   .fiche-watch .tag-input { width: 100%; }
 }
+
+/* Longues listes (Veille, Explorer, Aujourd'hui) : les lignes hors de l'écran ne sont ni mises en page ni peintes
+   avant d'approcher ; 100 cartes riches coûtaient près d'une seconde sur téléphone à chaque retour sur l'écran. */
+.ex-list > .ex-row { content-visibility: auto; contain-intrinsic-size: auto 96px; }

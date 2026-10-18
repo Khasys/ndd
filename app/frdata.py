@@ -260,18 +260,17 @@ class FrWatcher:
     def status(self) -> dict:
         info = json.loads(self.store.get("fr_status") or "{}")
         week = iso(utcnow() + timedelta(days=7))
-        counts = self.conn.execute(
-            """SELECT COUNT(*) AS total,
-                      SUM(removed_on IS NULL) AS registered,
-                      SUM(removed_on IS NULL AND next_check_at IS NOT NULL AND next_check_at <= ?) AS week,
-                      SUM(removed_on IS NULL AND next_check_at IS NOT NULL) AS scheduled,
-                      MIN(CASE WHEN removed_on IS NULL THEN next_check_at END) AS next_at
-               FROM fr_names""",
-            (week,),
-        ).fetchone()
+        # Une requête par compteur, chacune servie par l'index fr_names_due (removed_on, next_check_at) :
+        # un seul SELECT à plusieurs SUM parcourait les 230 000 noms à chaque affichage.
+        def one(sql: str, *args):
+            return self.conn.execute(sql, args).fetchone()[0]
+
+        live = "FROM fr_names WHERE removed_on IS NULL"
         paused = self.paused_until()
-        info.update(total=counts["total"], registered=counts["registered"] or 0, week=counts["week"] or 0,
-                    scheduled=counts["scheduled"] or 0, next_at=counts["next_at"],
+        info.update(total=one("SELECT COUNT(*) FROM fr_names"), registered=one(f"SELECT COUNT(*) {live}"),
+                    week=one(f"SELECT COUNT(*) {live} AND next_check_at IS NOT NULL AND next_check_at <= ?", week),
+                    scheduled=one(f"SELECT COUNT(*) {live} AND next_check_at IS NOT NULL"),
+                    next_at=one(f"SELECT MIN(next_check_at) {live} AND next_check_at IS NOT NULL"),
                     paused_until=iso(paused), rate=self.rate, work=self.work())
         return info
 

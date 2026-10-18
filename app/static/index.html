@@ -365,7 +365,7 @@
           </div>
           <div class="ex-list-row">
             <!-- Tri appliqué (dropSort) : « Libération la plus proche » grisé hors de Bientôt libres, sans perdre le choix. -->
-            <select class="filter-input drops-sort" @change="dropSortMode = $event.target.value; dropShow = 100" aria-label="Tri">
+            <select class="filter-input drops-sort" @change="dropSortMode = $event.target.value; dropShow = 40" aria-label="Tri">
               <option value="best" :selected="dropSort === 'best'">Les meilleurs d'abord</option>
               <option value="recent" :selected="dropSort === 'recent'">Les plus récents</option>
               <option value="release" :selected="dropSort === 'release'" :disabled="dropTab !== 'coming'">Libération la plus proche</option>

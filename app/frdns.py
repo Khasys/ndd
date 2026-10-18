@@ -22,6 +22,7 @@ import asyncio
 import json
 import logging
 import random
+import threading
 from typing import NamedTuple
 from datetime import datetime, timedelta
 
@@ -93,6 +94,7 @@ class FrDns:
         self.running = False
         self.servers: list[str] = []
         self.query = self._query  # remplaçable dans les tests
+        self._queue_lock = threading.Lock()  # un seul recalcul de la file à la fois (position)
 
     # --- File ---------------------------------------------------------------------
 
@@ -310,14 +312,25 @@ class FrDns:
 
     def position(self, label: str) -> int | None:
         """Place d'un nom dans la prochaine passe (0 : le premier), None s'il n'y est pas.
-        File recalculée au plus une fois par heure."""
+        File recalculée au plus une fois par heure, en arrière-plan : la fiche lit la dernière connue."""
         import time
 
         cached = getattr(self, "_queue", None)
-        if not cached or time.monotonic() - cached[0] > 3600:
-            cached = (time.monotonic(), {name: n for n, name in enumerate(self.pending(NIGHTLY))})
-            self._queue = cached
+        if not cached:
+            cached = self._refresh_queue()
+        elif time.monotonic() - cached[0] > 3600 and self._queue_lock.acquire(blocking=False):
+            threading.Thread(target=self._refresh_queue, args=(True,), daemon=True).start()
         return cached[1].get(label)
+
+    def _refresh_queue(self, locked: bool = False):
+        import time
+
+        try:
+            self._queue = (time.monotonic(), {name: n for n, name in enumerate(self.pending(NIGHTLY))})
+            return self._queue
+        finally:
+            if locked:
+                self._queue_lock.release()
 
     def status(self) -> dict:
         info = json.loads(self.store.get(f"{self.key}_status") or "{}")

@@ -1271,3 +1271,47 @@ def test_morning_summary_does_not_repeat_a_name_lost_from_the_dns(env):
     text = morning.build(env.conn, env, status, "", now, min_score=0)
     assert text.count("cloud.io") == 1 and "Entrés en rédemption" in text
     assert "Sortis du DNS (.co, .ai, .io), à vérifier : maison.io" in text
+
+
+def test_scores_are_kept_until_the_name_changes(env):
+    """value_of garde le score de chaque nom ; touch() l'oublie pour ce libellé, invalidate() pour tous."""
+    zone(env, ["ab"], ["maison"])
+    add_fr(env, "maison")
+    first = env.value_of(["maison.fr", "maison.com"])
+    assert env._values and set(env._values) == {"maison.fr", "maison.com"}
+    first["maison.fr"]["score"] = -1  # une copie : modifier le résultat ne touche pas la mémoire
+    assert env.value_of(["maison.fr"])["maison.fr"]["score"] != -1
+    env.touch("maison.fr")
+    assert "maison.fr" not in env._values and "maison.com" not in env._values
+    env.value_of(["maison.fr"])
+    env.invalidate()
+    assert not env._values
+
+
+def test_kept_ranking_is_redone_when_one_of_its_names_changes(env):
+    add_fr(env, "velo")
+    first = env.rank("fr", category="word", limit=5)["items"]
+    assert first
+    name = first[0]["name"]
+    again = env.rank("fr", category="word", limit=5)["items"]
+    assert [i["name"] for i in again] == [i["name"] for i in first]
+    # Le premier nom est pris entre-temps : la liste gardée ne le montre plus comme libre.
+    env.fr.rdap = env.drops.rdap = FakeRdap({name: LookupResult(found=True, info=DomainInfo())})
+    asyncio.run(env.verify(name))
+    after = env.rank("fr", category="word", limit=5)["items"]
+    assert name not in [i["name"] for i in after]
+
+
+def test_map_is_refreshed_in_the_background_after_a_change(env):
+    add_fr(env, "velo")
+    env.warm()
+    before = env.map()
+    env.fr.rdap = env.drops.rdap = FakeRdap({"velo.fr": LookupResult(available=True)})
+    asyncio.run(env.verify("velo.fr"))
+    assert env._map_dirty
+    assert env.map() is before  # lue tout de suite : la précédente, refaite en arrière-plan
+    for _ in range(100):
+        if not env._map_running:
+            break
+        time.sleep(0.05)
+    assert env.map() == env._build_map() and env.map() != before
