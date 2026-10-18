@@ -330,7 +330,7 @@ def test_listed_words_are_tracked_with_their_categories(watcher):
         "navarro.com": ("long", "surname,english"),
         "courir.com": ("long", "word"),
         "martin.com": ("long", "word,surname,firstname,english"),
-        "velo.com": ("letters", "word,trend"),
+        "velo.com": ("letters", "word,trend,sport"),
     }
 
 
@@ -343,6 +343,15 @@ def test_word_lists_are_loaded_and_normalised():
     assert all(w == w.lower() and w.isascii() and " " not in w for names in lists.values() for w in names)
     assert {"jacques", "jean-pierre", "marie"} <= lists["firstname"]
     assert len(lists["word"]) == 20000 and len(lists["surname"]) > 20000 and len(lists["firstname"]) > 4000
+    # Listes thématiques à la main : français d'abord, anglais seulement s'il manque à la liste anglaise.
+    assert {"plombier", "notaire", "infirmiere", "avocats", "roofer"} <= lists["job"] and "plumber" not in lists["job"]
+    assert {"football", "padel", "raquette", "dumbbell"} <= lists["sport"] and {"chien", "chaton", "petshop"} <= lists["animal"]
+    assert {"recette", "raclette", "fraise", "cafe"} <= lists["food"] and "recipe" not in lists["food"]
+    assert 400 <= len(lists["job"]) <= 600 and 200 <= len(lists["sport"]) <= 300
+    assert 200 <= len(lists["animal"]) <= 300 and 300 <= len(lists["food"]) <= 400
+    assert "avocat" in lists["job"] and "avocat" in lists["word"]  # un nom peut être dans plusieurs listes
+    assert wordlists.langs_of("osteopathe") == ["fr"] and wordlists.langs_of("roofer") == ["en"]
+    assert set(wordlists.FILES) == set(wordlists.LABELS) == set(wordlists.LABELS) | {"job", "sport", "animal", "food"}
 
 
 def test_parallel_scan_gives_the_same_result_as_a_single_process():

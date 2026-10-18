@@ -212,3 +212,14 @@ chatgpt
 openai
 anthropic
 siri
+lg
+vw
+fb
+ea
+ge
+lv
+yt
+gq
+bn
+ig
+gm

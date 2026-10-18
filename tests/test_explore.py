@@ -178,7 +178,8 @@ def test_paused_afnic_refuses_manual_checks(env):
 
 def test_value_scores_are_explained():
     from app import value
-    assert value.base("ab") > value.base("abc") > value.base("mako") > value.base("1234")
+    # abd plutôt que abc : un sigle courant (sigles.txt) vaut plus qu'une suite de 3 lettres.
+    assert value.base("ab") > value.base("abd") > value.base("mako") > value.base("1234")
     # Mélanges et suites imprononçables : tout en bas, quel que soit l'ordre entre eux.
     assert max(value.base("ab12"), value.base("qzxw")) < 15 < value.base("1234") + 5
     assert value.base("oye") > value.base("qsd")
@@ -186,6 +187,32 @@ def test_value_scores_are_explained():
     assert found["reasons"][:2] == ["6 lettres", "153e mot le plus courant"] and "pris en .com" in found["reasons"]
     old = {"created_on": "2008-01-01", "removed_on": "2026-03-01"}
     assert value.score("maison", [], old, today=datetime(2026, 10, 1).date())["score"] > value.score("maison", [])["score"]
+
+
+def test_quality_families_and_short_measures():
+    from app import quality
+    fam = lambda label, tld="fr": quality.family(quality.features(label, tld), label)
+    # Deux lettres : toujours la famille des suites courtes, même si la paire est dans la liste anglaise.
+    assert fam("tv") == fam("jx") == fam("ok") == "short" and fam("abc") == "words" and fam("maison") == "words"
+    assert fam("777") == fam("06") == fam("2015") == "digits" and fam("amelie") == "names"
+    f = quality.features("007", "fr")
+    assert f["zero_lead"] == 1 and f["round"] == 0 and f["repeat"] == 0 and f["digits_com"] == 0
+    assert quality.features("100", "com")["round"] == 1 and quality.features("100", "com")["digits_com"] == 1
+    assert quality.features("2015", "com")["year"] == 1 and quality.features("2015", "com")["digits_com"] == 0
+    assert quality.features("101", "fr")["palindrome"] == 1 and quality.features("360", "fr")["tens"] == 1
+    assert quality.features("06", "fr")["dept"] == 1 and quality.features("06", "com")["dept"] == 0
+    # Deux chiffres sont déjà un nombre : pas de bonus de motif.
+    assert quality.features("88", "fr")["repeat"] == 0 and quality.features("8899", "fr")["pairs"] == 1
+    assert quality.features("tv", "fr")["acronym"] == 1 and quality.features("jx", "fr")["acronym"] == 0
+    assert quality.features("hp", "com")["brand"] == 1 and quality.features("tv", "com")["brand"] == 0
+    assert set(quality.model()["families"]) == set(quality.FAMILIES)
+    # Ce que les avis IA disent des formes courtes : sigle connu > paire quelconque > lettres rares ;
+    # marque célèbre pénalisée ; chiffres ronds ou répétés > chiffres quelconques ; .com > .fr pour 3 chiffres.
+    note = lambda label, tld: quality.predict(label, tld)[0]
+    assert note("tv", "fr") > note("nb", "fr") > note("qx", "fr")
+    assert note("hp", "com") < note("nb", "com")
+    assert note("100", "fr") > note("382", "fr") and note("777", "com") > note("382", "com") > note("382", "fr")
+    assert note("123", "fr") > note("382", "fr") > note("007", "fr")
 
 
 def test_rank_puts_the_best_first_and_respects_filters(env):

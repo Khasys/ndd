@@ -58,7 +58,7 @@ def shape(label: str) -> tuple[int, str | None]:
 POPULAR = {"word": "mot", "form": "forme", "surname": "nom", "firstname": "prénom", "english": "anglais",
            "sector": "secteur", "trend": "tendance", "combo": "combinaison", "niche": "site de niche",
            "expr": "expression", "media": "nom de média",
-           "startup": "tech et startups"}
+           "startup": "tech et startups", "job": "métier", "sport": "sport", "animal": "animal", "food": "cuisine"}
 # Une forme fléchie vaut moins que le mot de base ; une combinaison bien moins qu'un mot seul.
 POPULAR_FACTOR = {"form": 0.7, "combo": 0.5, "niche": 0.5, "expr": 0.8, "media": 0.6}
 
@@ -81,7 +81,8 @@ def popularity(label: str) -> tuple[int, str | None]:
 POPULAR_PHRASE = {"word": "mot le plus courant", "form": "forme la plus courante", "surname": "nom de famille le plus porté",
                   "firstname": "prénom le plus donné", "english": "mot anglais le plus courant", "sector": "secteur porteur",
                   "trend": "tendance", "combo": "combinaison", "niche": "site de niche", "expr": "expression courante",
-                  "media": "nom de média", "startup": "mot tech et startups"}
+                  "media": "nom de média", "startup": "mot tech et startups", "job": "métier le plus demandé",
+                  "sport": "mot du sport", "animal": "animal", "food": "mot de cuisine"}
 
 
 def _nth(rank: int) -> str:

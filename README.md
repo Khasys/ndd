@@ -142,11 +142,40 @@ entre 1900 et 2018 (environ 10 000). S'y ajoutent les 30 000 mots anglais les pl
 (marques connues retirées), environ 580 mots des secteurs qui paient (assurance, crédit,
 immobilier, droit, santé, travaux…), environ 200 mots en vogue et environ 35 000 combinaisons
 (monassurance, plombier-lyon, insurancehub, dallasplumber…) et environ 4 000 noms de sites de
-niche (forumdomotique, guidepotager, gardeningforum…), et environ 1 000 expressions courantes
-françaises et anglaises (bonplan, faitmaison, goodvibes…). Une liste ajoutée n'est cherchée
+niche (forumdomotique, guidepotager, gardeningforum…), environ 1 000 expressions courantes
+françaises et anglaises (bonplan, faitmaison, goodvibes…) et quatre listes thématiques (métiers,
+sport, animaux, cuisine, voir « Listes de noms »). Une liste ajoutée n'est cherchée
 dans une zone qu'à la lecture suivante : d'ici là, ses noms n'apparaissent pas pour cette
 extension plutôt que d'y passer pour libres. Sources et licences des listes :
 `app/data/SOURCES.md`. Un bouton Surveiller ajoute un nom à la liste principale.
+
+#### Listes de noms
+
+Chaque liste est un fichier de `app/data` (un nom par ligne, minuscules sans accents, du plus
+courant au moins courant : le rang sert au score), déclaré dans `app/wordlists.py` (clé, libellé,
+fichier). Un nom peut être dans plusieurs listes (avocat : mots, secteurs, métiers). Les listes
+apparaissent telles quelles dans les catégories de l'Explorer et de la Veille, le Top, la carte et
+le filtre de langue (langue relevée dans `app/data/langues.txt` pour les listes mêlées).
+
+| Clé | Libellé | Contenu |
+|---|---|---|
+| word, form | Mots, Formes fléchies | 20 000 lemmes et 10 000 formes du Lexique |
+| surname, firstname | Noms de famille, Prénoms | Insee |
+| english | Mots anglais | 30 000 mots de wordfreq, marques retirées |
+| sector, trend, startup | Secteurs porteurs, Tendances, Tech et startups | listes à la main |
+| combo, niche, expr, media | Combinaisons, Sites de niche, Expressions, Médias et marques | construites par `scripts/build_lists.py` |
+| job | Métiers | environ 500 métiers et professions, féminins et pluriels courants (plombier, notaire, infirmiere, avocats) |
+| sport | Sport | environ 220 sports, disciplines, équipements et mots du sport (football, padel, raquette, marathon) |
+| animal | Animaux | environ 220 animaux et mots des animaux de compagnie (chien, chaton, renard, croquettes) |
+| food | Cuisine | environ 330 plats, ingrédients, boissons et mots de la table (recette, raclette, fraise, cafe) |
+
+Les listes thématiques sont en français ; l'équivalent anglais n'y est ajouté que s'il manque à la
+liste anglaise (roofer, petshop, dumbbell), sinon il garde son rang dans celle-ci. Sources :
+`scripts/lists/metiers.txt`, `sport.txt`, `animaux.txt`, `cuisine.txt`, copiées par
+`python scripts/build_lists.py --themes` (sans Lexique ni wordfreq), qui complète aussi
+`langues.txt`. Les listes à la main `app/data/sigles.txt` (sigles courants : tv, cv, rh, gps) et
+`app/data/marques.txt` (marques connues, aussi retirées de la liste anglaise) servent au score,
+pas à la surveillance.
 
 Source : les fichiers de zone publiés chaque jour par les registres via CZDS d'ICANN, gratuits sur
 inscription. Le .fr et les autres extensions nationales n'y sont pas.
@@ -339,11 +368,17 @@ Score (`app/value.py`, `app/quality.py`), chaque critère pondérable de 0 à 2 
 | Historique .fr : années de détention, suppression récente, moins si la plupart des noms de sa forme ont déjà été tenus | 15 au plus |
 | SEO, si analysé : Open PageRank, années archivées par la Wayback Machine | 20 au plus |
 
-Forme et sens : poids calés sur des avis IA détaillés (grille v5) d'un échantillon de noms de toutes
-les catégories, une famille de poids par sorte de nom (mots, noms de personnes, suites courtes),
-dans `app/data/score_model.json`. Concordance de rang avec les avis IA, sur des noms gardés hors du
-calage : 0,25 pour l'ancien barème, 0,85 pour celui-ci. Point faible connu : entre deux mots
-courants, la valeur tient au sens et au marché, que seule la notation IA juge bien. Demande et
+Forme et sens : poids calés sur des avis IA détaillés (grille v5) d'un échantillon de 5 240 noms de
+toutes les catégories, une famille de poids par sorte de nom (mots, noms de personnes, suites courtes
+de lettres, chiffres), dans `app/data/score_model.json`. Les noms de 1 ou 2 caractères sont toujours
+dans la famille des suites courtes : presque toute paire de lettres figure dans la liste anglaise, et
+ce « sens » ne vaut rien. Mesures propres aux formes courtes : sigle courant (`app/data/sigles.txt`),
+marque connue (`app/data/marques.txt`), et pour les chiffres les motifs qui se retiennent (rond,
+répété, suite, palindrome, dizaine, année, zéro devant, département en .fr, .com jusqu'à 3 chiffres).
+Concordance de rang avec les avis IA, sur des noms gardés hors du calage : 0,25 pour l'ancien barème,
+0,85 pour celui-ci ; par catégorie, 0,79 pour les 2 lettres et 0,77 pour les 3 chiffres (validation
+croisée) après l'ajout de 240 noms de ces deux formes à l'échantillon. Point faible connu : entre deux
+mots courants, la valeur tient au sens et au marché, que seule la notation IA juge bien. Demande et
 historique : taux de base par extension et par forme (1 à 4 lettres prononçables ou non, chiffres,
 mélanges, mots), mesurés sur les zones lues ; la raison dit « courant pour cette forme » quand le
 signal est banal. Le score de base de tous les noms est précalculé à la construction de l'image

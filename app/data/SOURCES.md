@@ -56,7 +56,7 @@ se prononce en français. Dérivé de Lexique 3.83 (CC BY-SA 4.0) et des fichier
 ## anglais.txt
 
 Les 30 000 mots anglais les plus fréquents de wordfreq 3.1.1 (liste « large » en anglais),
-en lettres seules, 2 lettres au moins. Marques connues retirées (scripts/lists/marques.txt,
+en lettres seules, 2 lettres au moins. Marques connues retirées (app/data/marques.txt,
 liste non exhaustive ; les marques qui sont aussi des mots courants restent). Contient aussi des
 prénoms et des lieux anglophones, utiles en .com.
 
@@ -120,11 +120,33 @@ et même licence CC BY-SA 4.0 que mots.txt.
 ## langues.txt
 
 Langue (fr, en ou les deux) de chaque nom des listes mêlées : secteurs, tendances, combinaisons,
-sites de niche, expressions. Relevée à la construction.
+sites de niche, expressions, métiers, sport, animaux, cuisine. Relevée à la construction.
 
-Pour reconstruire les fichiers : `python scripts/build_lists.py DOSSIER_WORDFREQ LEXIQUE383_TXT`.
+Pour reconstruire les fichiers : `python scripts/build_lists.py DOSSIER_WORDFREQ LEXIQUE383_TXT` ;
+`python scripts/build_lists.py --themes` pour les seules listes thématiques et langues.txt.
 
 ## startup.txt
 
 Mots courts pour la tech, l'IA et les startups, anglais et français, choisis à la main
 (scripts/lists/startup.txt), du plus porteur au moins. Sert surtout au DNS de .ai et .io.
+
+## metiers.txt, sport.txt, animaux.txt, cuisine.txt
+
+Listes thématiques en français (l'équivalent anglais seulement s'il manque à anglais.txt), du plus
+courant au moins courant, constituées à la main, 2026-10 (scripts/lists/metiers.txt, sport.txt,
+animaux.txt, cuisine.txt) :
+
+- metiers.txt : métiers et professions, féminins et pluriels courants, environ 500 ;
+- sport.txt : sports, disciplines, équipements et mots du sport, environ 220 ;
+- animaux.txt : animaux et mots des animaux de compagnie, environ 220 ;
+- cuisine.txt : plats, ingrédients, boissons et mots de la table, environ 330.
+
+## sigles.txt
+
+Sigles et abréviations d'usage courant de 2 à 4 lettres (tv, cv, rh, gps, saas), constituée à la
+main, 2026-10. Sert au score (mesure « sigle connu »), pas à la surveillance.
+
+## marques.txt
+
+Marques connues, liste non exhaustive à la main : retirées de anglais.txt à la construction, et
+mesure « marque » du score (un nom identique ne se revend pas sans risque).

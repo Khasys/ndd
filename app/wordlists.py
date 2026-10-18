@@ -1,5 +1,6 @@
 """Listes de noms surveillés au-delà des noms courts : mots français, noms de famille, prénoms,
-mots anglais, secteurs porteurs, tendances et combinaisons (construites par scripts/build_lists.py).
+mots anglais, secteurs porteurs, tendances, combinaisons et listes thématiques (métiers, sport, animaux,
+cuisine), construites par scripts/build_lists.py.
 
 Fichiers dans app/data, une entrée par ligne, déjà en minuscules et sans accents, du plus
 fréquent au moins fréquent. Sources et licences : app/data/SOURCES.md.
@@ -12,7 +13,8 @@ DATA = Path(__file__).parent / "data"
 LABELS = {"word": "Mots", "form": "Formes fléchies", "surname": "Noms de famille", "firstname": "Prénoms",
           "english": "Mots anglais", "sector": "Secteurs porteurs", "trend": "Tendances", "combo": "Combinaisons",
           "niche": "Sites de niche", "expr": "Expressions", "media": "Médias et marques",
-          "startup": "Tech et startups"}
+          "startup": "Tech et startups", "job": "Métiers", "sport": "Sport", "animal": "Animaux",
+          "food": "Cuisine"}
 # Nature des mots et des formes, tirée du Lexique.
 NATURES = {"verb": "Verbes", "noun": "Noms communs", "adj": "Adjectifs", "adv": "Adverbes", "other": "Mots outils"}
 
@@ -20,7 +22,8 @@ NATURES = {"verb": "Verbes", "noun": "Noms communs", "adj": "Adjectifs", "adv": 
 FILES = {"word": "mots.txt", "form": "formes.txt", "surname": "noms.txt", "firstname": "prenoms.txt",
          "english": "anglais.txt", "sector": "secteurs.txt", "trend": "tendances.txt", "combo": "combinaisons.txt",
          "niche": "niches.txt", "expr": "expressions.txt", "media": "medias.txt",
-         "startup": "startup.txt"}
+         "startup": "startup.txt", "job": "metiers.txt", "sport": "sport.txt", "animal": "animaux.txt",
+         "food": "cuisine.txt"}
 # Listes d'avant les mots anglais, secteurs, tendances et combinaisons : ce que couvrent les
 # lectures de zone faites avant leur ajout.
 LEGACY = ("word", "form", "surname", "firstname")
@@ -79,7 +82,8 @@ NO_LANG = ("surname", "firstname")
 @lru_cache(maxsize=1)
 def languages() -> dict[str, frozenset[str]]:
     """Noms par langue : mots et formes en français, mots anglais en anglais, et pour les listes
-    mêlées (secteurs, tendances, combinaisons, sites de niche) la langue relevée à la construction.
+    mêlées (secteurs, tendances, combinaisons, sites de niche, listes thématiques) la langue relevée à la
+    construction.
     Noms de famille et prénoms : sans langue."""
     found = {"fr": set(lists()["word"]) | set(lists()["form"]), "en": set(lists()["english"])}
     path = DATA / "langues.txt"

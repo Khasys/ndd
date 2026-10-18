@@ -16,7 +16,7 @@ VOWELS = frozenset("aeiouy")
 # Graphies qui se disent de plusieurs façons, ou s'écrivent de plusieurs façons à l'oral.
 AMBIGUOUS = ("ph", "gh", "ck", "th", "w", "x", "q", "k", "h")
 LIST_KEYS = ("word", "form", "english", "firstname", "surname", "sector", "trend", "combo", "niche", "expr",
-             "media", "startup")
+             "media", "startup", "job", "sport", "animal", "food")
 
 
 @lru_cache(maxsize=1)
@@ -42,12 +42,28 @@ def english_log_prob(label: str) -> float | None:
                for i in range(len(s) - 2)) / (len(s) - 2)
 
 
-@lru_cache(maxsize=1)
-def negatives() -> frozenset[str]:
-    path = DATA / "negatifs.txt"
+def _words(name: str) -> frozenset[str]:
+    path = DATA / name
     if not path.exists():
         return frozenset()
     return frozenset(line.strip() for line in path.read_text().splitlines() if line.strip() and not line.startswith("#"))
+
+
+@lru_cache(maxsize=1)
+def negatives() -> frozenset[str]:
+    return _words("negatifs.txt")
+
+
+@lru_cache(maxsize=1)
+def acronyms() -> frozenset[str]:
+    """Sigles et abréviations d'usage courant (tv, cv, rh, gps) : un sens sans être un mot."""
+    return _words("sigles.txt")
+
+
+@lru_cache(maxsize=1)
+def brands() -> frozenset[str]:
+    """Marques connues (la liste qui écarte les marques de anglais.txt) : revente risquée."""
+    return _words("marques.txt")
 
 
 def _likeness(log_prob: float | None) -> float:
@@ -102,16 +118,28 @@ def features(label: str, tld: str) -> dict[str, float]:
         f["ends_vowel"] = float(pattern[-1] == "v")
         f["double"] = float(any(a == b for a, b in zip(label, label[1:])))
         f["ambiguous"] = min(1.0, sum(label.count(g) for g in AMBIGUOUS) / 2)
+        f["acronym"] = float(label in acronyms())
     elif digits:
-        f["repeat"] = float(len(set(label)) == 1)
+        # Motifs qui se disent et se retiennent, à partir de 3 chiffres (deux chiffres sont déjà un nombre) :
+        # 100, 777, 123, 101, 360, 2015, 8899 ; un zéro devant (007) se lit mal, sauf un département en .fr (06).
+        f["repeat"] = float(n >= 3 and len(set(label)) == 1)
         f["sequence"] = float(n >= 3 and all(int(b) - int(a) == 1 for a, b in zip(label, label[1:])))
-        f["round"] = float(n >= 2 and label[1:] == "0" * (n - 1))
+        f["round"] = float(n >= 3 and label[0] != "0" and label[1:] == "0" * (n - 1))
+        f["zero_lead"] = float(n >= 3 and label[0] == "0")
+        f["palindrome"] = float(n >= 3 and label == label[::-1] and not f["repeat"])
+        f["tens"] = float(n >= 3 and label[-1] == "0" and not f["round"])
+        f["year"] = float(n == 4 and 1900 <= int(label) <= 2030)
+        f["pairs"] = float(n == 4 and not f["repeat"] and (label[:2] == label[2:] or (label[0] == label[1] and label[2] == label[3])))
+        f["dept"] = float(n == 2 and tld == "fr" and label != "00")
+        # Jusqu'à 3 chiffres, le .com se vend (marché asiatique) ; au-delà, et ailleurs, bien moins.
+        f["digits_com"] = float(n <= 3 and tld == "com")
     strength = _list_strength(label)
     for key in LIST_KEYS:
         f["in_" + key] = strength.get(key, 0.0)
     f["meaning"] = max(strength.values(), default=0.0)
     f["real_short"] = float(n <= 4 and label in pronounce.real_words())
     f["negative"] = float(label in negatives())
+    f["brand"] = float(label in brands())
     # Mot anglais en .fr, mot français ailleurs : moins lisible pour l'acheteur visé.
     langs = wordlists.languages()
     # Un prénom ou un nom de famille n'a pas de langue : lea.fr n'est pas « un mot anglais en .fr ».
@@ -143,15 +171,15 @@ def features(label: str, tld: str) -> dict[str, float]:
 
 
 # --- Modèle calé sur les avis IA ------------------------------------------------------------------
-# Trois familles, chacune son jeu de poids : les mêmes mesures n'ont pas le même rôle pour un mot,
-# un nom de personne ou une suite courte. Les poids sont des points de note IA (0 à 100) par unité.
+# Quatre familles, chacune son jeu de poids : les mêmes mesures n'ont pas le même rôle pour un mot,
+# un nom de personne, une suite courte de lettres ou des chiffres. Les poids sont des points de note IA (0 à 100) par unité.
 MEANING_KEYS = ("in_word", "in_english", "in_form", "in_sector", "in_trend", "in_expr", "in_media", "in_combo",
-                "in_niche", "in_startup")
+                "in_niche", "in_startup", "in_job", "in_sport", "in_animal", "in_food")
 # Mesures de forme et de sonorité ; les autres (sens, langue, extension) font la part « sens et marché ».
 FORM_KEYS = frozenset({"len", "letters", "digits", "hyphen", "mixed", "len1", "len2", "len3", "len4", "len5_6",
                        "len7_8", "len9_12", "len13", "like_fr", "like_en", "like_ext", "alternation", "cv_perfect",
                        "cons_run3", "vow_run3", "no_vowel", "ends_vowel", "double", "ambiguous", "repeat", "sequence",
-                       "round", "l4_like", "l4_cv", "l4_vowel_end", "legacy_shape"})
+                       "round", "zero_lead", "palindrome", "tens", "year", "pairs", "l4_like", "l4_cv", "l4_vowel_end", "legacy_shape"})
 SCALE = 0.7  # note IA prévue (0 à 100) vers les points du score (0 à 70), le reste pour demande, historique, SEO
 
 
@@ -162,8 +190,17 @@ def model() -> dict:
     return json.loads((DATA / "score_model.json").read_text())
 
 
+FAMILIES = ("words", "names", "short", "digits")
+
+
 def family(f: dict, label: str) -> str:
-    """names : prénom ou nom de famille sans autre sens ; short : 4 caractères au plus sans sens ; words : le reste."""
+    """digits : chiffres seuls ; names : prénom ou nom de famille sans autre sens ; short : 1 ou 2 caractères,
+    ou 4 au plus sans sens ; words : le reste. Presque toute suite de 2 lettres figure dans la liste anglaise
+    (tv, jx) : ce « sens » ne dit rien, et les poids des mots ne valent pas pour une suite de 2 lettres."""
+    if label.isdigit():
+        return "digits"
+    if len(label) <= 2:
+        return "short"
     if (f.get("in_firstname", 0) > 0 or f.get("in_surname", 0) > 0) and max(f.get(k, 0) for k in MEANING_KEYS) == 0:
         return "names"
     if len(label) <= 4 and f.get("meaning", 0) == 0:

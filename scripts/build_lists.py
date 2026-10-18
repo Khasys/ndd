@@ -1,7 +1,8 @@
-"""Construit les listes anglais, secteurs, tendances, combinaisons, sites de niche, expressions et
-noms de média dans app/data.
+"""Construit les listes anglais, secteurs, tendances, combinaisons, sites de niche, expressions,
+noms de média et listes thématiques (métiers, sport, animaux, cuisine) dans app/data.
 
 Usage : python scripts/build_lists.py WORDFREQ_DIR LEXIQUE_TXT
+        python scripts/build_lists.py --themes   (listes thématiques et langues.txt seulement, sans Lexique)
 
 WORDFREQ_DIR : dossier du paquet wordfreq 3.1.1 décompressé (contient data/large_en.msgpack.gz).
 LEXIQUE_TXT : Lexique383.txt (paquet pylexique 1.5.1), encodé en Latin-1. Il faut aussi le module msgpack.
@@ -39,9 +40,9 @@ def valid(label: str) -> bool:
             and not label.startswith("-") and not label.endswith("-") and "--" not in label)
 
 
-def read(name: str) -> list[str]:
+def read(name: str, folder: Path = LISTS) -> list[str]:
     out = []
-    for line in (LISTS / name).read_text(encoding="utf-8").splitlines():
+    for line in (folder / name).read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if line and not line.startswith("#"):
             out.append(line if line.startswith("[") else fold(line))
@@ -240,6 +241,26 @@ def medias(lexique: Path, genders: dict[str, str], banned: set[str]) -> list[str
     return found
 
 
+# Listes thématiques rédigées à la main : fichier source -> fichier de app/data.
+THEMES = {"metiers.txt": "metiers.txt", "sport.txt": "sport.txt", "animaux.txt": "animaux.txt",
+          "cuisine.txt": "cuisine.txt"}
+
+
+def themes(english_words: set[str]) -> set[str]:
+    """Écrit les listes thématiques : le français d'abord, puis les équivalents anglais absents de la liste
+    anglaise (un nom déjà dans anglais.txt y garde son rang). Renvoie l'ensemble des noms écrits."""
+    found = set()
+    for source, target in THEMES.items():
+        parts = sections(source)
+        fr = unique(parts.get("fr", []))
+        en = [w for w in unique(parts.get("en", [])) if w not in english_words and w not in fr]
+        LANG["fr"].update(fr)
+        LANG["en"].update(en)
+        write(target, fr + en)
+        found |= set(fr + en)
+    return found
+
+
 def write(name: str, words: list[str]) -> None:
     (DATA / name).write_text("\n".join(words) + "\n", encoding="utf-8")
     print(f"{name}: {len(words)}")
@@ -247,7 +268,7 @@ def write(name: str, words: list[str]) -> None:
 
 def main() -> None:
     wordfreq_dir, lexique = Path(sys.argv[1]), Path(sys.argv[2])
-    banned = set(read("marques.txt"))
+    banned = set(read("marques.txt", DATA))  # la liste sert aussi au score (quality.brands)
     english_words = unique(english(wordfreq_dir, banned))
     sectors_fr, sectors_en = unique(read("secteurs_fr.txt")), unique(read("sectors_en.txt"))
     # Secteurs : français et anglais en alternance, chacun dans son ordre.
@@ -288,6 +309,7 @@ def main() -> None:
             LANG["fr"].add(t)
             LANG["en"].add(t)
     mixed = set(sectors) | set(trends) | set(combined) | set(niches) | set(expressions) | set(media)
+    mixed |= themes(set(english_words))
     lines = []
     for name in sorted(mixed):
         langs = [k for k in ("fr", "en") if name in LANG[k]]
@@ -296,5 +318,24 @@ def main() -> None:
     write("langues.txt", lines)
 
 
+def themes_only() -> None:
+    """Sans wordfreq ni Lexique : réécrit les listes thématiques et complète langues.txt avec leurs noms."""
+    english_words = set((DATA / "anglais.txt").read_text(encoding="utf-8").split())
+    found = themes(english_words)
+    lines = {}
+    for line in (DATA / "langues.txt").read_text(encoding="utf-8").splitlines():
+        name, _, langs = line.partition("\t")
+        if name and name not in found:
+            lines[name] = langs
+    for name in found:
+        langs = [k for k in ("fr", "en") if name in LANG[k]]
+        if langs:
+            lines[name] = ",".join(langs)
+    write("langues.txt", [f"{name}\t{langs}" for name, langs in sorted(lines.items())])
+
+
 if __name__ == "__main__":
-    main()
+    if sys.argv[1:] == ["--themes"]:
+        themes_only()
+    else:
+        main()
