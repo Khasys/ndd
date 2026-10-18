@@ -1110,3 +1110,114 @@ def test_interface_wires_the_wave_one_routes():
     # Erreurs réseau en français simple, sans console.error ajouté par l'appli.
     assert "Réseau injoignable" in js and "Pas de réponse du registre" in js and "console." not in js
     assert "Réessayer" in js
+
+
+def test_today_counts_best_names_and_setup(logged):
+    """Aujourd'hui : compteurs du jour, 20 meilleurs noms libres ou libérés sous 48 h, étapes de configuration."""
+    client = logged()
+    st = client.app.state
+
+    async def add(name):
+        return None
+
+    st.checker.add = add
+    now = datetime.now(timezone.utc)
+    st.conn.execute("INSERT INTO fr_names (label, created_on) VALUES ('mot', '2010-01-01')")  # le .fr a des données
+    st.drops.record("fr", ["velo", "mai", "ciel", "lune", "chat", "terre"], [], now)
+    soon, later = (now + timedelta(hours=24)).isoformat(), (now + timedelta(days=10)).isoformat()
+    st.conn.execute("UPDATE drops SET state = 'available', available_since = ? WHERE name IN ('velo.fr', 'chat.fr', 'terre.fr')", (now.isoformat(),))
+    st.conn.execute("UPDATE drops SET state = 'available', available_since = ? WHERE name = 'mai.fr'", ((now - timedelta(days=3)).isoformat(),))
+    st.conn.execute("UPDATE drops SET state = 'redemption', release_at = ? WHERE name = 'ciel.fr'", (soon,))
+    st.conn.execute("UPDATE drops SET state = 'redemption', release_at = ? WHERE name = 'lune.fr'", (later,))
+    _opinion(st.conn, "velo.fr", "À prendre", 90, exploit=60)
+    _opinion(st.conn, "mai.fr", "À prendre", 60, exploit=95)
+    _opinion(st.conn, "lune.fr", "À prendre", 80)  # bientôt libre, mais pas sous 48 h
+    _opinion(st.conn, "chat.fr", "À laisser", 20)  # nom faible : jamais en tête d'Aujourd'hui
+    st.conn.execute("UPDATE domain_ai SET rated_at = ? WHERE name IN ('velo.fr', 'lune.fr', 'chat.fr')", (now.isoformat(),))
+    assert client.post("/api/drops/hide", json={"names": ["terre.fr"]}).json() == {"hidden": 1}
+    for name in ("velo.fr", "mai.fr", "ciel.fr", "lune.fr", "chat.fr", "terre.fr"):
+        st.explorer.touch(name)
+    assert client.get("/api/today", params={"sort": "prix"}).status_code == 422
+    data = client.get("/api/today").json()
+    # Libérés depuis 24 h : velo et chat (terre est ignoré, mai libéré il y a 3 jours) ; sous 48 h : ciel.
+    # Nouveaux « À prendre » : velo (libre) et lune (bientôt libre), avis reçus depuis 24 h.
+    assert data["counts"] == {"freed_24h": 2, "coming_48h": 1, "new_take": 2, "regrets": 0}
+    names = [i["name"] for i in data["items"]]
+    assert names[:2] == ["velo.fr", "mai.fr"] and not {"chat.fr", "terre.fr", "lune.fr"} & set(names)
+    score = {i["name"]: i["score"] for i in client.get("/api/drops").json()["items"]}
+    assert ("ciel.fr" in names) == (score["ciel.fr"] >= 30)
+    # Format des cartes de la Veille : état, avis, score, surveillance, portefeuille.
+    first = data["items"][0]
+    assert first["state"] == "available" and first["ai"]["resale"] == 90 and "score" in first
+    assert first["watched"] is False and first["in_portfolio"] is False
+    # Pour exploiter : la note d'exploitation passe mai.fr devant.
+    assert [i["name"] for i in client.get("/api/today", params={"sort": "exploit"}).json()["items"]][:2] == ["mai.fr", "velo.fr"]
+    # Démarrer en 3 étapes : rien de branché sauf le .fr, absent ici.
+    assert [(s["key"], s["done"]) for s in data["setup"]] == [("sources", False), ("telegram", False), ("ai", False)]
+    assert client.get("/api/meta").json()["steps"] == data["setup"]
+    st.store.set("telegram_token", "123:abc")
+    st.store.set("telegram_chat_id", "1")
+    assert [s["done"] for s in client.get("/api/today").json()["setup"]][1] is True
+    # Regret : un nom ignoré repris par quelqu'un d'autre.
+    st.conn.execute("UPDATE drops SET state = 'taken' WHERE name = 'terre.fr'")
+    st.explorer.touch("terre.fr")
+    assert client.get("/api/today").json()["counts"]["regrets"] == 1
+    client.__exit__(None, None, None)
+
+
+def test_in_portfolio_marks_cards_everywhere(logged):
+    """Badge « Portefeuille » : in_portfolio sur la Veille, l'Explorer, Aujourd'hui et la fiche, dès l'achat."""
+    client = logged()
+    st = client.app.state
+
+    async def add(name):
+        return None
+
+    st.checker.add = add
+    now = datetime.now(timezone.utc)
+    st.conn.execute("INSERT INTO fr_names (label, created_on) VALUES ('mot', '2010-01-01')")
+    st.drops.record("fr", ["velo", "mai"], [], now)
+    st.conn.execute("UPDATE drops SET state = 'available', available_since = ?", (now.isoformat(),))
+    _opinion(st.conn, "velo.fr", "À prendre", 90)
+    _opinion(st.conn, "mai.fr", "À prendre", 80)
+    for name in ("velo.fr", "mai.fr"):
+        st.explorer.touch(name)
+    assert client.post("/api/portfolio", json={"name": "mai.fr", "buy_price": 10}).status_code == 200
+    drops_items = {i["name"]: i["in_portfolio"] for i in client.get("/api/drops").json()["items"]}
+    assert drops_items == {"velo.fr": False, "mai.fr": True}
+    assert {i["name"]: i["in_portfolio"] for i in client.get("/api/today").json()["items"]} == drops_items
+    ranked = client.get("/api/explore/rank", params={"tld": "fr", "status": "bookable", "sort": "resale", "limit": 200}).json()["items"]
+    found = {i["name"]: i["in_portfolio"] for i in ranked if i["name"] in drops_items}
+    assert found == drops_items
+    fiche = client.get("/api/explore/fiche", params={"name": "mai.fr"}).json()
+    assert fiche["in_portfolio"] is True and fiche["item"]["in_portfolio"] is True
+    assert client.get("/api/explore/fiche", params={"name": "velo.fr"}).json()["in_portfolio"] is False
+    client.__exit__(None, None, None)
+
+
+def test_interface_home_today_single_fiche_and_settings_order():
+    """Chantier F2a : écran Aujourd'hui en tête, fiche unique (plus de tiroir Domaines), Paramètres repliés."""
+    from pathlib import Path
+
+    static = Path(__file__).resolve().parent.parent / "app" / "static"
+    js = (static / "app.js").read_text(encoding="utf-8")
+    html = (static / "index.html").read_text(encoding="utf-8")
+    assert "/api/today" in js and "Aujourd'hui" in html and "Démarrer en 3 étapes" in html
+    # Aujourd'hui avant Domaines dans la barre latérale et la barre du bas.
+    for nav in (html.split('class="side-nav"')[1].split("</nav>")[0], html.split('class="tabbar"')[1].split("</nav>")[0]):
+        assert nav.index("Aujourd'hui") < nav.index("Domaines") < nav.index("Veille")
+    # Sous-titres d'une ligne sous chaque titre d'écran.
+    for sub in ("Les meilleurs noms à prendre maintenant", "Les noms que je surveille", "Ce qui tombe et ce qui va tomber",
+                "Tous les noms suivis, pour chercher", "Les noms que je possède", "Sources, alertes, réglages"):
+        assert sub in html, sub
+    # Plus de tiroir : un nom de Domaines ouvre la fiche commune.
+    assert "Détail du domaine" not in html and "openId" not in js and "domainFiche" not in js
+    assert "openFiche(d.name)" in html and "Supprimer de la surveillance" in html
+    # Paramètres : Sources, Telegram, Alertes, Avis IA, puis le bloc avancé replié, Version en pied.
+    settings = html.split('aria-label="Paramètres"')[1].split("</section>")[0]
+    order = [settings.index(k) for k in ('id="set-fr"', 'id="set-czds"', 'id="settings-sources"', 'id="set-telegram"',
+                                          'id="set-alerts"', 'id="set-ai"', "Afficher les réglages avancés", "<h3>Version</h3>")]
+    assert order == sorted(order)
+    # Aide : « Par écran » d'abord.
+    toc = html.split('class="help-toc')[1].split("</nav>")[0]
+    assert toc.index("Par écran") < toc.index("Vocabulaire")

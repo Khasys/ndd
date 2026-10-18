@@ -99,7 +99,7 @@ PWA_PATHS = {"/manifest.webmanifest", "/sw.js", "/offline"}
 AI_PATHS = {"/api/ai/pending", "/api/ai/results"}
 # Lecture seule avec le même jeton : de quoi observer et analyser, jamais modifier ni lire un réglage.
 # Explorer : les écrans seulement (liste, classement, carte, fiches, export), pas les vues enregistrées.
-READ_PATHS = re.compile(r"^/api/(meta|diag|domains|domains/\d+/history|drops|explore(/(rank|top|map|name|fiche|export))?|ai/(status|rated|outcomes))$")
+READ_PATHS = re.compile(r"^/api/(meta|diag|today|domains|domains/\d+/history|drops|explore(/(rank|top|map|name|fiche|export))?|ai/(status|rated|outcomes))$")
 PUBLIC_PATHS = {"/login", "/health", "/favicon.svg", "/logo", *PWA_PATHS}
 SETUP_PATHS = {"/setup", "/health", "/favicon.svg", "/logo"}
 BCRYPT_HASH = re.compile(r"\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}")
@@ -716,6 +716,8 @@ async def meta(request: Request):
             "fr": request.app.state.fr.enabled,
             "ai": bool(request.app.state.store.get("ai_token_hash")),
         },
+        # Démarrer en 3 étapes (Aujourd'hui, Paramètres) : même calcul que /api/today.
+        "steps": _setup_steps(request.app.state),
     }
 
 
@@ -1150,10 +1152,10 @@ async def import_fr_now(request: Request):
     return {"started": True}
 
 
-@app.get("/api/drops")
-async def list_drops(request: Request):
-    watcher = request.app.state.drops
-    conn = request.app.state.conn
+def _drop_rows(state) -> list:
+    """Noms affichés dans la Veille : en cours de libération, ou libres depuis moins de keep_days jours ;
+    sans les noms ignorés, ni les noms réservés quand ils sont retirés (Paramètres)."""
+    watcher, conn = state.drops, state.conn
     # Un nom libre reste affiché keep_days jours ; il reste en base et dans l'Explorer.
     shown_since = iso(utcnow() - timedelta(days=watcher.keep_days))
     rows = conn.execute(
@@ -1161,23 +1163,63 @@ async def list_drops(request: Request):
            ORDER BY release_at IS NULL, release_at, name""",
         (*drops.TRACKED, states.AVAILABLE, shown_since),
     ).fetchall()
-    pending = conn.execute("SELECT COUNT(*) FROM drops WHERE state IS NULL").fetchone()[0]
-    reserved_names = request.app.state.reserved.names()
-    hide_reserved = request.app.state.reserved.mode == "hide"
-    held = request.app.state.reserved
+    held = state.reserved
+    reserved_names = held.names()
+    hide_reserved = held.mode == "hide"
     hidden = {r[0] for r in conn.execute("SELECT name FROM drop_hidden")}
-    rows = [r for r in rows if r["name"] not in hidden
+    return [r for r in rows if r["name"] not in hidden
             and not (hide_reserved and (r["name"] in reserved_names or held.short_reserved(r["name"])))]
-    suspended = dict(conn.execute("SELECT tld, COUNT(*) FROM drops WHERE state = ? GROUP BY tld", (drops.SUSPENDED,)).fetchall())
+
+
+def _drop_items(state, rows, values: dict) -> list[dict]:
+    """Éléments de la Veille au format des cartes (aussi pour Aujourd'hui) : état, dates, score et avis IA."""
+    conn = state.conn
     watched = {r[0] for r in conn.execute("SELECT name FROM domains")}
+    owned = {r[0] for r in conn.execute("SELECT name FROM portfolio")}
+    reserved_names = state.reserved.names()
+    prices = state.explorer.premium_prices()
+    premium_off = state.explorer.premium_tlds_off()
+    return [
+        {
+            "name": r["name"],
+            "tld": r["tld"],
+            "kind": r["kind"],
+            "categories": ([r["kind"]] if r["kind"] != "long" else []) + [c for c in r["lists"].split(",") if c],
+            "state": r["state"],
+            "removed_on": r["removed_on"],
+            "release_at": r["release_at"],
+            "available_since": r["available_since"],
+            "checked_at": r["checked_at"],
+            "next_check_at": r["next_check_at"],
+            "watched": r["name"] in watched,
+            "in_portfolio": r["name"] in owned,
+            "reserved": r["name"] in reserved_names,
+            "state_since": r["state_since"],
+            # 3 caractères libres hors .fr : souvent premium chez le registre (voir explore.PREMIUM).
+            "premium": (r["tld"] != "fr" and r["tld"] not in premium_off
+                        and len(r["name"]) - len(r["tld"]) - 1 == explore.PREMIUM_LENGTH),
+            "premium_price": prices.get(r["tld"], {}).get(str(len(r["name"]) - len(r["tld"]) - 1)),
+            **values[r["name"]],
+        }
+        for r in rows
+    ]
+
+
+@app.get("/api/drops")
+async def list_drops(request: Request):
+    state = request.app.state
+    watcher = state.drops
+    conn = state.conn
+    rows = _drop_rows(state)
+    pending = conn.execute("SELECT COUNT(*) FROM drops WHERE state IS NULL").fetchone()[0]
+    suspended = dict(conn.execute("SELECT tld, COUNT(*) FROM drops WHERE state = ? GROUP BY tld", (drops.SUSPENDED,)).fetchall())
+    hidden = conn.execute("SELECT COUNT(*) FROM drop_hidden").fetchone()[0]
     # Rafraîchissement de l'état seul (écran ouvert) : pas de liste, quelques Ko au lieu de plusieurs Mo.
     # Le détail RDAP n'est pas dans la liste : la fiche le charge.
     with_items = request.query_params.get("items") != "0"
-    prices = request.app.state.explorer.premium_prices()
-    premium_off = request.app.state.explorer.premium_tlds_off()
-    values = await _off(request.app.state.explorer.value_of, [r["name"] for r in rows]) if with_items else {}
+    values = await _off(state.explorer.value_of, [r["name"] for r in rows]) if with_items else {}
     return {
-        "configured": watcher.configured or request.app.state.fr.enabled,
+        "configured": watcher.configured or state.fr.enabled,
         "czds": watcher.configured,
         "running": watcher.running,
         "last_run": watcher.last_run(),
@@ -1186,41 +1228,89 @@ async def list_drops(request: Request):
         "gap_refused": watcher.gap_refused(),
         "accept_gap": watcher.gap_accepted(),
         "history": watcher.history(),
-        "fr": {"enabled": request.app.state.fr.enabled, "running": request.app.state.fr.running, **request.app.state.fr.status(),
-               "dns": request.app.state.fr_dns.status()},
-        "cc_dns": {tld: c.status() for tld, c in request.app.state.cc_dns.items()},
+        "fr": {"enabled": state.fr.enabled, "running": state.fr.running, **state.fr.status(),
+               "dns": state.fr_dns.status()},
+        "cc_dns": {tld: c.status() for tld, c in state.cc_dns.items()},
         "workers": watcher.workers,
         "pending_checks": pending,
         "suspended": suspended,
         "keep_days": watcher.keep_days,
-        "min_score": _drops_min_score(request.app.state.store),
-        "hidden": len(hidden),
+        "min_score": _drops_min_score(state.store),
+        "hidden": hidden,
         "kinds": drops.KINDS,
         "natures": explore.NATURES,
-        "items": [
-            {
-                "name": r["name"],
-                "tld": r["tld"],
-                "kind": r["kind"],
-                "categories": ([r["kind"]] if r["kind"] != "long" else []) + [c for c in r["lists"].split(",") if c],
-                "state": r["state"],
-                "removed_on": r["removed_on"],
-                "release_at": r["release_at"],
-                "available_since": r["available_since"],
-                "checked_at": r["checked_at"],
-                "next_check_at": r["next_check_at"],
-                "watched": r["name"] in watched,
-                "reserved": r["name"] in reserved_names,
-                "state_since": r["state_since"],
-                # 3 caractères libres hors .fr : souvent premium chez le registre (voir explore.PREMIUM).
-                "premium": (r["tld"] != "fr" and r["tld"] not in premium_off
-                            and len(r["name"]) - len(r["tld"]) - 1 == explore.PREMIUM_LENGTH),
-                "premium_price": prices.get(r["tld"], {}).get(str(len(r["name"]) - len(r["tld"]) - 1)),
-                **values[r["name"]],
-            }
-            for r in rows
-        ] if with_items else None,
+        "items": _drop_items(state, rows, values) if with_items else None,
     }
+
+
+# --- Aujourd'hui ------------------------------------------------------------------------
+
+TODAY_ITEMS = 20
+TODAY_SORTS = ("resale", "exploit")
+# Sans avis IA, un nom sous ce score est « faible » : même seuil que la case de la Veille.
+WEAK_SCORE = 30
+
+
+def _setup_steps(state) -> list[dict]:
+    """Les trois réglages qui font marcher l'appli : sources des noms, Telegram, avis IA."""
+    return [
+        {"key": "sources", "title": "Sources", "text": ".fr (Afnic) ou zones ICANN : les noms qui se libèrent",
+         "done": bool(state.drops.configured or state.fr.enabled)},
+        {"key": "telegram", "title": "Telegram", "text": "alertes et résumé du matin", "done": bool(state.telegram.configured)},
+        {"key": "ai", "title": "Avis IA", "text": "notes et prix, facultatif", "done": bool(state.store.get("ai_token_hash"))},
+    ]
+
+
+def _verdict(opinion: dict | None) -> str:
+    return (opinion.get("comment") or "").split(".")[0] if opinion else ""
+
+
+def _today(state, sort: str, now: datetime) -> dict:
+    """Écran d'accueil : compteurs du jour et les meilleurs noms libres ou libérés sous 48 h."""
+    rows = _drop_rows(state)
+    day_ago, soon = iso(now - timedelta(hours=24)), iso(now + timedelta(hours=48))
+    free = [r for r in rows if r["state"] == states.AVAILABLE]
+    coming = [r for r in rows if r["state"] in drops.TRACKED]
+    near = [r for r in coming if r["release_at"] and r["release_at"] <= soon]
+    candidates = free + near
+    values = state.explorer.value_of([r["name"] for r in candidates])
+    # Avis « À prendre » reçus depuis 24 h (premier avis ou second passage) sur un nom libre ou bientôt libre.
+    opinions = ai.load(state.conn, [r["name"] for r in free + coming])
+    new_take = sum(1 for o in opinions.values()
+                   if _verdict(o) == "À prendre" and max(o["rated_at"] or "", o["reviewed_at"] or "") >= day_ago)
+
+    def strong(v: dict) -> bool:
+        # « Masquer les noms faibles » et les suites imprononçables, comme la Veille par défaut.
+        verdict = _verdict(v.get("ai"))
+        return v.get("good") is not False and (verdict != "À laisser" if verdict else v.get("score", 0) >= WEAK_SCORE)
+
+    def rank(r) -> tuple:
+        # Même ordre que la Veille : conseillés par l'IA d'abord, par la note de l'usage ; puis sans avis, par score.
+        v = values[r["name"]]
+        tier = 1 if not v.get("ai") else 0 if _verdict(v["ai"]) == "À laisser" else 2
+        value = v["ai"][sort] if v.get("ai") else v.get("score", 0)
+        return (-tier, -value, -v.get("score", 0), r["name"])
+
+    best = sorted((r for r in candidates if strong(values[r["name"]])), key=rank)[:TODAY_ITEMS]
+    return {
+        "counts": {
+            "freed_24h": sum(1 for r in free if (r["available_since"] or "") >= day_ago),
+            "coming_48h": len(near),
+            "new_take": new_take,
+            "regrets": decisions.listing(state.conn, state.explorer)["regrets"],
+        },
+        "sort": sort,
+        "items": _drop_items(state, best, values),
+        "setup": _setup_steps(state),
+    }
+
+
+@app.get("/api/today")
+async def today_screen(request: Request):
+    sort = request.query_params.get("sort", "resale")
+    if sort not in TODAY_SORTS:
+        raise HTTPException(422, "Tri inconnu : resale ou exploit.")
+    return await _off(_today, request.app.state, sort, utcnow())
 
 
 class NameCheck(BaseModel):
@@ -1923,6 +2013,7 @@ async def explore_fiche(request: Request):
     found = await _off(explorer.fiche, name)
     found["ai_eta"] = await _ai_eta(explorer, found)
     found["ai_request"] = ai.request_state(request.app.state.conn, name)
+    found["in_portfolio"] = request.app.state.conn.execute("SELECT 1 FROM portfolio WHERE name = ?", (name,)).fetchone() is not None
     if found.get("tld") in ccdns.TLDS:
         found["cc_dns"] = ccdns.load_names(request.app.state.conn, [name]).get(name)
     if found.get("tld") == "fr":

@@ -420,7 +420,7 @@ button:disabled { cursor: default; opacity: .55; }
 @media (max-width: 900px) {
   .col-registrar { display: none; }
 }
-/* Tableau des domaines : sous 1 400 px, registrar et dernier check passent dans le détail de la ligne
+/* Tableau des domaines : sous 1 400 px, registrar et dernier check passent dans la fiche du nom
    (sinon le tableau déborde et pousse « Supprimer » hors de l'écran). */
 @media (min-width: 900px) and (max-width: 1400px) {
   .col-registrar, .col-last { display: none; }
@@ -493,7 +493,7 @@ button:disabled { cursor: default; opacity: .55; }
     background: var(--bg);
   }
   .sheet-head { display: flex; align-items: center; justify-content: space-between; margin: 0 0 6px; padding: 0; }
-  .sheet-head h2 { margin: 0; font-size: 19px; line-height: 1.3; font-weight: 600; }
+  .main .sheet-head h2 { margin: 0; font-size: 19px; line-height: 1.3; font-weight: 600; }
   .settings h2, .version-block h2 { font-size: 15px; }
   .settings-grid > div, .version-block {
     padding: 14px; margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
@@ -560,7 +560,7 @@ button:disabled { cursor: default; opacity: .55; }
   font: 13px/1.4 var(--mono); white-space: pre-wrap; word-break: break-all; user-select: all;
 }
 
-/* Détail d'un domaine : panneau latéral, plein écran sur téléphone. */
+/* Fiche d'un nom : panneau latéral, plein écran sur téléphone. */
 .drawer {
   position: fixed; z-index: 45; top: 0; right: 0; bottom: 0; width: min(480px, 94vw);
   overflow-y: auto; overscroll-behavior: contain;
@@ -578,7 +578,7 @@ button:disabled { cursor: default; opacity: .55; }
 .drawer-state { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 14px; }
 .drawer-state .abandon { margin: 0; }
 .drawer-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 20px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
-/* Fiche : cinq actions dans un tiroir étroit ; elles passent à la ligne au lieu de sortir du cadre. */
+/* Fiche : six actions dans un panneau étroit ; elles passent à la ligne au lieu de sortir du cadre. */
 .drawer-actions > .btn, .drawer-actions > .btn-ghost { flex: 1 1 auto; white-space: nowrap; }
 .drawer-actions > a { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
 .drawer-actions .btn-ghost { flex: 1; height: 38px; }
@@ -638,7 +638,7 @@ button:disabled { cursor: default; opacity: .55; }
 
   .sheet { margin: 0; padding: 0; background: none; border: 0; }
   .sheet-head { display: flex; align-items: center; justify-content: space-between; margin: 0 0 20px; }
-  .sheet .sheet-head h2 { margin: 0; font-size: 22px; font-weight: 600; }
+  .main .sheet-head h2 { margin: 0; font-size: 22px; font-weight: 600; }
   .legend table, .settings-grid > div, .version-block {
     background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
   }
@@ -677,7 +677,7 @@ button:disabled { cursor: default; opacity: .55; }
   .expander { white-space: nowrap; }
 }
 @media (min-width: 900px) {
-  /* La suppression se fait depuis le détail : la ligne garde de la place pour les colonnes utiles. */
+  /* La suppression se fait depuis la fiche : la ligne garde de la place pour les colonnes utiles. */
   .col-actions .btn-ghost.danger { display: none; }
 }
 @media (min-width: 900px) and (max-width: 1279px) {
@@ -856,7 +856,7 @@ button:disabled { cursor: default; opacity: .55; }
 .ex-junk { font-size: 13px; }
 .ex-wait { padding: 24px 0; }
 
-/* Fiche d'un nom : même panneau que le détail d'un domaine, au-dessus des écrans. */
+/* Fiche d'un nom : panneau au-dessus des écrans. */
 .drawer.fiche { z-index: 47; }
 .fiche .details-grid dl { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; margin: 0; align-items: baseline; }
 /* Libellé et valeur sur la même ligne, sur téléphone aussi (pas de décalage du libellé). */
@@ -897,14 +897,13 @@ button:disabled { cursor: default; opacity: .55; }
 .col-score .ex-reason.ai { display: inline-block; margin-top: 4px; white-space: normal; max-width: 190px; }
 .drops-sticky { margin-top: 4px; }
 
-/* Accueil : premiers pas. */
-.welcome { margin: 0 0 18px; padding: 16px 18px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
-.welcome-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.welcome-head h2 { margin: 0; font-size: 17px; }
+/* Démarrer en 3 étapes (Aujourd'hui, Paramètres). */
+.setup-card { margin: 0 0 16px; padding: 14px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.setup-card h3 { margin: 0 0 6px; font-size: 15px; }
 .welcome-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .welcome-steps li { display: grid; grid-template-columns: 22px 1fr auto; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); }
 .welcome-steps li:first-child { border-top: 0; }
-.welcome-mark { width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--line); display: grid; place-items: center; font-size: 12px; color: var(--accent); }
+.welcome-mark { width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--line-strong); display: grid; place-items: center; font-size: 12px; color: var(--accent); font-variant-numeric: tabular-nums; }
 .welcome-steps li.done .welcome-mark { border-color: var(--accent); }
 .welcome-steps li.done .welcome-text strong { color: var(--muted); font-weight: 500; }
 /* Aide */
@@ -917,8 +916,9 @@ button:disabled { cursor: default; opacity: .55; }
 @media (max-width: 899px) {
   .help-dl { grid-template-columns: 1fr; gap: 2px; }
   .help-dl dd { margin-bottom: 8px; }
-  .welcome-steps li { grid-template-columns: 22px 1fr; }
-  .welcome-steps li .btn-ghost { grid-column: 2; justify-self: start; }
+  /* Étapes : le bouton reste à droite du texte, le bloc garde trois lignes. */
+  .welcome-steps li { grid-template-columns: 22px minmax(0, 1fr) auto; gap: 10px; }
+  .welcome-steps .welcome-text { font-size: 14px; line-height: 1.35; }
 }
 
 /* Mobile : rien ne déborde à droite, la page ne se décale plus. */
@@ -1154,4 +1154,62 @@ button:disabled { cursor: default; opacity: .55; }
 /* Sur téléphone, un comparable ou une étape de la ligne de temps reste sur une ligne (qui passe à la ligne si besoin). */
 @media (max-width: 899px) {
   .history li.fiche-comp, .fiche-timeline li { flex-direction: row; flex-wrap: wrap; gap: 4px 10px; }
+}
+
+/* Sous-titre d'un écran : une ligne, discrète. */
+.sheet-sub { margin: 0 0 12px; color: var(--muted); font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Paramètres depuis l'en-tête d'un écran : téléphone seulement (la barre latérale l'a sur ordinateur). */
+.head-settings {
+  display: none; position: relative; align-items: center; justify-content: center; width: 40px; height: 40px; padding: 0;
+  background: none; border: 1px solid var(--line); border-radius: 50%; color: var(--muted); cursor: pointer;
+}
+.head-settings svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.head-settings .update-badge { top: -4px; right: -4px; }
+@media (min-width: 900px) {
+  .sheet-sub { margin: -16px 0 20px; }
+}
+@media (max-width: 899px) {
+  .head-settings { display: inline-flex; }
+  .sheet-head { min-height: 40px; }
+  .sheet-sub { margin: -2px 0 10px; }
+}
+
+/* Aujourd'hui : chiffres du jour, usage, cartes. */
+.today-counts { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 0; margin: 0 0 14px; }
+.today-count { padding: 2px 0; background: none; border: 0; color: var(--muted); font: inherit; cursor: pointer; text-align: left; }
+.today-count strong { color: var(--text); font-size: 15px; font-weight: 600; }
+.today-count:hover span { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+.today-count + .today-count::before { content: "·"; margin: 0 10px; color: var(--faint); }
+.today-count.warn strong, .today-count.warn span { color: var(--danger); }
+.today-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 10px; }
+.today-bar .segmented { margin: 0; }
+.today-empty { padding: 18px 0; }
+.today-more { margin: 12px 0 0; }
+@media (max-width: 899px) {
+  /* Compteurs en tuiles, deux par ligne ; cartes pleine largeur. */
+  .today-counts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .today-count { display: flex; flex-direction: column; gap: 0; min-height: 56px; padding: 8px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+  .today-count + .today-count::before { content: none; }
+  .today-count strong { font-size: 19px; }
+  .today-more { width: 100%; }
+}
+
+/* Cartes et fiche : badges « Surveillé » et « Portefeuille ». */
+.nc-flag { display: inline-flex; align-items: center; padding: 0 7px; border: 1px solid var(--accent); border-radius: 9px; color: var(--accent); font-size: 11.5px; font-weight: 500; white-space: nowrap; }
+.drawer-state .nc-flag { font-size: 12.5px; padding: 1px 8px; }
+
+/* Fiche d'un nom surveillé : suivi et historique des changements. */
+.fiche-watch .fiche-error { margin: 0 0 8px; }
+.fiche-watch .abandon { margin: 0 0 0 6px; }
+.fiche-changes { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.fiche-changes h3 { font-size: 11.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; }
+.fiche-watch .tag-input { width: 160px; }
+
+/* Paramètres : bloc avancé replié, version en pied. */
+.settings-more { margin: 16px 0; }
+.settings-advanced { margin-bottom: 16px; }
+.version-block.version-foot { margin: 16px 0 0; }
+@media (max-width: 899px) {
+  .settings-more .btn-ghost { width: 100%; }
+  .fiche-watch .tag-input { width: 100%; }
 }

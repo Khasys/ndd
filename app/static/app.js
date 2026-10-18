@@ -146,13 +146,18 @@ document.addEventListener("alpine:init", () => {
     filter: null,
     sortKey: "urgency",
     sortDir: 1,
-    openId: null,
     history: {},
     busy: {},
     bulkRunning: false,
     sendingTest: false,
+    // Écran d'accueil : les meilleurs noms du jour (GET /api/today) ; l'appli s'ouvre toujours dessus.
+    todayOpen: true,
+    today: null,
+    // Démarrer en 3 étapes (sources, Telegram, avis IA) : /api/meta et /api/today, même calcul serveur.
+    setup: [],
     legendOpen: false,
     settingsOpen: false,
+    settingsAdvanced: false,
     dropsOpen: false,
     dropsData: null,
     exploreOpen: false,
@@ -201,10 +206,8 @@ document.addEventListener("alpine:init", () => {
     dropsSeenBefore: "",
     aiToken: "",
     aiStatus: null,
-    domainFiche: null,
     df: { ...DROP_FILTER_DEFAULTS },
     dfOpen: false,
-    welcomeHidden: (() => { try { return localStorage.getItem("dw.welcome") === "hidden"; } catch (_) { return false; } })(),
     AI_VERDICTS,
     tldFilter: "",
     aiFilter: [],
@@ -255,6 +258,7 @@ document.addEventListener("alpine:init", () => {
       }
       for (const key of ["dropLevel", "dropNewOnly"]) this.$watch(key, () => (this.dropSelected = []));
       this.load();
+      this.loadToday();
       this.loadAiRequests();
       // Lien direct vers une fiche (message Telegram d'une analyse prête) : ouverte, puis adresse nettoyée.
       const linked = new URLSearchParams(window.location.search);
@@ -263,13 +267,14 @@ document.addEventListener("alpine:init", () => {
         history.replaceState(null, "", "/");
       }
       // Sur téléphone, le focus automatique ouvrirait le clavier à chaque lancement.
-      if (!this.mobile) this.$nextTick(() => this.$refs.input.focus());
+      if (!this.mobile && !this.paged) this.$nextTick(() => this.$refs.input.focus());
       setInterval(() => (this.now = Date.now()), 30000);
       setInterval(() => { this.load(true); this.loadAiRequests(); }, 60000);
       // Appli installée : retour au premier plan après une pause, données à rafraîchir.
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible") { this.now = Date.now(); this.load(true); }
       });
+      this.$watch("todayOpen", () => this.lockScroll());
       this.$watch("legendOpen", () => this.lockScroll());
       this.$watch("settingsOpen", () => this.lockScroll());
       this.$watch("dropsOpen", () => this.lockScroll());
@@ -277,16 +282,6 @@ document.addEventListener("alpine:init", () => {
       this.$watch("portfolioOpen", () => this.lockScroll());
       // Veille ouverte : le travail .fr est suivi en direct.
       setInterval(() => { if (this.dropsOpen && document.visibilityState === "visible") this.loadDrops(true); }, 15000);
-      this.$watch("openId", (id) => {
-        this.lockScroll();
-        // Panneau d'un domaine surveillé : même bloc « Valeur » que la fiche des autres écrans.
-        // La fiche précédente reste en mémoire jusqu'à l'arrivée de la nouvelle : la condition sur le nom
-        // l'empêche de s'afficher, et un démontage et une remise à null dans le même cycle font rejouer
-        // la boucle « Autres extensions » sur un élément déjà retiré (erreur Alpine).
-        const d = this.domains.find((x) => x.id === id);
-        if (d) this.remember();
-        if (d) this.api("GET", `/api/explore/fiche?name=${encodeURIComponent(d.name)}`).then((f) => (this.domainFiche = f)).catch(() => {});
-      });
       this.$watch("fiche", (f) => {
         this.lockScroll();
         // Fiche ouverte : le clavier va dessus, pas sur la liste derrière.
@@ -302,33 +297,29 @@ document.addEventListener("alpine:init", () => {
 
     lockScroll() {
       // La fiche est par-dessus tout : la page derrière ne défile plus, sur ordinateur aussi.
-      document.body.classList.toggle("sheet-open", (this.mobile && (this.paged || this.openId !== null)) || this.fiche !== null);
+      document.body.classList.toggle("sheet-open", (this.mobile && this.paged) || this.fiche !== null);
     },
 
-    get selected() {
-      return this.openId === null ? null : this.domains.find((d) => d.id === this.openId) || null;
+    // Fiche d'un nom surveillé : sa ligne de Domaines (dates, registrar, DNS, tags, signaux), sinon null.
+    get ficheDomain() {
+      return this.fiche && this.fiche.domain_id ? this.domains.find((d) => d.id === this.fiche.domain_id) || null : null;
     },
 
-    // Le panneau garde le dernier domaine affiché le temps de se fermer : ses liaisons
-    // ne doivent jamais lire un domaine nul pendant le démontage.
-    get shown() {
-      const current = this.selected;
-      if (current) this._lastShown = current;
-      return current || this._lastShown;
-    },
+    plainError(m) { return plainError(m); },
 
     escape() {
       if (this.fiche) this.fiche = null;
       else if (this.exploreOpen && this.exFiltersOpen) this.exFiltersOpen = false;
       else if (this.dropsOpen && this.dfOpen) this.dfOpen = false;
-      else if (this.openId !== null) this.openId = null;
       else if (this.exploreOpen && this.ex.q) { this.ex.q = ""; this.exTyped(); }
-      else if (this.paged) this.showList();
+      else if (!this.todayOpen) this.openSheet("today", false);
     },
 
-    get paged() { return this.legendOpen || this.settingsOpen || this.dropsOpen || this.exploreOpen || this.portfolioOpen; },
+    // Domaines est la liste, affichée quand aucun autre écran ne l'est.
+    get paged() { return this.todayOpen || this.legendOpen || this.settingsOpen || this.dropsOpen || this.exploreOpen || this.portfolioOpen; },
 
     showList() {
+      this.todayOpen = false;
       this.legendOpen = false;
       this.settingsOpen = false;
       this.dropsOpen = false;
@@ -337,9 +328,16 @@ document.addEventListener("alpine:init", () => {
       window.scrollTo({ top: 0, behavior: "smooth" });
     },
 
+    // Accueil (nom de l'appli en haut à gauche) : Aujourd'hui.
     home() {
-      this.openId = null;
       this.fiche = null;
+      return this.openSheet("today");
+    },
+
+    openDomains() {
+      this.fiche = null;
+      if (!this.paged) return;
+      this.remember();
       this.showList();
     },
 
@@ -348,24 +346,29 @@ document.addEventListener("alpine:init", () => {
       try { history.pushState({ dw: true }, ""); } catch (_) {}
     },
 
+    // Fiche ouverte : elle se ferme ; sinon retour à Aujourd'hui, sans nouvelle entrée d'historique.
     back() {
       if (this.fiche) this.fiche = null;
-      else if (this.openId !== null) this.openId = null;
-      else if (this.paged) this.showList();
+      else if (!this.todayOpen) this.openSheet("today", false);
     },
 
-    async openSheet(name) {
-      this.openId = null;
+    // remember : nouvelle entrée d'historique (false depuis le bouton retour, qui en consomme une).
+    async openSheet(name, remember = true) {
       this.fiche = null;
       // L'écran déjà affiché le reste : un second appui ne le ferme pas.
       if (this[`${name}Open`]) return;
-      this.remember();
+      if (remember) this.remember();
       const opening = true;
+      this.todayOpen = false;
       this.legendOpen = false;
       this.dropsOpen = false;
       this.exploreOpen = false;
       this.portfolioOpen = false;
-      if (name === "portfolio") {
+      if (name === "today") {
+        this.settingsOpen = false;
+        this.todayOpen = true;
+        await this.loadToday();
+      } else if (name === "portfolio") {
         this.settingsOpen = false;
         this.portfolioOpen = true;
         await this.loadPortfolio();
@@ -403,7 +406,43 @@ document.addEventListener("alpine:init", () => {
 
     async openSettingsAt(id) {
       await this.openSheet("settings");
+      // Carte du bloc avancé : il s'ouvre d'abord.
+      if (document.getElementById(id)?.closest(".settings-advanced")) this.settingsAdvanced = true;
       this.$nextTick(() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    },
+
+    // Aujourd'hui : compteurs, étapes de configuration, les meilleurs noms pour l'usage choisi.
+    async loadToday() {
+      this.loadOrderUrl();
+      try {
+        const data = await this.api("GET", `/api/today?sort=${this.lens === "exploit" ? "exploit" : "resale"}`);
+        this.today = data;
+        this.setup = data.setup;
+      } catch (e) {
+        this.sayError(e, "Aujourd'hui indisponible", () => this.loadToday());
+      }
+    },
+
+    async openVeille(tab) {
+      await this.openSheet("drops");
+      this.dropSetTab(tab);
+    },
+
+    plural(n, one, many) { return n > 1 ? many : one; },
+
+    get setupSteps() {
+      const go = { sources: () => this.openSettings("fr"), telegram: () => this.openSettings("telegram"), ai: () => this.openSettings("ai") };
+      return (this.setup || []).map((step) => ({ ...step, go: go[step.key] }));
+    },
+
+    get setupIncomplete() { return this.setupSteps.some((step) => !step.done); },
+
+    // Étapes à jour après un réglage (Telegram associé, source activée, jeton IA créé).
+    async refreshMeta() {
+      try {
+        this.meta = await this.api("GET", "/api/meta");
+        this.setup = this.meta.steps || this.setup;
+      } catch (_) {}
     },
 
     // Sommaire de l'Aide : défilement sans toucher à l'adresse (un changement de hash déclenche popstate, qui fermerait l'écran).
@@ -425,9 +464,10 @@ document.addEventListener("alpine:init", () => {
       return this.exSet({ level: on ? "good" : "" });
     },
 
-    // Carte de nom : la même dans la Veille, l'Explorer et la recherche (gabarit #name-card). Tout ce
-    // que la carte affiche vient d'ici ; un autre écran (Aujourd'hui) n'a qu'à appeler nameCard(item, list).
-    // list : « veille » (élément de /api/drops), « explore » (élément de /api/explore/rank), « card »
+    // Carte de nom : la même dans Aujourd'hui, la Veille, l'Explorer et la recherche (gabarit #name-card).
+    // Tout ce que la carte affiche vient d'ici.
+    // list : « veille » (élément de /api/drops), « today » (élément de /api/today, même format),
+    // « explore » (élément de /api/explore/rank), « card »
     // (élément de /api/explore/name) ou « probe » (nom tapé hors des listes, avant et après /api/explore/check).
     nameCard(i, list) {
       const ai = i.ai;
@@ -437,6 +477,7 @@ document.addEventListener("alpine:init", () => {
       // La pastille principale est ce qui trie : la note IA de l'usage en cours, sinon le score ; « Score seul » garde le score.
       const scoreFirst = !note || (list === "explore" && this.ex.sort === "score");
       const st = this.cardState(i, list);
+      const veilleLike = list === "veille" || list === "today";
       const verdict = this.aiVerdict(ai);
       return {
         name: i.name, list, item: i,
@@ -448,14 +489,15 @@ document.addEventListener("alpine:init", () => {
         why: ai && ai.why && verdict !== "À prendre" ? ai.why : "",
         ...st,
         isNew: list === "veille" && this.dropNew(i),
-        premium: list === "veille" && i.premium ? (i.premium_price ? `premium probable ~${this.fmt(i.premium_price)} €` : "premium probable")
+        premium: veilleLike && i.premium ? (i.premium_price ? `premium probable ~${this.fmt(i.premium_price)} €` : "premium probable")
           : i.status === 8 && i.premium_price ? `~${this.fmt(i.premium_price)} €` : "",
         watched: !!i.watched,
+        owned: !!i.in_portfolio,
         busy: !!this.exBusy[i.name],
         pickable: list === "veille" || list === "explore",
         picked: list === "veille" ? this.dropSelected.includes(i.name) : list === "explore" && this.exSelected.includes(i.name),
         // « Ignorer » : le nom quitte la Veille, la décision est gardée (Portefeuille, Décisions).
-        canIgnore: list === "veille",
+        canIgnore: veilleLike,
       };
     },
 
@@ -464,7 +506,7 @@ document.addEventListener("alpine:init", () => {
     // État explicite d'une carte : badge (texte et couleur), date ou détail, actions possibles.
     cardState(i, list) {
       const checked = i.checked_at ? `vérifié ${this.relative(i.checked_at)}` : "";
-      if (list === "veille") {
+      if (list === "veille" || list === "today") {
         if (i.state === "available") {
           return { badge: { text: "libre", cls: "x-5" }, when: checked || `libéré ${this.relative(i.available_since)}`, canReserve: true, canCheck: false };
         }
@@ -498,6 +540,7 @@ document.addEventListener("alpine:init", () => {
       if (!item) return;
       this.exReplace(item);
       if (c.list === "veille") await this.loadDrops();
+      else if (c.list === "today") await this.loadToday();
       else this.exLoadMap();
     },
 
@@ -520,6 +563,8 @@ document.addEventListener("alpine:init", () => {
         if (ticket !== this._ficheTicket) return;
         fiche.hot = hot;
         this.fiche = fiche;
+        // Nom surveillé : l'historique des changements (table history) s'affiche dans la fiche.
+        if (fiche.domain_id) this.loadHistory(fiche.domain_id);
         if (hot) this.aiSeen(fiche.name);
       } catch (e) {
         if (ticket === this._ficheTicket) this.sayError(e, name, () => this.openFiche(name, hot));
@@ -594,6 +639,7 @@ document.addEventListener("alpine:init", () => {
         this.pfNew = { name: "", buy_price: "", bought_on: "", renew_price: "" };
         // Vérification RDAP en arrière-plan : l'échéance arrive après ; la mention part au rechargement suivant.
         if (res.checking) this.pfChecking = [...this.pfChecking, body.name.trim().toLowerCase()];
+        this.markOwned(body.name.trim().toLowerCase());
         this.loadDecisions();
         if (!quiet) this.say(`${body.name} ajouté au portefeuille.`);
         return res;
@@ -629,6 +675,7 @@ document.addEventListener("alpine:init", () => {
       if (!confirm(`Retirer ${item.name} du portefeuille ?`)) return;
       try {
         this.pf = await this.api("DELETE", `/api/portfolio/${item.id}`);
+        this.markOwned(item.name, false);
       } catch (e) {
         this.say(e.message, "error");
       }
@@ -678,7 +725,13 @@ document.addEventListener("alpine:init", () => {
       if (this.fiche) await this.openFiche(this.fiche.name);
     },
 
+    // Vérifier : pour un nom surveillé, le check de Domaines (état, historique) ; sinon une lecture du registre.
     async ficheCheck() {
+      const d = this.ficheDomain;
+      if (d) {
+        await this.check(d, true);
+        return this.ficheReload();
+      }
       const item = await this.verifyName(this.fiche.name);
       if (!item) return;
       this.exReplace(item);
@@ -694,10 +747,30 @@ document.addEventListener("alpine:init", () => {
       await this.ficheReload();
     },
 
-    // Un nom passe sous surveillance : les listes déjà affichées (Explorer, Veille) le montrent.
-    markWatched(name) {
-      this.exReplace({ name, watched: true });
-      for (const d of (this.dropsData && this.dropsData.items) || []) if (d.name === name) d.watched = true;
+    ficheBusy() {
+      const d = this.ficheDomain;
+      return !!this.exBusy[this.fiche.name] || !!(d && this.busy[d.id]);
+    },
+
+    async ficheUnwatch() {
+      const d = this.ficheDomain;
+      if (d && await this.remove(d)) {
+        this.markWatched(d.name, false);
+        await this.ficheReload();
+      }
+    },
+
+    // Un nom passe sous surveillance (ou en sort) : les listes déjà affichées le montrent.
+    markWatched(name, on = true) { this.markItems(name, { watched: on }); },
+
+    // « J'ai acheté » : badge « Portefeuille » aussitôt, sur toutes les cartes affichées.
+    markOwned(name, on = true) { this.markItems(name, { in_portfolio: on }); },
+
+    markItems(name, patch) {
+      this.exReplace({ name, ...patch });
+      for (const list of [(this.dropsData && this.dropsData.items) || [], (this.today && this.today.items) || []]) {
+        for (const d of list) if (d.name === name) Object.assign(d, patch);
+      }
     },
 
     async ficheSeo() {
@@ -719,12 +792,6 @@ document.addEventListener("alpine:init", () => {
       // Marqué : il quitte la liste des noms à saisir ; remis : sa ligne prend le nouvel état.
       if (reserved) this.exItems = this.exItems.filter((x) => x.name !== name);
       else if (this.fiche && this.fiche.item) this.exReplace(this.fiche.item);
-    },
-
-    openDomain(id) {
-      this.fiche = null;
-      this.showList();
-      this.openId = id;
     },
 
     // Fiche d'un nom, en sections : avis IA, score, le nom, historique et SEO.
@@ -826,6 +893,7 @@ document.addEventListener("alpine:init", () => {
       try {
         this.aiToken = (await this.api("POST", "/api/settings/ai-token")).token;
         await this.loadAiStatus();
+        this.refreshMeta();
       } catch (e) {
         this.say(e.message, "error");
       }
@@ -1008,6 +1076,7 @@ document.addEventListener("alpine:init", () => {
       this.lens = k;
       try { localStorage.setItem("lens", k); } catch (_) {}
       if (this.exploreOpen && this.ex.sort === "best") this.exLoad();
+      if (this.todayOpen) this.loadToday();
     },
 
     exAiVerdicts() { return (this.ex.ai_v || "").split(",").filter(Boolean); },
@@ -1346,8 +1415,11 @@ document.addEventListener("alpine:init", () => {
     async ignoreDrops(names) {
       try {
         const r = await this.api("POST", "/api/drops/hide", { names });
-        this.dropsData.items = this.dropsData.items.filter((d) => !names.includes(d.name));
-        this.dropsData.hidden = r.hidden;
+        if (this.dropsData) {
+          this.dropsData.items = (this.dropsData.items || []).filter((d) => !names.includes(d.name));
+          this.dropsData.hidden = r.hidden;
+        }
+        if (this.today) this.today.items = this.today.items.filter((d) => !names.includes(d.name));
         this.dropSelected = this.dropSelected.filter((n) => !names.includes(n));
         this._dropsVer = (this._dropsVer || 0) + 1;
         this.say(names.length > 1 ? `${names.length} noms ignorés.` : `${names[0]} ignoré.`, "info", { label: "Annuler", run: () => this.unhideDrops(names) });
@@ -1361,6 +1433,7 @@ document.addEventListener("alpine:init", () => {
       try {
         await this.api("POST", "/api/drops/unhide", names ? { names } : undefined);
         await this.loadDrops();
+        if (this.todayOpen) await this.loadToday();
         this.say(names ? (names.length > 1 ? `${names.length} noms réaffichés.` : `${names[0]} réaffiché.`) : "Noms ignorés réaffichés.");
       } catch (e) {
         this.sayError(e, "", () => this.unhideDrops(names));
@@ -1761,6 +1834,7 @@ document.addEventListener("alpine:init", () => {
       try {
         const res = await this.api("PUT", "/api/settings/fr", { enabled: this.cfg.fr.enabled, url: this.cfg.fr.url || "", rate: this.cfg.fr.rate || null, dns: this.cfg.fr.dns });
         this.cfg.fr = res;
+        this.refreshMeta();
         if (res.enabled) this.say("Suivi du .fr activé. Premier import dans quelques minutes.");
       } catch (e) {
         this.say(e.message, "error");
@@ -1807,6 +1881,7 @@ document.addEventListener("alpine:init", () => {
         const res = await this.api("PUT", "/api/settings/czds", { username: this.czdsUser, password: this.czdsPass });
         this.cfg.czds = res;
         this.czdsPass = "";
+        this.refreshMeta();
         this.say(res.notice || `Compte ICANN accepté : ${res.approved.length} zone(s) autorisée(s).`);
       } catch (e) {
         this.say(e.message, "error");
@@ -1872,9 +1947,10 @@ document.addEventListener("alpine:init", () => {
         this.domains = domains;
         this.meta = meta;
         this.bulkRunning = meta.bulk_running;
+        this.setup = meta.steps || this.setup;
         this.loadError = null;
         this.now = Date.now();
-        if (this.openId) this.loadHistory(this.openId);
+        if (this.fiche && this.fiche.domain_id) this.loadHistory(this.fiche.domain_id);
       } catch (e) {
         if (!quiet || !this.loaded) this.loadError = e.message;
       }
@@ -1930,14 +2006,16 @@ document.addEventListener("alpine:init", () => {
       if (i >= 0) this.domains[i] = d;
     },
 
-    async check(d) {
+    // announce : message aussi quand tout va bien (bouton Vérifier de la fiche).
+    async check(d, announce = false) {
       this.busy[d.id] = true;
       try {
         const updated = await this.api("POST", `/api/domains/${d.id}/check`);
         this.replace(updated);
         this.now = Date.now();
-        if (updated.check_error) this.sayError({ message: updated.check_error }, d.name, () => this.check(d));
-        if (this.openId === d.id) this.loadHistory(d.id);
+        if (updated.check_error) this.sayError({ message: updated.check_error }, d.name, () => this.check(d, announce));
+        else if (announce) this.say(`${d.name} : ${this.stateLabel(updated)}.`);
+        if (this.fiche && this.fiche.domain_id === d.id) this.loadHistory(d.id);
       } catch (e) {
         this.sayError(e, d.name, () => this.check(d));
       }
@@ -1961,18 +2039,21 @@ document.addEventListener("alpine:init", () => {
       }
     },
 
+    // Renvoie true si le nom a quitté la surveillance.
     async remove(d) {
-      if (!confirm(`Supprimer ${d.name} de la surveillance ? L'historique sera effacé.`)) return;
+      if (!confirm(`Supprimer ${d.name} de la surveillance ? L'historique sera effacé.`)) return false;
       this.busy[d.id] = true;
+      let done = false;
       try {
         await this.api("DELETE", `/api/domains/${d.id}`);
         this.domains = this.domains.filter((x) => x.id !== d.id);
-        if (this.openId === d.id) this.openId = null;
-        this.say(`${d.name} supprimé.`);
+        this.say(`${d.name} retiré de la surveillance.`);
+        done = true;
       } catch (e) {
         this.say(`${d.name} : ${e.message}`, "error");
       }
       this.busy[d.id] = false;
+      return done;
     },
 
     async toggleSettings() {
@@ -1987,6 +2068,7 @@ document.addEventListener("alpine:init", () => {
         this.orderUrl = this.cfg.order_url;
         this.loadAiStatus();
         this.loadAiOutcomes();
+        this.refreshMeta();
       } catch (e) {
         this.sayError(e, "Paramètres indisponibles", () => this.loadSettings());
       }
@@ -2052,7 +2134,7 @@ document.addEventListener("alpine:init", () => {
         if (!st.telegram.pairing) {
           clearInterval(this._pairTimer);
           this.pairing = null;
-          if (st.telegram.chat_set) this.say("Compte Telegram associé.");
+          if (st.telegram.chat_set) { this.say("Compte Telegram associé."); this.refreshMeta(); }
         }
       }, 3000);
     },
@@ -2252,17 +2334,21 @@ document.addEventListener("alpine:init", () => {
       this.sendingTest = false;
     },
 
-    toggle(d) {
-      this.openId = this.openId === d.id ? null : d.id;
-      if (this.openId) this.loadHistory(d.id);
-    },
-
     async loadHistory(id) {
       try {
         this.history[id] = await this.api("GET", `/api/domains/${id}/history`);
       } catch (_) {
         this.history[id] = [];
       }
+    },
+
+    // Signaux d'abandon : seulement pour un nom enregistré.
+    registeredState(d) { return ["active", "expiring", "expired", "redemption", "pending_delete"].includes(d.state); },
+
+    // Fiche d'un nom surveillé : « , dans 40 jours » après la date d'expiration (rien si passée ou inconnue).
+    daysText(d) {
+      const n = this.daysLeft(d);
+      return n === null || n < 0 ? "" : n === 0 ? ", aujourd'hui" : `, dans ${n} jour${n > 1 ? "s" : ""}`;
     },
 
     displayState(d) {
@@ -2290,33 +2376,7 @@ document.addEventListener("alpine:init", () => {
       return [...URGENCY, "error"].filter((k) => counts[k]).map((k) => ({ key: k, label: LABELS[k], count: counts[k] }));
     },
 
-    // Accueil : réglages restant à faire. Masquable une fois un domaine surveillé.
-    get onboarding() {
-      const setup = (this.meta && this.meta.setup) || {};
-      return [
-        { key: "domain", done: this.domains.length > 0, title: "Domaine surveillé", text: "", action: "Ajouter", go: () => this.$refs.input.focus() },
-        { key: "telegram", done: !!setup.telegram, title: "Telegram", text: "alertes et résumé", action: "Configurer", go: () => this.openSettings("telegram") },
-        { key: "fr", done: !!setup.fr, title: "Extension .fr", text: "open data Afnic", action: "Activer", go: () => this.openSettings("fr") },
-        { key: "czds", done: !!setup.czds, title: "Zones ICANN", text: ".com, .org, .net…", action: "Configurer", go: () => this.openSettings("czds") },
-        { key: "ai", done: !!setup.ai, title: "Avis IA", text: "facultatif", action: "Configurer", go: () => this.openSettings("ai") },
-      ];
-    },
-
-    get showWelcome() {
-      if (!this.domains.length) return true;
-      if (this.welcomeHidden) return false;
-      return this.onboarding.some((s) => !s.done);
-    },
-
-    hideWelcome() {
-      this.welcomeHidden = true;
-      try { localStorage.setItem("dw.welcome", "hidden"); } catch (_) {}
-    },
-
-    async openSettings(anchor) {
-      await this.openSheet("settings");
-      this.$nextTick(() => document.getElementById(`set-${anchor}`)?.scrollIntoView({ behavior: "smooth", block: "start" }));
-    },
+    openSettings(anchor) { return this.openSettingsAt(`set-${anchor}`); },
 
     get legend() {
       const iv = (this.meta && this.meta.intervals) || {};

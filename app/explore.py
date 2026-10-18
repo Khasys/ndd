@@ -1406,6 +1406,7 @@ class Explorer:
             ).fetchall()
             dropped.update({r["name"]: r for r in rows})
         watched = {r[0] for r in self.conn.execute("SELECT name FROM domains")}
+        owned = {r[0] for r in self.conn.execute("SELECT name FROM portfolio")}
         details = rdapinfo.load(self.conn, names)
         opinions = ai.load(self.conn, names)
         items = []
@@ -1434,6 +1435,7 @@ class Explorer:
                 "release_at": drop["release_at"] if drop else None,
                 "available_since": drop["available_since"] if drop else None,
                 "watched": name in watched,
+                "in_portfolio": name in owned,
                 "rdap": details.get(name),
                 "reserved": self.reserved.why(name) if self.reserved is not None and code == RESERVED else [],
                 "ai": opinions.get(name),
@@ -1683,12 +1685,13 @@ class Explorer:
         else:
             code = SUSPENDED if state == drops.SUSPENDED else REGISTERED
         watched = self.conn.execute("SELECT 1 FROM domains WHERE name = ?", (name,)).fetchone() is not None
+        owned = self.conn.execute("SELECT 1 FROM portfolio WHERE name = ?", (name,)).fetchone() is not None
         return {
             "label": label, "name": name, "tld": tld, "length": len(label), "categories": [], "known": False,
             "status": code, "status_label": DROP_LABELS.get(state, LABELS[code]) if code == COMING else LABELS[code],
             "drop_state": state, "release_at": drop["release_at"] if drop else None,
             "available_since": drop["available_since"] if drop else None,
-            "checked_at": iso(now), "watched": watched, "rdap": rdap, "reserved": [],
+            "checked_at": iso(now), "watched": watched, "in_portfolio": owned, "rdap": rdap, "reserved": [],
             "ai": ai.load(self.conn, [name]).get(name), "premium_price": None,
             "score": 0, "reasons": [], "parts": {},
         }

@@ -87,6 +87,15 @@ Paramètres, Apparence : nom affiché en haut à gauche, logo (PNG, JPEG, WebP o
 rangé dans `data/`), taille réglable au curseur avec aperçu en direct (hauteur du logo de 20 à 120 px, ou taille du nom sans logo), et thème clair, sombre ou selon le système. Le réglage vaut pour tous les
 appareils.
 
+### Paramètres
+
+En tête, le bloc **Démarrer en 3 étapes** (le même que sur Aujourd'hui) tant qu'une étape manque. Puis,
+dans l'ordre : les sources (Extension .fr, Zones ICANN, Sources et lectures), Telegram, Alertes, Avis IA.
+Le reste est replié sous « Afficher les réglages avancés » : Résumé du matin, Résumé hebdomadaire, Écran
+Veille, Premiums probables, Noms réservés, SEO, Score de l'Explorer, Lien « Réserver », Calendrier,
+Apparence. La carte Version est en bas. Sur téléphone, Paramètres s'ouvre par l'icône en haut à droite de
+chaque écran.
+
 ### Calendrier
 
 Paramètres, Calendrier, « Créer l'adresse » : une URL secrète au format ICS, à ajouter comme
@@ -94,6 +103,31 @@ calendrier par URL dans l'agenda du téléphone. Elle contient les expirations e
 estimées, avec un rappel la veille. Elle s'ouvre sans mot de passe : la changer si elle a fuité.
 Les lignes du fichier sont pliées à 75 octets, comme le demande la RFC 5545 : les agendas stricts
 (Apple, Thunderbird) lisent les longs noms et descriptions sans rien tronquer.
+
+### Écrans
+
+Navigation, dans l'ordre : **Aujourd'hui** (l'appli s'ouvre toujours dessus), **Domaines**, **Veille**,
+**Explorer**, **Portefeuille**, puis Aide et Paramètres (barre latérale sur ordinateur). Chaque écran a un
+sous-titre d'une ligne sous son titre : Aujourd'hui, « Les meilleurs noms à prendre maintenant » ; Domaines,
+« Les noms que je surveille » ; Veille, « Ce qui tombe et ce qui va tomber » ; Explorer, « Tous les noms
+suivis, pour chercher » ; Portefeuille, « Les noms que je possède » ; Paramètres, « Sources, alertes,
+réglages ». Le retour arrière ferme la fiche ouverte, sinon ramène à Aujourd'hui.
+
+#### Aujourd'hui
+
+L'écran d'accueil. En tête, les chiffres du jour : noms libérés depuis 24 h, libération estimée sous 48 h,
+nouveaux avis « À prendre » reçus depuis 24 h sur un nom libre ou bientôt libre, regrets (noms ignorés
+repris depuis par quelqu'un d'autre) ; chaque chiffre ouvre l'écran qui le détaille. Puis le bloc
+**Démarrer en 3 étapes** (sources, Telegram, avis IA, avec « Configurer »), tant qu'une étape manque.
+Enfin les 20 meilleurs noms libres ou libérés sous 48 h, non ignorés, sur la carte de la Veille, dans
+l'ordre de la Veille pour l'usage choisi (Pour revendre / Pour exploiter, réglage commun) et avec ses
+réglages par défaut (noms faibles et suites imprononçables masqués), et le bouton « Voir toute la Veille ».
+Rien à prendre : « Rien à prendre aujourd'hui. Les prochaines libérations sont dans la Veille. ».
+
+`GET /api/today?sort=resale|exploit` (défaut `resale`, calcul hors de la boucle) : `counts` (`freed_24h`,
+`coming_48h`, `new_take`, `regrets`), `items` (format des éléments de `/api/drops`), `setup` (les trois
+étapes : `key` `sources`, `telegram` ou `ai`, `title`, `text`, `done`). `/api/meta` donne les mêmes étapes
+dans `steps`. Lisible avec le jeton en lecture seule, comme les autres écrans.
 
 ### Veille et Explorer : deux écrans, mêmes réglages
 
@@ -114,14 +148,16 @@ Réglages communs, gardés d'un écran à l'autre :
 - **Avancé** (replié) : les filtres fins (nature, longueur, fréquence, SEO, avis IA, score
   minimum…), et dans l'Explorer les classements, la carte, les premiums et les vues enregistrées.
 
-Chaque nom est une carte, la même dans la Veille, l'Explorer et la recherche (gabarit `#name-card`,
+Chaque nom est une carte, la même dans Aujourd'hui, la Veille, l'Explorer et la recherche (gabarit `#name-card`,
 fonction `nameCard` dans `app.js`) : le nom ; en pastille principale la valeur qui trie pour l'usage
 en cours (note IA de revente ou d'exploitation, étiquetée « IA 75 », sinon le score, étiqueté
 « score 53 »), l'autre valeur en retrait ; une phrase (verdict IA et prix utilisateur final, sinon les
 raisons du score, par exemple « 5 lettres · 153e mot le plus courant ») ; l'état en toutes lettres
 avec sa date (« probablement libre », « libre, vérifié il y a 3 h », « En rédemption, libération
 ~09/11 », « pris », « réservé », « premium probable ») ; les actions Réserver (nom libre ou
-probablement libre), Vérifier (nom probablement libre), Surveiller ; une case de sélection. Un bouton
+probablement libre), Vérifier (nom probablement libre), Surveiller ; une case de sélection ; les badges
+« Surveillé » et « Portefeuille » (`watched` et `in_portfolio` des éléments de `/api/drops`, `/api/today`,
+`/api/explore/rank` et de la fiche, calculés par le serveur ; « J'ai acheté » pose le badge aussitôt). Un bouton
 « ? » à côté de l'usage ouvre l'Aide sur les deux échelles (score et note IA).
 Dans la Veille, **Nouveaux depuis ma dernière visite** (bouton et étiquette « Nouveau », même règle)
 ne garde que les noms libérés ou entrés en rédemption depuis l'ouverture précédente de l'écran
@@ -142,6 +178,14 @@ panneau Avancé.
 Fiche d'un nom : ligne de décision en tête (libération estimée, premium probable, verdict IA, prix
 utilisateur final) et action mise en avant : Réserver pour un nom libre, Surveiller pour un nom qui
 va se libérer, Analyse IA pour un nom pas encore noté. Surveiller reste disponible dans tous les cas.
+C'est la seule vue détaillée d'un nom : dans Domaines aussi, un clic sur un nom ouvre la fiche (plus de
+panneau propre à Domaines). Pour un nom surveillé, elle ajoute la section **Suivi** (état et date d'entrée,
+erreur de check avec le dernier état conservé, expiration et jours restants, libération estimée, création,
+mise à jour, registrar, serveurs DNS, statuts EPP expliqués au survol, tags à ajouter ou retirer, signaux
+d'abandon avec « Analyser », source, dernier et prochain check) et l'**Historique des changements** (table
+`history`) ; Vérifier y lance le check de Domaines, et « Supprimer de la surveillance » retire le nom après
+confirmation, la fiche restant ouverte. Badges « Surveillé » et « Portefeuille » sous le nom ; une fois le
+nom acheté, « J'ai acheté » devient « Voir dans Portefeuille ».
 
 En .fr, un mot seulement anglais (should) ou une forme conjuguée (vais) perd une vingtaine de
 points de forme et de sens par rapport au même mot bien placé : ils se lisent mal en .fr. La raison
@@ -288,7 +332,7 @@ Un nom libre reste dans la Veille 30 jours (réglable dans Paramètres). Rien n'
 base : passé ce délai, il reste visible dans l'Explorer. La Veille a les mêmes filtres avancés que
 l'Explorer, gardés d'une visite à l'autre. Tri : les meilleurs d'abord (selon revendre ou
 exploiter), les plus récents, ou la libération la plus proche. Chaque nom ouvre la même fiche.
-Domaines a aussi une colonne Valeur (score et avis IA), triable, des filtres par extension et
+Domaines (un clic sur un nom ouvre sa fiche) a aussi une colonne Valeur (score et avis IA), triable, des filtres par extension et
 par verdict IA, et une sélection multiple (case devant chaque nom, « Sélectionner » pour les lignes
 affichées) avec Vérifier et Analyse IA groupés, bilan en un message (« 3 vérifiés, 1 échec »).
 
@@ -345,9 +389,9 @@ requête : zones ICANN lues chaque jour, open data de l'Afnic, données de la Ve
   courts, les plus courants, ou score seul. Une carte ouvre la fiche du nom.
 - **Fiche** : la même dans Domaines, Veille et Explorer. État, score détaillé, raisons,
   catégories, nature, fréquence, historique .fr, SEO, dernière réponse RDAP ou WHOIS (registrar,
-  dates, statuts, DNS), autres extensions (avec le résumé de leur avis IA : verdict, note de
-  revente, prix final), et les actions (Vérifier, Réserver chez Gandi, Surveiller ou Voir dans
-  Domaines, SEO, Réservé). **Comparables** : jusqu'à trois noms déjà notés avec la grille sur la
+  dates, statuts, DNS ; pour un nom surveillé, la section Suivi la remplace), autres extensions (avec le
+  résumé de leur avis IA : verdict, note de revente, prix final), et les actions (Vérifier, Réserver chez
+  Gandi, Surveiller ou Supprimer de la surveillance, J'ai acheté, SEO, Réservé). **Comparables** : jusqu'à trois noms déjà notés avec la grille sur la
   même extension, de la même liste principale (pour un nom court hors des listes : même forme et
   même longueur) et de longueur proche (un caractère d'écart au plus), les plus proches par note
   de revente (sans avis sur le nom, par l'estimation du score) ; avec, pour chacun, verdict, notes,
@@ -514,7 +558,10 @@ serveurs DNS est absent de la zone lui aussi. Toujours vérifier avant de conclu
 
 ### Appli sur le téléphone
 
-L'interface est une PWA : sur téléphone, navigation en bas, panneaux plein écran, boutons larges.
+L'interface est une PWA : sur téléphone, navigation en bas, panneaux plein écran, boutons larges. La barre
+du bas garde cinq entrées aux libellés entiers à 390 px (Aujourd'hui, Domaines, Veille, Explorer,
+Portefeuille) ; Paramètres est l'icône en haut à droite de chaque écran (six entrées tronquaient trois
+libellés). Sur Aujourd'hui, les compteurs passent en tuiles, deux par ligne.
 La session se prolonge à chaque ouverture : pas de mot de passe à retaper tant que l'appli est
 ouverte au moins une fois par période `SESSION_MAX_AGE` (7 jours par défaut).
 
@@ -588,7 +635,7 @@ Les durées acceptent `30s`, `5m`, `6h`, `7d`, ou un nombre de secondes.
   et gardé en base 7 jours (réglage `whois_servers`) : pas de nouvelle question à l'IANA à chaque redémarrage.
   Elle ne lit que des lignes « clé: valeur » connues. « Disponible » exige une formule explicite du
   registre (« not found », « no match »...) et aucune donnée d'enregistrement dans la réponse. Toute
-  réponse non reconnue donne une erreur de check. Le détail d'un domaine indique la source utilisée.
+  réponse non reconnue donne une erreur de check. La fiche d'un nom surveillé indique la source utilisée.
 - Signaux d'abandon, une fois par jour pour chaque domaine enregistré : le nom résout-il, le site
   répond-il, le certificat HTTPS est-il valide, y a-t-il des serveurs de mail, le domaine est-il en
   parking ou affiché à vendre. Le badge « Signes d'abandon » apparaît avec au moins deux indices
@@ -597,7 +644,7 @@ Les durées acceptent `30s`, `5m`, `6h`, `7d`, ou un nombre de secondes.
   quotidienne de suppression de Verisign, vers 12:00 UTC depuis le 1er octobre 2026 d'après la
   presse spécialisée. Pas d'annonce officielle trouvée, d'où l'affichage en estimation.
 - Filtres (nom, état, tag, signes d'abandon) et tri sont gardés par le navigateur d'une visite à
-  l'autre. Tags libres par domaine, ajoutés dans le détail.
+  l'autre. Tags libres par domaine, ajoutés dans la fiche du nom.
 - Certains registres n'ont ni RDAP ni WHOIS public, ou réservent leur WHOIS à des accès
   authentifiés : leurs domaines restent en erreur de check.
 - Erreurs réseau dans l'interface : un message technique courant (ProxyError, ConnectError,
