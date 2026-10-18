@@ -95,10 +95,10 @@
       <div>
         <!-- Le jour en chiffres : chaque compteur ouvre l'écran qui le détaille. -->
         <div class="today-counts">
-          <button type="button" class="today-count" @click="openVeille('free')"><strong class="num" x-text="fmt(today.counts.freed_24h)"></strong> <span x-text="plural(today.counts.freed_24h, 'libéré', 'libérés') + ' depuis 24 h'"></span></button>
-          <button type="button" class="today-count" @click="openVeille('coming')"><strong class="num" x-text="fmt(today.counts.coming_48h)"></strong> <span>sous 48 h</span></button>
-          <button type="button" class="today-count" @click="openVeille('free')"><strong class="num" x-text="fmt(today.counts.new_take)"></strong> <span x-text="plural(today.counts.new_take, 'nouveau', 'nouveaux') + ' À prendre'"></span></button>
-          <button type="button" class="today-count" :class="{ warn: today.counts.regrets }" @click="openSheet('portfolio')"><strong class="num" x-text="fmt(today.counts.regrets)"></strong> <span x-text="plural(today.counts.regrets, 'regret', 'regrets')"></span></button>
+          <button type="button" class="today-count" @click="openVeille('free', 'freed_24h')"><strong class="num" x-text="fmt(today.counts.freed_24h)"></strong> <span x-text="plural(today.counts.freed_24h, 'libéré', 'libérés') + ' depuis 24 h'"></span></button>
+          <button type="button" class="today-count" @click="openVeille('coming', 'coming_48h')"><strong class="num" x-text="fmt(today.counts.coming_48h)"></strong> <span>sous 48 h</span></button>
+          <button type="button" class="today-count" @click="openVeille('free', 'new_take')"><strong class="num" x-text="fmt(today.counts.new_take)"></strong> <span x-text="plural(today.counts.new_take, 'nouveau', 'nouveaux') + ' À prendre'"></span></button>
+          <button type="button" class="today-count" :class="{ warn: today.counts.regrets }" @click="openRegrets()"><strong class="num" x-text="fmt(today.counts.regrets)"></strong> <span x-text="plural(today.counts.regrets, 'regret', 'regrets')"></span></button>
         </div>
         <div x-show="setupIncomplete" x-tpl="'setup-steps'"></div>
         <div class="today-bar">
@@ -134,13 +134,13 @@
     </nav>
     <h3 id="help-screens">Par écran</h3>
     <dl class="help-dl">
-      <dt>Aujourd'hui</dt><dd>L'accueil : les 20 meilleurs noms libres ou libérés sous 48 h, avec les chiffres du jour (libérés depuis 24 h, sous 48 h, nouveaux « À prendre », regrets) ; Réserver ce qui vaut le coup.</dd>
+      <dt>Aujourd'hui</dt><dd>L'accueil : les 20 meilleurs noms libres ou libérés sous 48 h, avec les chiffres du jour (libérés depuis 24 h, sous 48 h, nouveaux « À prendre », regrets) ; chaque chiffre ouvre exactement ses noms, puce de filtre effaçable ; Réserver ce qui vaut le coup.</dd>
       <dt>Domaines</dt><dd>Les noms surveillés, revérifiés au registre selon leur état ; saisir un nom pour le suivre, un clic sur un nom ouvre sa fiche.</dd>
       <dt>Veille</dt><dd>Les noms sortis des zones (et, pour .co, .ai, .io, du DNS) : Libérés (réservables) et Bientôt libres (date estimée) ; trier par usage, puis Réserver, Surveiller ou Ignorer.</dd>
       <dt>Explorer</dt><dd>Tous les noms suivis, pris ou non, extension par extension ; taper un mot pour voir son état partout et le vérifier.</dd>
       <dt>Portefeuille</dt><dd>Les noms possédés : achat, renouvellement, mise en vente, bilan, et les décisions gardées ; un nom s'y ajoute à la main.</dd>
       <dt>Paramètres</dt><dd>Sources, Telegram, alertes et avis IA d'abord ; le reste sous « Afficher les réglages avancés », la version en bas.</dd>
-      <dt>Fiche</dt><dd>Tout sur un nom, la même depuis chaque écran ; pour un nom surveillé, le suivi en plus (dates, registrar, DNS, tags, signaux, historique), Vérifier et Supprimer de la surveillance.</dd>
+      <dt>Fiche</dt><dd>Tout sur un nom, la même depuis chaque écran ; pour un nom surveillé, le suivi en plus (dates, registrar, DNS, tags, signaux, historique), Vérifier et Supprimer de la surveillance. Se ferme par « × », Échap, le retour arrière ou, sur ordinateur, un clic hors de la fiche.</dd>
     </dl>
     <p class="small muted">Démarrer en 3 étapes : une source (.fr ou zones ICANN), Telegram, puis l'avis IA (facultatif). Le bloc reste sur Aujourd'hui et en tête des Paramètres tant qu'une étape manque. Sur téléphone, Paramètres s'ouvre par l'icône en haut à droite de chaque écran. Badges « Surveillé » et « Portefeuille » sur les cartes de noms.</p>
 
@@ -186,6 +186,7 @@
       <dt>Pour revendre</dt><dd>D'abord les noms que l'IA conseille, par sa note de revente ; puis les noms sans avis, par score ; à la fin, ceux qu'elle déconseille.</dd>
       <dt>Pour exploiter</dt><dd>Même ordre, avec la note d'exploitation : un nom pour un vrai site ou une marque.</dd>
       <dt>Masquer les noms faibles</dt><dd>Sans avis IA : score sous 30. Avec un avis : « À laisser », même à bon score.</dd>
+      <dt>Extensions</dt><dd>Puces à cocher, plusieurs à la fois, ou « Toutes ». Depuis « Toutes », une puce choisit cette extension seule ; les suivantes s'ajoutent ou se retirent. Choix mémorisé ; dans l'Explorer, il suit les vues enregistrées et l'export CSV.</dd>
       <dt>Sur une carte</dt><dd>L'état en toutes lettres (probablement libre, libre vérifié, libération estimée, pris, réservé, premium probable), le verdict IA en pastille (À prendre vert, À surveiller ambre, À laisser gris) et le prix utilisateur final, puis Réserver, Vérifier (nom probablement libre) et Surveiller.</dd>
       <dt>Tris</dt><dd>Les meilleurs d'abord, les plus récents (Veille), libération la plus proche (Bientôt libres seulement), les plus courts et score seul (Explorer), les plus fréquents : prénoms et noms de famille du plus donné au moins donné (Insee), mots du plus courant au moins courant ; la carte dit le rang, « 12e prénom le plus donné ». Un tri ne retire aucun filtre. Domaines sur téléphone : menu de tri au-dessus de la liste, flèche pour inverser.</dd>
       <dt>Nom hors des listes</dt><dd>Un nom tapé dans l'Explorer qui n'est dans aucune liste s'affiche quand même, une ligne par extension suivie : Vérifier interroge le registre, puis Réserver ou Surveiller.</dd>
@@ -269,14 +270,19 @@
         </div>
 
         <div class="ex-sticky drops-sticky">
-          <div class="ex-searchbar">
+          <!-- Chiffre d'Aujourd'hui : exactement ses noms ; la puce efface ce filtre et rend la Veille complète. -->
+          <div class="drops-focus" x-show="dropFocus">
+            <button type="button" class="ex-pill" @click="dropClearFocus()" title="Retirer ce filtre"><span x-text="DROP_FOCUS[dropFocus]"></span> ×</button>
+            <span class="muted small" x-text="fmt(dropList.length) + ' ' + plural(dropList.length, 'nom', 'noms') + ', filtres de la Veille mis de côté'"></span>
+          </div>
+          <div class="ex-searchbar" x-show="!dropFocus">
             <input type="search" class="filter-input ex-search" x-model="df.q" placeholder="Chercher dans la veille" aria-label="Chercher dans la veille" autocapitalize="off" autocomplete="off" spellcheck="false">
             <button type="button" class="btn-ghost ex-filter-btn" :class="{ on: dfOpen || dropActive().length }" @click="dfOpen = !dfOpen" :aria-expanded="dfOpen"
                     x-text="dropActive().length ? 'Avancé (' + dropActive().length + ')' : 'Avancé'"></button>
           </div>
           <!-- Usage, noms faibles, nouveaux, extensions : ici sur ordinateur, dans le panneau Avancé sur téléphone. -->
-          <template x-if="!mobile"><div x-tpl="'veille-simple'"></div></template>
-          <div class="ex-active" x-show="dropActive().length">
+          <template x-if="!mobile && !dropFocus"><div x-tpl="'veille-simple'"></div></template>
+          <div class="ex-active" x-show="dropActive().length && !dropFocus">
             <template x-for="a in dropActive()" :key="a.key">
               <button type="button" class="ex-pill" @click="dropClear(a.key)"><span x-text="a.label"></span> ×</button>
             </template>
@@ -356,7 +362,7 @@
 
         <!-- Onglets et tri : la seule partie collante sur téléphone. -->
         <div class="ex-list-head">
-          <div class="veille-tabs" role="tablist">
+          <div class="veille-tabs" role="tablist" x-show="!dropFocus">
             <button type="button" role="tab" class="veille-tab" :class="{ on: dropTab === 'free' }" :aria-selected="dropTab === 'free'" @click="dropSetTab('free')">
               Libérés <span class="num" x-text="fmt(dropTabCount('free'))"></span>
             </button>
@@ -377,7 +383,7 @@
             </div>
           </div>
         </div>
-        <p class="muted" x-show="!dropList.length" x-text="dropTab === 'free' ? 'Aucun nom libéré pour ces réglages.' : 'Aucun nom en rédemption ou en suppression pour ces réglages.'"></p>
+        <p class="muted" x-show="!dropList.length" x-text="dropFocus ? 'Plus aucun nom dans cette liste.' : dropTab === 'free' ? 'Aucun nom libéré pour ces réglages.' : 'Aucun nom en rédemption ou en suppression pour ces réglages.'"></p>
         <ol class="ex-list veille-list">
           <template x-for="d in dropList.slice(0, dropShow)" :key="d.name">
             <li class="ex-row" :class="{ picked: dropSelected.includes(d.name) }" x-tpl="['name-card', { c: nameCard(d, 'veille') }]"></li>
@@ -494,12 +500,17 @@
               <h3>Décisions</h3>
               <span class="small" :class="decisions.regrets ? 'warn-text' : 'muted'" x-text="'regrets = ' + decisions.regrets"></span>
             </div>
+            <!-- Regrets seulement (chiffre d'Aujourd'hui, ou ce bouton) : la puce l'efface. -->
+            <div class="ex-active pf-decisions-filter" x-show="decisions.regrets || decisionsRegrets">
+              <button type="button" class="ex-pill" x-show="decisionsRegrets" @click="decisionsRegrets = false" title="Retirer ce filtre">Repris seulement ×</button>
+              <button type="button" class="tag" x-show="!decisionsRegrets" @click="decisionsRegrets = true">Repris seulement</button>
+            </div>
             <p class="muted small">Ce qui a été ignoré dans la Veille ou acheté, avec l'état du nom aujourd'hui. « repris » : un nom ignoré enregistré depuis par quelqu'un d'autre.</p>
             <p class="muted small" x-show="!decisions.items.length">Aucune décision pour l'instant.</p>
-            <table class="pf-decisions-table" x-show="decisions.items.length">
+            <table class="pf-decisions-table" x-show="decisionItems.length">
               <thead><tr><th>Nom</th><th>Décision</th><th>Date</th><th>État actuel</th><th></th></tr></thead>
               <tbody>
-                <template x-for="d in decisions.items" :key="d.name">
+                <template x-for="d in decisionItems" :key="d.name">
                   <tr>
                     <td><button type="button" class="link-like mono" @click="openFiche(d.name)" x-text="d.name"></button></td>
                     <td><span x-text="decisionLabel(d)"></span><span class="muted small" x-show="d.note" x-text="d.note ? ' · ' + d.note : ''"></span></td>
@@ -1170,7 +1181,7 @@
             <p class="muted small">Prix relevés chez le registrar (euros par an), affichés sur ces noms. Laisser vide si inconnu.</p>
             <p class="muted small" x-show="!cfg.premium.tlds.length">Aucune zone ICANN lue pour l'instant.</p>
             <table class="premium-table" x-show="cfg.premium.tlds.length">
-              <thead><tr><th>Extension</th><th>Premium possible</th><th>2 caractères</th><th>3 caractères</th></tr></thead>
+              <thead><tr><th>Extension</th><th title="Premium possible">Premium</th><th title="Prix 2 caractères, euros par an">2 car. €</th><th title="Prix 3 caractères, euros par an">3 car. €</th></tr></thead>
               <tbody>
                 <template x-for="tld in cfg.premium.tlds" :key="tld">
                   <tr>
@@ -1348,7 +1359,7 @@
         </button>
       </template>
     </div>
-    <button type="button" class="btn-ghost check-all" @click="domSelectAll()" :aria-pressed="domSelected.length > 0" x-text="domSelected.length ? 'Désélectionner' : 'Sélectionner'"></button>
+    <button type="button" class="btn-ghost check-all dom-select" @click="domSelectAll()" :aria-pressed="domSelected.length > 0" x-text="domSelected.length ? 'Désélectionner' : 'Sélectionner'"></button>
     <button type="button" class="btn-ghost check-all" @click="checkAll()" :disabled="bulkRunning" aria-label="Tout vérifier" title="Tout vérifier">
       <svg viewBox="0 0 24 24" aria-hidden="true" :class="{ spin: bulkRunning }"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v4h-4"/></svg>
       <span class="check-all-label" x-text="bulkRunning ? 'Vérification en cours' : 'Tout vérifier'"></span>
@@ -1418,11 +1429,11 @@
           <th><button type="button" class="sort" @click="sortBy('name')" x-text="'Domaine' + arrow('name')"></button></th>
           <th><button type="button" class="sort" @click="sortBy('urgency')" x-text="'État' + arrow('urgency')"></button></th>
           <th class="col-score"><button type="button" class="sort" @click="sortBy('score')" x-text="'Valeur' + arrow('score')"></button></th>
-          <th class="num"><button type="button" class="sort" @click="sortBy('days')" x-text="'Jours restants' + arrow('days')"></button></th>
+          <th class="num col-days"><button type="button" class="sort" @click="sortBy('days')" x-text="'Jours restants' + arrow('days')"></button></th>
           <th><button type="button" class="sort" @click="sortBy('release')" x-text="'Libération' + arrow('release')"></button></th>
           <th class="col-registrar">Registrar</th>
           <th class="col-check col-last">Dernier check</th>
-          <th class="col-check"><button type="button" class="sort" @click="sortBy('next')" x-text="'Prochain' + arrow('next')"></button></th>
+          <th class="col-check col-next"><button type="button" class="sort" @click="sortBy('next')" x-text="'Prochain' + arrow('next')"></button></th>
           <th class="col-actions"><span class="visually-hidden">Actions</span></th>
         </tr>
       </thead>
@@ -1431,7 +1442,7 @@
           <tr class="row" @click="openFiche(d.name)">
             <td class="domain">
               <input type="checkbox" class="ex-pick dom-pick" :checked="domSelected.includes(d.id)" @click.stop="domToggle(d.id)" :aria-label="'Sélectionner ' + d.unicode_name">
-              <button type="button" class="expander" @click.stop="openFiche(d.name)">
+              <button type="button" class="expander" :title="d.unicode_name" @click.stop="openFiche(d.name)">
                 <span class="mono" x-text="d.unicode_name"></span>
               </button>
               <span class="mono muted punycode" x-show="d.unicode_name !== d.name" x-text="d.name"></span>
@@ -1441,17 +1452,17 @@
             </td>
             <td class="state">
               <span class="badge" :class="'s-' + displayState(d)" :title="stateTitle(d)" x-text="stateLabel(d)"></span>
-              <span class="last-known" x-show="d.check_error && d.state" x-text="'Dernier état : ' + labels[d.state]"></span>
+              <span class="last-known" x-show="d.check_error && d.state" :title="d.check_error && d.state ? 'Dernier état : ' + labels[d.state] : ''" x-text="'Dernier état : ' + labels[d.state]"></span>
               <span class="abandon" x-show="d.abandoned" :title="d.signals.map(s => s.label).join(', ')">Signes d'abandon</span>
             </td>
             <td class="col-score" data-label="Valeur">
               <span class="ex-bar drop-bar" :title="scoreTitle(d)"><i :style="'width:' + (d.score || 0) + '%'"></i><b x-text="d.score >= 30 ? d.score : ''"></b></span>
               <span class="dom-ai" x-show="d.ai" :title="d.ai ? d.ai.comment : ''">
                 <span class="verdict" :class="aiClass(d.ai)" x-text="aiVerdict(d.ai)"></span>
-                <span class="dom-ai-price" x-text="d.ai ? 'utilisateur final ' + priceRange(d.ai.final_low, d.ai.final_high) : ''"></span>
+                <span class="dom-ai-price" :title="d.ai ? 'Prix utilisateur final estimé par l\'IA : ' + priceRange(d.ai.final_low, d.ai.final_high) : ''" x-text="d.ai ? priceRange(d.ai.final_low, d.ai.final_high) : ''"></span>
               </span>
             </td>
-            <td class="num" data-label="Jours restants" :class="{ blank: daysLeft(d) === null }">
+            <td class="num col-days" data-label="Jours restants" :class="{ blank: daysLeft(d) === null }">
               <span x-show="daysLeft(d) !== null" :title="d.effective_expires_at ? 'Expiration le ' + exact(d.effective_expires_at) : ''" x-text="daysCell(d)"></span>
             </td>
             <td data-label="Libération estimée" :class="{ blank: !d.release_at }">
@@ -1461,7 +1472,7 @@
             <td class="col-check col-last" data-label="Dernier check" :class="{ blank: !d.last_checked_at }">
               <span x-show="d.last_checked_at" :title="exact(d.last_checked_at)" x-text="relative(d.last_checked_at)"></span>
             </td>
-            <td class="col-check" data-label="Prochain check" :class="{ blank: !d.next_check_at }">
+            <td class="col-check col-next" data-label="Prochain check" :class="{ blank: !d.next_check_at }">
               <span x-show="d.next_check_at" :title="exact(d.next_check_at)" x-text="relative(d.next_check_at)"></span>
             </td>
             <td class="col-actions" @click.stop>
@@ -1793,9 +1804,9 @@
       <div class="ex-chips" aria-label="Nouveautés et extensions">
         <button type="button" class="tag" :class="{ on: dropNewOnly }" :aria-pressed="dropNewOnly" @click="dropNewOnly = !dropNewOnly; dropShow = 100"
                 x-text="'Nouveaux depuis ma dernière visite (' + fmt(dropNewCount()) + ')'"></button>
-        <button type="button" class="tag" x-show="dropTlds.length > 1" :class="{ on: !dropTld }" @click="dropTld = ''">Toutes</button>
+        <button type="button" class="tag" x-show="dropTlds.length > 1" :class="{ on: !dropTld.length }" :aria-pressed="!dropTld.length" @click="dropTld = []; dropShow = 100">Toutes</button>
         <template x-for="t in dropTlds" :key="t">
-          <button type="button" class="tag" :class="{ on: dropTld === t }" @click="dropTld = dropTld === t ? '' : t" x-text="'.' + t"></button>
+          <button type="button" class="tag tag-check" :class="{ on: dropTld.includes(t) }" :aria-pressed="dropTld.includes(t)" @click="toggleDropTld(t)" x-text="'.' + t"></button>
         </template>
       </div>
     </div>
@@ -1813,7 +1824,7 @@
       <div class="ex-chips" aria-label="Extensions">
         <button type="button" class="tag" x-show="exData.tlds.length > 1" :class="{ on: exTlds().length === exData.tlds.length }" :aria-pressed="exTlds().length === exData.tlds.length" @click="exSet({ tld: exData.tlds.join(',') })">Toutes</button>
         <template x-for="t in exData.tlds" :key="t">
-          <button type="button" class="tag" :aria-pressed="exTlds().includes(t)" :class="{ on: exTlds().includes(t) }" @click="exToggleTld(t)" x-text="'.' + t"></button>
+          <button type="button" class="tag tag-check" :aria-pressed="exTlds().includes(t)" :class="{ on: exTlds().includes(t) }" @click="exToggleTld(t)" x-text="'.' + t"></button>
         </template>
       </div>
     </div>

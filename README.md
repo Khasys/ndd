@@ -113,11 +113,21 @@ sous-titre d'une ligne sous son titre : Aujourd'hui, « Les meilleurs noms à pr
 suivis, pour chercher » ; Portefeuille, « Les noms que je possède » ; Paramètres, « Sources, alertes,
 réglages ». Le retour arrière ferme la fiche ouverte, sinon ramène à Aujourd'hui.
 
+Domaines, sur ordinateur, est un tableau d'une ligne par cellule : dates, badges, nombres et en-têtes ne
+passent jamais à la ligne, un nom trop long finit en « … » (nom entier au survol). Plutôt que d'écraser les
+colonnes, l'écran les retire selon la largeur : Registrar et Dernier check à partir de 1 700 px seulement,
+Prochain à partir de 1 280 px, le bouton Vérifier à partir de 1 100 px, Jours restants à partir de 1 024 px ;
+tout reste dans la fiche. Sur téléphone, chaque domaine est une carte.
+
 #### Aujourd'hui
 
 L'écran d'accueil. En tête, les chiffres du jour : noms libérés depuis 24 h, libération estimée sous 48 h,
 nouveaux avis « À prendre » reçus depuis 24 h sur un nom libre ou bientôt libre, regrets (noms ignorés
-repris depuis par quelqu'un d'autre) ; chaque chiffre ouvre l'écran qui le détaille. Puis le bloc
+repris depuis par quelqu'un d'autre). Chaque chiffre ouvre exactement ses noms, même compte : les trois
+premiers ouvrent la Veille sur cette liste seule (puce « Libérés depuis 24 h », « Libération sous 48 h » ou
+« Nouveaux « À prendre » depuis 24 h », sans onglets ni filtres de la Veille, noms faibles compris ; la puce
+efface le filtre et rend la Veille complète), les regrets ouvrent les Décisions du Portefeuille filtrées sur
+« Repris seulement » (puce effaçable, aussi disponible à la main). Puis le bloc
 **Démarrer en 3 étapes** (sources, Telegram, avis IA, avec « Configurer »), tant qu'une étape manque.
 Enfin les 20 meilleurs noms libres ou libérés sous 48 h, non ignorés, sur la carte de la Veille, dans
 l'ordre de la Veille pour l'usage choisi (Pour revendre / Pour exploiter, réglage commun) et avec ses
@@ -128,6 +138,9 @@ Rien à prendre : « Rien à prendre aujourd'hui. Les prochaines libérations so
 `coming_48h`, `new_take`, `regrets`), `items` (format des éléments de `/api/drops`), `setup` (les trois
 étapes : `key` `sources`, `telegram` ou `ai`, `title`, `text`, `done`). `/api/meta` donne les mêmes étapes
 dans `steps`. Lisible avec le jeton en lecture seule, comme les autres écrans.
+
+`GET /api/drops?focus=freed_24h|coming_48h|new_take` : la réponse de `/api/drops` réduite aux noms du chiffre
+d'Aujourd'hui (même calcul que `counts`), avec `focus` rappelé ; une autre valeur : 422.
 
 ### Veille et Explorer : deux écrans, mêmes réglages
 
@@ -144,7 +157,9 @@ Réglages communs, gardés d'un écran à l'autre :
   fin, ceux qu'elle déconseille (« À laisser »).
 - **Masquer les noms faibles** (case cochée par défaut) : sans avis IA, score sous 30 ; avec un avis,
   « À laisser », même à bon score.
-- **Extensions** : une, plusieurs ou toutes.
+- **Extensions** : une, plusieurs ou toutes, en puces à cocher. Depuis « Toutes », une puce choisit cette
+  extension seule ; les suivantes s'ajoutent ou se retirent. Le choix est mémorisé (Veille comme Explorer) et
+  suit dans l'Explorer les vues enregistrées et l'export CSV (`tld=fr,com`).
 - **Avancé** (replié) : les filtres fins (nature, longueur, fréquence, SEO, avis IA, score
   minimum…), et dans l'Explorer les classements, la carte, les premiums et les vues enregistrées.
 
@@ -206,7 +221,9 @@ Fiche d'un nom, de haut en bas, la même sur téléphone et sur ordinateur (pann
 Action mise en avant : Réserver pour un nom libre, Suivre pour un nom qui va se libérer, Analyser pour un nom
 pas encore noté. C'est la seule vue détaillée d'un nom : dans Domaines aussi, un clic sur un nom ouvre la
 fiche ; Vérifier y lance le check de Domaines. Le retour arrière ou Échap la ferme (Échap ferme d'abord le
-menu « Plus » s'il est ouvert).
+menu « Plus » s'il est ouvert). Sur ordinateur, un clic hors de la fiche la ferme aussi ; un clic sur un autre
+nom ouvre ce nom, un clic dans le message du bas ou une sélection de texte qui finit dehors ne la ferment pas,
+et le premier clic dehors menu « Plus » ouvert ne ferme que le menu. Sur téléphone, la fiche est plein écran.
 
 Actions de la fiche : une rangée de pictos sur une seule ligne, colonnes égales, comme la barre du bas, dont
 l'allure suit l'état du nom. Réserver (en couleur pleine si le nom est libre ou probablement libre) ; Suivre,

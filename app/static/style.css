@@ -423,9 +423,9 @@ button:disabled { cursor: default; opacity: .55; }
 @media (max-width: 900px) {
   .col-registrar { display: none; }
 }
-/* Tableau des domaines : sous 1 400 px, registrar et dernier check passent dans la fiche du nom
-   (sinon le tableau déborde et pousse « Supprimer » hors de l'écran). */
-@media (min-width: 900px) and (max-width: 1400px) {
+/* Tableau des domaines : sous 1 700 px, registrar et dernier check passent dans la fiche du nom
+   (sinon le tableau déborde ou écrase les autres colonnes). */
+@media (min-width: 900px) and (max-width: 1699px) {
   .col-registrar, .col-last { display: none; }
 }
 
@@ -466,6 +466,11 @@ button:disabled { cursor: default; opacity: .55; }
   .check-all { width: 44px; min-height: 40px; padding: 0; border-radius: 20px; }
   .check-all svg { width: 20px; height: 20px; }
   .check-all-label { display: none; }
+  /* « Sélectionner » garde son libellé (le bouton rond de 44 px le coupait) ; les compteurs prennent toute
+     la largeur, les deux boutons passent sur la ligne suivante, à droite. */
+  .list-toolbar { flex-wrap: wrap; justify-content: flex-end; }
+  .list-toolbar .counters { flex: 1 1 100%; }
+  .check-all.dom-select { width: auto; padding: 0 14px; }
   .counter { flex: none; min-height: 38px; padding: 0 14px; border-radius: 19px; font-size: 14px; }
   .filters { margin: 0 0 12px; gap: 8px; }
   .filter-input { width: 100%; border-radius: 10px; }
@@ -649,10 +654,6 @@ button:disabled { cursor: default; opacity: .55; }
 @media (min-width: 900px) and (max-width: 1279px) {
   .col-registrar, .domains .col-last { display: none; }
   .main { padding-left: 28px; padding-right: 28px; }
-}
-
-@media (min-width: 1280px) {
-  .domains td.state { min-width: 200px; }
 }
 
 /* Suppressions : noms de 4 caractères sortis des zones ICANN. */
@@ -1347,3 +1348,64 @@ button:disabled { cursor: default; opacity: .55; }
 /* Longues listes (Veille, Explorer, Aujourd'hui) : les lignes hors de l'écran ne sont ni mises en page ni peintes
    avant d'approcher ; 100 cartes riches coûtaient près d'une seconde sur téléphone à chaque retour sur l'écran. */
 .ex-list > .ex-row { content-visibility: auto; contain-intrinsic-size: auto 96px; }
+
+/* Veille ouverte depuis un chiffre d'Aujourd'hui : la puce du filtre et le compte. */
+.drops-focus { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 0 0 8px; }
+.pf-decisions-filter { margin: 0 0 8px; }
+/* Puces à cocher (extensions) : une case devant le libellé dit qu'on peut en choisir plusieurs. */
+.tag.tag-check { display: inline-flex; align-items: center; gap: 5px; }
+.tag.tag-check::before {
+  content: ""; flex: none; width: 9px; height: 9px; border: 1.5px solid currentColor; border-radius: 3px; opacity: .55;
+}
+.tag.tag-check.on::before {
+  opacity: 1; background: var(--accent); border-color: var(--accent);
+  box-shadow: inset 0 0 0 1.5px var(--surface);
+}
+
+/* Domaines sur ordinateur : une ligne par cellule. Dates, badges, nombres et en-têtes ne se coupent
+   jamais ; un nom trop long finit en « … » (nom entier au survol) ; les colonnes secondaires
+   disparaissent sous une largeur donnée plutôt que d'être écrasées. */
+@media (min-width: 900px) {
+  .domains td { white-space: nowrap; }
+  .domains td.domain .expander {
+    display: inline-block; max-width: clamp(170px, 20vw, 300px); overflow: hidden; text-overflow: ellipsis;
+    vertical-align: middle;
+  }
+  .domains .row-tags { flex-wrap: wrap; }
+  .domains .punycode { overflow: hidden; text-overflow: ellipsis; max-width: clamp(170px, 20vw, 300px); }
+  .dom-ai { min-width: 0; white-space: nowrap; }
+  .dom-ai-price { margin-left: 4px; }
+  .col-registrar .ellipsis { max-width: 130px; }
+  .domains .state .last-known { max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+  /* « Signes d'abandon » sous le badge, pas à côté : la colonne État garde la largeur d'un badge. */
+  .domains .state .abandon { display: table; margin: 4px 0 0; }
+}
+/* Grand écran : la place gagnée va au tableau, qui retrouve registrar et dernier check. */
+@media (min-width: 1700px) {
+  .main { max-width: 1560px; }
+}
+/* Plus étroit : prochain check, puis le bouton Vérifier (dans la fiche aussi), puis les jours restants
+   (la date de libération reste) ; le prix passe sous le verdict. */
+@media (min-width: 900px) and (max-width: 1365px) {
+  .dom-ai-price { display: block; margin-left: 0; }
+}
+@media (min-width: 900px) and (max-width: 1279px) {
+  .domains th.col-next, .domains td.col-next { display: none; }
+}
+@media (min-width: 900px) and (max-width: 1099px) {
+  .domains th.col-actions, .domains td.col-actions { display: none; }
+}
+@media (min-width: 900px) and (max-width: 1023px) {
+  .domains th.col-days, .domains td.col-days { display: none; }
+}
+/* Premiums : en-têtes courts sur une ligne, champs de prix étroits ; la table tient dans sa carte. */
+.premium-table th { white-space: nowrap; font-size: 12px; color: var(--muted); }
+.premium-table .num-input { width: 76px !important; }
+/* Totaux du Portefeuille : rangées pleines (4 puis 8 colonnes), libellés sur une ligne. */
+@media (min-width: 900px) {
+  .pf-totals { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .pf-totals span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
+@media (min-width: 1440px) {
+  .pf-totals { grid-template-columns: repeat(8, minmax(0, 1fr)); }
+}

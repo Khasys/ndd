@@ -319,6 +319,9 @@ def test_explorer_and_drops_settings(logged):
     assert client.get("/api/explore/rank", params={"tld": "fr,xyz"}).json()["tld"] == "fr"
     assert client.get("/api/explore/rank", params={"tld": "xyz"}).status_code == 404
     assert client.get("/api/explore/rank", params={"tld": "FR"}).json()["tld"] == "fr"
+    # Vue enregistrée sur plusieurs extensions : elles restent toutes dans ses filtres.
+    from app.main import _view_params
+    assert _view_params(state.explorer, {"tld": "fr,com", "cat": "surname"})["tlds"] == ["fr", "com"]
     # Cas qui figeaient le serveur ou renvoyaient 500.
     assert client.get("/api/explore/rank", params={"limit": "abc"}).status_code == 422
     assert client.get("/api/explore", params={"limit": "0"}).status_code == 422
@@ -1206,6 +1209,73 @@ def test_today_counts_best_names_and_setup(logged):
     st.explorer.touch("terre.fr")
     assert client.get("/api/today").json()["counts"]["regrets"] == 1
     client.__exit__(None, None, None)
+
+
+def test_today_counts_open_exactly_their_names(logged):
+    """Chaque chiffre d'Aujourd'hui ouvre la Veille sur exactement ses noms : /api/drops?focus=… renvoie la
+    même liste que le compteur, sans le tri des noms faibles ni les autres filtres de la Veille."""
+    client = logged()
+    st = client.app.state
+    now = datetime.now(timezone.utc)
+    st.conn.execute("INSERT INTO fr_names (label, created_on) VALUES ('mot', '2010-01-01')")
+    st.drops.record("fr", ["velo", "mai", "ciel", "lune", "chat", "terre", "zqx"], [], now)
+    soon, later = (now + timedelta(hours=24)).isoformat(), (now + timedelta(days=10)).isoformat()
+    # Libérés depuis 24 h : velo, chat (« À laisser », nom faible), zqx (imprononçable) ; terre ignoré ; mai trop ancien.
+    st.conn.execute("UPDATE drops SET state = 'available', available_since = ? WHERE name IN ('velo.fr', 'chat.fr', 'terre.fr', 'zqx.fr')", (now.isoformat(),))
+    st.conn.execute("UPDATE drops SET state = 'available', available_since = ? WHERE name = 'mai.fr'", ((now - timedelta(days=3)).isoformat(),))
+    st.conn.execute("UPDATE drops SET state = 'redemption', release_at = ? WHERE name = 'ciel.fr'", (soon,))
+    st.conn.execute("UPDATE drops SET state = 'redemption', release_at = ? WHERE name = 'lune.fr'", (later,))
+    _opinion(st.conn, "velo.fr", "À prendre", 90)
+    _opinion(st.conn, "mai.fr", "À prendre", 60)  # avis ancien : pas un nouveau « À prendre »
+    _opinion(st.conn, "lune.fr", "À prendre", 80)
+    _opinion(st.conn, "chat.fr", "À laisser", 20)
+    st.conn.execute("UPDATE domain_ai SET rated_at = ? WHERE name IN ('velo.fr', 'lune.fr', 'chat.fr')", (now.isoformat(),))
+    assert client.post("/api/drops/hide", json={"names": ["terre.fr"]}).json() == {"hidden": 1}
+    for name in ("velo.fr", "mai.fr", "ciel.fr", "lune.fr", "chat.fr", "terre.fr", "zqx.fr"):
+        st.explorer.touch(name)
+    counts = client.get("/api/today").json()["counts"]
+    expected = {"freed_24h": {"velo.fr", "chat.fr", "zqx.fr"}, "coming_48h": {"ciel.fr"}, "new_take": {"velo.fr", "lune.fr"}}
+    for focus, names in expected.items():
+        data = client.get("/api/drops", params={"focus": focus}).json()
+        assert data["focus"] == focus
+        assert {i["name"] for i in data["items"]} == names and len(data["items"]) == counts[focus], focus
+    # Sans focus : toute la Veille ; focus inconnu : refusé ; l'état seul (items=0) reste léger.
+    full = client.get("/api/drops").json()
+    assert full["focus"] is None and len(full["items"]) == 6
+    assert client.get("/api/drops", params={"focus": "regrets"}).status_code == 422
+    assert client.get("/api/drops", params={"focus": "freed_24h", "items": "0"}).json()["items"] is None
+    client.__exit__(None, None, None)
+
+
+def test_interface_today_counts_tld_chips_tables_and_fiche_outside():
+    """Retours sur ordinateur : chiffres d'Aujourd'hui vers leurs noms exacts (puce effaçable), extensions à cocher
+    dans l'Explorer et la Veille, tableau Domaines sans retours à la ligne, fiche fermée par un clic dehors."""
+    from pathlib import Path
+
+    static = Path(__file__).resolve().parent.parent / "app" / "static"
+    js = (static / "app.js").read_text(encoding="utf-8")
+    html = (static / "index.html").read_text(encoding="utf-8")
+    css = (static / "style.css").read_text(encoding="utf-8")
+    # Aujourd'hui : chaque chiffre a sa liste ; la Veille charge /api/drops?focus=… et montre la puce du filtre.
+    today = html.split('class="today-counts"')[1].split("</div>")[0]
+    for call in ("openVeille('free', 'freed_24h')", "openVeille('coming', 'coming_48h')", "openVeille('free', 'new_take')", "openRegrets()"):
+        assert call in today, call
+    assert "/api/drops?focus=${focus}" in js and "dropClearFocus()" in html and 'class="drops-focus"' in html
+    assert "this.dropFocus ? [...this.dropsData.items]" in js
+    assert 'x-show="!dropFocus"' in html and "Repris seulement" in html and 'd.outcome === "repris"' in js
+    assert 'x-for="d in decisionItems"' in html
+    # Extensions : puces à cocher, plusieurs à la fois, « Toutes » ; la Veille garde une liste d'extensions.
+    assert html.count('class="tag tag-check"') == 2 and "toggleDropTld(t)" in html and "exToggleTld(t)" in html
+    assert "dropTld: []," in js and "this.dropTld.includes(d.tld)" in js and "saved.tld ? [saved.tld] : []" in js
+    assert "const next = all ? [t]" in js
+    # Domaines : cellules sur une ligne, nom tronqué avec le nom entier au survol, colonnes secondaires masquées.
+    assert ".domains td { white-space: nowrap; }" in css and "text-overflow: ellipsis" in css
+    assert ':title="d.unicode_name"' in html and "col-next" in html and "col-days" in html
+    assert "@media (min-width: 900px) and (max-width: 1699px)" in css
+    # Fiche : un clic dehors la ferme sur ordinateur, sauf un autre nom, un menu, un message ou une sélection.
+    assert 'addEventListener("pointerdown", (e) => this.ficheDown(e), true)' in js and "ficheOutside(e)" in js
+    assert "down.ticket !== this._ficheTicket" in js and "sel.isCollapsed" in js and "!this.mobile" in js
+    assert "aside.fiche, .notice, [role=dialog], [role=alertdialog], [role=menu]" in js
 
 
 def test_in_portfolio_marks_cards_everywhere(logged):

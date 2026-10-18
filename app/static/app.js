@@ -30,6 +30,8 @@ const VERDICT_CLASSES = { "À prendre": "take", "À surveiller": "watch", "À la
 const DROP_FILTER_DEFAULTS = { q: "", nat: "", lang: "", len: "", rank: "", min: 0, junk: false, ai: [], quick: "" };
 // Tris de la Veille ; « release » ne vaut que pour Bientôt libres.
 const DROP_SORTS = ["best", "recent", "release", "freq"];
+// Chiffres d'Aujourd'hui : la Veille s'ouvre sur exactement leurs noms (/api/drops?focus=…), filtres mis de côté.
+const DROP_FOCUS = { freed_24h: "Libérés depuis 24 h", coming_48h: "Libération sous 48 h", new_take: "Nouveaux « À prendre » depuis 24 h" };
 // Filtres vierges de l'Explorer ; l'extension choisie reste.
 const EX_BLANK = { cat: "", nat: "", lang: "", len: "", rank: "", taken: "", min: "", junk: "", seo: "", premium: "", status: "bookable", sort: "best", level: "good", ...AI_FILTER_DEFAULTS };
 // Tris de la liste ; « best » suit l'usage (revendre / exploiter) ; « recent » : prénoms de la dernière année Insee.
@@ -229,6 +231,11 @@ document.addEventListener("alpine:init", () => {
     ficheAiOpen: false,
     aiReq: { pending: [], done: [] },
     dropTab: "free",
+    // Chiffre d'Aujourd'hui ouvert dans la Veille (clé de DROP_FOCUS), "" sinon.
+    dropFocus: "",
+    DROP_FOCUS,
+    // Décisions du Portefeuille : seulement les regrets (noms ignorés repris), depuis Aujourd'hui.
+    decisionsRegrets: false,
     dropNewOnly: false,
     dropLevel: "good",
     dropSortMode: "best",
@@ -253,7 +260,8 @@ document.addEventListener("alpine:init", () => {
     exLengths: [{ v: "", label: "Toutes" }, { v: "-4", label: "Courts (1 à 4)" }, { v: "-3", label: "1 à 3" }, { v: "1", label: "1" }, { v: "2", label: "2" }, { v: "3", label: "3" }, { v: "4", label: "4" }, { v: "5", label: "5 et plus" }],
     exRanks: [{ v: "", label: "Toutes" }, { v: "100", label: "Top 100" }, { v: "500", label: "Top 500" }, { v: "1000", label: "Top 1 000" }, { v: "5000", label: "Top 5 000" }],
     orderUrl: "",
-    dropTld: "",
+    // Extensions cochées dans la Veille, plusieurs à la fois ; vide : toutes.
+    dropTld: [],
     dropKinds: [],
     scansOpen: false,
     czdsUser: "",
@@ -323,12 +331,40 @@ document.addEventListener("alpine:init", () => {
         if (f) this.$nextTick(() => document.querySelector(".fiche-close")?.focus({ preventScroll: true }));
       });
       window.addEventListener("popstate", () => this.back());
+      // Ordinateur : un clic hors de la fiche la ferme (appui noté au début du geste, décision au clic).
+      document.addEventListener("pointerdown", (e) => this.ficheDown(e), true);
+      document.addEventListener("click", (e) => this.ficheOutside(e));
       if ("serviceWorker" in navigator && window.isSecureContext) {
         navigator.serviceWorker.register("/sw.js").catch(() => {});
       }
     },
 
     get mobile() { return this.isMobile; },
+
+    // Zones qui ne ferment pas la fiche : elle-même, le message du bas, une boîte de dialogue ou un menu.
+    ficheKeeps(el) {
+      return !(el instanceof Element) || !!el.closest("aside.fiche, .notice, [role=dialog], [role=alertdialog], [role=menu]");
+    },
+
+    ficheDown(e) {
+      // Sur téléphone la fiche est plein écran : rien n'est « dehors ».
+      this._ficheDown = this.fiche && !this.mobile && e.button === 0 && !this.ficheKeeps(e.target)
+        ? { ticket: this._ficheTicket, menu: this.ficheMenu } : null;
+    },
+
+    ficheOutside(e) {
+      const down = this._ficheDown;
+      this._ficheDown = null;
+      if (!down || !this.fiche || this.mobile || this.ficheKeeps(e.target)) return;
+      // Le clic a demandé une autre fiche (un nom d'une liste) : elle s'ouvre, rien à fermer.
+      if (down.ticket !== this._ficheTicket) return;
+      // Sélection de texte en cours : le geste servait à sélectionner, pas à fermer.
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed && sel.toString().trim()) return;
+      // Menu « Plus » ouvert : le premier clic dehors ne ferme que lui, comme Échap.
+      if (down.menu) return;
+      this.fiche = null;
+    },
 
     lockScroll() {
       // La fiche est par-dessus tout : la page derrière ne défile plus, sur ordinateur aussi.
@@ -409,6 +445,8 @@ document.addEventListener("alpine:init", () => {
       } else if (name === "portfolio") {
         this.settingsOpen = false;
         this.portfolioOpen = true;
+        this.decisionsRegrets = !!this._regretsNext;
+        this._regretsNext = false;
         await this.loadPortfolio();
       } else if (name === "legend") {
         this.settingsOpen = false;
@@ -418,6 +456,8 @@ document.addEventListener("alpine:init", () => {
         this.dropsOpen = opening;
         if (opening) {
           if (this.dropSelected.length) this.dropSelected = [];
+          this.dropFocus = this._focusNext || "";
+          this._focusNext = "";
           // « Nouveau » : depuis la visite précédente de l'appli ; cette visite devient la référence suivante.
           // Lu une fois par chargement de la page : un aller-retour entre onglets ne change rien (ni redessin).
           if (!this._dropsSeenRead) {
@@ -467,9 +507,33 @@ document.addEventListener("alpine:init", () => {
       }
     },
 
-    async openVeille(tab) {
+    // focus : chiffre d'Aujourd'hui (freed_24h, coming_48h, new_take), la liste montre exactement ses noms.
+    async openVeille(tab, focus = "") {
+      this.dropSetTab(tab);
+      if (this.dropsOpen) { this.dropFocus = focus; await this.loadDrops(); return; }
+      // Lu par openSheet à l'ouverture de la Veille, puis effacé.
+      this._focusNext = focus;
       await this.openSheet("drops");
       this.dropSetTab(tab);
+    },
+
+    async dropClearFocus() {
+      this.dropFocus = "";
+      this.dropShow = 100;
+      this.dropSelected = [];
+      await this.loadDrops();
+    },
+
+    // Regrets d'Aujourd'hui : les décisions du Portefeuille, filtrées sur les noms ignorés repris.
+    async openRegrets() {
+      if (this.portfolioOpen) { this.decisionsRegrets = true; await this.loadDecisions(); }
+      else { this._regretsNext = true; await this.openSheet("portfolio"); }
+      this.$nextTick(() => document.querySelector(".pf-decisions")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    },
+
+    get decisionItems() {
+      const items = this.decisions ? this.decisions.items : [];
+      return this.decisionsRegrets ? items.filter((d) => d.outcome === "repris") : items;
     },
 
     plural(n, one, many) { return n > 1 ? many : one; },
@@ -1386,10 +1450,12 @@ document.addEventListener("alpine:init", () => {
 
     exTlds() { return (this.ex.tld || "").split(",").filter(Boolean); },
 
-    // Plusieurs extensions à la fois ; il en reste toujours une.
+    // Plusieurs extensions à la fois ; il en reste toujours une. Depuis « Toutes », une puce choisit
+    // cette extension seule (sinon il faudrait décocher toutes les autres une à une).
     exToggleTld(t) {
       const on = this.exTlds();
-      const next = on.includes(t) ? on.filter((x) => x !== t) : [...on, t];
+      const all = this.exData && this.exData.tlds.length > 1 && on.length === this.exData.tlds.length;
+      const next = all ? [t] : on.includes(t) ? on.filter((x) => x !== t) : [...on, t];
       if (!next.length) return;
       const order = this.exData ? this.exData.tlds : next;
       const patch = { tld: order.filter((x) => next.includes(x)).join(",") };
@@ -1838,8 +1904,13 @@ document.addEventListener("alpine:init", () => {
           else this.dropsData = { ...status, items: [] };
           return;
         }
-        const [data, changed] = await this.apiFresh("/api/drops");
-        if (!changed && this.dropsData) return;
+        const focus = this.dropFocus;
+        const [data, changed] = await this.apiFresh(focus ? `/api/drops?focus=${focus}` : "/api/drops");
+        // Focus changé pendant le chargement : la réponse ne vaut plus.
+        if (focus !== this.dropFocus) return;
+        // Même réponse que celle affichée (retour sur l'écran) : rien à redessiner.
+        if (!changed && data === this._dropsRaw) return;
+        this._dropsRaw = data;
         this.dropsData = data;
         this._dropsVer = (this._dropsVer || 0) + 1;
       } catch (e) {
@@ -1851,7 +1922,7 @@ document.addEventListener("alpine:init", () => {
     // plus filtrés et triés à chaque rafraîchissement de l'affichage.
     dropsMemo(kind, build) {
       const key = JSON.stringify([kind, this._dropsVer, this.df, this.dropTld, this.dropKinds, this.dropsSeenBefore,
-        this.dropTab, this.dropNewOnly, this.dropLevel, this.dropSort, this.lens, Math.floor(this.now / 600000)]);
+        this.dropTab, this.dropNewOnly, this.dropLevel, this.dropSort, this.lens, this.dropFocus, Math.floor(this.now / 600000)]);
       this._memo = this._memo || {};
       if (this._memo[kind]?.key !== key) this._memo[kind] = { key, list: build() };
       return this._memo[kind].list;
@@ -1862,7 +1933,7 @@ document.addEventListener("alpine:init", () => {
       const len = f.len ? Number(f.len) : 0;
       const label = d.name.slice(0, -(d.tld.length + 1));
       const q = f.q.trim().toLowerCase();
-      return (!this.dropTld || d.tld === this.dropTld)
+      return (!this.dropTld.length || this.dropTld.includes(d.tld))
         && (!q || d.name.includes(q))
         && (!this.dropKinds.length || d.categories.some((c) => this.dropKinds.includes(c)))
         && (!f.ai.length || f.ai.includes(this.aiClass(d.ai)))
@@ -1910,7 +1981,8 @@ document.addEventListener("alpine:init", () => {
     get dropList() {
       if (!this.dropsData) return [];
       return this.dropsMemo("list", () => {
-        const list = this.dropsData.items.filter((d) => this.dropInTab(d, this.dropTab) && this.dropMatches(d) && this.dropLevelOk(d)
+        // Chiffre d'Aujourd'hui : tous ses noms, sans onglet ni filtre (même compte que sur Aujourd'hui).
+        const list = this.dropFocus ? [...this.dropsData.items] : this.dropsData.items.filter((d) => this.dropInTab(d, this.dropTab) && this.dropMatches(d) && this.dropLevelOk(d)
           && (!this.dropNewOnly || this.dropNew(d)));
         const best = (a, b) => this.dropLensTier(b) - this.dropLensTier(a) || this.dropLensValue(b) - this.dropLensValue(a) || b.score - a.score;
         const sort = this.dropSort;
@@ -2066,7 +2138,8 @@ document.addEventListener("alpine:init", () => {
         if (!saved) return;
         this.df = { ...DROP_FILTER_DEFAULTS, ...saved.df, ai: Array.isArray(saved.df?.ai) ? saved.df.ai : [] };
         this.df.min = Number(this.df.min) || 0;  // anciens filtres : null voulait dire « pas choisi »
-        this.dropTld = saved.tld || "";
+        // Ancien réglage : une seule extension, en texte.
+        this.dropTld = Array.isArray(saved.tld) ? saved.tld : saved.tld ? [saved.tld] : [];
         this.dropKinds = Array.isArray(saved.kinds) ? saved.kinds : [];
         if (typeof saved.level === "string") this.dropLevel = saved.level;
         if (DROP_SORTS.includes(saved.sort)) this.dropSortMode = saved.sort;
@@ -2075,6 +2148,14 @@ document.addEventListener("alpine:init", () => {
 
     get dropTlds() {
       return this.dropsData ? this.dropsMemo("tlds", () => [...new Set(this.dropsData.items.map((d) => d.tld))].sort()) : [];
+    },
+
+    // Comme dans l'Explorer : depuis « Toutes », une puce choisit cette extension seule ; ensuite chaque puce
+    // s'ajoute ou se retire ; toutes cochées (ou plus aucune), retour à « Toutes ».
+    toggleDropTld(t) {
+      const on = this.dropTld.includes(t) ? this.dropTld.filter((x) => x !== t) : [...this.dropTld, t];
+      this.dropTld = on.length >= this.dropTlds.length ? [] : this.dropTlds.filter((x) => on.includes(x));
+      this.dropShow = 100;
     },
 
     toggleDropKind(k) {

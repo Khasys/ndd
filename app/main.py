@@ -1279,6 +1279,12 @@ async def list_drops(request: Request):
     watcher = state.drops
     conn = state.conn
     rows = _drop_rows(state)
+    # Chiffre d'Aujourd'hui cliqué : seulement ses noms, calculés comme le compteur.
+    focus = request.query_params.get("focus", "")
+    if focus and focus not in TODAY_FOCUS:
+        raise HTTPException(422, "Liste inconnue : freed_24h, coming_48h ou new_take.")
+    if focus:
+        rows = (await _off(_today_sets, state, rows, utcnow()))["near" if focus == "coming_48h" else focus]
     pending = conn.execute("SELECT COUNT(*) FROM drops WHERE state IS NULL").fetchone()[0]
     suspended = dict(conn.execute("SELECT tld, COUNT(*) FROM drops WHERE state = ? GROUP BY tld", (drops.SUSPENDED,)).fetchall())
     hidden = conn.execute("SELECT COUNT(*) FROM drop_hidden").fetchone()[0]
@@ -1307,6 +1313,7 @@ async def list_drops(request: Request):
         "hidden": hidden,
         "kinds": drops.KINDS,
         "natures": explore.NATURES,
+        "focus": focus or None,
         "items": _drop_items(state, rows, values) if with_items else None,
     }
 
@@ -1333,19 +1340,36 @@ def _verdict(opinion: dict | None) -> str:
     return (opinion.get("comment") or "").split(".")[0] if opinion else ""
 
 
-def _today(state, sort: str, now: datetime) -> dict:
-    """Écran d'accueil : compteurs du jour et les meilleurs noms libres ou libérés sous 48 h."""
-    rows = _drop_rows(state)
+# Chiffres d'Aujourd'hui qui ouvrent la Veille sur exactement leurs noms (/api/drops?focus=…).
+TODAY_FOCUS = ("freed_24h", "coming_48h", "new_take")
+
+
+def _today_sets(state, rows, now: datetime) -> dict:
+    """Les noms derrière chaque chiffre d'Aujourd'hui : même calcul pour le compteur et pour la liste."""
     day_ago, soon = iso(now - timedelta(hours=24)), iso(now + timedelta(hours=48))
     free = [r for r in rows if r["state"] == states.AVAILABLE]
     coming = [r for r in rows if r["state"] in drops.TRACKED]
-    near = [r for r in coming if r["release_at"] and r["release_at"] <= soon]
-    candidates = free + near
-    values = state.explorer.value_of([r["name"] for r in candidates])
     # Avis « À prendre » reçus depuis 24 h (premier avis ou second passage) sur un nom libre ou bientôt libre.
     opinions = ai.load(state.conn, [r["name"] for r in free + coming])
-    new_take = sum(1 for o in opinions.values()
-                   if _verdict(o) == "À prendre" and max(o["rated_at"] or "", o["reviewed_at"] or "") >= day_ago)
+
+    def new_take(r) -> bool:
+        o = opinions.get(r["name"])
+        return bool(o) and _verdict(o) == "À prendre" and max(o["rated_at"] or "", o["reviewed_at"] or "") >= day_ago
+
+    return {
+        "free": free,
+        "near": [r for r in coming if r["release_at"] and r["release_at"] <= soon],
+        "freed_24h": [r for r in free if (r["available_since"] or "") >= day_ago],
+        "new_take": [r for r in free + coming if new_take(r)],
+    }
+
+
+def _today(state, sort: str, now: datetime) -> dict:
+    """Écran d'accueil : compteurs du jour et les meilleurs noms libres ou libérés sous 48 h."""
+    sets = _today_sets(state, _drop_rows(state), now)
+    free, near = sets["free"], sets["near"]
+    candidates = free + near
+    values = state.explorer.value_of([r["name"] for r in candidates])
 
     def strong(v: dict) -> bool:
         # « Masquer les noms faibles » et les suites imprononçables, comme la Veille par défaut.
@@ -1362,9 +1386,9 @@ def _today(state, sort: str, now: datetime) -> dict:
     best = sorted((r for r in candidates if strong(values[r["name"]])), key=rank)[:TODAY_ITEMS]
     return {
         "counts": {
-            "freed_24h": sum(1 for r in free if (r["available_since"] or "") >= day_ago),
+            "freed_24h": len(sets["freed_24h"]),
             "coming_48h": len(near),
-            "new_take": new_take,
+            "new_take": len(sets["new_take"]),
             "regrets": decisions.listing(state.conn, state.explorer)["regrets"],
         },
         "sort": sort,
