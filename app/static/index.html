@@ -1244,6 +1244,27 @@
       </div>
 
       <div>
+        <h3>Gandi (prix et premiums)</h3>
+        <template x-if="cfg">
+          <div>
+            <form class="inline-form" @submit.prevent="saveGandiKey()">
+              <input type="password" x-model="gandiKey" :placeholder="cfg.gandi.key_set ? 'Jeton enregistré' : 'Jeton Gandi'" aria-label="Jeton Gandi" autocomplete="off">
+              <button type="submit" class="btn-ghost">Enregistrer</button>
+              <button type="button" class="btn-ghost" x-show="cfg.gandi.key_set" @click="testGandi()" :disabled="gandiTesting" x-text="gandiTesting ? 'Test en cours' : 'Tester'"></button>
+            </form>
+            <p class="small error-text" x-show="cfg.gandi.error" x-text="cfg.gandi.error"></p>
+            <ul class="gandi-results small" x-show="gandiResults.length">
+              <template x-for="r in gandiResults" :key="r.name">
+                <li><span class="mono" x-text="r.name"></span> <span class="muted" x-text="gandiLine(r)"></span></li>
+              </template>
+            </ul>
+            <p class="muted small" x-show="cfg.gandi.tested_at && !gandiResults.length" x-text="'Dernier test ' + relative(cfg.gandi.tested_at)"></p>
+          </div>
+        </template>
+        <p class="muted small">Source d'information seulement : rien n'est acheté. Jeton à créer dans le compte Gandi (Paramètres du compte, « Create a token »), permission de lecture des domaines.</p>
+      </div>
+
+      <div>
         <h3>Score de l'Explorer</h3>
         <template x-if="cfg">
           <div class="setting-lines">

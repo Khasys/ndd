@@ -31,7 +31,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import ai, bot, calendar_ics, ccdns, db, decisions, morning, notify, portfolio, digest, drops, explore, frdata, frdns, prenoms, reserved, seo, signals, states, updates, value, wordlists
+from . import ai, bot, calendar_ics, ccdns, db, decisions, morning, notify, portfolio, digest, drops, explore, frdata, frdns, gandi, prenoms, reserved, seo, signals, states, updates, value, wordlists
 from .auth import (
     COOKIE_NAME,
     LoginGuard,
@@ -326,6 +326,7 @@ async def lifespan(app: FastAPI):
         if cc.resume_lost():
             app.state.explorer.invalidate(cc.tld)
     app.state.seo = seo.Seo(conn, store)
+    app.state.gandi = gandi.Gandi(store)
     # Explorer : univers et classement préparés hors requête (thread), puis états et carte en mémoire.
     async def warm_explorer() -> None:
         await asyncio.get_running_loop().run_in_executor(None, lambda: explore.shared_universe().buckets())
@@ -976,6 +977,7 @@ async def get_settings(request: Request):
                     "off": sorted(state.explorer.premium_tlds_off()),
                     "tlds": [t for t in state.explorer.tlds() if t != "fr"]},
         "seo": {"key_set": bool(state.seo.key)},
+        "gandi": state.gandi.status(),
         "reserved": state.reserved.status(),
         "prenoms": state.prenoms.status(),
         "weights": {"values": value.weights_from(store.get("score_weights")), "labels": value.CRITERIA},
@@ -1973,6 +1975,8 @@ async def diag(request: Request):
                  for j in state.scheduler.get_jobs()],
         "scheduler": {k: list(v) for k, v in state.scheduler_events.items()},
         "telegram_outbox": state.telegram.pending(),
+        # Réponses brutes de Gandi aux noms témoins (bouton Tester) : aucun secret, ni le jeton ni sa présence.
+        "gandi_samples": state.gandi.samples(),
         "recent_errors": list(RECENT.records),
     }
 
@@ -2083,6 +2087,26 @@ class SeoKey(BaseModel):
 async def set_seo_key(request: Request, payload: SeoKey):
     request.app.state.store.set("opr_key", payload.key.strip())
     return {"key_set": bool(payload.key.strip())}
+
+
+class GandiKey(BaseModel):
+    key: str
+
+
+@app.put("/api/settings/gandi")
+async def set_gandi_key(request: Request, payload: GandiKey):
+    """Jeton Gandi en écriture seule : jamais renvoyé ; vide, il est retiré."""
+    request.app.state.gandi.set_key(payload.key)
+    return request.app.state.gandi.status()
+
+
+@app.post("/api/settings/gandi/test")
+async def test_gandi(request: Request):
+    """Quelques noms témoins interrogés chez Gandi : résumé pour l'écran, réponses brutes gardées pour le diagnostic."""
+    found = request.app.state.gandi
+    if not found.key:
+        raise HTTPException(409, "Jeton Gandi non configuré.")
+    return {**await found.test(), **found.status()}
 
 
 @app.get("/api/explore/export")

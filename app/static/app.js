@@ -229,6 +229,10 @@ document.addEventListener("alpine:init", () => {
     ficheMenu: false,
     ficheTlAll: false,
     ficheAiOpen: false,
+    // Paramètres, Gandi : jeton saisi (jamais relu), test en cours, résumé du dernier test.
+    gandiKey: "",
+    gandiTesting: false,
+    gandiResults: [],
     aiReq: { pending: [], done: [] },
     dropTab: "free",
     // Chiffre d'Aujourd'hui ouvert dans la Veille (clé de DROP_FOCUS), "" sinon.
@@ -1649,6 +1653,37 @@ document.addEventListener("alpine:init", () => {
       } finally {
         this.exBusy[i.name] = false;
       }
+    },
+
+    async saveGandiKey() {
+      try {
+        this.cfg.gandi = await this.api("PUT", "/api/settings/gandi", { key: this.gandiKey });
+        this.gandiKey = "";
+        this.gandiResults = [];
+        this.say(this.cfg.gandi.key_set ? "Jeton Gandi enregistré. « Tester » vérifie qu'il marche." : "Jeton Gandi retiré.");
+      } catch (e) {
+        this.say(e.message, "error");
+      }
+    },
+
+    async testGandi() {
+      this.gandiTesting = true;
+      try {
+        const found = await this.api("POST", "/api/settings/gandi/test");
+        this.gandiResults = found.results;
+        this.cfg.gandi = { key_set: found.key_set, tested_at: found.tested_at, error: found.error };
+        this.say(found.ok ? "Gandi répond." : "Gandi n'a pas répondu, voir le détail.", found.ok ? "" : "error");
+      } catch (e) {
+        this.sayError(e, "Test Gandi impossible", () => this.testGandi());
+      }
+      this.gandiTesting = false;
+    },
+
+    // Ligne de résultat du test : état et prix de création tels que Gandi les donne.
+    gandiLine(r) {
+      if (r.error) return r.error;
+      const price = r.price !== null && r.price !== undefined ? ` · ${this.fmt(Math.round(r.price))} € TTC${r.type ? ` (${r.type})` : ""}` : "";
+      return `${r.status}${price}`;
     },
 
     async saveSeoKey() {

@@ -1659,3 +1659,42 @@ def test_startup_repairs_whois_only_free_names(logged, tmp_path):
     row = client.app.state.conn.execute("SELECT * FROM drops WHERE name = 'menu.co'").fetchone()
     assert row["state"] == "unconfirmed" and row["available_since"] is None and row["removed_on"] == ""
     client.__exit__(None, None, None)
+
+
+def test_gandi_token_is_write_only_and_test_keeps_raw_answers(logged):
+    """Jeton Gandi : enregistré, jamais renvoyé ; Tester garde les réponses brutes (sans secret) pour le diagnostic."""
+    import httpx
+
+    client = logged()
+    state = client.app.state
+    seen = []
+
+    def answer(request):
+        seen.append((request.url.params["name"], request.headers["authorization"]))
+        name = request.url.params["name"]
+        if name == "menu.co":
+            body = {"currency": "EUR", "products": [{"name": name, "process": "create", "status": "unavailable_premium", "prices": []}]}
+        else:
+            body = {"currency": "EUR", "products": [{"name": name, "process": "create", "status": "available",
+                                                     "prices": [{"price_after_taxes": 878.44, "type": "premium"}]}]}
+        return httpx.Response(200, json=body)
+
+    state.gandi._http_factory = lambda: httpx.AsyncClient(transport=httpx.MockTransport(answer))
+    assert client.post("/api/settings/gandi/test").status_code == 409
+    saved = client.put("/api/settings/gandi", json={"key": " pat_secret-123 "}).json()
+    assert saved["key_set"] and "pat_secret" not in json.dumps(saved)
+    found = client.post("/api/settings/gandi/test").json()
+    assert found["ok"] and seen[0] == ("menu.co", "Bearer pat_secret-123")
+    assert found["results"][0] == {"name": "menu.co", "status": "unavailable_premium", "price": None, "type": "", "currency": "EUR"}
+    assert found["results"][1]["price"] == 878.44 and found["results"][1]["type"] == "premium"
+    settings = client.get("/api/settings").json()
+    assert settings["gandi"]["key_set"] and settings["gandi"]["tested_at"]
+    diag = client.get("/api/diag").json()
+    assert diag["gandi_samples"]["samples"]["menu.co"]["products"][0]["status"] == "unavailable_premium"
+    assert "pat_secret" not in json.dumps(diag) and "key_set" not in json.dumps(diag["gandi_samples"])
+    # Jeton refusé : erreur claire, gardée pour Paramètres.
+    state.gandi._http_factory = lambda: httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(401)))
+    refused = client.post("/api/settings/gandi/test").json()
+    assert not refused["ok"] and "refusé" in refused["error"]
+    assert client.put("/api/settings/gandi", json={"key": ""}).json()["key_set"] is False
+    client.__exit__(None, None, None)

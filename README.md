@@ -561,6 +561,14 @@ note de 0 à 10 tirée des liens (Common Crawl), avec une clé gratuite à saisi
 la Wayback Machine donne les années où le site a été archivé, sans clé. Le nombre exact de
 backlinks n'existe que chez des services payants (Ahrefs, Majestic, Moz).
 
+Gandi (Paramètres, « Gandi (prix et premiums) ») : source d'information seulement, rien n'est acheté. Jeton
+d'accès personnel créé dans le compte Gandi (Paramètres du compte, « Create a token »), permission de lecture
+des domaines ; gardé sur le NAS, jamais renvoyé (`PUT /api/settings/gandi`). « Tester »
+(`POST /api/settings/gandi/test`) interroge quelques noms témoins (`app/gandi.py`, `SAMPLES`) et affiche leur
+état et leur prix de création ; les réponses brutes, sans aucun secret, sont lisibles dans `/api/diag`
+(`gandi_samples`). Première étape : la lecture des états et prix dans les listes viendra ensuite, calée sur
+ces réponses.
+
 Tri : score, fréquence (mot, nom ou prénom du plus courant au moins courant), prénoms de l'année la plus récente (Insee), longueur, SEO, avis IA. Un tri ne filtre pas : avec SEO ou avis IA, les noms analysés viennent d'abord, puis les autres par score. Chaque tri applique tous les filtres (recherche, SEO et avis IA compris pour la libération la plus proche). Les éléments de `/api/explore/rank`, `/api/drops`, `/api/today` et de la fiche portent `ranks` (rang du nom dans chaque liste, `{"firstname": 12, "word": 4881}`) ; avec `sort=freq`, `freq_list` dit la liste qui donne l'ordre (celle du filtre de catégorie, sinon celle où le nom est le mieux placé).
 
 #### Avis IA
