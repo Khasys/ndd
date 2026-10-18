@@ -114,17 +114,26 @@ Réglages communs, gardés d'un écran à l'autre :
 - **Avancé** (replié) : les filtres fins (nature, longueur, fréquence, SEO, avis IA, score
   minimum…), et dans l'Explorer les classements, la carte, les premiums et les vues enregistrées.
 
-Chaque nom est une carte : le nom, le score, et une phrase (verdict IA, puis note de revente et
-prix utilisateur final, ou note d'exploitation ; sinon les raisons du score, par exemple « 5 lettres · 153e mot le plus courant »).
-Dans la Veille, **Nouveaux cette nuit** ne garde que les noms libérés ou entrés en rédemption depuis
-24 h ; Réserver et Surveiller sont sur chaque carte. Tri en masse : cases à cocher (« Tout
-sélectionner » pour les noms affichés), puis Surveiller, Analyse IA, Revérifier ou Ignorer ; un nom
-ignoré quitte la Veille mais reste dans l'Explorer (Paramètres : « Tout réafficher », ou un nom à la
-fois). La décision est gardée (`decisions`), comme « J'ai acheté » : si un nom ignoré est ensuite
-enregistré par quelqu'un d'autre, la liste des décisions le dit (« repris », avec la date quand elle est
-connue) et compte ces regrets. L'état des
-lectures (zones, .fr, DNS, historique) est dans Paramètres, carte « Sources et lectures » ; une
-ligne d'état reste en haut de la Veille. Sur téléphone, l'en-tête défile avec la liste.
+Chaque nom est une carte, la même dans la Veille, l'Explorer et la recherche (gabarit `#name-card`,
+fonction `nameCard` dans `app.js`) : le nom ; en pastille principale la valeur qui trie pour l'usage
+en cours (note IA de revente ou d'exploitation, étiquetée « IA 75 », sinon le score, étiqueté
+« score 53 »), l'autre valeur en retrait ; une phrase (verdict IA et prix utilisateur final, sinon les
+raisons du score, par exemple « 5 lettres · 153e mot le plus courant ») ; l'état en toutes lettres
+avec sa date (« probablement libre », « libre, vérifié il y a 3 h », « En rédemption, libération
+~09/11 », « pris », « réservé », « premium probable ») ; les actions Réserver (nom libre ou
+probablement libre), Vérifier (nom probablement libre), Surveiller ; une case de sélection. Un bouton
+« ? » à côté de l'usage ouvre l'Aide sur les deux échelles (score et note IA).
+Dans la Veille, **Nouveaux depuis ma dernière visite** (bouton et étiquette « Nouveau », même règle)
+ne garde que les noms libérés ou entrés en rédemption depuis l'ouverture précédente de l'écran
+(heure gardée par le navigateur ; à la première visite, depuis 24 h). Tri en masse : cases à cocher
+(« Tout sélectionner » pour les noms affichés), puis Surveiller, Analyse IA, Revérifier ou Ignorer ;
+un nom ignoré quitte la Veille mais reste dans l'Explorer (Paramètres : « Tout réafficher », ou un nom
+à la fois). La décision est gardée (`decisions`), comme « J'ai acheté » : si un nom ignoré est ensuite
+enregistré par quelqu'un d'autre, la liste des décisions le dit (« repris », avec la date quand elle
+est connue) et compte ces regrets. L'état des lectures (zones, .fr, DNS, historique) est dans Paramètres, carte « Sources et lectures » ; une
+ligne d'état reste en haut de la Veille. Sur téléphone, seuls les onglets et le tri restent collants
+en haut ; l'usage, la case des noms faibles, « Nouveaux », les extensions et les types sont dans le
+panneau Avancé.
 
 Fiche d'un nom : ligne de décision en tête (libération estimée, premium probable, verdict IA, prix
 utilisateur final) et action mise en avant : Réserver pour un nom libre, Surveiller pour un nom qui
@@ -306,7 +315,9 @@ puis les mots, noms de famille et prénoms. L'état vient des données déjà su
 requête : zones ICANN lues chaque jour, open data de l'Afnic, données de la Veille par-dessus.
 
 - **Top** : les 10, 50, 100, 200, 500 ou 1 000 premiers d'une liste (secteurs, tendances, sites de niche,
-  mots, anglais, prénoms, noms…), pris ou non, avec l'état sur chaque extension. Un état ouvre la fiche.
+  mots, anglais, prénoms, noms…), pris ou non, avec l'état sur chaque extension en toutes lettres
+  (probablement libre, pris, à venir, libre, réservé, premium probable). Un état ouvre la fiche. Les
+  puces d'état de la liste sont masquées tant que le Top est ouvert : il montre tous les états.
 - **Langue** : filtre Français / Anglais (Explorer et Veille). Listes mêlées : langue relevée à
   la construction (app/data/langues.txt) ; jargon des tendances absent des deux listes : les deux.
 - **Fiche** : nuit prévue pour l'avis IA (place dans la file, 1 000 noms par nuit, horizon de 30
@@ -319,7 +330,8 @@ requête : zones ICANN lues chaque jour, open data de l'Afnic, données de la Ve
   probables » pour les afficher. Paramètres : case pour diviser leur score par deux, et prix relevés
   à la main par extension pour 2 et 3 caractères, affichés sur ces noms.
 - **Carte** : extension × catégorie (1 à 3 caractères, 4 lettres, mots, formes fléchies, noms,
-  prénoms), nombre de noms à saisir par case. Une case ouvre la liste filtrée.
+  prénoms), nombre de noms réservables par case, le même compte que la puce « Libres » de la liste
+  (libération à venir exclue). Une case ouvre la liste filtrée et referme la carte.
 - **Liste** : les meilleurs d'abord (selon revendre ou exploiter), libération la plus proche, les plus
   courts, les plus courants, ou score seul. Une carte ouvre la fiche du nom.
 - **Fiche** : la même dans Domaines, Veille et Explorer. État, score détaillé, raisons,
@@ -340,12 +352,16 @@ requête : zones ICANN lues chaque jour, open data de l'Afnic, données de la Ve
   autre extension, SEO (analysé, PageRank 1, 3 ou 5 et plus, archivé 5 ans et plus), score
   minimum. Les compteurs suivent les filtres ; les filtres sont mémorisés. Le filtre SEO ne
   porte que sur les noms déjà analysés.
-- **Extensions** : une ou plusieurs à la fois (« Toutes » au-delà de deux). Les listes sont
+- **Extensions** : une ou plusieurs à la fois (« Toutes » dès qu'il y en a deux). Les listes sont
   fusionnées dans l'ordre du tri choisi, les compteurs additionnés.
 - **Vues enregistrées** : un jeu de filtres nommé, rappelé d'un geste. La vue en cours est
   surlignée ; sa suppression demande confirmation et laisse les filtres affichés en place.
 - **Sélection multiple** : Vérifier, SEO, Surveiller ou Réservé en lot.
-- Recherche : le nom tapé sur toutes les extensions, puis les noms qui commencent pareil.
+- Recherche : le nom tapé sur toutes les extensions, puis les noms qui commencent pareil. Un nom
+  absent de toutes les listes (monsuperprojet) s'affiche quand même, une ligne par extension suivie
+  (ou celle tapée, monsuperprojet.fr) : « Vérifier » interroge le registre (`POST /api/explore/check`,
+  qui renvoie alors l'état, le registrar et l'échéance sans score ni catégorie), puis Réserver ou
+  Surveiller.
 - Par défaut, seuls les noms qui ont un sens sont listés et comptés : noms des listes, vrais mots
   courts (toutes les formes de 2 à 4 lettres du Lexique, même rares), noms prononçables, chiffres
   seuls. Les suites imprononçables (qsd, xkcd), les mélanges lettres-chiffres et les tirets

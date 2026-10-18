@@ -21,7 +21,7 @@ import threading
 import time
 from array import array
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 
 from . import ai, drops, frdns, precompute, quality, rdapinfo, states, value, wordlists
 from .checker import iso, utcnow
@@ -1372,11 +1372,12 @@ class Explorer:
         tlds = self.tlds()
         cells = {}
         for tld in tlds:
-            # Mêmes compteurs que la liste : une case et le filtre qu'elle ouvre donnent le même nombre.
+            # Mêmes compteurs que la puce « Libres » de la liste (réservables, libération à venir exclue) :
+            # une case et le filtre qu'elle ouvre donnent le même nombre.
             cells[tld] = {
-                "short": self.facets(tld, length=-3)["available"],
-                "l4": self.facets(tld, category="letters", length=4)["available"],
-                **{key: self.facets(tld, category=key)["available"] for key in wordlists.LABELS},
+                "short": self.facets(tld, length=-3)["bookable"],
+                "l4": self.facets(tld, category="letters", length=4)["bookable"],
+                **{key: self.facets(tld, category=key)["bookable"] for key in wordlists.LABELS},
             }
         filters = {"short": ("", -3), "l4": ("letters", 4), **{k: (k, None) for k in wordlists.LABELS}}
         return {"rows": MAP_ROWS, "tlds": tlds, "cells": cells,
@@ -1666,7 +1667,31 @@ class Explorer:
                 self.conn.execute("UPDATE fr_names SET checked_at = ?, next_check_at = NULL WHERE label = ?", (iso(now), label))
         self.touch(name)
         i = self.universe.index(label)
-        return self.describe(tld, [i])[0] if i is not None else {"name": name}
+        return self.describe(tld, [i])[0] if i is not None else self._describe_unknown(name, now)
+
+    def _describe_unknown(self, name: str, now: datetime) -> dict:
+        """Nom hors des listes suivies (tapé dans l'Explorer) : le minimum pour l'afficher, le réserver
+        ou le surveiller. Mêmes champs que describe, sans score ni catégorie."""
+        label, _, tld = name.partition(".")
+        drop = self.drops.row(name)
+        state = drop["state"] if drop else None
+        rdap = rdapinfo.load(self.conn, [name]).get(name)
+        if rdap and rdap["available"]:
+            code = FREE
+        elif state in drops.TRACKED:
+            code = COMING
+        else:
+            code = SUSPENDED if state == drops.SUSPENDED else REGISTERED
+        watched = self.conn.execute("SELECT 1 FROM domains WHERE name = ?", (name,)).fetchone() is not None
+        return {
+            "label": label, "name": name, "tld": tld, "length": len(label), "categories": [], "known": False,
+            "status": code, "status_label": DROP_LABELS.get(state, LABELS[code]) if code == COMING else LABELS[code],
+            "drop_state": state, "release_at": drop["release_at"] if drop else None,
+            "available_since": drop["available_since"] if drop else None,
+            "checked_at": iso(now), "watched": watched, "rdap": rdap, "reserved": [],
+            "ai": ai.load(self.conn, [name]).get(name), "premium_price": None,
+            "score": 0, "reasons": [], "parts": {},
+        }
 
 
 class VerifyError(Exception):

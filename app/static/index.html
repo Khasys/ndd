@@ -82,10 +82,7 @@
   </div>
 
   <section class="legend sheet" x-show="legendOpen" x-transition.opacity.duration.150ms x-cloak aria-label="Aide">
-    <div class="sheet-head">
-      <h2>Aide</h2>
-      <button type="button" class="btn-ghost" @click="legendOpen = false">Fermer</button>
-    </div>
+    <div class="sheet-head"><h2>Aide</h2></div>
     <nav class="help-toc small" @click.prevent="helpGo($event.target.getAttribute('href'))">
       <a href="#help-states">États d'un domaine</a>
       <a href="#help-explore">États dans l'Explorer</a>
@@ -131,9 +128,12 @@
 
     <h3 id="help-find">Trouver les meilleurs (Veille et Explorer)</h3>
     <dl class="help-dl">
+      <dt>Deux échelles sur 100</dt><dd>Le <strong>score</strong> est calculé par l'appli d'après la forme, le sens, la demande et l'historique du nom. La note <strong>IA</strong> est l'avis de l'IA, de revente ou d'exploitation selon l'usage choisi ; elle existe seulement pour les noms déjà notés. Sur une carte, la pastille principale est la valeur qui sert au tri, l'autre est rappelée en plus petit.</dd>
       <dt>Pour revendre</dt><dd>D'abord les noms que l'IA conseille, par sa note de revente ; puis les noms sans avis, par score ; à la fin, ceux qu'elle déconseille.</dd>
       <dt>Pour exploiter</dt><dd>Même ordre, avec la note d'exploitation : un nom pour un vrai site ou une marque.</dd>
       <dt>Masquer les noms faibles</dt><dd>Sans avis IA : score sous 30. Avec un avis : « À laisser », même à bon score.</dd>
+      <dt>Sur une carte</dt><dd>L'état en toutes lettres (probablement libre, libre vérifié, libération estimée, pris, réservé, premium probable), le verdict IA et le prix utilisateur final, puis Réserver, Vérifier (nom probablement libre) et Surveiller.</dd>
+      <dt>Nom hors des listes</dt><dd>Un nom tapé dans l'Explorer qui n'est dans aucune liste s'affiche quand même, une ligne par extension suivie : Vérifier interroge le registre, puis Réserver ou Surveiller.</dd>
     </dl>
     <p class="small muted">Le bouton « Analyse IA » de la fiche fait noter un nom dans l'heure.</p>
 
@@ -191,10 +191,7 @@
 
 
   <section class="drops-page sheet" x-show="dropsOpen" x-transition.opacity.duration.150ms x-cloak aria-label="Veille">
-    <div class="sheet-head">
-      <h2>Veille</h2>
-      <button type="button" class="btn-ghost" @click="dropsOpen = false">Fermer</button>
-    </div>
+    <div class="sheet-head"><h2>Veille</h2></div>
 
     <template x-if="dropsData && !dropsData.configured">
       <div class="drops-card">
@@ -217,32 +214,8 @@
             <button type="button" class="btn-ghost ex-filter-btn" :class="{ on: dfOpen || dropActive().length }" @click="dfOpen = !dfOpen" :aria-expanded="dfOpen"
                     x-text="dropActive().length ? 'Avancé (' + dropActive().length + ')' : 'Avancé'"></button>
           </div>
-          <div class="veille-tabs" role="tablist">
-            <button type="button" role="tab" class="veille-tab" :class="{ on: dropTab === 'free' }" :aria-selected="dropTab === 'free'" @click="dropSetTab('free')">
-              Libérés <span class="num" x-text="fmt(dropTabCount('free'))"></span>
-            </button>
-            <button type="button" role="tab" class="veille-tab" :class="{ on: dropTab === 'coming' }" :aria-selected="dropTab === 'coming'" @click="dropSetTab('coming')">
-              Bientôt libres <span class="num" x-text="fmt(dropTabCount('coming'))"></span>
-            </button>
-          </div>
-          <div class="simple-row" aria-label="Usage et niveau">
-            <div class="segmented lens" role="radiogroup" aria-label="Usage">
-              <template x-for="l in LENSES" :key="l.k">
-                <button type="button" class="btn-ghost sm" :class="{ on: lens === l.k }" role="radio" :aria-checked="lens === l.k" @click="setLens(l.k)" x-text="l.label"></button>
-              </template>
-            </div>
-            <label class="weak-toggle" title="Score sous 30 sans avis IA, ou avis IA « À laisser »">
-              <input type="checkbox" :checked="dropLevel === 'good'" @change="dropLevel = $event.target.checked ? 'good' : ''; dropShow = 100"> Masquer les noms faibles
-            </label>
-            <button type="button" class="tag" :class="{ on: dropNewOnly }" :aria-pressed="dropNewOnly" @click="dropNewOnly = !dropNewOnly; dropShow = 100"
-                    x-text="'Nouveaux cette nuit (' + fmt(dropNewCount()) + ')'"></button>
-          </div>
-          <div class="ex-chips" aria-label="Extensions">
-            <button type="button" class="tag" :class="{ on: !dropTld }" @click="dropTld = ''">Toutes</button>
-            <template x-for="t in dropTlds" :key="t">
-              <button type="button" class="tag" :class="{ on: dropTld === t }" @click="dropTld = dropTld === t ? '' : t" x-text="'.' + t"></button>
-            </template>
-          </div>
+          <!-- Usage, noms faibles, nouveaux, extensions : ici sur ordinateur, dans le panneau Avancé sur téléphone. -->
+          <template x-if="!mobile"><div x-tpl="'veille-simple'"></div></template>
           <div class="ex-active" x-show="dropActive().length">
             <template x-for="a in dropActive()" :key="a.key">
               <button type="button" class="ex-pill" @click="dropClear(a.key)"><span x-text="a.label"></span> ×</button>
@@ -257,6 +230,7 @@
             <button type="button" class="btn-text" @click="dropReset()">Tout effacer</button>
             <button type="button" class="btn-ghost sm" @click="dfOpen = false">OK</button>
           </div>
+          <template x-if="mobile"><div x-tpl="'veille-simple'"></div></template>
           <h4 class="ex-group-title">Le nom</h4>
           <div class="ex-field"><span>Forme</span>
             <div class="ex-options">
@@ -320,43 +294,31 @@
           </div>
         </div>
 
+        <!-- Onglets et tri : la seule partie collante sur téléphone. -->
         <div class="ex-list-head">
-          <select class="filter-input drops-sort" x-model="dropSortMode" @change="dropShow = 100" aria-label="Tri">
-            <option value="best">Les meilleurs d'abord</option>
-            <option value="recent">Les plus récents</option>
-            <option value="release" x-show="dropTab === 'coming'">Libération la plus proche</option>
-          </select>
-          <div class="ex-tools">
-            <button type="button" class="btn-ghost sm" x-show="dropList.length" @click="dropPickAll(!dropAllPicked())" x-text="dropAllPicked() ? 'Désélectionner' : 'Tout sélectionner'"></button>
+          <div class="veille-tabs" role="tablist">
+            <button type="button" role="tab" class="veille-tab" :class="{ on: dropTab === 'free' }" :aria-selected="dropTab === 'free'" @click="dropSetTab('free')">
+              Libérés <span class="num" x-text="fmt(dropTabCount('free'))"></span>
+            </button>
+            <button type="button" role="tab" class="veille-tab" :class="{ on: dropTab === 'coming' }" :aria-selected="dropTab === 'coming'" @click="dropSetTab('coming')">
+              Bientôt libres <span class="num" x-text="fmt(dropTabCount('coming'))"></span>
+            </button>
+          </div>
+          <div class="ex-list-row">
+            <select class="filter-input drops-sort" x-model="dropSortMode" @change="dropShow = 100" aria-label="Tri">
+              <option value="best">Les meilleurs d'abord</option>
+              <option value="recent">Les plus récents</option>
+              <option value="release" x-show="dropTab === 'coming'">Libération la plus proche</option>
+            </select>
+            <div class="ex-tools">
+              <button type="button" class="btn-ghost sm" x-show="dropList.length" @click="dropPickAll(!dropAllPicked())" x-text="dropAllPicked() ? 'Désélectionner' : 'Tout sélectionner'"></button>
+            </div>
           </div>
         </div>
         <p class="muted" x-show="!dropList.length" x-text="dropTab === 'free' ? 'Aucun nom libéré pour ces réglages.' : 'Aucun nom en rédemption ou en suppression pour ces réglages.'"></p>
         <ol class="ex-list veille-list">
           <template x-for="d in dropList.slice(0, dropShow)" :key="d.name">
-            <li class="ex-row" :class="{ picked: dropSelected.includes(d.name) }">
-              <div class="ex-line name-card" role="button" tabindex="0" @click="openFiche(d.name)"
-                   @keydown.enter.self.prevent="openFiche(d.name)" @keydown.space.self.prevent="openFiche(d.name)">
-                <input type="checkbox" class="ex-pick" :checked="dropSelected.includes(d.name)" @click.stop="dropToggle(d.name)" :aria-label="'Sélectionner ' + d.name">
-                <div class="nc-main">
-                  <div class="nc-head">
-                    <span class="mono nc-name" x-text="d.name"></span>
-                    <span class="ex-bar" :title="scoreTitle(d)"><i :style="'width:' + d.score + '%'"></i><b x-text="d.score"></b></span>
-                  </div>
-                  <p class="nc-line"><span class="nc-ai" :class="aiClass(d.ai)" x-text="verdictLine(d)"></span></p>
-                  <p class="nc-meta small">
-                    <span class="ex-reason new" x-show="dropNew(d)">Nouveau</span>
-                    <span class="badge" :class="'s-' + d.state" x-show="d.state !== 'available'" x-text="labels[d.state]"></span>
-                    <span x-show="d.state === 'available'" x-text="'libéré ' + relative(d.available_since)"></span>
-                    <span x-show="d.state !== 'available'" x-text="d.release_at ? 'libre ~' + shortDate(d.release_at) : 'libération inconnue'"></span>
-                    <span class="warn-text" x-show="d.premium" x-text="d.premium_price ? 'premium ~' + fmt(d.premium_price) + ' €' : 'premium ?'"></span>
-                  </p>
-                </div>
-                <div class="nc-actions" @click.stop>
-                  <a class="btn-ghost sm" x-show="d.state === 'available'" :href="orderLink(d.name)" target="_blank" rel="noopener">Réserver</a>
-                  <button type="button" class="btn-ghost sm" @click="watchDrop(d)" :disabled="d.watched" x-text="d.watched ? 'Surveillé' : 'Surveiller'"></button>
-                </div>
-              </div>
-            </li>
+            <li class="ex-row" :class="{ picked: dropSelected.includes(d.name) }" x-tpl="['name-card', { c: nameCard(d, 'veille') }]"></li>
           </template>
         </ol>
         <button type="button" class="btn-ghost drops-more" x-show="dropList.length > dropShow" @click="dropShow += 100"
@@ -376,10 +338,7 @@
   </section>
 
   <section class="portfolio-page sheet" x-show="portfolioOpen" x-transition.opacity.duration.150ms x-cloak aria-label="Portefeuille">
-    <div class="sheet-head">
-      <h2>Portefeuille</h2>
-      <button type="button" class="btn-ghost" @click="portfolioOpen = false">Fermer</button>
-    </div>
+    <div class="sheet-head"><h2>Portefeuille</h2></div>
     <template x-if="pf">
       <div>
         <div class="drops-card pf-totals">
@@ -437,10 +396,7 @@
   </section>
 
   <section class="explore-page sheet" x-show="exploreOpen" x-transition.opacity.duration.150ms x-cloak aria-label="Explorer">
-    <div class="sheet-head">
-      <h2>Explorer</h2>
-      <button type="button" class="btn-ghost" @click="exploreOpen = false">Fermer</button>
-    </div>
+    <div class="sheet-head"><h2>Explorer</h2></div>
 
     <template x-if="exError">
       <div class="drops-card"><p class="muted" x-text="exError"></p></div>
@@ -456,34 +412,8 @@
             <button type="button" class="btn-ghost ex-filter-btn" :class="{ on: exFiltersOpen || exActive().length }" @click="exFiltersOpen = !exFiltersOpen" :aria-expanded="exFiltersOpen"
                     x-text="exActive().length ? 'Avancé (' + exActive().length + ')' : 'Avancé'"></button>
           </div>
-          <div class="simple-row" aria-label="Usage et niveau">
-            <div class="segmented lens" role="radiogroup" aria-label="Usage">
-              <template x-for="l in LENSES" :key="l.k">
-                <button type="button" class="btn-ghost sm" :class="{ on: lens === l.k }" role="radio" :aria-checked="lens === l.k" @click="setLens(l.k)" x-text="l.label"></button>
-              </template>
-            </div>
-            <label class="weak-toggle" title="Score sous 30 sans avis IA, ou avis IA « À laisser »">
-              <input type="checkbox" :checked="ex.level === 'good'" @change="exSet({ level: $event.target.checked ? 'good' : '' })"> Masquer les noms faibles
-            </label>
-          </div>
-          <div class="ex-chips ex-states" aria-label="État">
-            <template x-for="st in EX_STATES" :key="st.k">
-              <button type="button" class="tag" :class="{ on: ex.status === st.k }" @click="exSet({ status: st.k, sort: st.k === 'coming' && ex.sort === 'best' ? 'release' : (st.k !== 'coming' && ex.sort === 'release' ? 'best' : ex.sort) })">
-                <span x-text="st.label"></span> <span class="num muted" x-show="exCountsExact()" x-text="fmt(exData.counts[st.k])"></span>
-              </button>
-            </template>
-          </div>
-          <div class="ex-chips ex-types" aria-label="Type de nom">
-            <template x-for="ty in EX_TYPES" :key="ty.k">
-              <button type="button" class="tag" :class="{ on: exTypeOn(ty) }" @click="exSetType(ty)" x-text="ty.label"></button>
-            </template>
-          </div>
-          <div class="ex-chips" aria-label="Extensions">
-            <button type="button" class="tag" x-show="exData.tlds.length > 2" :class="{ on: exTlds().length === exData.tlds.length }" :aria-pressed="exTlds().length === exData.tlds.length" @click="exSet({ tld: exData.tlds.join(',') })">Toutes</button>
-            <template x-for="t in exData.tlds" :key="t">
-              <button type="button" class="tag" :aria-pressed="exTlds().includes(t)" :class="{ on: exTlds().includes(t) }" @click="exToggleTld(t)" x-text="'.' + t"></button>
-            </template>
-          </div>
+          <!-- Usage, noms faibles, types, extensions : ici sur ordinateur, dans le panneau Avancé sur téléphone. -->
+          <template x-if="!mobile"><div x-tpl="'explore-simple'"></div></template>
           <div class="ex-active" x-show="exActive().length">
             <template x-for="a in exActive()" :key="String(a.key)">
               <button type="button" class="ex-pill" @click="exClear(a.key)"><span x-text="a.label"></span> ×</button>
@@ -499,6 +429,7 @@
             <button type="button" class="btn-text" @click="exReset()">Tout effacer</button>
             <button type="button" class="btn-ghost sm" @click="exFiltersOpen = false">OK</button>
           </div>
+          <template x-if="mobile"><div x-tpl="'explore-simple'"></div></template>
           <div class="ex-field"><span>Outils</span>
             <div class="ex-options">
               <button type="button" class="tag" :class="{ on: exTopOpen }" @click="exToggleTop(); exFiltersOpen = false">Classements (Top)</button>
@@ -612,6 +543,11 @@
         <!-- Top : les N premiers d'une liste, pris ou non, sur chaque extension. -->
         <template x-if="exTopOpen">
           <div class="ex-top">
+            <div class="ex-tool-head">
+              <h3>Classements</h3>
+              <span class="small muted">les premiers d'une liste, pris ou non, état sur chaque extension</span>
+              <button type="button" class="btn-ghost sm" @click="exToggleTop()">Fermer</button>
+            </div>
             <div class="ex-chips">
               <template x-for="k in ['sector', 'trend', 'expr', 'niche', 'word', 'english', 'firstname', 'surname', 'combo', 'form'].filter((x) => exData.kinds[x])" :key="k">
                 <button type="button" class="tag" :class="{ on: top.cat === k }" @click="top.cat = k; exLoadTop()" x-text="kindLabel(exData.kinds, k)"></button>
@@ -645,35 +581,30 @@
           </div>
         </template>
 
-        <!-- La recherche : le nom sur toutes les extensions. -->
-        <template x-if="ex.q.trim() && exCard && exCard.known">
+        <!-- La recherche : le nom tapé sur chaque extension, même carte que les listes. Hors des listes,
+             une ligne par extension à vérifier (POST /api/explore/check), puis Réserver ou Surveiller. -->
+        <template x-if="ex.q.trim() && exCard && (exCard.known || exProbe.length) && !exTopOpen">
           <div class="ex-card">
             <div class="ex-card-head">
               <span class="mono ex-card-name" x-text="exCard.label"></span>
-              <span class="small muted" x-text="exCard.categories.map((c) => kindLabel(exData.kinds, c)).join(', ')"></span>
+              <span class="small muted" x-text="exCard.known ? exCard.categories.map((c) => kindLabel(exData.kinds, c)).join(', ') : 'hors des listes suivies : à vérifier'"></span>
             </div>
-            <div class="ex-card-grid">
-              <template x-for="i in exCard.items" :key="i.name">
-                <div class="ex-cell">
-                  <div class="ex-cell-top">
-                    <span class="mono" x-text="'.' + i.tld"></span>
-                    <span class="badge" :class="badgeClass(i)" x-text="i.status_label"></span>
-                  </div>
-                  <div class="ex-bar" x-show="exAvailable(i)" :title="scoreTitle(i)"><i :style="'width:' + i.score + '%'"></i><b x-text="i.score"></b></div>
-                                    <template x-if="i.rdap"><dl class="ex-rdap" x-html="rdapHtml(i.rdap)"></dl></template>
-                  <div class="ex-actions">
-                    <button type="button" class="btn-ghost sm" @click="exCheck(i)" :disabled="!!exBusy[i.name]" x-text="exBusy[i.name] ? '…' : 'Vérifier'"></button>
-                    <a class="btn-ghost sm" x-show="exAvailable(i)" :href="orderLink(i.name)" target="_blank" rel="noopener">Réserver</a>
-                    <button type="button" class="btn-ghost sm" @click="exWatch(i)" :disabled="i.watched" x-text="i.watched ? 'Surveillé' : 'Surveiller'"></button>
-                  </div>
-                </div>
+            <ol class="ex-list">
+              <template x-for="i in (exCard.known ? exCard.items : exProbe)" :key="i.name">
+                <li class="ex-row" x-tpl="['name-card', { c: nameCard(i, i.probe ? 'probe' : 'card') }]"></li>
               </template>
-            </div>
+            </ol>
           </div>
         </template>
 
         <template x-if="exMapOpen && !exTopOpen && exMap">
           <div class="ex-map">
+            <div class="ex-tool-head">
+              <h3>Carte</h3>
+              <span class="small muted">noms réservables par extension et par catégorie, comme la puce « Libres »</span>
+              <button type="button" class="btn-ghost sm" @click="exMapOpen = false">Fermer</button>
+            </div>
+            <div class="ex-map-scroll">
             <table class="ex-map-table">
               <thead><tr><th></th><template x-for="t in exMap.tlds" :key="t"><th class="mono" x-text="'.' + t"></th></template></tr></thead>
               <tbody>
@@ -687,44 +618,38 @@
                 </template>
               </tbody>
             </table>
+            </div>
           </div>
         </template>
 
+        <!-- États et tri : la seule partie collante sur téléphone ; masqués avec le Top, qui montre tous les états. -->
         <div class="ex-list-head" x-show="!exTopOpen">
-          <select class="filter-input ex-sort" x-model="ex.sort" @change="exSet({})" aria-label="Tri">
-            <option value="best">Les meilleurs d'abord</option>
-            <option value="release">Libération la plus proche</option>
-            <option value="length">Les plus courts</option>
-            <option value="freq">Les plus courants</option>
-            <option value="score">Score seul</option>
-          </select>
-          <div class="ex-tools">
-            <button type="button" class="btn-ghost sm" @click="exSelectAll()" x-text="exSelected.length ? 'Désélectionner' : 'Tout sélectionner'"></button>
-            <a class="btn-ghost sm" :href="'/api/explore/export?' + exQuery(-1) + '&sort=' + exSortParam()" download>CSV</a>
+          <div class="ex-chips ex-states" aria-label="État">
+            <template x-for="st in EX_STATES" :key="st.k">
+              <button type="button" class="tag" :class="{ on: ex.status === st.k }" @click="exSet({ status: st.k, sort: st.k === 'coming' && ex.sort === 'best' ? 'release' : (st.k !== 'coming' && ex.sort === 'release' ? 'best' : ex.sort) })">
+                <span x-text="st.label"></span> <span class="num muted" x-show="exCountsExact()" x-text="fmt(exData.counts[st.k])"></span>
+              </button>
+            </template>
+          </div>
+          <div class="ex-list-row">
+            <select class="filter-input ex-sort" x-model="ex.sort" @change="exSet({})" aria-label="Tri">
+              <option value="best">Les meilleurs d'abord</option>
+              <option value="release">Libération la plus proche</option>
+              <option value="length">Les plus courts</option>
+              <option value="freq">Les plus courants</option>
+              <option value="score">Score seul</option>
+            </select>
+            <div class="ex-tools">
+              <button type="button" class="btn-ghost sm" @click="exSelectAll()" x-text="exSelected.length ? 'Désélectionner' : 'Tout sélectionner'"></button>
+              <a class="btn-ghost sm" :href="'/api/explore/export?' + exQuery(-1) + '&sort=' + exSortParam()" download>CSV</a>
+            </div>
           </div>
         </div>
 
         <p class="muted small" x-show="!exTopOpen && !exLoading && !exItems.length">Aucun nom.</p>
         <ol class="ex-list" :class="{ loading: exLoading }" x-show="!exTopOpen">
           <template x-for="i in exItems" :key="i.name">
-            <li class="ex-row" :class="{ picked: exSelected.includes(i.name) }">
-              <div class="ex-line name-card" role="button" tabindex="0" @click="openFiche(i.name)"
-                   @keydown.enter.self.prevent="openFiche(i.name)" @keydown.space.self.prevent="openFiche(i.name)">
-                <input type="checkbox" class="ex-pick" :checked="exSelected.includes(i.name)" @click.stop="exToggle(i.name)" :aria-label="'Sélectionner ' + i.name">
-                <div class="nc-main">
-                  <div class="nc-head">
-                    <span class="mono nc-name" x-text="i.name"></span>
-                    <span class="ex-bar" :title="scoreTitle(i)"><i :style="'width:' + i.score + '%'"></i><b x-text="i.score"></b></span>
-                  </div>
-                  <p class="nc-line"><span class="nc-ai" :class="aiClass(i.ai)" x-text="verdictLine(i)"></span></p>
-                  <p class="nc-meta small">
-                    <span class="badge" :class="badgeClass(i)" x-show="![2, 3, 5].includes(i.status) || ex.status === 'all'" x-text="i.status_label"></span>
-                    <span x-show="i.status === 4 && i.release_at" x-text="'libre ~' + shortDate(i.release_at)"></span>
-                    <span class="warn-text" x-show="i.premium_price" x-text="'premium ~' + fmt(i.premium_price) + ' €'"></span>
-                  </p>
-                </div>
-              </div>
-            </li>
+            <li class="ex-row" :class="{ picked: exSelected.includes(i.name) }" x-tpl="['name-card', { c: nameCard(i, 'explore') }]"></li>
           </template>
         </ol>
         <div class="explore-more" x-show="!exTopOpen">
@@ -745,10 +670,7 @@
   </section>
 
   <section class="panel settings sheet" x-show="settingsOpen" x-transition.opacity.duration.150ms x-cloak aria-label="Paramètres">
-    <div class="sheet-head">
-      <h2>Paramètres</h2>
-      <button type="button" class="btn-ghost" @click="settingsOpen = false">Fermer</button>
-    </div>
+    <div class="sheet-head"><h2>Paramètres</h2></div>
     <p class="settings-help"><button type="button" class="btn-ghost sm" @click="openSheet('legend')">Aide</button></p>
     <div class="version-block">
       <h3>Version</h3>
@@ -1498,6 +1420,85 @@
   </template>
 
   <datalist id="tag-list"><template x-for="t in allTags" :key="t"><option :value="t"></option></template></datalist>
+
+  <!-- Gabarits clonés par x-tpl (app.js) : une seule structure HTML, réutilisée. -->
+  <!-- Carte de nom, la même dans la Veille, l'Explorer et la recherche ; c = nameCard(item, list). -->
+  <template id="name-card">
+    <div class="ex-line name-card" role="button" tabindex="0" @click="openFiche(c.name)"
+         @keydown.enter.self.prevent="openFiche(c.name)" @keydown.space.self.prevent="openFiche(c.name)">
+      <input type="checkbox" class="ex-pick" x-show="c.pickable" :checked="c.picked" @click.stop="cardToggle(c)" :aria-label="'Sélectionner ' + c.name">
+      <div class="nc-main">
+        <div class="nc-head">
+          <span class="mono nc-name" x-text="c.name"></span>
+          <span class="nc-pills">
+            <span class="nc-pill main" x-show="c.primary" :title="c.primary ? c.primary.title : ''"><span x-text="c.primary ? c.primary.label : ''"></span> <b x-text="c.primary ? c.primary.value : ''"></b></span>
+            <span class="nc-pill" x-show="c.secondary" :title="c.secondary ? c.secondary.title : ''"><span x-text="c.secondary ? c.secondary.label : ''"></span> <b x-text="c.secondary ? c.secondary.value : ''"></b></span>
+          </span>
+        </div>
+        <p class="nc-line" x-show="c.line"><span class="nc-ai" :class="c.lineClass" x-text="c.line"></span></p>
+        <p class="nc-meta small">
+          <span class="ex-reason new" x-show="c.isNew">Nouveau</span>
+          <span class="badge" :class="c.badge.cls" x-text="c.badge.text"></span>
+          <span x-show="c.when" x-text="c.when"></span>
+          <span class="warn-text" x-show="c.premium" x-text="c.premium"></span>
+        </p>
+      </div>
+      <div class="nc-actions" @click.stop>
+        <a class="btn-ghost sm" x-show="c.canReserve" :href="orderLink(c.name)" target="_blank" rel="noopener">Réserver</a>
+        <button type="button" class="btn-ghost sm" x-show="c.canCheck" @click="cardCheck(c)" :disabled="c.busy" x-text="c.busy ? 'Vérification' : 'Vérifier'"></button>
+        <button type="button" class="btn-ghost sm" @click="cardWatch(c)" :disabled="c.watched" x-text="c.watched ? 'Surveillé' : 'Surveiller'"></button>
+      </div>
+    </div>
+  </template>
+
+  <!-- Usage (revendre / exploiter), aide, noms faibles ; screen = 'veille' ou 'explore'. -->
+  <template id="lens-row">
+    <div class="simple-row" aria-label="Usage et niveau">
+      <div class="segmented lens" role="radiogroup" aria-label="Usage">
+        <template x-for="l in LENSES" :key="l.k">
+          <button type="button" class="btn-ghost sm" :class="{ on: lens === l.k }" role="radio" :aria-checked="lens === l.k" @click="setLens(l.k)" x-text="l.label"></button>
+        </template>
+      </div>
+      <button type="button" class="help-btn" aria-label="Aide : score et note IA, deux échelles" title="Score et note IA : deux échelles, voir l'Aide" @click="helpAt('help-find')">?</button>
+      <label class="weak-toggle">
+        <input type="checkbox" :checked="weakHidden(screen)" @change="setWeak(screen, $event.target.checked)">
+        <span>Masquer les noms faibles <span class="weak-help muted">score sous 30 sans avis IA ; cache aussi les « À laisser » de l'IA, même bien notés</span></span>
+      </label>
+    </div>
+  </template>
+
+  <!-- Veille : réglages simples (en-tête sur ordinateur, panneau Avancé sur téléphone). -->
+  <template id="veille-simple">
+    <div class="simple-block">
+      <div x-tpl="['lens-row', { screen: 'veille' }]"></div>
+      <div class="ex-chips" aria-label="Nouveautés et extensions">
+        <button type="button" class="tag" :class="{ on: dropNewOnly }" :aria-pressed="dropNewOnly" @click="dropNewOnly = !dropNewOnly; dropShow = 100"
+                x-text="'Nouveaux depuis ma dernière visite (' + fmt(dropNewCount()) + ')'"></button>
+        <button type="button" class="tag" x-show="dropTlds.length > 1" :class="{ on: !dropTld }" @click="dropTld = ''">Toutes</button>
+        <template x-for="t in dropTlds" :key="t">
+          <button type="button" class="tag" :class="{ on: dropTld === t }" @click="dropTld = dropTld === t ? '' : t" x-text="'.' + t"></button>
+        </template>
+      </div>
+    </div>
+  </template>
+
+  <!-- Explorer : réglages simples (en-tête sur ordinateur, panneau Avancé sur téléphone). -->
+  <template id="explore-simple">
+    <div class="simple-block">
+      <div x-tpl="['lens-row', { screen: 'explore' }]"></div>
+      <div class="ex-chips ex-types" aria-label="Type de nom">
+        <template x-for="ty in EX_TYPES" :key="ty.k">
+          <button type="button" class="tag" :class="{ on: exTypeOn(ty) }" @click="exSetType(ty)" x-text="ty.label"></button>
+        </template>
+      </div>
+      <div class="ex-chips" aria-label="Extensions">
+        <button type="button" class="tag" x-show="exData.tlds.length > 1" :class="{ on: exTlds().length === exData.tlds.length }" :aria-pressed="exTlds().length === exData.tlds.length" @click="exSet({ tld: exData.tlds.join(',') })">Toutes</button>
+        <template x-for="t in exData.tlds" :key="t">
+          <button type="button" class="tag" :aria-pressed="exTlds().includes(t)" :class="{ on: exTlds().includes(t) }" @click="exToggleTld(t)" x-text="'.' + t"></button>
+        </template>
+      </div>
+    </div>
+  </template>
 
   <nav class="tabbar" aria-label="Navigation">
     <button type="button" :class="{ on: !paged }" @click="home(); filter = null">

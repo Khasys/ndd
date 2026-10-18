@@ -170,6 +170,21 @@ def test_manual_check_outside_fr_keeps_a_held_name(env):
     assert asyncio.run(env.verify("wxyz.com"))["status"] == explore.REGISTERED
 
 
+def test_manual_check_of_a_name_outside_the_lists_gives_its_state(env):
+    # Nom tapé dans l'Explorer, absent de toutes les listes : la vérification doit quand même dire
+    # libre ou pris, avec le registrar et l'échéance, pour réserver ou surveiller.
+    expires = datetime.now(timezone.utc) + timedelta(days=300)
+    taken = LookupResult(found=True, info=DomainInfo(statuses=["active"], registrar="Gandi", expires_at=expires))
+    env.drops.rdap = env.fr.rdap = FakeRdap({"monsuperprojet.com": LookupResult(available=True), "monsuperprojet.fr": taken})
+    assert env.universe.index("monsuperprojet") is None
+    free = asyncio.run(env.verify("monsuperprojet.com"))
+    assert free["status"] == explore.FREE and free["status_label"] == "Libre (vérifié)" and free["known"] is False
+    assert free["rdap"]["available"] and free["checked_at"] and free["watched"] is False and free["score"] == 0
+    pris = asyncio.run(env.verify("monsuperprojet.fr"))
+    assert pris["status"] == explore.REGISTERED and pris["status_label"] == "Enregistré"
+    assert pris["rdap"]["registrar"] == "Gandi" and pris["rdap"]["expires_at"].startswith(expires.strftime("%Y-%m-%d"))
+
+
 def test_paused_afnic_refuses_manual_checks(env):
     env.fr._pause("Limite (429)", datetime.now(timezone.utc))
     with pytest.raises(explore.VerifyError, match="pause"):
@@ -250,9 +265,15 @@ def test_map_counts_per_extension_and_category(env):
     found = env.map()
     assert found["tlds"] == ["fr", "com"] and "Mots" in found["rows"].values()
     assert found["filters"]["short"] == {"cat": "", "len": -3} and found["filters"]["l4"] == {"cat": "letters", "len": 4}
-    assert found["cells"]["fr"]["short"] == env.facets("fr", length=-3)["available"]
+    # Les cases comptent ce que la puce « Libres » liste : réservables, libération à venir exclue.
+    assert found["cells"]["fr"]["short"] == env.facets("fr", length=-3)["bookable"]
     # .com : pas de premium chez le registre (prix unique) ; tous les mots libres comptent.
     assert found["cells"]["com"]["word"] == len(env.universe.by_list["word"]) - 1
+    env.drops.record("com", ["maison"], [], datetime.now(timezone.utc))
+    env.conn.execute("UPDATE drops SET state = 'redemption' WHERE name = 'maison.com'")
+    env.invalidate()
+    assert env.facets("com", category="word")["coming"] == 1
+    assert env.map()["cells"]["com"]["word"] == env.facets("com", category="word")["bookable"]
 
 
 def test_seo_analysis_reads_pagerank_and_wayback(env):

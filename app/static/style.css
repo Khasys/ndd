@@ -492,12 +492,8 @@ button:disabled { cursor: default; opacity: .55; }
     padding: calc(8px + env(safe-area-inset-top)) 16px 32px;
     background: var(--bg);
   }
-  .sheet-head {
-    display: flex; align-items: center; justify-content: space-between;
-    position: sticky; top: calc(-8px - env(safe-area-inset-top)); z-index: 1;
-    margin: 0 -16px 12px; padding: 8px 16px; background: var(--bg); border-bottom: 1px solid var(--line);
-  }
-  .sheet-head h2 { margin: 0; font-size: 20px; font-weight: 600; }
+  .sheet-head { display: flex; align-items: center; justify-content: space-between; margin: 0 0 6px; padding: 0; }
+  .sheet-head h2 { margin: 0; font-size: 19px; line-height: 1.3; font-weight: 600; }
   .settings h2, .version-block h2 { font-size: 15px; }
   .settings-grid > div, .version-block {
     padding: 14px; margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
@@ -772,6 +768,8 @@ button:disabled { cursor: default; opacity: .55; }
 .ex-pill { border: 1px solid var(--accent); color: var(--accent); background: none; border-radius: 12px; padding: 2px 10px; font: inherit; font-size: 12.5px; cursor: pointer; }
 
 .ex-panel { margin: 0 0 12px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; display: grid; gap: 12px; }
+/* Rangées de puces qui défilent : elles ne doivent pas élargir le panneau ni l'en-tête. */
+.ex-panel > *, .ex-sticky > *, .simple-block, .simple-block > * { min-width: 0; }
 .ex-panel-head { display: flex; align-items: center; gap: 12px; }
 .ex-panel-head strong { flex: 1; }
 .ex-field { display: grid; gap: 6px; }
@@ -786,11 +784,14 @@ button:disabled { cursor: default; opacity: .55; }
 .ex-card { margin: 4px 0 14px; padding: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; scroll-margin-top: 130px; }
 .ex-card-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: 0 0 10px; }
 .ex-card-name { font-size: 22px; font-weight: 500; }
-.ex-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
-.ex-cell { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
-.ex-cell-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 16px; }
+.ex-card .ex-list { border-color: var(--line); }
+/* Top et Carte : un titre, une phrase, Fermer. */
+.ex-tool-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ex-tool-head h3 { margin: 0; font-size: 15px; }
+.ex-tool-head .btn-ghost { margin-left: auto; }
 
-.ex-map { margin: 4px 0 10px; overflow-x: auto; }
+.ex-map { margin: 4px 0 10px; display: grid; gap: 8px; }
+.ex-map-scroll { overflow-x: auto; }
 .ex-map-table { border-collapse: separate; border-spacing: 4px; font-variant-numeric: tabular-nums; }
 .ex-map-table th { font-size: 12px; font-weight: 500; color: var(--muted); text-align: left; padding: 0 8px 0 0; white-space: nowrap; }
 .ex-map-table thead th { text-align: center; padding: 0 0 2px; }
@@ -798,7 +799,9 @@ button:disabled { cursor: default; opacity: .55; }
 .ex-map-cell:hover { border-color: var(--accent); }
 .ex-map-cell.empty { color: var(--muted); }
 
-.ex-list-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 8px; }
+/* En tête de liste : onglets ou états, puis tri et outils ; collant sur téléphone (voir plus bas). */
+.ex-list-head { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin: 0 0 8px; }  /* minmax(0, …) : le tri et ses boutons ne doivent pas élargir la grille */
+.ex-list-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .ex-tools { display: flex; gap: 6px; }
 .ex-sort { width: auto; height: 34px; }
 .ex-list { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; transition: opacity .15s; }
@@ -813,10 +816,7 @@ button:disabled { cursor: default; opacity: .55; }
 .ex-bar { position: relative; display: block; height: 18px; border-radius: 9px; background: var(--bg); border: 1px solid var(--line); overflow: hidden; }
 .ex-bar i { position: absolute; inset: 0 auto 0 0; background: color-mix(in srgb, var(--accent) 35%, transparent); }
 .ex-bar b { position: relative; display: block; padding: 0 8px; font-size: 11.5px; line-height: 16px; text-align: right; font-variant-numeric: tabular-nums; }
-.ex-rdap { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 12px; margin: 0; font-size: 12.5px; }
-.ex-rdap dt { color: var(--muted); }
-.ex-rdap dd { margin: 0; overflow-wrap: anywhere; }
-.ex-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.badge.x-0 { background: none; color: var(--muted); border: 1px dashed var(--line-strong); }
 .badge.x-7 { background: none; color: var(--danger); border: 1px solid var(--danger); }
 .badge.x-8 { background: none; color: var(--muted); border: 1px dashed var(--muted); }
 .ex-bulk { position: sticky; bottom: 8px; z-index: 6; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0 0; padding: 10px 12px; background: var(--surface); border: 1px solid var(--accent); border-radius: 12px; box-shadow: 0 4px 18px rgba(0, 0, 0, .12); }
@@ -832,8 +832,6 @@ button:disabled { cursor: default; opacity: .55; }
   .ex-pick { width: 24px; height: 24px; align-self: start; margin-top: 1px; }
   .ex-view-name, .ex-x { min-height: 40px; }
   .ex-x { min-width: 40px; }
-  .ex-actions .btn-ghost { flex: 1 1 30%; min-height: 36px; padding: 0 8px; font-size: 13.5px; text-align: center; }
-  .ex-card-grid { grid-template-columns: minmax(0, 1fr); }
   .ex-bulk { bottom: 8px; flex-wrap: wrap; gap: 6px; padding: 8px 10px; font-size: 13.5px; }
   .ex-bulk > * { flex: none; }
   .ex-bulk .btn-ghost { min-height: 34px; padding: 0 10px; font-size: 13.5px; }
@@ -926,8 +924,8 @@ button:disabled { cursor: default; opacity: .55; }
 /* Mobile : rien ne déborde à droite, la page ne se décale plus. */
 @media (max-width: 899px) {
   .page { overflow-x: clip; }
-  .ex-card, .ex-cell, .ex-list, .drops-table { max-width: 100%; }
-  .ex-cell dd, .details dd { overflow-wrap: anywhere; min-width: 0; }
+  .ex-card, .ex-list, .drops-table { max-width: 100%; }
+  .details dd { overflow-wrap: anywhere; min-width: 0; }
 }
 .dns-name { margin-right: 10px; }
 /* Explorer : Top N d'une liste, état par extension. */
@@ -1011,6 +1009,23 @@ button:disabled { cursor: default; opacity: .55; }
 .nc-main { flex: 1; min-width: 0; }
 .nc-head { display: flex; align-items: center; gap: 10px; justify-content: space-between; }
 .nc-name { font-size: 16px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Pastilles : la valeur qui trie (note IA de l'usage, sinon score) en avant, l'autre en retrait. */
+.nc-pills { display: flex; gap: 6px; align-items: center; flex: none; }
+.nc-pill {
+  display: inline-flex; align-items: baseline; gap: 4px; padding: 1px 8px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--bg);
+  font-size: 11.5px; color: var(--muted); white-space: nowrap; cursor: help;
+}
+.nc-pill b { font-size: 13px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+.nc-pill.main { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
+.nc-pill.main b { font-size: 14.5px; color: var(--accent); }
+/* « ? » à côté de l'usage : l'Aide, section « Trouver les meilleurs ». */
+.help-btn {
+  width: 24px; height: 24px; padding: 0; border-radius: 50%; border: 1px solid var(--line-strong);
+  background: none; color: var(--muted); font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.help-btn:hover { color: var(--accent); border-color: var(--accent); }
+.simple-block { display: flex; flex-direction: column; gap: 8px; }
 .nc-line { margin: 3px 0 0; font-size: 14px; }
 .nc-ai.take { color: var(--accent); font-weight: 600; }
 .nc-ai.watch { font-weight: 600; }
@@ -1030,14 +1045,29 @@ button:disabled { cursor: default; opacity: .55; }
 @media (max-width: 899px) {
   /* Sur téléphone, l'en-tête complet mangerait la moitié de l'écran : il défile avec la liste. */
   .ex-sticky { position: static; }
-  .veille-list .name-card { flex-wrap: wrap; }
-  .veille-list .nc-actions { width: 100%; padding-left: 30px; }
-  .veille-list .nc-actions .btn-ghost { flex: 1; min-height: 36px; }
+  /* Onglets (ou états) et tri : la seule partie collante, pour garder la première carte haut dans l'écran. */
+  .ex-list-head { position: sticky; top: calc(-8px - env(safe-area-inset-top)); z-index: 6; gap: 6px; margin: 0 -16px 4px; padding: 4px 16px 6px; background: var(--bg); border-bottom: 1px solid var(--line); }
+  .ex-list-head .filter-input { height: 38px; flex: 1; min-width: 0; }
+  .ex-list-row .ex-tools { flex: none; }
+  .ex-list-head .veille-tab { min-height: 38px; }
+  .ex-sticky { padding: 2px 16px 6px; }
+  .ex-search, .ex-filter-btn { height: 40px; min-height: 40px; }
+  /* Ligne des sources : une ligne, pour garder la première carte haut dans l'écran. */
+  .drops-sources { flex-wrap: nowrap; margin: 0 0 4px; }
+  .drops-sources > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .drops-sources .link-like { flex: none; }
+  .ex-list .name-card { flex-wrap: wrap; }
+  .ex-list .nc-actions { width: 100%; padding-left: 30px; }
+  .ex-card .nc-actions { padding-left: 0; }
+  .ex-list .nc-actions .btn-ghost { flex: 1; min-height: 36px; }
   .segmented .btn-ghost { min-height: 40px; }
+  .help-btn { width: 32px; height: 32px; }
 }
 
 /* Fiche : sous-notes de la grille IA. */
 .ai-grid { font-size: 13px; line-height: 1.7; }
 .ai-grid b { font-variant-numeric: tabular-nums; }
-.weak-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; cursor: pointer; }
-.weak-toggle input { width: 16px; height: 16px; accent-color: var(--accent); }
+.weak-toggle { display: inline-flex; align-items: flex-start; gap: 6px; font-size: 14px; line-height: 1.3; cursor: pointer; }
+.weak-toggle input { flex: none; width: 16px; height: 16px; margin-top: 2px; accent-color: var(--accent); }
+/* Aide courte visible : la case cache aussi les « À laisser » de l'IA. */
+.weak-help { display: block; font-size: 11.5px; }

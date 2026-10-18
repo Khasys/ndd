@@ -94,6 +94,23 @@ function frequency(seconds) {
 }
 
 document.addEventListener("alpine:init", () => {
+  // x-tpl="['id', { c: … }]" ou x-tpl="'id'" : clone le <template id="…"> (une seule racine) dans
+  // l'élément, avec les données passées en portée ; les méthodes viennent du composant parent.
+  // Un seul gabarit HTML pour la carte de nom (Veille, Explorer, recherche) et les réglages simples.
+  Alpine.directive("tpl", (el, { expression }, { evaluateLater, effect }) => {
+    const get = evaluateLater(expression);
+    const scope = Alpine.reactive({});
+    let root = null;
+    effect(() => get((spec) => {
+      const [id, data] = Array.isArray(spec) ? spec : [spec, {}];
+      Object.assign(scope, data);
+      if (root) return;
+      root = document.getElementById(id).content.firstElementChild.cloneNode(true);
+      Alpine.addScopeToNode(root, scope, el);
+      Alpine.mutateDom(() => { el.appendChild(root); Alpine.initTree(root); });
+    }));
+  });
+
   Alpine.data("app", () => ({
     domains: [],
     meta: null,
@@ -161,7 +178,8 @@ document.addEventListener("alpine:init", () => {
     exBulkRunning: false,
     exBulkDone: 0,
     exViews: [],
-    exLengths: [{ v: "", label: "Toutes" }, { v: "-3", label: "1 à 3" }, { v: "1", label: "1" }, { v: "2", label: "2" }, { v: "3", label: "3" }, { v: "4", label: "4" }, { v: "5", label: "5 et plus" }],
+    // « -4 » est aussi la puce « Courts (1 à 4) » de l'Explorer : même libellé des deux côtés.
+    exLengths: [{ v: "", label: "Toutes" }, { v: "-4", label: "Courts (1 à 4)" }, { v: "-3", label: "1 à 3" }, { v: "1", label: "1" }, { v: "2", label: "2" }, { v: "3", label: "3" }, { v: "4", label: "4" }, { v: "5", label: "5 et plus" }],
     exRanks: [{ v: "", label: "Toutes" }, { v: "100", label: "Top 100" }, { v: "500", label: "Top 500" }, { v: "1000", label: "Top 1 000" }, { v: "5000", label: "Top 5 000" }],
     orderUrl: "",
     dropTld: "",
@@ -184,8 +202,14 @@ document.addEventListener("alpine:init", () => {
     pairing: null,
     themes: [{ key: "system", label: "Système" }, { key: "light", label: "Clair" }, { key: "dark", label: "Sombre" }],
     days: ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"],
+    isMobile: window.matchMedia("(max-width: 899px)").matches,
+    // Nom tapé dans l'Explorer, absent des listes : une ligne par extension, à vérifier.
+    exProbe: [],
 
     init() {
+      // Téléphone ou ordinateur : suivi en direct, les réglages simples changent de place selon la largeur.
+      const narrow = window.matchMedia("(max-width: 899px)");
+      narrow.addEventListener("change", (e) => (this.isMobile = e.matches));
       this.restoreFilters();
       for (const key of ["query", "filter", "tagFilter", "abandonedOnly", "sortKey", "sortDir", "tldFilter", "aiFilter"]) {
         this.$watch(key, () => this.saveFilters());
@@ -240,7 +264,7 @@ document.addEventListener("alpine:init", () => {
       }
     },
 
-    get mobile() { return window.matchMedia("(max-width: 899px)").matches; },
+    get mobile() { return this.isMobile; },
 
     lockScroll() {
       // La fiche est par-dessus tout : la page derrière ne défile plus, sur ordinateur aussi.
@@ -351,6 +375,89 @@ document.addEventListener("alpine:init", () => {
     // Sommaire de l'Aide : défilement sans toucher à l'adresse (un changement de hash déclenche popstate, qui fermerait l'écran).
     helpGo(href) {
       if (href && href.startsWith("#")) document.getElementById(href.slice(1))?.scrollIntoView({ behavior: "smooth", block: "start" });
+    },
+
+    // Bouton « ? » d'un écran : l'Aide, ouverte à la section voulue.
+    async helpAt(id) {
+      await this.openSheet("legend");
+      this.$nextTick(() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    },
+
+    // « Masquer les noms faibles » : même case dans la Veille et l'Explorer, réglage propre à chaque écran.
+    weakHidden(screen) { return screen === "veille" ? this.dropLevel === "good" : this.ex.level === "good"; },
+
+    setWeak(screen, on) {
+      if (screen === "veille") { this.dropLevel = on ? "good" : ""; this.dropShow = 100; return; }
+      return this.exSet({ level: on ? "good" : "" });
+    },
+
+    // Carte de nom : la même dans la Veille, l'Explorer et la recherche (gabarit #name-card). Tout ce
+    // que la carte affiche vient d'ici ; un autre écran (Aujourd'hui) n'a qu'à appeler nameCard(item, list).
+    // list : « veille » (élément de /api/drops), « explore » (élément de /api/explore/rank), « card »
+    // (élément de /api/explore/name) ou « probe » (nom tapé hors des listes, avant et après /api/explore/check).
+    nameCard(i, list) {
+      const ai = i.ai;
+      const lens = this.lens === "exploit" ? "exploitation" : "revente";
+      const note = ai ? { label: "IA", value: Number(ai[this.lens]), title: `Note IA de ${lens} sur 100 : la valeur qui trie pour cet usage` } : null;
+      const score = i.score === undefined || i.probe ? null : { label: "score", value: i.score, title: this.scoreTitle(i) || `Score ${i.score} sur 100` };
+      // La pastille principale est ce qui trie : la note IA de l'usage en cours, sinon le score ; « Score seul » garde le score.
+      const scoreFirst = !note || (list === "explore" && this.ex.sort === "score");
+      const st = this.cardState(i, list);
+      return {
+        name: i.name, list, item: i,
+        primary: scoreFirst ? score : note,
+        secondary: scoreFirst ? note : score,
+        line: ai ? `${this.aiVerdict(ai)} · utilisateur final ${this.priceRange(ai.final_low, ai.final_high)}` : (i.reasons || []).slice(0, 2).join(" · "),
+        lineClass: this.aiClass(ai),
+        ...st,
+        isNew: list === "veille" && this.dropNew(i),
+        premium: list === "veille" && i.premium ? (i.premium_price ? `premium probable ~${this.fmt(i.premium_price)} €` : "premium probable")
+          : i.status === 8 && i.premium_price ? `~${this.fmt(i.premium_price)} €` : "",
+        watched: !!i.watched,
+        busy: !!this.exBusy[i.name],
+        pickable: list === "veille" || list === "explore",
+        picked: list === "veille" ? this.dropSelected.includes(i.name) : list === "explore" && this.exSelected.includes(i.name),
+      };
+    },
+
+    // État explicite d'une carte : badge (texte et couleur), date ou détail, actions possibles.
+    cardState(i, list) {
+      const checked = i.checked_at ? `vérifié ${this.relative(i.checked_at)}` : "";
+      if (list === "veille") {
+        if (i.state === "available") {
+          return { badge: { text: "libre", cls: "x-5" }, when: checked || `libéré ${this.relative(i.available_since)}`, canReserve: true, canCheck: false };
+        }
+        return { badge: { text: this.labels[i.state] || i.state, cls: "s-" + i.state },
+                 when: i.release_at ? `libération ~${this.shortDate(i.release_at)}` : "libération inconnue", canReserve: false, canCheck: false };
+      }
+      const r = i.rdap;
+      const detail = r && !r.available ? [r.registrar ? `registrar ${r.registrar}` : "", r.expires_at ? `expire le ${this.shortDate(r.expires_at)}` : ""].filter(Boolean).join(", ") : "";
+      switch (i.status) {
+        case 2: case 3: return { badge: { text: "probablement libre", cls: "x-3" }, when: checked, canReserve: true, canCheck: true };
+        case 5: return { badge: { text: "libre", cls: "x-5" }, when: checked, canReserve: true, canCheck: false };
+        case 4: return { badge: { text: i.status_label || "Libération à venir", cls: this.badgeClass(i) },
+                         when: i.release_at ? `libération ~${this.shortDate(i.release_at)}` : "libération à venir", canReserve: false, canCheck: false };
+        case 1: return { badge: { text: "pris", cls: "x-1" }, when: detail || checked, canReserve: false, canCheck: false };
+        case 6: return { badge: { text: "pris, suspendu", cls: "x-6" }, when: detail || checked, canReserve: false, canCheck: false };
+        case 7: return { badge: { text: "réservé", cls: "x-7" }, when: (i.reserved || []).join(", "), canReserve: false, canCheck: false };
+        case 8: return { badge: { text: "premium probable", cls: "x-8" }, when: "", canReserve: false, canCheck: false };
+        default: return { badge: { text: "pas encore vérifié", cls: "x-0" }, when: "", canReserve: false, canCheck: true };
+      }
+    },
+
+    cardToggle(c) {
+      if (c.list === "veille") this.dropToggle(c.name);
+      else if (c.list === "explore") this.exToggle(c.name);
+    },
+
+    cardWatch(c) { return this.watchName(c.item); },
+
+    async cardCheck(c) {
+      const item = await this.verifyName(c.name);
+      if (!item) return;
+      this.exReplace(item);
+      if (c.list === "veille") await this.loadDrops();
+      else this.exLoadMap();
     },
 
     // Explorer : tous les noms suivis, extension par extension.
@@ -708,24 +815,37 @@ document.addEventListener("alpine:init", () => {
     async exTyped() {
       const q = this.ex.q.trim();
       const loading = this.exLoad();
-      if (!q) { this.exCard = null; return loading; }
+      if (!q) { this.exCard = null; this.exProbe = []; return loading; }
       try {
         const card = await this.api("GET", `/api/explore/name?label=${encodeURIComponent(q)}`);
         if (this.ex.q.trim() === q) {
           this.exCard = card;
+          this.exProbe = card.known ? [] : this.probeItems(q, card.label);
           this.$nextTick(() => document.querySelector(".ex-card")?.scrollIntoView({ behavior: "smooth", block: "start" }));
         }
       } catch (_) {
         this.exCard = null;
+        this.exProbe = [];
       }
       return loading;
     },
 
+    // Nom tapé absent des listes : une ligne par extension suivie (ou celle tapée, « monprojet.fr »),
+    // vérifiable une à une. Un nom impossible (espace, accent) ne donne rien.
+    probeItems(q, label) {
+      if (!label || !/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/.test(label) || !this.exData) return [];
+      const typed = q.toLowerCase().split(".").slice(1).join(".");
+      const tlds = typed && this.exData.tlds.includes(typed) ? [typed] : this.exData.tlds;
+      const kept = Object.fromEntries(this.exProbe.map((p) => [p.name, p]));
+      return tlds.map((t) => kept[`${label}.${t}`] || { name: `${label}.${t}`, label, tld: t, probe: true });
+    },
+
     async exMapPick(key, tld) {
       const f = this.exMap.filters[key];
-      // Les cases comptent les noms non pris, libération à venir comprise : l'état le plus proche est « Libres ».
-      await this.exSet(this.exNormalize({ tld, cat: f.cat || "", len: f.len ? String(f.len) : "", status: "available" }));
-      this.$nextTick(() => document.querySelector(".ex-states")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+      // Les cases comptent ce que la puce « Libres » liste (réservables) : la liste s'ouvre dessus, la carte se referme.
+      this.exMapOpen = false;
+      await this.exSet({ tld, cat: f.cat || "", len: f.len ? String(f.len) : "", status: "bookable" });
+      this.$nextTick(() => document.querySelector(".ex-list-head")?.scrollIntoView({ behavior: "smooth", block: "start" }));
     },
 
     // Filtres : un seul point d'entrée, mémorisé pour la prochaine ouverture.
@@ -798,18 +918,6 @@ document.addEventListener("alpine:init", () => {
       this.lens = k;
       try { localStorage.setItem("lens", k); } catch (_) {}
       if (this.exploreOpen && this.ex.sort === "best") this.exLoad();
-    },
-
-    // Une phrase par nom : l'avis IA s'il existe, sinon ce qui fait sa valeur.
-    verdictLine(i) {
-      if (i.ai) {
-        const v = this.aiVerdict(i.ai);
-        // La note qui sert au classement, puis pour revendre le prix utilisateur final (le même que la fiche).
-        const price = this.lens === "exploit" ? `exploitation ${i.ai.exploit}/100`
-          : `revente ${i.ai.resale}/100 · utilisateur final ${this.priceRange(i.ai.final_low, i.ai.final_high)}`;
-        return `${v} · ${price}`;
-      }
-      return (i.reasons || []).slice(0, 2).join(" · ");
     },
 
     exAiVerdicts() { return (this.ex.ai_v || "").split(",").filter(Boolean); },
@@ -912,7 +1020,7 @@ document.addEventListener("alpine:init", () => {
         }
         for (const i of items) {
           if (action === "check") await this.exCheck(i);
-          else if (action === "watch" && !i.watched) await this.exWatch(i);
+          else if (action === "watch" && !i.watched) await this.watchName(i);
           else if (action === "reserve") await this.api("POST", "/api/reserved/flag", { name: i.name, reserved: true });
           this.exBulkDone += 1;
         }
@@ -954,8 +1062,6 @@ document.addEventListener("alpine:init", () => {
       if (host.includes("ovh")) return "OVH";
       return host.replace(/^(www|shop)\./, "");
     },
-
-    exAvailable(i) { return [2, 3, 4, 5].includes(i.status); },
 
     reservedLine(r) {
       const c = r.counts || {};
@@ -1034,9 +1140,9 @@ document.addEventListener("alpine:init", () => {
     },
 
     exReplace(item) {
-      for (const list of [this.exItems, this.exCard ? this.exCard.items : []]) {
+      for (const list of [this.exItems, this.exCard ? this.exCard.items : [], this.exProbe]) {
         const at = list.findIndex((x) => x.name === item.name);
-        if (at >= 0) list[at] = { ...list[at], ...item };
+        if (at >= 0) list[at] = { ...list[at], ...item, probe: list[at].probe };
       }
     },
 
@@ -1054,12 +1160,10 @@ document.addEventListener("alpine:init", () => {
       }
     },
 
-    async exCheck(i) {
-      const item = await this.verifyName(i.name);
-      if (item) { this.exReplace(item); this.exLoadMap(); }
-    },
+    async exCheck(i) { return this.cardCheck({ name: i.name, list: "explore" }); },
 
-    async exWatch(i) {
+    // Surveiller depuis une carte (Veille, Explorer, recherche) : ajouté à Domaines, cartes mises à jour.
+    async watchName(i) {
       this.newName = i.name;
       await this.add();
       if (this.domains.some((x) => x.name === i.name)) this.markWatched(i.name);
@@ -1097,7 +1201,7 @@ document.addEventListener("alpine:init", () => {
           this.say(`${names.length} nom(s) masqué(s). Réaffichage possible dans Paramètres.`);
         } else {
           for (const d of items) {
-            if (action === "watch" && !d.watched) await this.watchDrop(d);
+            if (action === "watch" && !d.watched) await this.watchName(d);
             else if (action === "ai") await this.api("POST", "/api/ai/request", { name: d.name });
             else if (action === "check") await this.verifyName(d.name);
             this.dropBulkDone += 1;
@@ -1206,7 +1310,7 @@ document.addEventListener("alpine:init", () => {
     // Listes triées gardées tant que ni les données ni les filtres ne changent : 3 000 noms ne sont
     // plus filtrés et triés à chaque rafraîchissement de l'affichage.
     dropsMemo(kind, build) {
-      const key = JSON.stringify([kind, this._dropsVer, this.df, this.dropTld, this.dropKinds,
+      const key = JSON.stringify([kind, this._dropsVer, this.df, this.dropTld, this.dropKinds, this.dropsSeenBefore,
         this.dropTab, this.dropNewOnly, this.dropLevel, this.dropSortMode, this.lens, Math.floor(this.now / 600000)]);
       this._memo = this._memo || {};
       if (this._memo[kind]?.key !== key) this._memo[kind] = { key, list: build() };
@@ -1253,11 +1357,6 @@ document.addEventListener("alpine:init", () => {
       return tab === "free" ? d.state === "available" : ["expired", "redemption", "pending_delete"].includes(d.state);
     },
 
-    dropIsNew(d) {
-      const since = this.nightSince();
-      return (d.state === "available" ? d.available_since || "" : d.state_since || "") >= since;
-    },
-
     dropTabCount(tab) {
       if (!this.dropsData) return 0;
       return this.dropsMemo("count:" + tab, () => this.dropsData.items.filter((d) => this.dropInTab(d, tab) && this.dropMatches(d) && this.dropLevelOk(d)).length);
@@ -1265,14 +1364,14 @@ document.addEventListener("alpine:init", () => {
 
     dropNewCount() {
       if (!this.dropsData) return 0;
-      return this.dropsMemo("new", () => this.dropsData.items.filter((d) => this.dropInTab(d, this.dropTab) && this.dropMatches(d) && this.dropLevelOk(d) && this.dropIsNew(d)).length);
+      return this.dropsMemo("new", () => this.dropsData.items.filter((d) => this.dropInTab(d, this.dropTab) && this.dropMatches(d) && this.dropLevelOk(d) && this.dropNew(d)).length);
     },
 
     get dropList() {
       if (!this.dropsData) return [];
       return this.dropsMemo("list", () => {
         const list = this.dropsData.items.filter((d) => this.dropInTab(d, this.dropTab) && this.dropMatches(d) && this.dropLevelOk(d)
-          && (!this.dropNewOnly || this.dropIsNew(d)));
+          && (!this.dropNewOnly || this.dropNew(d)));
         if (this.dropSortMode === "recent") {
           const at = (d) => (d.state === "available" ? d.available_since : d.state_since) || "";
           return list.sort((a, b) => at(b).localeCompare(at(a)));
@@ -1289,14 +1388,14 @@ document.addEventListener("alpine:init", () => {
       if (tab === "free" && this.dropSortMode === "release") this.dropSortMode = "best";
     },
 
-    // « Nouveaux cette nuit » : libérés ou entrés en rédemption depuis 24 h.
-    nightSince() { return new Date(this.now - 24 * 3600 * 1000).toISOString(); },
+    // « Nouveaux depuis ma dernière visite » (bouton et étiquette, même règle) : libéré ou entré en
+    // rédemption depuis l'ouverture précédente de la Veille (heure gardée dans le navigateur) ;
+    // à la toute première visite, depuis 24 h.
+    dropSince() { return this.dropsSeenBefore || new Date(this.now - 24 * 3600 * 1000).toISOString(); },
 
-    // Nouveau : changé depuis la visite précédente de l'écran (heure gardée dans le navigateur).
     dropNew(d) {
-      const seen = this.dropsSeenBefore;
       const at = d.state === "available" ? d.available_since : d.state_since;
-      return !!seen && !!at && at > seen;
+      return !!at && at > this.dropSince();
     },
 
     sourcesError() {
@@ -1490,12 +1589,6 @@ document.addEventListener("alpine:init", () => {
       } catch (e) {
         this.say(e.message, "error");
       }
-    },
-
-    async watchDrop(d) {
-      this.newName = d.name;
-      await this.add();
-      if (this.domains.some((x) => x.name === d.name)) this.markWatched(d.name);
     },
 
     async saveCzds() {
