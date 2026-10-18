@@ -19,7 +19,6 @@ from .checker import iso, utcnow
 VERSION = 5  # 5 : grille détaillée (sous-notes), notes et verdict calculés, prix par paliers
 MAX_PENDING = 5000
 MAX_RESULTS = 5000
-MAX_PRICE = 10_000_000
 
 # Codes d'état de l'Explorer (explore.py) : libres ou bientôt libres d'abord, enregistrés en dernier.
 FREE_SOON = (5, 4)        # libre vérifié, libération à venir
@@ -184,9 +183,12 @@ def to_review(explorer, limit: int = REVIEW_PER_NIGHT) -> list[tuple[str, int, i
     """(nom, meilleure note de l'avis, estimation du score) des avis à revoir, les plus gros écarts d'abord."""
     from . import quality
 
+    known = known_name(explorer)
     found = []
     for name, exploit, resale in explorer.conn.execute(
             "SELECT name, exploit, resale FROM domain_ai WHERE version >= ? AND reviewed_at IS NULL", (VERSION,)):
+        if not known(name):
+            continue  # demandé depuis la fiche, hors univers ou hors extension suivie : pas de second passage
         label, _, tld = name.rpartition(".")
         estimate = round(quality.predict(label, tld)[0])
         best = max(exploit, resale)
@@ -201,11 +203,9 @@ def pending(explorer, limit: int) -> list[dict]:
     picked, data = _queue(explorer, limit - len(review)) if limit > len(review) else ([], {t: explorer.status_bytes(t) for t in explorer.tlds()})
     u = explorer.universe
     head = []
-    for name, best, estimate in review:
+    for name, best, estimate in review:  # noms de l'univers sur une extension suivie (to_review)
         label, _, tld = name.rpartition(".")
-        i = u.index(label)
-        if i is not None and tld in data:
-            head.append(((i, label, tld), {"previous_note": best, "score_estimate": estimate}))
+        head.append(((u.index(label), label, tld), {"previous_note": best, "score_estimate": estimate}))
     items = _describe(explorer, [p for p, _ in head] + picked, data)
     for item, (_, review_info) in zip(items, head):
         item["review"] = review_info
@@ -327,8 +327,13 @@ def save(conn, results: list, known) -> dict:
     """Enregistre les avis au bon format ; les autres sont rejetés avec la raison, sans bloquer le lot."""
     now = iso(utcnow())
     saved, rejected, names = 0, [], []
+    # Noms déjà notés avec la grille, avant ce lot : un avis à l'ancien format ne les remplace pas, et un
+    # avis v5 qui revient est le second passage (il ne repassera plus), même en double dans le lot.
+    detailed = {r[0] for r in conn.execute("SELECT name FROM domain_ai WHERE version >= ?", (VERSION,))}
     for item in results[:MAX_RESULTS]:
         reason = check_any(item, known)
+        if not reason and not is_v5(item) and item["name"] in detailed:
+            reason = "déjà noté avec la grille"
         if reason:
             name = item.get("name") if isinstance(item, dict) else None
             rejected.append({"name": str(name or ""), "reason": reason})
@@ -341,8 +346,7 @@ def save(conn, results: list, known) -> dict:
             grid, version = json.dumps({k: item[k] for k in CRITERIA_V5}), VERSION
         else:
             row, grid, version = item, None, 4  # avis à l'ancien format, arrivé pendant la transition
-        # Un nom déjà noté en v5 qui revient : c'est le second passage, il ne repassera plus.
-        again = conn.execute("SELECT 1 FROM domain_ai WHERE name = ? AND version >= ?", (row["name"], VERSION)).fetchone()
+        again = row["name"] in detailed
         conn.execute(
             """INSERT INTO domain_ai (name, exploit, resale, quick_low, quick_high, final_low, final_high,
                                       comment, rated_at, version, grid, reviewed_at)

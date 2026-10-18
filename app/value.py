@@ -19,8 +19,6 @@ from datetime import date
 from . import drops, pronounce, wordlists
 from . import quality as measures  # le nom quality est pris par la fonction plus bas
 
-MAX_BONUS = 50
-
 
 def quality(label: str) -> str:
     """word : vrai mot ; pron : prononçable ; letters : suite de lettres ; autre sinon."""

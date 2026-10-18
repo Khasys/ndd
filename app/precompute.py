@@ -22,6 +22,9 @@ TARGET = DATA / "scores.bin"
 GOOD = 128
 # Marge sur la borne : une autre extension (.io pour un prénom) peut dépasser un peu .fr et .com.
 MARGIN = 2
+# Les 4 caractères mélangés ou à tiret ne sont pas calculés (table à 0) : leur forme et sens vaut 9 au
+# plus (mesuré sur les 1,4 million, aa-h), d'où cette borne quand le classement en rencontre un.
+UNRANKED_BOUND = 9 + MARGIN
 
 
 def fingerprint() -> bytes:
@@ -30,8 +33,9 @@ def fingerprint() -> bytes:
         if path.suffix in (".txt", ".json"):
             digest.update(path.name.encode())
             digest.update(path.read_bytes())
-    for module in (value, pronounce, quality, wordlists):
-        digest.update(Path(module.__file__).read_bytes())
+    # Les règles de calcul (ce module : marge, noms classables ; drops : alphabet et ordre des noms) aussi.
+    for path in (Path(__file__), *(Path(module.__file__) for module in (drops, value, pronounce, quality, wordlists))):
+        digest.update(path.read_bytes())
     return digest.digest()
 
 

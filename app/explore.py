@@ -14,7 +14,6 @@ Recherche, filtres et comptages se font sur ces octets : bytes.find et bytes.cou
 import bisect
 import json
 import operator
-import functools
 import heapq
 import itertools
 import re
@@ -79,7 +78,7 @@ STATUS_NAMES = {
     "all": "Tous, même pris",
 }
 # Réservés mêlés aux noms à saisir si on le demande dans Paramètres.
-WITH_RESERVED = {"available", "bookable", "maybe_free", "free", "coming"}
+WITH_RESERVED = {"available", "bookable", "maybe_free", "free", "coming", "all"}
 # Pris sur une autre extension : signe de demande pour le nom.
 TAKEN_CODES = (REGISTERED, SUSPENDED, COMING)
 
@@ -207,22 +206,6 @@ def lens_tier(opinion: dict | None) -> int:
     return 0 if verdict == "À laisser" else 2
 
 
-@functools.lru_cache(maxsize=1)
-def _english_only() -> frozenset[str]:
-    """Mots anglais qui ne sont pas aussi des mots français."""
-    langs = wordlists.languages()
-    return frozenset(langs.get("en", set()) - langs.get("fr", set()))
-
-
-@functools.lru_cache(maxsize=1)
-def _conjugated() -> frozenset[str]:
-    """Formes fléchies qui ne sont que des verbes conjugués (vais, dits), pas des mots de base."""
-    lists = wordlists.lists()
-    natures = wordlists.natures()
-    base = lists.get("word", frozenset())
-    return frozenset(w for w in lists.get("form", ()) if w not in base and natures.get(w) == {"verb"})
-
-
 class Universe:
     def __init__(self):
         self.words = _words()
@@ -231,7 +214,6 @@ class Universe:
         listed = {w for names in wordlists.lists().values() for w in names}
         # Noms des listes, par position : le filtre par catégorie ne parcourt qu'eux.
         self.listed = sorted(i for i in (self.index(w) for w in listed) if i is not None)
-        self.listed_sorted_labels = sorted(listed)
         self.by_list = {key: array("i", sorted(self.index(w) for w in names if self.index(w) is not None))
                         for key, names in wordlists.lists().items()}
         # Positions des noms en lettres seules et en chiffres seuls, par longueur.
@@ -819,9 +801,7 @@ class Explorer:
         rates = {t: self._rates(data, TAKEN_CODES) for t, data in others.items()}
         held = self._rates(self.status_bytes(tld), (GONE,), (GONE, ABSENT)) if tld == "fr" else {}
         return {"others": others, "gone": gone, "seo": seo, "today": date.today(), "reach": reach, "rates": rates, "held": held,
-                "reach_parts": parts, "weights": w, "status": self.status_bytes(tld), "devalue": self.premium_devalue(),
-                "en_only": _english_only() if tld == "fr" else frozenset(),
-                "conjugated": _conjugated() if tld == "fr" else frozenset()}
+                "reach_parts": parts, "weights": w, "status": self.status_bytes(tld), "devalue": self.premium_devalue()}
 
     def _rates(self, data, wanted: tuple[int, ...], among: tuple[int, ...] | None = None) -> dict[str, float]:
         """Par forme de nom : part des noms dans un des états voulus (parmi tous les noms valides, ou
@@ -859,7 +839,9 @@ class Explorer:
         history = value.history(row["created_on"], row["removed_on"], ctx["today"], ctx["held"].get(form, 0.0))[0] if row else 0
         seo = value.seo(ctx["seo"].get(f"{label}.{tld}"))[0]
         top = max(w["shape"], w["popularity"])
-        return (self.universe.base_table[i] & 127) * top + demand * w["demand"] + history * w["history"] + seo * w["seo"]
+        # Nom court non calculé à la construction (4 caractères mélangés ou à tiret) : borne fixe.
+        base = (self.universe.base_table[i] & 127) or (precompute.UNRANKED_BOUND if i < drops.CELLS else 0)
+        return base * top + demand * w["demand"] + history * w["history"] + seo * w["seo"]
 
     def _value(self, tld: str, i: int, label: str, ctx: dict) -> dict:
         taken = [t for t, data in ctx["others"].items() if data[i] in TAKEN_CODES]
@@ -877,7 +859,11 @@ class Explorer:
         return found
 
     def _opinions(self, tld: str) -> dict[str, dict]:
-        """Avis IA de l'extension : notes et verdict, pour les niveaux et les classements revendre / exploiter."""
+        """Avis IA de l'extension : notes et verdict, pour les niveaux et les classements revendre / exploiter.
+        Gardés en mémoire jusqu'au prochain lot d'avis (ai_changed)."""
+        return self._memo(("opinions", tld), lambda: self._load_opinions(tld))
+
+    def _load_opinions(self, tld: str) -> dict[str, dict]:
         return {r[0]: {"resale": r[1], "exploit": r[2], "verdict": (r[3] or "").split(".")[0]}
                 for r in self.conn.execute("SELECT name, resale, exploit, comment FROM domain_ai WHERE name LIKE ?",
                                            (f"%.{tld}",))}
@@ -939,13 +925,20 @@ class Explorer:
             if data[i] not in codes or not self._good_ok(i, f) or not self._taken_ok(i, others):
                 return
             label = u.label(i)
+            opinion = opinions.get(f"{label}.{tld}")
+            key = None
+            if opinion and lens:
+                # La clé ne dépend pas du score : un nom qui ne peut plus entrer n'est pas noté.
+                key = (lens_tier(opinion), opinion[lens])
+                if len(best) >= limit and key <= best[0][0]:
+                    return
             if not self._keep(label, f):
                 return
-            opinion = opinions.get(f"{label}.{tld}")
-            if not opinion:
-                # Sans avis : on écarte d'abord sur la borne, le calcul complet ne sert qu'aux noms qui peuvent entrer.
+            if key is None:
+                # Classé par score : on écarte d'abord sur la borne, le calcul complet ne sert qu'aux noms
+                # qui peuvent entrer. Avec un avis, le niveau tient au verdict, pas au score.
                 bound = self._bound(tld, i, label, ctx)
-                if (f.min_score and bound < f.min_score) or (f.level and bound < LEVEL_GOOD) \
+                if (f.min_score and bound < f.min_score) or (f.level and not opinion and bound < LEVEL_GOOD) \
                         or (len(best) >= limit and (1, bound) <= best[0][0]):
                     return
             found = self._value(tld, i, label, ctx)
@@ -953,8 +946,7 @@ class Explorer:
                 return
             if not self._level_ok(found["score"], opinion, f.level):
                 return
-            key = (lens_tier(opinion), opinion[lens] if opinion else found["score"]) if lens else (1, found["score"])
-            entry = (key, -i, i, found)
+            entry = (key or (1, found["score"]), -i, i, found)
             if len(best) < limit:
                 heapq.heappush(best, entry)
             elif entry > best[0]:
@@ -965,12 +957,16 @@ class Explorer:
             for i in candidates:
                 consider(i)
         else:
-            # Noms notés d'abord : leur note IA (ou leur verdict pour un niveau) peut dépasser leur score,
-            # le parcours par score ne les atteindrait pas toujours avant de s'arrêter.
-            for name in opinions:
-                i = u.index(name[: -len(tld) - 1])
-                if i is not None:
-                    consider(i)
+            if lens:
+                # Noms conseillés par l'IA d'abord, meilleure note en tête : leur clé dépasse celle de tout nom
+                # sans avis, le parcours par score ne les atteindrait pas toujours avant de s'arrêter. Dès que
+                # la page est pleine, les suivants sont écartés sur leur clé, sans calcul. Les avis « À laisser »
+                # ne passent devant personne : le parcours les trouve s'il va jusque-là.
+                advised = sorted(((o[lens], name) for name, o in opinions.items() if lens_tier(o) == 2), reverse=True)
+                for _, name in advised:
+                    i = u.index(name[: -len(tld) - 1])
+                    if i is not None:
+                        consider(i)
             top = max(ctx["weights"]["shape"], ctx["weights"]["popularity"])
             for score in range(70, -1, -1):
                 # Les noms du parcours n'ont pas d'avis (palier 1) : on s'arrête quand aucun ne peut plus entrer.
@@ -1193,6 +1189,13 @@ class Explorer:
                     for i in arrays[n]:
                         mask[i] = 0
             parts.append(int.from_bytes(mask, "big"))
+        elif f.category == "hyphen":
+            # Un tiret demande 3 caractères au moins (a-b) ; les compteurs sont gardés en mémoire.
+            mask = bytearray(u.size)
+            for i in range(drops.OFFSETS[2], drops.CELLS):
+                if "-" in u.label(i):
+                    mask[i] = 1
+            parts.append(int.from_bytes(mask, "big"))
         if f.nature:
             parts.append(from_indices(u.by_nature.get(f.nature, [])))
         if f.lang:
@@ -1322,9 +1325,9 @@ class Explorer:
                     self._memos.pop(key, None)
 
     def ai_changed(self) -> None:
-        """Nouveaux avis IA : les compteurs filtrés sur l'avis sont recomptés, rien d'autre."""
+        """Nouveaux avis IA : les avis gardés en mémoire et les compteurs filtrés sur l'avis sont relus, rien d'autre."""
         with self._memo_lock:
-            for key in [k for k in self._memos if k[0][0] == "facets" and k[0][9]]:
+            for key in [k for k in self._memos if k[0][0] == "opinions" or (k[0][0] == "facets" and k[0][9])]:
                 self._memos.pop(key, None)
 
     def _forget(self, kind: str) -> None:

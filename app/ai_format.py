@@ -18,22 +18,6 @@ PRENDRE_MIN = 60
 LAISSER_MAX = 45
 FORBIDDEN = re.compile("[\u2013\u2014\U0001F000-\U0001FAFF\u2600-\u27BF]")  # tirets longs, emoji
 
-FORMAT = {
-    "type": "object",
-    "additionalProperties": False,
-    "required": list(FIELDS),
-    "properties": {
-        "name": {"type": "string", "description": "nom complet reçu, tel quel (ex. velo.fr)"},
-        "exploit": {"type": "integer", "minimum": 0, "maximum": 100, "multipleOf": SCORE_STEP},
-        "resale": {"type": "integer", "minimum": 0, "maximum": 100, "multipleOf": SCORE_STEP},
-        "quick_low": {"type": "integer", "enum": list(PRICE_STEPS)},
-        "quick_high": {"type": "integer", "enum": list(PRICE_STEPS)},
-        "final_low": {"type": "integer", "enum": list(PRICE_STEPS)},
-        "final_high": {"type": "integer", "enum": list(PRICE_STEPS)},
-        "comment": {"type": "string", "maxLength": COMMENT_MAX,
-                    "pattern": "À prendre|À surveiller|À laisser. Raison en une phrase. Acheteur type : qui."},
-    },
-}
 
 def check(item, known) -> str | None:
     """Raison du refus d'un avis, ou None s'il respecte le format. Même règle pour la tâche
@@ -181,6 +165,8 @@ def check_v5(item, known) -> str | None:
     quick_low, quick_high, final_low, final_high = prices
     if quick_low > quick_high or final_low > final_high:
         return "fourchette inversée"
+    if quick_low > final_low:
+        return "revente rapide plus chère que l'utilisateur final"
     if quick_high > _step_up(final_high * QUICK_SHARE):
         return f"revente rapide : {int(QUICK_SHARE * 100)} % du prix utilisateur final au plus"
     notes = derive(item)

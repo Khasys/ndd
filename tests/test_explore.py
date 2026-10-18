@@ -685,3 +685,88 @@ def test_review_pass_brings_back_ratings_far_from_the_estimate(env):
     assert first["name"] == "maison.fr" and first["review"] == {"previous_note": 5, "score_estimate": round(estimate)}
     env.conn.execute("UPDATE domain_ai SET reviewed_at = 'x' WHERE name = 'maison.fr'")
     assert all(n["name"] != "maison.fr" for n in ai.pending(env, 10))
+
+
+def test_unranked_short_names_keep_a_true_bound(env):
+    """Un 4 caractères mélangé n'est pas calculé à la construction (table à 0) : la borne qui sert à
+    l'écarter vaut quand même au moins son score."""
+    add_fr(env, "ab12", removed="2026-01-01")
+    zone(env, ["ab12"], [])  # pris en .com : demande
+    u = env.universe
+    i = u.index("ab12")
+    assert u.base_table[i] & 127 == 0
+    score = env.value_of(["ab12.fr"])["ab12.fr"]["score"]
+    assert env._bound("fr", i, "ab12", env._bonus_context("fr")) >= score
+    items = env.rank("fr", q="ab12", mode="exact", junk=True, min_score=score)["items"]
+    assert [x["label"] for x in items] == ["ab12"]
+
+
+def test_review_pass_skips_names_outside_the_universe(env):
+    """Un avis demandé depuis la fiche pour un nom hors listes ne prend pas la place d'un second passage."""
+    from app import ai, quality
+
+    add_fr(env, "zzzzz")
+    rows = [(f"xqzwvb{n}.fr",) for n in range(ai.REVIEW_PER_NIGHT + 5)] + [("maison.fr",)]
+    env.conn.executemany("""INSERT INTO domain_ai (name, exploit, resale, quick_low, quick_high, final_low, final_high,
+                            comment, rated_at, version) VALUES (?, 5, 5, 0, 0, 0, 100, 'À laisser. Test. Acheteur type : test.',
+                            'x', %d)""" % ai.VERSION, rows)
+    assert ai.to_review(env) == [("maison.fr", 5, round(quality.predict("maison", "fr")[0]))]
+    names = [n["name"] for n in ai.pending(env, 10)]
+    assert names[0] == "maison.fr" and len(names) == 10
+
+
+def test_resale_ranking_rates_only_the_names_that_can_enter(env, monkeypatch):
+    """Classement « pour revendre » : les avis conseillés passent devant tout nom sans avis, dans l'ordre de
+    leur note, sans noter chaque nom ; un avis « À laisser » ne passe devant personne."""
+    from app import ai
+
+    add_fr(env, "zzzzz")
+    u = env.universe
+    advised = [drops.decode(i) for i in u.good_letters(4)[:300]]
+    env.conn.executemany("""INSERT INTO domain_ai (name, exploit, resale, quick_low, quick_high, final_low, final_high,
+                            comment, rated_at, version) VALUES (?, 60, ?, 0, 0, 0, 100, ?, 'x', %d)""" % ai.VERSION,
+                         [(f"{label}.fr", 50 + n % 50, "À prendre. Test. Acheteur type : test.") for n, label in enumerate(advised)]
+                         + [("maison.fr", 95, "À laisser. Test. Acheteur type : test.")])
+    env.ai_changed()
+    calls = []
+    original = env._value
+    monkeypatch.setattr(env, "_value", lambda *a, **k: calls.append(a[2]) or original(*a, **k))
+    items = env.rank("fr", sort="resale", limit=10)["items"]
+    notes = [i["ai"]["resale"] for i in items]
+    assert len(items) == 10 and notes == sorted(notes, reverse=True) and notes[0] == 99
+    assert "maison" not in [i["label"] for i in items]
+    assert len(calls) == 10
+
+
+def test_hyphen_facet_counts_only_hyphenated_names(env):
+    hyphen = env.facets("fr", category="hyphen", junk=True)["available"]
+    mixed = env.facets("fr", category="mixed", junk=True)["available"]
+    assert 0 < hyphen < mixed < env.facets("fr", junk=True)["available"]
+
+
+def test_all_status_keeps_premiums_when_asked(env):
+    zone(env, [], ["maison"])
+    env.fr.store.set("premium_off", "[]")
+    env.invalidate("com")
+    assert env.search("com", q="abd", mode="exact", status="all")["items"] == []
+    assert [i["label"] for i in env.search("com", q="abd", mode="exact", status="all", premium=True)["items"]] == ["abd"]
+    assert env.facets("com", premium=True)["all"] > env.facets("com")["all"]
+
+
+def test_save_keeps_the_grid_against_old_format_and_batch_duplicates(env):
+    from app import ai
+
+    add_fr(env, "zzzzz")
+    known = ai.known_name(env)
+    v5 = {"name": "velo.fr", "oral": 10, "radio": 10, "memo": 10, "sens": 10, "marque": 9, "marche": 8, "ext": 10,
+          "acheteurs": 9, "risque": 0, "quick_low": 3000, "quick_high": 8000, "final_low": 15000, "final_high": 50000,
+          "comment": "Mot que tout le monde tape, rare en 4 lettres. Acheteur type : enseigne vélo."}
+    assert ai.save(env.conn, [v5, v5], known)["saved"] == 2
+    version, reviewed = env.conn.execute("SELECT version, reviewed_at FROM domain_ai WHERE name = 'velo.fr'").fetchone()
+    assert version == ai.VERSION and reviewed is None  # en double dans le lot : pas un second passage
+    v4 = {"name": "velo.fr", "exploit": 20, "resale": 20, "quick_low": 0, "quick_high": 0, "final_low": 0,
+          "final_high": 100, "comment": "À laisser. Mot faible. Acheteur type : personne."}
+    assert ai.save(env.conn, [v4], known)["rejected"][0]["reason"] == "déjà noté avec la grille"
+    assert env.conn.execute("SELECT version FROM domain_ai WHERE name = 'velo.fr'").fetchone()[0] == ai.VERSION
+    bad = {**v5, "quick_low": 15000, "quick_high": 15000, "final_low": 10000, "final_high": 50000}
+    assert ai.save(env.conn, [bad], known)["rejected"][0]["reason"] == "revente rapide plus chère que l'utilisateur final"
