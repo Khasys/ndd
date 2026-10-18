@@ -329,6 +329,16 @@ def test_explorer_and_drops_settings(logged):
         assert [i["label"] for i in merged if i["tld"] == "fr"] == [i["label"] for i in alone][:len([i for i in merged if i["tld"] == "fr"])]
     csv = client.get("/api/explore/export", params={"tld": "fr,com", "status": "registered", "cat": "surname"}).text
     assert "navarro.fr" in csv and "navarro.com" in csv
+    # Avec le tri de l'écran : même ordre en tête du fichier, score et avis IA dans les colonnes.
+    state.conn.execute("""INSERT INTO domain_ai (name, exploit, resale, quick_low, quick_high, final_low, final_high, comment,
+                          rated_at, version) VALUES ('navarro.com', 60, 70, 100, 300, 500, 2000,
+                          'À prendre. Nom porté. Acheteur type : agence.', 'x', 5)""")
+    state.explorer.ai_changed()
+    lines = client.get("/api/explore/export", params={"tld": "fr,com", "status": "registered", "cat": "surname",
+                                                      "sort": "resale"}).text.splitlines()
+    assert lines[0].lstrip("﻿").startswith("nom;etat;score;verdict;note_revente;note_exploitation;prix_final_bas")
+    assert lines[1].startswith("navarro.com;Enregistré;") and ";À prendre;70;60;500;2000;" in lines[1]
+    assert client.get("/api/explore/export", params={"sort": "nimporte"}).status_code == 422
 
     assert client.put("/api/settings/drops", json={"keep_days": 0}).status_code == 422
     assert client.put("/api/settings/drops", json={"keep_days": 45}).json() == {"keep_days": 45, "min_score": 20}

@@ -693,7 +693,7 @@
           </select>
           <div class="ex-tools">
             <button type="button" class="btn-ghost sm" @click="exSelectAll()" x-text="exSelected.length ? 'Désélectionner' : 'Tout sélectionner'"></button>
-            <a class="btn-ghost sm" :href="'/api/explore/export?' + exQuery(-1)" download>CSV</a>
+            <a class="btn-ghost sm" :href="'/api/explore/export?' + exQuery(-1) + '&sort=' + exSortParam()" download>CSV</a>
           </div>
         </div>
 

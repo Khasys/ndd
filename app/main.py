@@ -1158,6 +1158,9 @@ def _ai_param(p) -> str:
     return explore.ai_filter(verdicts, ranges)
 
 
+RANK_SORTS = ("score", "freq", "length", "seo", "ai", "release", "resale", "exploit")
+
+
 def _limit(request: Request, most: int) -> int:
     try:
         limit = int(request.query_params.get("limit") or 50)
@@ -1236,7 +1239,7 @@ async def explore_rank(request: Request):
     params["status"] = params["status"] or "available"
     limit = _limit(request, explore.MAX_LIMIT * 5)
     sort = request.query_params.get("sort", "score")
-    if sort not in ("score", "freq", "length", "seo", "ai", "release", "resale", "exploit"):
+    if sort not in RANK_SORTS:
         raise HTTPException(422, "Tri inconnu.")
     chosen = params["tlds"]
     rest = {k: v for k, v in params.items() if k not in ("tld", "tlds")}
@@ -1244,23 +1247,25 @@ async def explore_rank(request: Request):
 
 
 def _rank(explorer, params, chosen, rest, limit, sort):
+    return {"items": _ranked_items(explorer, chosen, rest, limit, sort, params["category"]),
+            **_explore_meta(explorer, params["tld"], chosen), "counts": _facets(explorer, params)}
+
+
+def _ranked_items(explorer, chosen, rest, limit, sort, category=""):
     if len(chosen) == 1:
-        result = explorer.rank(chosen[0], **rest, limit=limit, sort=sort)
-    else:
-        # Plusieurs extensions : les meilleurs de chacune, fusionnés dans le même ordre.
-        items = [item for tld in chosen for item in explorer.rank(tld, **rest, limit=limit, sort=sort)["items"]]
-        if sort == "seo":
-            rows = explorer._seo_rows([i["name"] for i in items])
-            for item in items:
-                row = rows.get(item["name"])
-                item["_pr"], item["_wb"] = (row["pr"], row["wb_years"]) if row else (0, 0)
-        items.sort(key=explorer.merge_key(sort, params["category"]))
+        return explorer.rank(chosen[0], **rest, limit=limit, sort=sort)["items"]
+    # Plusieurs extensions : les meilleurs de chacune, fusionnés dans le même ordre.
+    items = [item for tld in chosen for item in explorer.rank(tld, **rest, limit=limit, sort=sort)["items"]]
+    if sort == "seo":
+        rows = explorer._seo_rows([i["name"] for i in items])
         for item in items:
-            item.pop("_pr", None)
-            item.pop("_wb", None)
-        result = {"items": items[:limit]}
-    return {**result, **_explore_meta(explorer, params["tld"], chosen),
-            "counts": _facets(explorer, params)}
+            row = rows.get(item["name"])
+            item["_pr"], item["_wb"] = (row["pr"], row["wb_years"]) if row else (0, 0)
+    items.sort(key=explorer.merge_key(sort, category))
+    for item in items:
+        item.pop("_pr", None)
+        item.pop("_wb", None)
+    return items[:limit]
 
 
 TOP_SIZES = (10, 50, 100, 200, 500, 1000)
@@ -1661,16 +1666,24 @@ async def set_seo_key(request: Request, payload: SeoKey):
 
 @app.get("/api/explore/export")
 async def explore_export(request: Request):
+    """La liste affichée, en CSV : les premiers dans l'ordre de l'écran, puis le reste dans l'ordre des noms."""
     params = _explore_params(request)
     params["cursor"] = -1
     chosen = params.pop("tlds")
     params.pop("tld")
+    sort = request.query_params.get("sort", "")
+    if sort and sort not in RANK_SORTS:
+        raise HTTPException(422, "Tri inconnu.")
     explorer = request.app.state.explorer
-    items = await _off(_export_items, explorer, params, chosen)
-    lines = ["nom;etat;categories;cree_le;supprime_le;echeance;verifie_le"]
+    items = await _off(_export_items, explorer, params, chosen, sort)
+    lines = ["nom;etat;score;verdict;note_revente;note_exploitation;prix_final_bas;prix_final_haut;categories;"
+             "cree_le;supprime_le;echeance;verifie_le"]
     for item in items[:explore.EXPORT_LIMIT]:
+        opinion = item.get("ai") or {}
         lines.append(";".join([
-            item["name"], item["status_label"], ",".join(item["categories"]),
+            item["name"], item["status_label"], _cell(item.get("score")),
+            (opinion.get("comment") or "").split(".")[0], _cell(opinion.get("resale")), _cell(opinion.get("exploit")),
+            _cell(opinion.get("final_low")), _cell(opinion.get("final_high")), ",".join(item["categories"]),
             item["created_on"] or "", item["removed_on"] or "", item["expires_at"] or "", item["checked_at"] or "",
         ]))
     filename = f"explorer-{'-'.join(chosen)}.csv"
@@ -1679,18 +1692,27 @@ async def explore_export(request: Request):
                     headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
-def _export_items(explorer, params, chosen):
-    items = []
+def _cell(value) -> str:
+    return "" if value is None else str(value)
+
+
+def _export_items(explorer, params, chosen, sort: str = ""):
+    items, seen = [], set()
+    if sort:
+        # Même ordre que l'écran pour la tête de liste (le classement s'arrête à sa limite, comme « 50 de plus »).
+        rest = {**params, "status": params["status"] or "available"}
+        rest.pop("cursor")
+        items = _ranked_items(explorer, chosen, rest, explore.MAX_LIMIT * 5, sort, params["category"])
+        seen = {i["name"] for i in items}
     for tld in chosen:
-        found = explorer.search(tld, **params, limit=explore.EXPORT_LIMIT)["items"]
-        if params["min_score"] or params.get("level"):
-            # Mêmes règles que la liste affichée : score minimum et niveau s'appliquent aussi à l'export.
-            scores = explorer.value_of([i["name"] for i in found])
-            opinions = explorer._opinions(tld) if params.get("level") else {}
-            found = [i for i in found
-                     if scores.get(i["name"], {}).get("score", 0) >= (params["min_score"] or 0)
-                     and explorer._level_ok(scores.get(i["name"], {}).get("score", 0), opinions.get(i["name"]), params.get("level", ""))]
-        items += found
+        found = [i for i in explorer.search(tld, **params, limit=explore.EXPORT_LIMIT)["items"] if i["name"] not in seen]
+        # Score de chaque nom, comme à l'écran ; score minimum et niveau s'appliquent aussi à l'export.
+        scores = explorer.value_of([i["name"] for i in found])
+        opinions = explorer._opinions(tld) if params.get("level") else {}
+        for item in found:
+            item["score"] = scores.get(item["name"], {}).get("score", 0)
+        items += [i for i in found if i["score"] >= (params["min_score"] or 0)
+                  and explorer._level_ok(i["score"], opinions.get(i["name"]), params.get("level", ""))]
     return items
 
 
