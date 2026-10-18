@@ -1546,8 +1546,7 @@ class Explorer:
             row = row or self.drops.ensure(name, now)
             state = self.drops.apply(row, result, now)
         if tld == "fr":
-            if state is not None:
-                self.fr._sync_name(label, result, state)
+            # Un nom repris est déjà revenu dans les dates anniversaire par on_fr_taken (drops.apply).
             if registered and row is None:
                 self.fr._sync_name(label, result, drops.TAKEN)
             elif not registered:
