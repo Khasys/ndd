@@ -1487,6 +1487,11 @@ class Explorer:
                 "registered_at": domain["registered_at"], "updated_at": domain["updated_at"],
                 "expires_at": domain["expires_at"], "nameservers": json.loads(domain["nameservers"] or "[]"),
             }
+            if main is not None and domain["state"] and domain["state"] != states.AVAILABLE:
+                # Nom que l'Explorer croit libre (zone, open data qui datent) mais que le dernier check voit
+                # enregistré ou en fin de vie : l'état du check l'emporte, sinon la fiche dirait « Jamais enregistré ».
+                code = COMING if domain["state"] in (states.REDEMPTION, states.PENDING_DELETE) else REGISTERED
+                main = {**main, "status": code, "status_label": states.LABELS.get(domain["state"], main["status_label"])}
         seo = self.conn.execute("SELECT * FROM domain_seo WHERE name = ?", (name,)).fetchone()
         others = [i for t, i in items.items() if t != tld]
         for other in others:

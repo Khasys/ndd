@@ -1413,7 +1413,7 @@
               <span class="ex-reason ai" :class="aiClass(d.ai)" x-show="d.ai" x-text="aiTag(d.ai)" :title="d.ai ? d.ai.comment : ''"></span>
             </td>
             <td class="num" data-label="Jours restants" :class="{ blank: daysLeft(d) === null }">
-              <span x-show="daysLeft(d) !== null" :title="d.effective_expires_at ? 'Expiration le ' + exact(d.effective_expires_at) : ''" x-text="daysLeft(d)"></span>
+              <span x-show="daysLeft(d) !== null" :title="d.effective_expires_at ? 'Expiration le ' + exact(d.effective_expires_at) : ''" x-text="daysCell(d)"></span>
             </td>
             <td data-label="Libération estimée" :class="{ blank: !d.release_at }">
               <span class="estimate" x-show="d.release_at" :title="releaseTitle(d)" x-text="'~' + shortDate(d.release_at)"></span>

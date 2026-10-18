@@ -1081,3 +1081,15 @@ def test_health_flags_silent_dns_passes_czds_silence_and_missed_jobs(env):
     assert found["czds_late"].startswith("Zones ICANN : aucune lecture réussie depuis le") and "zone:com" in found
     env.drops.store.set("zone_com", json.dumps({"ok_at": (now - timedelta(hours=2)).isoformat()}))
     assert "czds_late" not in morning.problems(state, now)
+
+
+def test_fiche_of_a_watched_name_shows_the_last_check_state(env):
+    """Un nom surveillé et vérifié : la fiche dit l'état du dernier check, pas celui de l'open data."""
+    from app import states
+
+    add_fr(env, "zzzzz")
+    env.conn.execute("""INSERT INTO domains (name, added_at, state, last_success_at, last_checked_at, registrar, tags)
+                        VALUES ('velo.fr', '2026-10-01', ?, '2026-10-17T00:00:00Z', '2026-10-17T00:00:00Z', 'Gandi', '[]')""",
+                     (states.ACTIVE,))
+    item = env.fiche("velo.fr")["item"]
+    assert item["status"] == explore.REGISTERED and item["status_label"] == states.LABELS[states.ACTIVE]

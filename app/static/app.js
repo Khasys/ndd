@@ -2393,6 +2393,12 @@ document.addEventListener("alpine:init", () => {
       ].map((x) => ({ ...x, label: LABELS[x.key] }));
     },
 
+    // Colonne « Jours restants » : une échéance passée se lit « expiré il y a 40 j », pas « -40 ».
+    daysCell(d) {
+      const n = this.daysLeft(d);
+      return n === null ? "" : n < 0 ? `expiré il y a ${-n} j` : String(n);
+    },
+
     daysLeft(d) {
       if (!d.effective_expires_at || d.state === "available") return null;
       return Math.ceil((new Date(d.effective_expires_at).getTime() - this.now) / DAY);
