@@ -1,17 +1,17 @@
 # domain-watch
 
+Surveillance de noms de domaine déjà enregistrés. L'appli interroge le RDAP de chaque registre,
+suit le cycle de vie du nom (expiration, rédemption, suppression) et envoie une alerte Telegram
+à chaque changement d'état ou de registrar.
+
+Un seul conteneur : FastAPI, SQLite, planificateur intégré. Les données vivent dans `/data`.
+
 États d'un nom surveillé : Actif, Expire bientôt, Expiré, **Renouvelé**, En rédemption, Suppression imminente,
 Disponible. **Renouvelé** (.fr seulement) : statut « auto renew period » et échéance repoussée, l'Afnic a renouvelé
 le nom à l'échéance pour le même titulaire ; il redevient Actif quand le statut disparaît, ou passe en rédemption
 si le registrar le supprime. Pour les autres extensions, ce statut s'affiche même sans paiement (période de
 grâce) : le nom reste Expiré, avec sa libération estimée. Dans Dates clés, « Repris » est réservé à un nouvel
 enregistrement ; un nom gardé par son titulaire (date de création antérieure) se lit « Renouvelé par le titulaire ».
-
-Surveillance de noms de domaine déjà enregistrés. L'appli interroge le RDAP de chaque registre,
-suit le cycle de vie du nom (expiration, rédemption, suppression) et envoie une alerte Telegram
-à chaque changement d'état ou de registrar.
-
-Un seul conteneur : FastAPI, SQLite, planificateur intégré. Les données vivent dans `/data`.
 
 ## Installation sur un NAS Synology
 
