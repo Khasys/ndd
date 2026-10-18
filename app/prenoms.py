@@ -28,6 +28,16 @@ from .frdata import _encoding
 log = logging.getLogger(__name__)
 
 SEARCH_API = "https://www.data.gouv.fr/api/1/datasets/?q=fichier+des+prenoms&page_size=20"
+# Sur data.gouv.fr, la fiche de l'Insee ne pointe que vers une page (et une ancienne édition) : le fichier se
+# trouve sur les pages de l'Insee. L'outil interactif sur les prénoms renvoie vers l'édition la plus récente.
+INSEE = "https://www.insee.fr"
+INSEE_PAGES = (INSEE + "/fr/statistiques/3532172",)
+INSEE_PAGE = re.compile(r"^https?://(?:www\.)?insee\.fr/fr/statistiques/\d+/?$")
+# Liens vers une page de l'Insee, relatifs ou absolus, avec ou sans paramètres (l'outil interactif écrit
+# « /fr/outil-interactif/3532172/https://www.insee.fr/fr/statistiques/8595130?sommaire=8595113 »).
+EDITION_LINK = re.compile(r'(?:href="|https?://(?:www\.)?insee\.fr)(/fr/statistiques/\d{6,})(?=["?#/])')
+NATIONAL_FILE = re.compile(r'href="(/fr/statistiques/fichier/\d+/[^"/]*nat[^"/]*_csv\.zip)"')
+MAX_PAGES = 8
 FILE_NAME = "prenoms_recents.json"
 # Clé de la liste dans le Top (à côté de « Prénoms », l'historique 1900-2018).
 TOP_KEY = "firstname_recent"
@@ -182,6 +192,16 @@ def pick_resource(datasets: list[dict]) -> dict | None:
     return max(matches, key=lambda r: r.get("last_modified") or r.get("created_at") or "")
 
 
+def pick_insee_file(links: list[str]) -> str | None:
+    """Fichier national le plus récent parmi des liens de l'Insee (prenoms-2025-nat_csv.zip, nat2022_csv.zip) :
+    la plus grande année dans le nom, puis la page la plus récente."""
+    def key(link: str):
+        years = [int(y) for y in re.findall(r"(?<!\d)(19\d\d|20\d\d)(?!\d)", link.rsplit("/", 1)[-1])]
+        page = re.search(r"/fichier/(\d+)/", link)
+        return (max(years, default=0), int(page.group(1)) if page else 0)
+    return max(links, key=key) if links else None
+
+
 def _nth(rank: int) -> str:
     return "1er" if rank == 1 else f"{rank}e"
 
@@ -275,25 +295,46 @@ class RecentNames:
     # --- Téléchargement --------------------------------------------------------------
 
     async def resource_url(self, http: httpx.AsyncClient) -> tuple[str, str | None]:
+        """Adresse du fichier national : saisie dans Paramètres, sinon un fichier direct sur data.gouv.fr,
+        sinon le plus récent des pages de l'Insee (outil interactif, page citée par data.gouv.fr)."""
         custom = self.store.get("prenoms_url").strip()
         if custom:
             return custom, None
+        datasets = []
         try:
             response = await http.get(SEARCH_API)
-        except httpx.HTTPError as exc:
-            raise PrenomsError(f"data.gouv.fr injoignable ({exc.__class__.__name__}).") from None
-        datasets = []
-        if response.status_code == 200:
-            try:
+            if response.status_code == 200:
                 datasets = response.json().get("data") or []
-            except ValueError:
-                datasets = []
+        except (httpx.HTTPError, ValueError):
+            datasets = []
         found = pick_resource(datasets)
         if found:
             return found["url"], found.get("last_modified")
-        seen = [r.get("title") or r.get("url", "") for d in datasets for r in d.get("resources") or []]
-        detail = f" Fichiers vus : {', '.join(seen[:8])}." if seen else " Aucun fichier vu sur data.gouv.fr."
-        raise PrenomsError("Fichier national des prénoms introuvable sur data.gouv.fr." + detail
+        pages = list(INSEE_PAGES) + [r.get("url") for d in datasets for r in d.get("resources") or []
+                                     if INSEE_PAGE.match(r.get("url") or "")]
+        links, seen, reached = [], set(), []
+        while pages and len(seen) < MAX_PAGES:
+            page = pages.pop(0).rstrip("/")
+            if page in seen:
+                continue
+            seen.add(page)
+            try:
+                response = await http.get(page, follow_redirects=True)
+            except httpx.HTTPError:
+                continue
+            if response.status_code != 200:
+                continue
+            reached.append(page)
+            text = response.text
+            links += [INSEE + href for href in NATIONAL_FILE.findall(text)]
+            # Une page « Fichier des prénoms » ou l'outil interactif cite les autres éditions.
+            if "pr\u00e9nom" in text.lower() or "prenom" in text.lower():
+                pages += [INSEE + href for href in EDITION_LINK.findall(text) if INSEE + href not in seen]
+        best = pick_insee_file(links)
+        if best:
+            return best, None
+        detail = f" Pages lues : {', '.join(reached[:4])}." if reached else " Ni data.gouv.fr ni insee.fr n'ont répondu."
+        raise PrenomsError("Fichier national des prénoms introuvable." + detail
                            + " Coller son adresse dans Paramètres, Prénoms récents, Adresse du fichier.")
 
     async def refresh(self) -> dict:

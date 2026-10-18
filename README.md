@@ -244,10 +244,13 @@ pas à la surveillance.
 **Prénoms récents** : `prenoms.txt` classe les prénoms sur 1900-2018. Les années récentes viennent du
 fichier des prénoms de l'Insee, publié une fois par an avec les naissances jusqu'à l'année précédente
 (parfois deux ans avant) : l'année en cours n'existe jamais. Le NAS le télécharge une fois par mois
-(`app/prenoms.py`, nouvel essai le lendemain après une erreur) : recherche du jeu de données « fichier
-des prénoms » de l'Insee par l'API de data.gouv.fr, ressource nationale la plus récente (zip ou csv,
-« nat » ou « France » dans le titre ou le nom), sinon l'adresse collée dans Paramètres, carte « Prénoms
-récents (Insee) », « Adresse du fichier ». Le fichier est lu en flux puis effacé ; colonnes repérées par
+(`app/prenoms.py`, nouvel essai le lendemain après une erreur). Découverte : l'adresse collée dans
+Paramètres, carte « Prénoms récents (Insee) », « Adresse du fichier », si elle existe ; sinon un fichier
+national direct sur data.gouv.fr ; sinon les pages de l'Insee : l'outil interactif sur les prénoms (qui
+renvoie vers la dernière édition) et la page citée par data.gouv.fr, où l'appli prend le fichier national
+CSV dont le nom porte l'année la plus récente (`prenoms-2025-nat_csv.zip`, édition parue le 18 juin 2026,
+naissances jusqu'à 2025). Vérifié sur les vrais sites en octobre 2026 : data.gouv.fr ne pointe que vers
+une page d'une ancienne édition (2022), d'où ce passage par l'Insee. Le fichier est lu en flux puis effacé ; colonnes repérées par
 leur intitulé (ancien format `sexe;preusuel;annais;nombre`, récent `sexe;prenom;periode;valeur`) ; prénoms
 rares (« XXXX », « _PRENOMS_RARES ») écartés ; même normalisation que `prenoms.txt`, filles et garçons
 additionnés. Reste `data/prenoms_recents.json` : les 2 000 prénoms les plus donnés de chacune des trois

@@ -155,3 +155,29 @@ def test_discovery_failure_says_what_to_do(store, tmp_path):
     status = asyncio.run(names.refresh())
     assert "introuvable" in status["error"] and "Adresse du fichier" in status["error"]
     assert status["latest"] is None and names.due() is False
+
+
+def test_discovery_follows_insee_pages_to_the_latest_edition(store, tmp_path):
+    """Structure réelle (octobre 2026) : sur data.gouv.fr, la fiche de l'Insee pointe vers une page d'une ancienne
+    édition ; l'outil interactif renvoie vers la dernière, en lien absolu avec paramètres."""
+    datasets = {"data": [{"title": "Fichier des prénoms depuis 1900", "organization": {"name": "Institut national de la statistique et des études économiques (Insee)"},
+                          "resources": [{"title": "Fichiers des prénoms", "format": "csv dbase",
+                                         "url": "https://www.insee.fr/fr/statistiques/7633685"}]}]}
+    tool = ('<a title="Fichier des prénoms" href="/fr/outil-interactif/3532172/https://www.insee.fr/fr/statistiques/8595130'
+            '?sommaire=8595113" target="_blank"><b>Fichier des prénoms</b></a>')
+    old_page = '<h1>Fichier des prénoms</h1><a href="/fr/statistiques/fichier/7633685/nat2022_csv.zip">France</a>'
+    new_page = ('<h1>Fichier des prénoms</h1><a href="/fr/statistiques/fichier/8595130/prenoms-2025-dpt_csv.zip">Dpt</a>'
+                '<a href="/fr/statistiques/fichier/8595130/prenoms-2025-nat_csv.zip">France</a>')
+    calls = []
+    names = names_for(store, tmp_path, {
+        prenoms.SEARCH_API: httpx.Response(200, json=datasets),
+        "https://www.insee.fr/fr/statistiques/3532172": httpx.Response(200, text=tool),
+        "https://www.insee.fr/fr/statistiques/7633685": httpx.Response(200, text=old_page),
+        "https://www.insee.fr/fr/statistiques/8595130": httpx.Response(200, text=new_page),
+        "https://www.insee.fr/fr/statistiques/fichier/8595130/prenoms-2025-nat_csv.zip":
+            httpx.Response(200, content=zipped("sexe;prenom;periode;valeur;rang\n1;GABRIEL;2025;4625;1\n2;JADE;2025;2900;1\n")),
+    }, calls)
+    status = asyncio.run(names.refresh())
+    assert status["error"] is None and status["latest"] == 2025
+    assert names.rank_of("gabriel") == (1, 4625)
+    assert not any("nat2022" in c for c in calls)
