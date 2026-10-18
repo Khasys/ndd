@@ -177,22 +177,44 @@ muet : nouvel essai à la lecture suivante) d'une source à configurer. Sur tél
 en haut ; l'usage, la case des noms faibles, « Nouveaux », les extensions et les types sont dans le
 panneau Avancé.
 
-Fiche d'un nom : ligne de décision en tête (libération estimée, premium probable, verdict IA, prix
-utilisateur final) et action mise en avant : Réserver pour un nom libre, Surveiller pour un nom qui
-va se libérer, Analyse IA pour un nom pas encore noté. Surveiller reste disponible dans tous les cas.
-C'est la seule vue détaillée d'un nom : dans Domaines aussi, un clic sur un nom ouvre la fiche (plus de
-panneau propre à Domaines). Pour un nom surveillé, elle ajoute la section **Suivi** (état et date d'entrée,
-erreur de check avec le dernier état conservé, expiration et jours restants, libération estimée, création,
-mise à jour, registrar, serveurs DNS, statuts EPP expliqués au survol, tags à ajouter ou retirer, signaux
-d'abandon avec « Analyser », source, dernier et prochain check) et l'**Historique des changements** (table
-`history`) ; Vérifier y lance le check de Domaines. Badges « Surveillé » et « Portefeuille » sous le nom.
+Fiche d'un nom, de haut en bas, la même sur téléphone et sur ordinateur (panneau d'environ 520 px à droite,
+42 % de la largeur au plus) :
 
-Actions de la fiche : une rangée de pictos, comme la barre du bas, dont l'allure suit l'état du nom.
-Réserver (en couleur pleine si le nom est libre ou probablement libre) ; Suivre, ou « Suivi » (teinte
-verte) pour un nom surveillé, qu'un appui propose d'arrêter après confirmation ; Analyser, « En cours »
-(sablier) quand une analyse IA est demandée, « Analysé » (coche) quand un avis existe, qu'un appui
-relance après confirmation ; Vérifier, qui tourne pendant la vérification ; Portefeuille, seulement pour
-un nom qui y est déjà. L'ajout au portefeuille se fait à la main, dans l'écran Portefeuille.
+1. **En-tête** collant : le nom en grand, le bouton fermer « × » ; dessous, une seule ligne d'état : badge,
+   la date qui compte (« libération ~17/11 », « libre depuis le 06/10 », « expire le 12/03/2027 ») et les puces
+   « Suivi » et « Portefeuille ».
+2. **Carte décision** : en gros la note IA de l'usage choisi (Pour revendre / Pour exploiter, réglage commun),
+   étiquetée « IA revente » ou « IA exploitation », sinon le score ; le verdict en pastille, le prix utilisateur
+   final et une raison courte (le « pourquoi » de l'avis, sinon les deux premières raisons du score). Sans avis :
+   « Pas encore d'avis IA » ; avis de version 4 : « Avis à l'ancienne grille, renoté bientôt » ; premium
+   probable : l'avertissement.
+3. **Actions** en pictos (voir plus bas).
+4. **Dates clés** (voir l'Explorer).
+5. Le détail en **sections repliables**, chacune avec un résumé à droite du titre : Avis IA (ouverte ;
+   commentaire, notes, prix, grille des neuf sous-notes en mini-barres sur 10, « Pourquoi »), Score (ouverte
+   sur ordinateur ; barre, détail, raisons), Suivi (nom surveillé : état et date d'entrée, erreur de check avec
+   le dernier état conservé, registrar, serveurs DNS et statuts EPP expliqués au survol quand il y en a, tags à
+   ajouter ou retirer, signaux d'abandon avec « Analyser », source, dernier et prochain check, puis
+   l'**Historique des changements**, table `history` ; l'expiration et la libération n'y sont répétées que si
+   Dates clés ne les a pas), Le nom (catégories, nature, fréquence), Comparables et repères, Autres extensions
+   (« 3 libres sur 8 » : nom, état, résumé de l'avis), Registre et SEO (dernière lecture RDAP ou WHOIS sauf
+   pour un nom surveillé, prochaine lecture et sa raison, open data .fr, DNS, SEO). Les champs vides ou
+   inconnus ne s'affichent pas. Libellés en casse normale sur une colonne étroite, au-dessus de la valeur
+   sous 360 px.
+
+Action mise en avant : Réserver pour un nom libre, Suivre pour un nom qui va se libérer, Analyser pour un nom
+pas encore noté. C'est la seule vue détaillée d'un nom : dans Domaines aussi, un clic sur un nom ouvre la
+fiche ; Vérifier y lance le check de Domaines. Le retour arrière ou Échap la ferme (Échap ferme d'abord le
+menu « Plus » s'il est ouvert).
+
+Actions de la fiche : une rangée de pictos sur une seule ligne, colonnes égales, comme la barre du bas, dont
+l'allure suit l'état du nom. Réserver (en couleur pleine si le nom est libre ou probablement libre) ; Suivre,
+ou « Suivi » (teinte verte) pour un nom surveillé, qu'un appui propose d'arrêter après confirmation ; Analyser,
+picto « IA » en gras dans un cadre : en pointillés et « En cours » quand une analyse IA est demandée, plein et
+« Analysé » quand un avis existe (un appui relance après confirmation) ; Vérifier, qui tourne pendant la
+vérification ; « Plus » (trois points) ouvre un petit menu sous la rangée, au clavier comme à la souris (flèches,
+Échap, clic dehors) : Analyse SEO, Réservé ou Pas réservé, Arrêter le suivi (nom surveillé), Voir dans
+Portefeuille (nom du portefeuille). L'ajout au portefeuille se fait à la main, dans l'écran Portefeuille.
 
 En .fr, un mot seulement anglais (should) ou une forme conjuguée (vais) perd une vingtaine de
 points de forme et de sens par rapport au même mot bien placé : ils se lisent mal en .fr. La raison
@@ -444,17 +466,18 @@ DNS change de version à la fin de chaque passe : l'Explorer se recalcule alors.
   catégories et nature en français, fréquence (rang dans chaque liste, « 442e mot anglais le plus courant »), historique .fr, SEO, dernière réponse RDAP ou WHOIS (registrar,
   dates, statuts, DNS ; pour un nom surveillé, la section Suivi la remplace), autres extensions (avec le
   résumé de leur avis IA : verdict, note de revente, prix final), et les actions (Vérifier, Réserver chez
-  Gandi, Suivre ou arrêter le suivi, Analyser, SEO, Réservé). **Comparables** : jusqu'à trois noms déjà notés avec la grille sur la
+  Gandi, Suivre ou arrêter le suivi, Analyser ; SEO et Réservé dans le menu « Plus »). **Comparables** : jusqu'à trois noms déjà notés avec la grille sur la
   même extension, de la même liste principale (pour un nom court hors des listes : même forme et
   même longueur) et de longueur proche (un caractère d'écart au plus), les plus proches par note
   de revente (sans avis sur le nom, par l'estimation du score) ; avec, pour chacun, verdict, notes,
   prix final et état. **Repères** : trois ventes ou offres reçues du portefeuille, les plus proches
-  en longueur. **Dates clés** (ligne de temps, juste sous les boutons, ouverte partout) : tout ce que la
+  en longueur. **Dates clés** (ligne de temps, juste sous les pictos, ouverte partout ; au-delà de six dates, les trois
+  dernières passées et toutes celles à venir, « Tout afficher » pour le reste) : tout ce que la
   base sait du nom, daté et trié : création (Afnic ou registre) et suppression, expiration, sortie de
   zone, entrée en rédemption ou en suppression, libération constatée, reprise, avis IA (noté, renoté),
   surveillance et changements d'état ou de registrar, achat et vente ; puis, après un trait
-  « aujourd'hui », ce qui est à venir : expiration, libération estimée, prochaine vérification. Sous le verdict IA, « Pourquoi » (`why`) quand l'avis
-  est réservé, et la mention « Avis à l'ancienne grille, renoté bientôt » pour un avis de version 4 ; les
+  « aujourd'hui », ce qui est à venir : expiration, libération estimée, prochaine vérification. Dans l'avis IA, « Pourquoi » (`why`) quand l'avis
+  est réservé, et dans la carte décision la mention « Avis à l'ancienne grille, renoté bientôt » pour un avis de version 4 ; les
   cartes de la Veille et de l'Explorer ajoutent ce « pourquoi » en fin de phrase.
 - **Avancé** (panneau du bas sur téléphone) : catégorie, nature des mots (verbes, noms communs,
   adjectifs, adverbes, mots outils), longueur, fréquence (top 100 à top 5 000), pris sur une

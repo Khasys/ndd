@@ -560,43 +560,6 @@ button:disabled { cursor: default; opacity: .55; }
   font: 13px/1.4 var(--mono); white-space: pre-wrap; word-break: break-all; user-select: all;
 }
 
-/* Fiche d'un nom : panneau latéral, plein écran sur téléphone. */
-.drawer {
-  position: fixed; z-index: 45; top: 0; right: 0; bottom: 0; width: min(480px, 94vw);
-  overflow-y: auto; overscroll-behavior: contain;
-  padding: 0 24px 32px;
-  background: var(--surface); border-left: 1px solid var(--line);
-  box-shadow: -12px 0 40px rgb(0 0 0 / .14);
-}
-.drawer-head {
-  position: sticky; top: 0; z-index: 1;
-  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
-  margin: 0 -24px; padding: 18px 24px 12px; background: var(--surface);
-}
-.drawer-title { min-width: 0; }
-.drawer-name { display: block; font-size: 18px; font-weight: 600; overflow-wrap: anywhere; }
-.drawer-state { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 14px; }
-.drawer-state .abandon { margin: 0; }
-.drawer-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 20px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
-/* Fiche : six actions dans un panneau étroit ; elles passent à la ligne au lieu de sortir du cadre. */
-.drawer-actions > .btn, .drawer-actions > .btn-ghost { flex: 1 1 auto; white-space: nowrap; }
-.drawer-actions > a { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
-.drawer-actions .btn-ghost { flex: 1; height: 38px; }
-.drawer .details-grid { grid-template-columns: 1fr; gap: 24px; padding: 0; }
-.drawer .history ol { max-height: none; }
-.drawer .history li { padding: 6px 0; border-bottom: 1px solid var(--line); }
-
-@media (max-width: 899px) {
-  .drawer {
-    left: 0; width: auto; bottom: var(--tabbar);
-    border: 0; box-shadow: none;
-    padding: 0 16px 32px;
-  }
-  .drawer-head { margin: 0 -16px; padding: calc(10px + env(safe-area-inset-top)) 16px 12px; border-bottom: 1px solid var(--line); margin-bottom: 14px; }
-  .drawer-name { font-size: 20px; }
-  .drawer-actions .btn-ghost { min-height: 44px; }
-}
-
 /* Ordinateur : barre latérale fixe, tableau en carte, Légende et Paramètres en pages. */
 @media (min-width: 900px) {
   .page {
@@ -856,21 +819,7 @@ button:disabled { cursor: default; opacity: .55; }
 .ex-junk { font-size: 13px; }
 .ex-wait { padding: 24px 0; }
 
-/* Fiche d'un nom : panneau au-dessus des écrans. */
-.drawer.fiche { z-index: 47; }
-.fiche .details-grid dl { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; margin: 0; align-items: baseline; }
-/* Libellé et valeur sur la même ligne, sur téléphone aussi (pas de décalage du libellé). */
-.fiche .details-grid dt { margin-top: 0; }
-.fiche-bar { width: 160px; }
-.fiche-more { display: flex; gap: 8px; flex-wrap: wrap; }
-.fiche-other { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-.drawer-actions a.btn-ghost { flex: 1; display: inline-flex; align-items: center; justify-content: center; height: 38px; }
-.details .ex-reason { display: inline-block; margin: 0 2px 3px 0; }
 .drop-bar { width: 90px; display: inline-block; vertical-align: middle; margin-left: 8px; height: 16px; }
-@media (max-width: 899px) {
-  .drawer-actions { flex-wrap: wrap; }
-  .drawer-actions .btn-ghost, .drawer-actions a.btn-ghost { flex: 1 1 45%; }
-}
 
 /* Verdict IA : une pastille discrète, la même partout (cartes, fiche, Domaines, Aujourd'hui) ; texte normal,
    couleur douce. À prendre vert, À surveiller ambre, À laisser gris. Le prix qui suit reste en texte normal. */
@@ -882,21 +831,10 @@ button:disabled { cursor: default; opacity: .55; }
 .verdict.watch { background: var(--s-expiring-bg); color: var(--s-expiring-fg); }
 .verdict.skip { background: var(--s-active-bg); color: var(--s-active-fg); }
 .ai-comment { font-style: italic; }
-/* Fiche : rien ne doit l'élargir (puce de raison longue, nom de serveur DNS, liste d'extensions). */
-.drawer { overflow-x: hidden; }
-.fiche-sec dd, .fiche .details-grid dd { min-width: 0; overflow-wrap: anywhere; }
-.details .ex-reason { white-space: normal; max-width: 100%; overflow-wrap: anywhere; }
-
-/* Fiche en sections et groupes de filtres : un titre discret, un filet au-dessus. */
-.fiche-sec { margin: 0 0 4px; }
-.fiche-sec + .fiche-sec, .details-grid > div + div .fiche-sec { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
-.fiche-sec h3, .ex-group-title {
+/* Groupes de filtres : un titre discret, un filet au-dessus. */
+.ex-group-title {
   margin: 0 0 8px; font-size: 11.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted);
 }
-/* Même colonne de libellés dans toutes les sections : les valeurs s'alignent d'une section à l'autre. */
-.fiche-sec dl, .fiche .details-grid .fiche-sec dl { display: grid; grid-template-columns: 8.5em minmax(0, 1fr); gap: 8px 14px; margin: 0; align-items: baseline; }
-.fiche .details-grid { gap: 0; }
-.fiche-sec dt { margin-top: 0; }
 .ex-group-title { margin: 6px 0 -4px; padding-top: 10px; border-top: 1px solid var(--line); color: var(--text); }
 .ex-panel-head + .ex-group-title { border-top: 0; padding-top: 0; }
 
@@ -970,9 +908,6 @@ button:disabled { cursor: default; opacity: .55; }
   border: 0; border-radius: 10px; background: var(--accent); color: var(--accent-text); font: inherit; font-weight: 500;
   cursor: pointer; box-shadow: 0 4px 16px rgba(0, 0, 0, .18); }
 .ai-ready-item .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Avis IA ouvert depuis la notification : encadré, pour le voir tout de suite. */
-.fiche-sec.fiche-hot { padding: 10px 12px; border: 2px solid var(--accent); border-radius: 10px;
-  background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .drops-more { display: block; margin: 10px auto 0; }
 
 /* Suppressions : ligne d'état des sources. */
@@ -992,10 +927,6 @@ button:disabled { cursor: default; opacity: .55; }
   .premium-table .num-input { width: 72px !important; }
 }
 
-/* Fiche : ligne de décision sous l'état. */
-.fiche-decision { display: flex; flex-wrap: wrap; gap: 6px 12px; margin: 6px 0 10px; font-size: 14px; }
-.fiche-decision .fd-warn { color: var(--danger); }
-.fiche-decision .fd-price, .fiche-decision .fd-date { color: var(--muted); }
 
 /* Portefeuille. */
 .pf-totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px 16px; }
@@ -1155,31 +1086,10 @@ button:disabled { cursor: default; opacity: .55; }
 .dom-pick { vertical-align: middle; margin: 0 8px 0 0; }
 @media (max-width: 899px) { .dom-pick { width: 22px; height: 22px; margin-right: 10px; } }
 
-/* Fiche : comparables, repères, ligne de temps, autres extensions avec leur avis. */
-.fiche-comp { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 6px 0; }
-.fiche-other-line { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px 10px; }
-.fiche-other-line .fiche-other-ai { flex: 1 1 auto; }
-.fiche-other { display: block; }
-.fiche-timeline { margin: 10px 0 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
-.fiche-timeline h3 { margin: 0 0 6px; }
-.fiche-timeline ol { list-style: none; margin: 0; padding: 0 0 0 14px; border-left: 2px solid var(--line); }
-.fiche-timeline li { position: relative; display: flex; flex-wrap: wrap; gap: 2px 10px; padding: 3px 0; color: var(--muted); }
-.fiche-timeline li::before { content: ""; position: absolute; left: -19px; top: 9px; width: 8px; height: 8px; border-radius: 50%; background: var(--line); }
-.fiche-timeline li .when { min-width: 82px; font-variant-numeric: tabular-nums; }
-.fiche-timeline li.future { color: var(--text); }
-.fiche-timeline li.future::before { background: var(--accent); }
-/* Trait « aujourd'hui » avant la première date à venir. */
-.fiche-timeline li.now { margin-top: 6px; padding-top: 8px; border-top: 1px dashed var(--accent); }
-.fiche-timeline .what.tl-release, .fiche-timeline .what.tl-expires { font-weight: 600; }
-.fiche-timeline .what.tl-drop_taken { color: var(--danger); }
 /* Sur ordinateur, les puces (types, listes du Top, extensions) passent à la ligne : un défilement
    horizontal sans barre visible cacherait les dernières (Métiers, Sport, Animaux, Cuisine). */
 @media (min-width: 900px) {
   .ex-chips, .ex-types { flex-wrap: wrap; overflow: visible; }
-}
-/* Sur téléphone, un comparable ou une étape de la ligne de temps reste sur une ligne (qui passe à la ligne si besoin). */
-@media (max-width: 899px) {
-  .history li.fiche-comp { flex-direction: row; flex-wrap: wrap; gap: 4px 10px; }
 }
 
 /* Sous-titre d'un écran : une ligne, discrète. */
@@ -1222,14 +1132,7 @@ button:disabled { cursor: default; opacity: .55; }
 
 /* Cartes et fiche : badges « Surveillé » et « Portefeuille ». */
 .nc-flag { display: inline-flex; align-items: center; padding: 0 7px; border: 1px solid var(--accent); border-radius: 9px; color: var(--accent); font-size: 11.5px; font-weight: 500; white-space: nowrap; }
-.drawer-state .nc-flag { font-size: 12.5px; padding: 1px 8px; }
 
-/* Fiche d'un nom surveillé : suivi et historique des changements. */
-.fiche-watch .fiche-error { margin: 0 0 8px; }
-.fiche-watch .abandon { margin: 0 0 0 6px; }
-.fiche-changes { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
-.fiche-changes h3 { font-size: 11.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; }
-.fiche-watch .tag-input { width: 160px; }
 
 /* Paramètres : bloc avancé replié, version en pied. */
 .settings-more { margin: 16px 0; }
@@ -1237,24 +1140,189 @@ button:disabled { cursor: default; opacity: .55; }
 .version-block.version-foot { margin: 16px 0 0; }
 @media (max-width: 899px) {
   .settings-more .btn-ghost { width: 100%; }
-  .fiche-watch .tag-input { width: 100%; }
 }
 
-/* Fiche : actions en pictos, comme la barre du bas. Couleurs légères selon l'état. */
-.fiche-acts { display: grid; grid-template-columns: repeat(auto-fit, minmax(64px, 1fr)); gap: 6px; margin: 8px 0 4px; }
-.fiche-acts .fa { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 56px; padding: 6px 4px;
-  border: 1px solid var(--line); border-radius: 10px; background: var(--surface, transparent); color: var(--text); font: inherit; font-size: 12px; text-decoration: none; cursor: pointer; }
-.fiche-acts .fa svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.fiche-acts .fa svg .filled { fill: currentColor; }
-.fiche-acts .fa.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-.fiche-acts .fa.on { background: color-mix(in srgb, var(--accent) 10%, transparent); border-color: color-mix(in srgb, var(--accent) 35%, transparent); color: var(--accent); }
+/* Fiche d'un nom : panneau à droite sur ordinateur (environ 520 px, 42 % de la largeur au plus), plein écran
+   sur téléphone. Même ordre partout : en-tête collant, carte décision, pictos, dates clés, sections repliables. */
+.drawer.fiche {
+  position: fixed; z-index: 47; top: 0; right: 0; bottom: 0; width: clamp(400px, 42vw, 520px);
+  overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;
+  padding: 0 24px 32px;
+  background: var(--surface); color: var(--text); border-left: 1px solid var(--line);
+  box-shadow: -12px 0 40px rgb(0 0 0 / .14);
+}
+.fiche :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.fiche-head {
+  position: sticky; top: 0; z-index: 2;
+  display: flex; align-items: flex-start; gap: 8px;
+  margin: 0 -24px 14px; padding: 16px 12px 12px 24px;
+  background: var(--surface); border-bottom: 1px solid var(--line);
+}
+.fiche-id { flex: 1; min-width: 0; }
+.fiche-name { margin: 0; font-size: 22px; font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
+.fiche-name.long { font-size: 19px; }
+/* Une seule ligne d'état sous le nom : badge, la date qui compte, puis les puces discrètes. */
+.fiche-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 6px; font-size: 13px; }
+.fiche-when { font-weight: 500; white-space: nowrap; }
+.fiche-line .nc-flag { border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+.fiche-close {
+  flex: none; display: inline-grid; place-items: center; width: 44px; height: 44px; margin-top: -6px; padding: 0;
+  background: none; border: 0; border-radius: 50%; color: var(--muted); cursor: pointer;
+}
+.fiche-close:hover { background: var(--hover); color: var(--text); }
+.fiche-close:focus-visible { outline-offset: -2px; }
+.fiche-close svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+
+/* Carte décision : le gros chiffre à gauche, verdict, prix et raison à droite. */
+.fiche-deal {
+  display: flex; align-items: center; gap: 14px; margin: 0 0 12px; padding: 12px 14px;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 12px;
+}
+.fd-num { flex: none; display: flex; flex-direction: column; align-items: center; min-width: 64px; padding-right: 14px; border-right: 1px solid var(--line); }
+.fd-num b { font-size: 34px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
+.fd-num span { margin-top: 5px; color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+.fd-body { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.fd-body p { margin: 0; }
+.fd-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+.fd-price { color: var(--muted); font-size: 13px; }
+.fd-price b { color: var(--text); font-weight: 600; }
+.fd-none { color: var(--muted); font-size: 13px; }
+.fd-why { font-size: 13.5px; line-height: 1.4; overflow-wrap: anywhere; }
+.fd-old { color: var(--muted); font-size: 12.5px; }
+.fd-warn { color: var(--danger); font-size: 13px; }
+/* Ouverte depuis la notification d'une analyse prête : l'avis encadré, pour le voir tout de suite. */
+.fiche-deal.fiche-hot { border: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+
+/* Actions en pictos, comme la barre du bas : une ligne, colonnes égales. Couleurs légères selon l'état. */
+.fiche-actbar { position: relative; margin: 0 0 16px; }
+.fiche-acts { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.fiche-acts .fa {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-width: 0; height: 60px; padding: 6px 2px;
+  background: var(--surface); color: var(--text); border: 1px solid var(--line); border-radius: 12px;
+  font: inherit; font-size: 12px; line-height: 1.2; white-space: nowrap; text-decoration: none; cursor: pointer;
+}
+.fiche-acts .fa > span:last-child { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.fiche-acts .fa:hover:not(:disabled) { background: var(--hover); }
+.fiche-acts .fa svg { flex: none; width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.fiche-acts .fa svg .filled { fill: currentColor; stroke: none; }
+.fiche-acts .fa svg circle.filled { stroke: currentColor; }
+.fiche-acts .fa.primary, .fiche-acts .fa.primary:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.fiche-acts .fa.on, .fiche-acts .fa.on:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface)); border-color: color-mix(in srgb, var(--accent) 40%, transparent); color: var(--accent);
+}
 .fiche-acts .fa.wait { color: var(--muted); border-style: dashed; }
 .fiche-acts .fa:disabled { cursor: default; }
-.fiche-acts .fa:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .fiche-acts svg.spin { animation: fa-spin 1s linear infinite; }
 @keyframes fa-spin { to { transform: rotate(360deg); } }
-@media (min-width: 900px) { .fiche-acts { grid-template-columns: repeat(auto-fit, minmax(84px, 110px)); } }
-.fiche-acts .ia-icon text { fill: currentColor; stroke: none; font: 700 8px/1 system-ui, sans-serif; letter-spacing: .2px; }
-.fiche-acts .ia-icon.pending rect { stroke-dasharray: 2.5 2.5; }
-.fiche-acts .ia-icon .ia-badge { fill: var(--surface); stroke: currentColor; stroke-width: 1.6; }
-.fiche-acts .ia-icon .ia-check { stroke-width: 1.6; }
+@media (prefers-reduced-motion: reduce) { .fiche-acts svg.spin { animation-duration: 4s; } }
+/* Picto « IA » : un vrai « IA » en gras dans un cadre de la taille des autres icônes ; pointillés pendant
+   l'analyse, cadre plein une fois l'avis reçu. */
+.ia-mark {
+  flex: none; display: inline-grid; place-items: center; width: 24px; height: 20px; margin: 2px 0;
+  border: 2px solid currentColor; border-radius: 6px; font: 700 11px/1 var(--sans); letter-spacing: .03em;
+}
+.ia-mark.ia-pending { border-style: dashed; }
+.fiche-acts .fa .ia-mark.ia-done { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+/* Menu « Plus » : sous la rangée, à droite. */
+.fiche-menu {
+  position: absolute; z-index: 3; top: calc(100% + 6px); right: 0; display: grid; min-width: 220px; max-width: 100%; padding: 6px;
+  background: var(--surface); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: 0 10px 30px rgb(0 0 0 / .18);
+}
+.fiche-menu button {
+  display: flex; align-items: center; min-height: 44px; padding: 0 12px;
+  background: none; border: 0; border-radius: 8px; color: var(--text); font: inherit; font-size: 14px; text-align: left; cursor: pointer;
+}
+.fiche-menu button:hover:not(:disabled), .fiche-menu button:focus-visible { background: var(--hover); }
+.fiche-menu button:focus-visible { outline-offset: -2px; }
+.fiche-menu button:disabled { color: var(--faint); cursor: default; }
+.fiche-menu button.danger { color: var(--danger); }
+
+/* Dates clés : ligne de temps compacte, sans cadre ; trait « aujourd'hui » avant la première date à venir. */
+.fiche-timeline { margin: 0 0 14px; }
+.ftl-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 0 0 6px; }
+.ftl-head h3 { margin: 0; font-size: 15px; font-weight: 500; }
+.ftl-head .ftl-all { padding: 2px 6px; color: var(--accent); font-size: 13px; }
+.fiche-timeline ol { list-style: none; margin: 0 0 0 4px; padding: 0 0 0 14px; border-left: 2px solid var(--line); }
+.fiche-timeline li { position: relative; display: flex; gap: 2px 12px; padding: 2px 0; color: var(--muted); font-size: 13.5px; }
+.fiche-timeline li::before { content: ""; position: absolute; left: -19px; top: 9px; width: 8px; height: 8px; border-radius: 50%; background: var(--line-strong); }
+.fiche-timeline .when { flex: none; min-width: 6.4em; font-variant-numeric: tabular-nums; }
+.fiche-timeline .what { min-width: 0; }
+.fiche-timeline li.future { color: var(--text); }
+.fiche-timeline li.future::before { background: var(--accent); }
+.fiche-timeline li.now { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--accent); }
+.fiche-timeline li.now::after {
+  content: "aujourd'hui"; position: absolute; top: -9px; right: 0; padding: 0 0 0 6px;
+  background: var(--surface); color: var(--accent); font-size: 11.5px; line-height: 16px;
+}
+.fiche-timeline .what.tl-release, .fiche-timeline .what.tl-expires { font-weight: 600; }
+.fiche-timeline .what.tl-drop_taken { color: var(--danger); }
+.fiche-timeline .tl-soon { color: var(--muted); font-size: 12px; font-weight: 400; }
+
+/* Sections repliables : même en-tête (titre, résumé à droite, chevron), même rythme vertical. */
+.fsec { border-top: 1px solid var(--line); }
+.fsec > summary { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 8px 0; list-style: none; cursor: pointer; }
+.fsec > summary::-webkit-details-marker { display: none; }
+.fsec > summary::after {
+  content: ""; flex: none; width: 7px; height: 7px; margin: 0 4px 4px 2px;
+  border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(45deg);
+}
+.fsec[open] > summary::after { margin: 4px 4px 0 2px; transform: rotate(-135deg); }
+.fsec > summary:hover .fsec-title { color: var(--accent); }
+.fsec > summary:focus-visible { outline-offset: -2px; border-radius: 6px; }
+.fsec-title { flex: none; font-size: 15px; font-weight: 500; }
+.fsec-sum { flex: 1; min-width: 0; color: var(--muted); font-size: 13px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fsec-sum.error-text { color: var(--danger); }
+.fsec-body { padding: 0 0 16px; }
+.fsec-body p { margin: 0; }
+.fai-lead { margin: 0 0 12px !important; line-height: 1.45; }
+.fiche .ai-comment { font-style: normal; }
+.fsub { margin: 16px 0 6px; color: var(--muted); font-size: 13px; font-weight: 500; }
+.fsec-body > .fsub:first-child { margin-top: 0; }
+
+/* Libellé / valeur : libellés en casse normale, gris, sur une colonne étroite ; au-dessus de la valeur sous 360 px. */
+.fdl { display: grid; grid-template-columns: minmax(0, min(38%, 11.5em)) minmax(0, 1fr); gap: 8px 14px; margin: 0; align-items: baseline; }
+.fdl > .frow { display: contents; }
+.fdl dt { color: var(--muted); font-size: 13.5px; }
+.fdl dd { min-width: 0; margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.fiche-bar { max-width: 220px; }
+.fchips { display: flex; flex-wrap: wrap; gap: 4px; }
+.fchips .ex-reason { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+@media (max-width: 359px) {
+  .fdl { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .fdl dt { margin-top: 8px; font-size: 12.5px; }
+  .fdl > dt:first-child { margin-top: 0; }
+}
+
+/* Grille IA : neuf sous-notes en mini-barres (libellé, barre sur 10, chiffre). */
+.fgrid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 6px 22px; }
+.fgrid li { display: grid; grid-template-columns: 7.6em minmax(0, 1fr) 1.4em; align-items: center; gap: 8px; font-size: 13px; }
+.fg-label { color: var(--muted); }
+.fg-bar { position: relative; height: 6px; overflow: hidden; border-radius: 3px; background: var(--line); }
+.fg-bar i { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: var(--accent); }
+.fgrid b { font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+.fgrid li.warn .fg-label, .fgrid li.warn b { color: var(--danger); }
+.fgrid li.warn .fg-bar i { background: var(--danger); }
+
+/* Listes de la fiche (comparables, repères, autres extensions, changements) : alignées à gauche, un filet entre deux. */
+.flist { list-style: none; margin: 0; padding: 0; }
+.flist > li { padding: 7px 0; border-top: 1px solid var(--line); }
+.flist > li:first-child { padding-top: 0; border-top: 0; }
+.fiche-comp { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.fiche-other-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.fiche-other-line > .link-like { min-width: 8.5em; }
+.fiche-other-ai { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; color: var(--muted); }
+.fiche-changes li { display: flex; gap: 10px; font-size: 13.5px; }
+.fiche-changes .when { flex: none; color: var(--muted); }
+
+/* Suivi d'un nom surveillé. */
+.fiche-watch .fiche-error { margin: 0 0 10px; }
+.fiche-watch .abandon { margin: 0 0 0 6px; }
+.fiche-watch .tag-input { width: 160px; }
+.fiche-watch .signals { margin: 0; }
+.fsig-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 4px; }
+
+@media (max-width: 899px) {
+  .drawer.fiche { left: 0; bottom: var(--tabbar); width: auto; padding: 0 16px 28px; border: 0; box-shadow: none; }
+  .fiche-head { margin: 0 -16px 12px; padding: calc(10px + env(safe-area-inset-top)) 6px 10px 16px; }
+  .fiche-watch .tag-input { width: 100%; }
+}

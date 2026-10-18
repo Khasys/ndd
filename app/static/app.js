@@ -215,6 +215,9 @@ document.addEventListener("alpine:init", () => {
     exFiltersOpen: false,
     exMapOpen: false,
     fiche: null,
+    // Fiche : menu « Plus » ouvert, dates clés toutes affichées.
+    ficheMenu: false,
+    ficheTlAll: false,
     aiReq: { pending: [], done: [] },
     dropTab: "free",
     dropNewOnly: false,
@@ -330,7 +333,9 @@ document.addEventListener("alpine:init", () => {
     plainError(m) { return plainError(m); },
 
     escape() {
-      if (this.fiche) this.fiche = null;
+      // Menu « Plus » de la fiche ouvert : Échap le ferme, la fiche reste.
+      if (this.fiche && this.ficheMenu) this.ficheMenuClose(true);
+      else if (this.fiche) this.fiche = null;
       else if (this.exploreOpen && this.exFiltersOpen) this.exFiltersOpen = false;
       else if (this.dropsOpen && this.dfOpen) this.dfOpen = false;
       else if (this.exploreOpen && this.ex.q) { this.ex.q = ""; this.exTyped(); }
@@ -591,6 +596,9 @@ document.addEventListener("alpine:init", () => {
         // Une autre fiche a été demandée entre-temps : celle-ci est périmée.
         if (ticket !== this._ficheTicket) return;
         fiche.hot = hot;
+        // Autre nom : dates clés de nouveau résumées ; le menu « Plus » se referme dans tous les cas.
+        if (!this.fiche || this.fiche.name !== fiche.name) this.ficheTlAll = false;
+        this.ficheMenu = false;
         this.fiche = fiche;
         // Nom surveillé : l'historique des changements (table history) s'affiche dans la fiche.
         if (fiche.domain_id) this.loadHistory(fiche.domain_id);
@@ -718,18 +726,103 @@ document.addEventListener("alpine:init", () => {
 
     euros(n) { return n === null || n === undefined || n === "" ? "" : `${this.fmt(n)} €`; },
 
-    // En-tête de fiche : de quoi décider d'un coup d'œil (état, libération, avis IA, prix).
+    // Carte décision de la fiche : la note IA de l'usage choisi (réglage commun lens), sinon le score ;
+    // verdict, prix utilisateur final, une raison courte, ancienne grille, premium probable.
     ficheDecision(f) {
-      const parts = [];
+      if (!f) return {};
       const item = f.item;
       const opinion = f.ai || (item && item.ai);
-      if (item && item.status === 4 && item.release_at) parts.push({ text: `libre ~${this.shortDate(item.release_at)}`, cls: "fd-date" });
-      if (item && item.status === 8) parts.push({ text: item.premium_price ? `premium probable, ~${this.fmt(item.premium_price)} €` : "premium probable", cls: "fd-warn" });
-      if (opinion) {
-        parts.push({ text: opinion.comment.split(".")[0], cls: "verdict " + this.aiClass(opinion) });
-        parts.push({ text: `utilisateur final ${this.priceRange(opinion.final_low, opinion.final_high)}`, cls: "fd-price" });
+      const use = this.lens === "exploit" ? "exploitation" : "revente";
+      const hasScore = item && item.score !== undefined;
+      const note = opinion
+        ? { value: Number(opinion[this.lens === "exploit" ? "exploit" : "resale"]), label: `IA ${use}`, title: `Note IA de ${use} sur 100 : la valeur qui trie pour cet usage` }
+        : hasScore ? { value: item.score, label: "score", title: this.scoreTitle(item) || `Score ${item.score} sur 100` } : null;
+      return {
+        note,
+        verdict: opinion ? { text: this.aiVerdict(opinion), cls: "verdict " + this.aiClass(opinion) } : null,
+        price: opinion ? this.priceRange(opinion.final_low, opinion.final_high) : "",
+        why: opinion && opinion.why ? opinion.why : ((item && item.reasons) || []).slice(0, 2).join(" · "),
+        old: !!opinion && (opinion.version || 0) < 5,
+        premium: item && item.status === 8
+          ? (item.premium_price ? `Premium probable : ~${this.fmt(item.premium_price)} € chez le registre` : "Premium probable : le registre peut demander bien plus que le prix courant")
+          : "",
+      };
+    },
+
+    // Nom de la fiche : coupure permise avant l'extension, jamais au milieu sans besoin.
+    ficheNameHtml(name) {
+      const esc = String(name || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+      return esc.replace(".", "<wbr>.");
+    },
+
+    // Badge d'état de l'en-tête : l'état de l'Explorer, sinon celui du suivi (nom hors des listes).
+    ficheBadge(f) {
+      if (f && f.item) return { text: f.item.status_label, cls: this.badgeClass(f.item), title: "" };
+      const d = this.ficheDomain;
+      if (d) return { text: this.stateLabel(d), cls: "s-" + this.displayState(d), title: this.stateTitle(d) };
+      return { text: "Hors des listes suivies", cls: "x-0", title: "" };
+    },
+
+    // La date qui compte, à côté de l'état : libre depuis, libération estimée, ou expiration.
+    ficheWhen(f) {
+      if (!f) return "";
+      const tl = f.timeline || [];
+      const item = f.item || {};
+      const d = this.ficheDomain;
+      const day = (at) => {
+        const when = new Date(at && at.length <= 10 ? at + "T12:00:00" : at);
+        // Sous dix mois, jour et mois suffisent ; au-delà, l'année aussi.
+        return Math.abs(when - this.now) < 300 * 864e5 ? when.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }) : this.shortDate(when);
+      };
+      if (item.status === 5 || (d && d.state === "available")) {
+        const seen = [...tl].reverse().find((t) => !t.future && t.kind === "available");
+        const since = item.available_since || (seen && seen.at);
+        return since ? `libre depuis le ${day(since)}` : "";
       }
-      return parts;
+      const release = tl.find((t) => t.future && t.kind === "release");
+      if (release) return `libération ~${day(release.at)}`;
+      const expires = tl.find((t) => t.future && t.kind === "expires");
+      return expires ? `expire le ${this.timelineDate(expires.at)}` : "";
+    },
+
+    // Une date de ce genre figure déjà dans Dates clés : la section Suivi ne la répète pas.
+    ficheHas(f, kind) { return !!(f && (f.timeline || []).some((t) => t.kind === kind)); },
+
+    // Dates clés : au-delà de 6, les 3 dernières passées et toutes celles à venir (« Tout afficher » pour le reste).
+    // n : rang dans la liste complète (trait « aujourd'hui » de timelineNow).
+    ficheTimeline(f) {
+      const all = ((f && f.timeline) || []).map((t, n) => ({ ...t, n }));
+      if (all.length <= 6 || this.ficheTlAll) return { items: all, hidden: 0 };
+      const items = [...all.filter((t) => !t.future).slice(-3), ...all.filter((t) => t.future)];
+      return { items, hidden: all.length - items.length };
+    },
+
+    // Menu « Plus » : le premier choix prend le clavier ; Échap, Tab ou un clic dehors le ferment.
+    ficheMenuToggle() {
+      this.ficheMenu = !this.ficheMenu;
+      // Après l'affichage du menu (x-show), sinon ses boutons sont encore masqués.
+      if (this.ficheMenu) this.$nextTick(() => requestAnimationFrame(() => this.ficheMenuItems()[0]?.focus()));
+    },
+
+    ficheMenuItems() {
+      return [...document.querySelectorAll("#fiche-menu [role=menuitem]")].filter((b) => b.offsetParent && !b.disabled);
+    },
+
+    ficheMenuClose(refocus = false) {
+      this.ficheMenu = false;
+      if (refocus) document.querySelector(".fiche-acts .fa-more")?.focus();
+    },
+
+    ficheMenuKey(e) {
+      const items = this.ficheMenuItems();
+      const at = items.indexOf(document.activeElement);
+      const go = (i) => { e.preventDefault(); items[(i + items.length) % items.length]?.focus(); };
+      if (e.key === "Escape") { e.stopPropagation(); this.ficheMenuClose(true); }
+      else if (e.key === "ArrowDown") go(at + 1);
+      else if (e.key === "ArrowUp") go(at - 1);
+      else if (e.key === "Home") go(0);
+      else if (e.key === "End") go(items.length - 1);
+      else if (e.key === "Tab") this.ficheMenu = false;
     },
 
     // Action mise en avant : réserver un nom libre, surveiller un nom qui va se libérer, sinon faire noter.
@@ -835,13 +928,13 @@ document.addEventListener("alpine:init", () => {
       else if (this.fiche && this.fiche.item) this.exReplace(this.fiche.item);
     },
 
-    // Fiche d'un nom, en sections : avis IA, score, le nom, historique et SEO.
-    valueHtml(f) {
+    // Fiche d'un nom : lignes libellé / valeur de chaque section (valeurs déjà échappées), sans champ vide.
+    ficheParts(f) {
       const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-      if (!f) return "";
+      const ai = [], score = [], name = [], past = [];
+      if (!f) return { ai, score, name, past, opinion: null };
       const item = f.item;
       const opinion = f.ai || (item && item.ai);
-      const ai = [], score = [], name = [], past = [];
       const req = f.ai_request;
       if (req && !req.done_at) ai.push(["Demande", esc(`envoyée ${this.relative(req.requested_at)}, traitée dans l'heure`)]);
       if (!opinion && f.ai_eta && !(req && !req.done_at)) {
@@ -851,26 +944,17 @@ document.addEventListener("alpine:init", () => {
           : esc(`pas dans les ${e.horizon} prochaines nuits : d'autres noms passent avant`)]);
       }
       if (opinion) {
-        const verdict = this.aiVerdict(opinion);
-        const rest = opinion.comment.slice(verdict.length).replace(/^\.\s*/, "");
-        ai.push(["Verdict", `<span class="verdict ${this.aiClass(opinion)}">${esc(verdict)}</span> <span class="ai-comment">${esc(rest)}</span>`]);
         // Pourquoi « À laisser » ou « À surveiller » : la cause principale, en mots simples.
         if (opinion.why) ai.push(["Pourquoi", esc(opinion.why)]);
-        if ((opinion.version || 0) < 5) ai.push(["Grille", `<span class="muted">Avis à l'ancienne grille, renoté bientôt.</span>`]);
-        ai.push(["Notes", `<span class="ai-notes">Exploitation <b>${Number(opinion.exploit)}</b> · revente <b>${Number(opinion.resale)}</b></span>`]);
+        ai.push(["Notes", `<span class="ai-notes">exploitation <b>${Number(opinion.exploit)}</b> · revente <b>${Number(opinion.resale)}</b></span>`]);
         ai.push(["Revente rapide", esc(this.priceRange(opinion.quick_low, opinion.quick_high))]);
         ai.push(["Utilisateur final", esc(this.priceRange(opinion.final_low, opinion.final_high))]);
-        if (opinion.grid) {
-          // Grille v5 : les sous-notes d'où viennent les notes et le verdict.
-          const g = opinion.grid;
-          ai.push(["Grille", `<span class="ai-grid">${AI_GRID.map(([k, label]) =>
-            `<span class="${k === "risque" && g[k] >= 5 ? "warn-text" : ""}">${label} <b>${Number(g[k])}</b></span>`).join(" · ")}</span>`]);
-        }
       }
       if (item && item.score !== undefined) {
         score.push(["Total", `<span class="ex-bar fiche-bar"><i style="width:${Number(item.score)}%"></i><b>${Number(item.score)}</b></span>`]);
-        score.push(["Détail", esc(this.scoreTitle(item).replace(/^Score \d+ : /, "")) || "—"]);
-        if (item.reasons && item.reasons.length) score.push(["Raisons", item.reasons.map((r) => `<span class="ex-reason">${esc(r)}</span>`).join(" ")]);
+        const detail = this.scoreTitle(item).replace(/^Score \d+ : /, "");
+        if (detail) score.push(["Détail", esc(detail)]);
+        if (item.reasons && item.reasons.length) score.push(["Raisons", `<span class="fchips">${item.reasons.map((r) => `<span class="ex-reason">${esc(r)}</span>`).join("")}</span>`]);
       }
       const kinds = (this.exData && this.exData.kinds) || (this.dropsData && this.dropsData.kinds) || {};
       if (f.categories && f.categories.length) name.push(["Catégories", esc(f.categories.map((c) => this.kindLabel(kinds, c)).join(", "))]);
@@ -880,10 +964,10 @@ document.addEventListener("alpine:init", () => {
       const ranked = Object.keys(ranks).sort((a, b) => ranks[a] - ranks[b]).map((k) => this.freqText(item, k));
       if (ranked.length) name.push(["Fréquence", esc(ranked.join(", "))]);
       else if (f.rank) name.push(["Fréquence", `n° ${esc(this.fmt(f.rank))} de sa liste`]);
+      // Libération estimée et prochaine lecture du registre : déjà dans Dates clés.
       if (item && item.created_on) past.push(["Open data .fr", esc(`créé le ${this.shortDate(item.created_on)}` + (item.removed_on ? `, supprimé le ${this.shortDate(item.removed_on)}` : ""))]);
-      if (item && item.release_at) past.push(["Libération", esc("~" + this.shortDate(item.release_at))]);
       if (item && item.checked_at) past.push(["Vérifié", esc(this.relative(item.checked_at))]);
-      if (item && item.next_check_at && !f.rdap_next) past.push(["Prochaine vérification", esc(this.relative(item.next_check_at))]);
+      if (item && item.next_check_at && !f.rdap_next && !this.ficheHas(f, "next_check")) past.push(["Prochaine vérification", esc(this.relative(item.next_check_at))]);
       if (f.dns_eta) {
         const d = f.dns_eta;
         past.push(["DNS .fr, prochaine", esc(d.queued ? `prochaine passe, lancée à minuit (${this.fmt(d.position)}e sur ${this.fmt(d.nightly)} au plus)` : `pas à la prochaine passe : ${d.why}`)]);
@@ -901,20 +985,92 @@ document.addEventListener("alpine:init", () => {
         if (f.seo.wb_first) parts.push(`archivé depuis ${f.seo.wb_first.slice(0, 4)}` + (f.seo.wb_years ? ` (${f.seo.wb_years} ans)` : ""));
         past.push(["SEO", esc(parts.join(", ") || "aucun signal") + `, analysé ${esc(this.relative(f.seo.checked_at))}`]);
       }
-      return this.ficheSection("Avis IA", ai, f.hot && opinion ? "fiche-hot" : "") + this.ficheSection("Score", score)
-        + this.ficheSection("Le nom", name) + this.ficheSection("Historique, suivi et SEO", past);
+      return { ai, score, name, past, opinion };
+    },
+
+    // Lignes libellé / valeur (valeurs déjà échappées) : libellés en colonne étroite, au-dessus sous 360 px.
+    ficheDl(rows) {
+      if (!rows || !rows.length) return "";
+      return `<dl class="fdl">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>`;
+    },
+
+    // Section Avis IA : commentaire, notes et prix, grille des sous-notes en mini-barres.
+    ficheAiHtml(f) {
+      const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+      const p = this.ficheParts(f);
+      const o = p.opinion;
+      if (!o) {
+        const wait = f && f.ai_request && !f.ai_request.done_at;
+        return (wait ? "" : `<p class="fai-lead muted">Pas encore d'avis IA. « Analyser » le demande, traité dans l'heure.</p>`) + this.ficheDl(p.ai);
+      }
+      const rest = o.comment.slice(this.aiVerdict(o).length).replace(/^\.\s*/, "");
+      let html = rest ? `<p class="fai-lead ai-comment">${esc(rest)}</p>` : "";
+      html += this.ficheDl(p.ai);
+      if (o.grid) {
+        // Grille v5 : les sous-notes sur 10 d'où viennent les notes et le verdict ; un risque de 5 ou plus est signalé.
+        const g = o.grid;
+        html += `<h4 class="fsub">Grille, sur 10</h4><ul class="fgrid">${AI_GRID.map(([k, label]) => {
+          const v = Math.max(0, Math.min(10, Number(g[k]) || 0));
+          return `<li class="${k === "risque" && v >= 5 ? "warn" : ""}"><span class="fg-label">${label}</span>`
+            + `<span class="fg-bar" aria-hidden="true"><i style="width:${v * 10}%"></i></span><b>${v}</b></li>`;
+        }).join("")}</ul>`;
+      }
+      return html;
+    },
+
+    // Résumés des en-têtes de section, d'un coup d'œil.
+    ficheAiSum(f) {
+      const o = f && (f.ai || (f.item && f.item.ai));
+      if (o) {
+        const use = this.lens === "exploit" ? "exploit" : "resale";
+        return `${this.aiVerdict(o)} · ${use === "exploit" ? "exploitation" : "revente"} ${Number(o[use])}`;
+      }
+      if (f && f.ai_request && !f.ai_request.done_at) return "demandée";
+      return f && f.ai_eta && f.ai_eta.position ? `nuit du ${this.timelineDate(f.ai_eta.night).slice(0, 5)}` : "pas encore d'avis";
+    },
+
+    ficheNameSum(f) {
+      if (!f || !f.categories) return "";
+      const kinds = (this.exData && this.exData.kinds) || (this.dropsData && this.dropsData.kinds) || {};
+      const ranks = (f.item && f.item.ranks) || {};
+      // Les listes où le nom est le mieux placé d'abord ; les formes (lettres, chiffres) seulement à défaut.
+      const lists = f.categories.filter((c) => !SHAPE_KINDS.includes(c)).sort((a, b) => (ranks[a] || 1e9) - (ranks[b] || 1e9));
+      return (lists.length ? lists : f.categories).slice(0, 2).map((c) => this.kindLabel(kinds, c)).join(", ");
+    },
+
+    ficheCompSum(f) {
+      const n = ((f && f.comparables) || []).length + ((f && f.references) || []).length;
+      return `${n} nom${n > 1 ? "s" : ""}`;
+    },
+
+    ficheOthersSum(f) {
+      const all = (f && f.others) || [];
+      const free = all.filter((o) => [2, 3, 5].includes(o.status)).length;
+      return `${free ? free : "aucune"} libre${free > 1 ? "s" : ""} sur ${all.length}`;
+    },
+
+    // Registre et SEO : dernière lecture RDAP ou WHOIS (sauf nom surveillé : Suivi la donne), open data, DNS, SEO.
+    ficheRegistryHtml(f) {
+      if (!f) return "";
+      const reg = this.ficheDomain ? "" : this.rdapDl(f.rdap, f.rdap_next);
+      const past = this.ficheParts(f).past.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
+      return reg || past ? `<dl class="fdl">${reg}${past}</dl>` : "";
+    },
+
+    ficheRegistrySum(f) {
+      if (!f) return "";
+      const d = this.ficheDomain;
+      if (f.rdap && !d) return `${f.rdap.source === "whois" ? "WHOIS" : "RDAP"}, lu ${this.relative(f.rdap.at)}`;
+      if (d && d.last_checked_at) return `${d.source ? d.source.toUpperCase() + ", " : ""}lu ${this.relative(d.last_checked_at)}`;
+      if (f.dns) return `DNS ${this.relative(f.dns.at)}`;
+      if (f.item && f.item.checked_at) return `vérifié ${this.relative(f.item.checked_at)}`;
+      return f.item && f.item.created_on ? "open data .fr" : "pas encore lu";
     },
 
     // Badge d'un nom : l'état précis de la légende (couleurs de l'écran Domaines) quand il se libère.
     badgeClass(i) {
       if (!i) return "x-0";
       return i.status === 4 && i.drop_state ? "s-" + i.drop_state : "x-" + i.status;
-    },
-
-    // Une section de fiche : titre puis lignes libellé / valeur (valeurs déjà échappées).
-    ficheSection(title, rows, extra = "") {
-      if (!rows.length) return "";
-      return `<section class="fiche-sec ${extra}"><h3>${title}</h3><dl>${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl></section>`;
     },
 
     // Fourchette de prix d'un avis IA : « 2 000 à 6 000 € », « 0 € » quand rien.
@@ -962,14 +1118,17 @@ document.addEventListener("alpine:init", () => {
       try { this.aiStatus = await this.api("GET", "/api/ai/status"); } catch (_) {}
     },
 
+    // Dernière lecture du registre et prochaine lecture : lignes libellé / valeur de la section Registre et SEO.
     rdapDl(r, next) {
       const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-      let body = r ? this.rdapHtml(r) : "<dt>RDAP</dt><dd>Pas encore lu.</dd>";
+      // Jamais lu : le résumé de la section le dit, pas de ligne vide.
+      let body = r ? this.rdapHtml(r) : "";
       if (next) {
-        const when = next.at ? `${this.relative(next.at)} (${this.exact(next.at)}), ${next.why}` : `non prévue : ${next.why}`;
+        // La date est aussi dans Dates clés : ici, surtout la raison.
+        const when = next.at ? `${this.shortDate(next.at)}, ${next.why}` : `non prévue : ${next.why}`;
         body += `<dt>Prochaine lecture</dt><dd>${esc(when)}</dd>`;
       }
-      return `<section class="fiche-sec"><h3>Registre (RDAP / WHOIS)</h3><dl>${body}</dl></section>`;
+      return body;
     },
 
     // Compteurs d'état exacts seulement sans niveau ni score minimum : ils comptent des masques, pas

@@ -192,7 +192,7 @@
       <dt>Actions groupées</dt><dd>Domaines, Veille et Explorer : cases, puis Vérifier, Analyse IA, Surveiller… Un seul bilan à la fin : « 3 vérifiés, 1 échec ».</dd>
       <dt>Erreurs réseau</dt><dd>« Réseau injoignable » (NAS, proxy ou annuaire IANA hors d'atteinte) et « Pas de réponse du registre » (délai dépassé) remplacent le détail technique ; « Réessayer » rejoue l'action. Dans la Veille, la ligne des sources distingue une erreur temporaire d'une source à configurer.</dd>
     </dl>
-    <p class="small muted">Le bouton « Analyse IA » de la fiche fait noter un nom dans l'heure.</p>
+    <p class="small muted">Fiche d'un nom : en tête l'état et la date qui compte, puis la carte décision (note IA de l'usage choisi, sinon le score ; verdict, prix, raison) et une rangée de pictos : Réserver, Suivre, Analyser (fait noter le nom dans l'heure), Vérifier, et « Plus » (Analyse SEO, Réservé, Arrêter le suivi, Voir dans Portefeuille). Le détail suit en sections repliables, avec un résumé à droite de chaque titre.</p>
 
     <h3 id="help-score">Score (0 à 100)</h3>
     <dl class="help-dl">
@@ -216,7 +216,7 @@
       <dt>Mesure a posteriori</dt><dd>Chaque nuit, les avis d'il y a 30 jours au moins sur des noms alors libres sont confrontés à l'état du jour : part des noms repris par quelqu'un d'autre, par verdict et par tranche de note de revente. Paramètres, carte Avis IA, « Fiabilité des verdicts ».</dd>
       <dt>Alertes</dt><dd>Un nom « À prendre » dont la note de revente atteint le seuil réglé (70 par défaut, Paramètres, carte Alertes) part sur Telegram dès qu'il se libère ou entre en rédemption, une fois par état ; une vue enregistrée marquée « alerte » (Explorer, panneau Avancé) signale ses nouveaux noms libres, une fois par heure au plus.</dd>
     </dl>
-    <p class="small muted">La fiche montre aussi les dates clés du nom (création, expiration, rédemption, libération, avis IA, surveillance, achat, vente, puis les dates à venir : expiration, libération estimée, prochaine vérification), et le résumé de l'avis IA des autres extensions. Portefeuille : bilan par année, liens de mise en vente (Sedo, Dan, Afternic : liens de recherche, pas une mise en vente automatique), export CSV, confirmation de chaque changement.</p>
+    <p class="small muted">La fiche montre aussi les dates clés du nom (création, expiration, rédemption, libération, avis IA, surveillance, achat, vente, puis les dates à venir : expiration, libération estimée, prochaine vérification ; au-delà de six, les trois dernières passées et l'avenir, « Tout afficher » pour le reste), et le résumé de l'avis IA des autres extensions. Portefeuille : bilan par année, liens de mise en vente (Sedo, Dan, Afternic : liens de recherche, pas une mise en vente automatique), export CSV, confirmation de chaque changement.</p>
 
     <h3 id="help-lists">Listes de noms</h3>
     <dl class="help-dl">
@@ -1485,146 +1485,169 @@
   </main>
 
   <template x-if="fiche">
-    <aside class="drawer details fiche" aria-label="Fiche du nom">
-      <div class="drawer-head">
-        <div class="drawer-title"><span class="mono drawer-name" x-text="fiche.name"></span></div>
-        <button type="button" class="btn-ghost fiche-close" @click="fiche = null">Fermer</button>
+    <aside class="drawer fiche" aria-label="Fiche du nom">
+      <!-- En-tête collant : le nom, une ligne d'état (badge, la date qui compte, suivi, portefeuille), fermer. -->
+      <header class="fiche-head">
+        <div class="fiche-id">
+          <h2 class="mono fiche-name" :class="{ long: fiche.name.length > 16 }" x-html="ficheNameHtml(fiche.name)"></h2>
+          <div class="fiche-line">
+            <span class="badge" :class="ficheBadge(fiche).cls" :title="ficheBadge(fiche).title" x-text="ficheBadge(fiche).text"></span>
+            <template x-for="r in (fiche.item ? fiche.item.reserved : [])" :key="r"><span class="ex-reason warn" x-text="r"></span></template>
+            <span class="fiche-when" x-show="ficheWhen(fiche)" x-text="ficheWhen(fiche)"></span>
+            <span class="nc-flag" x-show="fiche.domain_id">Suivi</span>
+            <span class="nc-flag" x-show="fiche.in_portfolio">Portefeuille</span>
+          </div>
+        </div>
+        <button type="button" class="fiche-close" @click="fiche = null" aria-label="Fermer" title="Fermer">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </header>
+      <!-- Carte décision : la note qui trie pour l'usage choisi (sinon le score), verdict, prix, une raison. -->
+      <section class="fiche-deal" x-data="{ k: {} }" x-effect="k = ficheDecision(fiche)" x-show="k.note || k.premium"
+               :class="{ 'fiche-hot': fiche.hot && k.verdict }" aria-label="Décision">
+        <div class="fd-num" x-show="k.note" :title="k.note ? k.note.title : ''">
+          <b x-text="k.note ? k.note.value : ''"></b>
+          <span x-text="k.note ? k.note.label : ''"></span>
+        </div>
+        <div class="fd-body">
+          <p class="fd-top" x-show="k.verdict">
+            <span class="verdict" :class="k.verdict ? k.verdict.cls : ''" x-text="k.verdict ? k.verdict.text : ''"></span>
+            <span class="fd-price">utilisateur final <b x-text="k.price"></b></span>
+          </p>
+          <p class="fd-none" x-show="!k.verdict">Pas encore d'avis IA</p>
+          <p class="fd-why" x-show="k.why" x-text="k.why"></p>
+          <p class="fd-old" x-show="k.old">Avis à l'ancienne grille, renoté bientôt</p>
+          <p class="fd-warn" x-show="k.premium" x-text="k.premium"></p>
+        </div>
+      </section>
+      <!-- Actions en pictos, une ligne : l'état du nom décide de l'allure ; « Plus » ouvre les actions secondaires. -->
+      <div class="fiche-actbar" @click.outside="ficheMenu = false">
+        <div class="fiche-acts" role="toolbar" aria-label="Actions">
+          <a class="fa" :class="{ primary: fichePrimary(fiche) === 'reserve' }" :href="orderLink(fiche.name)" target="_blank" rel="noopener"
+             :title="registrarName ? 'Réserver chez ' + registrarName : 'Réserver'">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h2l2 10h10l2-7H7"/><circle cx="10" cy="19" r="1.4"/><circle cx="17" cy="19" r="1.4"/></svg>
+            <span>Réserver</span>
+          </a>
+          <button type="button" class="fa" :class="{ on: fiche.domain_id, primary: fichePrimary(fiche) === 'watch' }" :disabled="ficheBusy()"
+                  @click="fiche.domain_id ? ficheUnwatch() : ficheWatch()" :title="fiche.domain_id ? 'Suivi : appuyer pour arrêter le suivi' : 'Suivre ce nom'">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="3" :class="{ filled: fiche.domain_id }"/></svg>
+            <span x-text="fiche.domain_id ? 'Suivi' : 'Suivre'"></span>
+          </button>
+          <button type="button" class="fa" :class="{ on: ficheAiState(fiche) === 'done', wait: ficheAiState(fiche) === 'pending', primary: fichePrimary(fiche) === 'ai' }"
+                  :disabled="ficheAiState(fiche) === 'pending'" @click="ficheAi()" :title="aiAskLabel(fiche)">
+            <!-- Picto « IA » : cadre en pointillés pendant l'analyse, plein une fois l'avis reçu. -->
+            <span class="ia-mark" :class="'ia-' + ficheAiState(fiche)" aria-hidden="true">IA</span>
+            <span x-text="{ none: 'Analyser', pending: 'En cours', done: 'Analysé' }[ficheAiState(fiche)]"></span>
+          </button>
+          <button type="button" class="fa" :class="{ wait: ficheBusy() }" :disabled="ficheBusy()" @click="ficheCheck()" title="Vérifier auprès du registre">
+            <svg viewBox="0 0 24 24" aria-hidden="true" :class="{ spin: ficheBusy() }"><path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v5h-5"/></svg>
+            <span x-text="ficheBusy() ? 'En cours' : 'Vérifier'"></span>
+          </button>
+          <button type="button" class="fa fa-more" :class="{ on: ficheMenu }" @click="ficheMenuToggle()" title="Plus d'actions"
+                  aria-haspopup="menu" aria-controls="fiche-menu" :aria-expanded="ficheMenu ? 'true' : 'false'">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.7" class="filled"/><circle cx="12" cy="12" r="1.7" class="filled"/><circle cx="19" cy="12" r="1.7" class="filled"/></svg>
+            <span>Plus</span>
+          </button>
+        </div>
+        <div class="fiche-menu" id="fiche-menu" role="menu" aria-label="Plus d'actions" x-show="ficheMenu" x-cloak @keydown="ficheMenuKey($event)">
+          <button type="button" role="menuitem" @click="ficheMenu = false; ficheSeo()" :disabled="!!exBusy[fiche.name] || exSeo.running">Analyse SEO</button>
+          <button type="button" role="menuitem" x-show="fiche.item && ![1, 6].includes(fiche.item.status)" @click="ficheMenu = false; ficheFlag()"
+                  x-text="fiche.item && fiche.item.status === 7 ? 'Pas réservé' : 'Réservé'"></button>
+          <button type="button" role="menuitem" class="danger" x-show="fiche.domain_id" @click="ficheMenu = false; ficheUnwatch()">Arrêter le suivi</button>
+          <button type="button" role="menuitem" x-show="fiche.in_portfolio" @click="ficheMenu = false; fiche = null; openSheet('portfolio')">Voir dans Portefeuille</button>
+        </div>
       </div>
-      <div class="drawer-state">
-        <span class="badge" :class="badgeClass(fiche.item)" x-text="fiche.item ? fiche.item.status_label : 'Hors des listes suivies'"></span>
-        <template x-for="r in (fiche.item ? fiche.item.reserved : [])" :key="r"><span class="ex-reason warn" x-text="r"></span></template>
-        <span class="nc-flag" x-show="fiche.domain_id">Surveillé</span>
-        <span class="nc-flag" x-show="fiche.in_portfolio">Portefeuille</span>
-      </div>
-      <p class="fiche-decision" x-show="ficheDecision(fiche).length">
-        <template x-for="part in ficheDecision(fiche)" :key="part.text">
-          <span :class="part.cls" x-text="part.text"></span>
-        </template>
-      </p>
-      <!-- Actions en pictos : l'état du nom décide de l'allure (réservable, suivi, analysé, en cours). -->
-      <div class="fiche-acts" role="toolbar" aria-label="Actions">
-        <a class="fa" :class="{ primary: fichePrimary(fiche) === 'reserve' }" :href="orderLink(fiche.name)" target="_blank" rel="noopener"
-           :title="registrarName ? 'Réserver chez ' + registrarName : 'Réserver'">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h2l2 10h10l2-7H7"/><circle cx="10" cy="19" r="1.4"/><circle cx="17" cy="19" r="1.4"/></svg>
-          <span>Réserver</span>
-        </a>
-        <button type="button" class="fa" :class="{ on: fiche.domain_id, primary: fichePrimary(fiche) === 'watch' }" :disabled="ficheBusy()"
-                @click="fiche.domain_id ? ficheUnwatch() : ficheWatch()" :title="fiche.domain_id ? 'Suivi : appuyer pour arrêter le suivi' : 'Suivre ce nom'">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="3" :class="{ filled: fiche.domain_id }"/></svg>
-          <span x-text="fiche.domain_id ? 'Suivi' : 'Suivre'"></span>
-        </button>
-        <button type="button" class="fa" :class="{ on: ficheAiState(fiche) === 'done', wait: ficheAiState(fiche) === 'pending', primary: fichePrimary(fiche) === 'ai' }"
-                :disabled="ficheAiState(fiche) === 'pending'" @click="ficheAi()" :title="aiAskLabel(fiche)">
-          <!-- Picto « IA » : pointillés pendant l'analyse, petite coche une fois l'avis reçu. -->
-          <svg viewBox="0 0 24 24" aria-hidden="true" class="ia-icon" :class="{ pending: ficheAiState(fiche) === 'pending' }">
-            <rect x="2" y="4" width="17" height="13" rx="3.2"/>
-            <text x="10.5" y="14" text-anchor="middle">IA</text>
-            <g x-show="ficheAiState(fiche) === 'done'"><circle cx="19.2" cy="18.6" r="3.9" class="ia-badge"/><path d="M17.5 18.7l1.2 1.2 2.2-2.4" class="ia-check"/></g>
-          </svg>
-          <span x-text="{ none: 'Analyser', pending: 'En cours', done: 'Analysé' }[ficheAiState(fiche)]"></span>
-        </button>
-        <button type="button" class="fa" :class="{ wait: ficheBusy() }" :disabled="ficheBusy()" @click="ficheCheck()" title="Vérifier auprès du registre">
-          <svg viewBox="0 0 24 24" aria-hidden="true" :class="{ spin: ficheBusy() }"><path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v5h-5"/></svg>
-          <span x-text="ficheBusy() ? 'En cours' : 'Vérifier'"></span>
-        </button>
-        <button type="button" class="fa on" x-show="fiche.in_portfolio" @click="fiche = null; openSheet('portfolio')" title="Voir dans Portefeuille">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5h8v2M3 12h18"/></svg>
-          <span>Portefeuille</span>
-        </button>
-      </div>
-      <!-- Ligne de temps : les dates du nom, passées puis à venir (expiration, libération estimée). -->
-      <section class="fiche-timeline" x-show="(fiche.timeline || []).length">
-        <h3>Dates clés</h3>
+      <!-- Ligne de temps : les dates du nom, passées puis à venir ; au-delà de 6, les 3 dernières passées et tout l'avenir. -->
+      <section class="fiche-timeline" x-show="(fiche.timeline || []).length" aria-labelledby="fiche-tl-title">
+        <div class="ftl-head">
+          <h3 id="fiche-tl-title">Dates clés</h3>
+          <button type="button" class="btn-text ftl-all" x-show="(fiche.timeline || []).length > 6 && (ficheTimeline(fiche).hidden || ficheTlAll)"
+                  @click="ficheTlAll = !ficheTlAll" x-text="ficheTlAll ? 'Réduire' : 'Tout afficher (' + fiche.timeline.length + ')'"></button>
+        </div>
         <ol>
-          <template x-for="(t, n) in fiche.timeline || []" :key="n">
-            <li :class="{ future: t && t.future, now: timelineNow(n) }">
+          <template x-for="t in ficheTimeline(fiche).items" :key="t.n">
+            <li :class="{ future: t.future, now: timelineNow(t.n) }">
               <span class="when" :title="t.at" x-text="timelineDate(t.at)"></span>
-              <span class="what" :class="'tl-' + t.kind" x-text="t.label + (t.future ? ' (à venir)' : '')"></span>
+              <span class="what" :class="'tl-' + t.kind"><span x-text="t.label"></span><span class="tl-soon" x-show="t.future"> à venir</span></span>
             </li>
           </template>
         </ol>
       </section>
-      <div class="details-grid">
-        <!-- Nom surveillé (Domaines) : état du suivi, dates, registrar, DNS, tags, signaux, puis l'historique des changements. -->
-        <template x-if="ficheDomain">
-          <div class="fiche-watch" x-data="{ d: ficheDomain }" x-effect="d = ficheDomain || d">
-            <section class="fiche-sec">
-              <h3>Suivi</h3>
-              <p class="small error-text fiche-error" x-show="d.check_error" x-text="plainError(d.check_error) + (d.last_success_at ? '. Dernier check réussi ' + relative(d.last_success_at) + ', dernier état conservé.' : '.')"></p>
-              <dl>
-                <dt>État</dt>
+      <!-- Le détail, en sections repliables : même en-tête (titre, résumé d'un coup d'œil), même rythme. -->
+      <details class="fsec" open>
+        <summary><span class="fsec-title">Avis IA</span><span class="fsec-sum" x-text="ficheAiSum(fiche)"></span></summary>
+        <div class="fsec-body" x-html="ficheAiHtml(fiche)"></div>
+      </details>
+      <details class="fsec" :open="!mobile" x-show="fiche.item && fiche.item.score !== undefined">
+        <summary><span class="fsec-title">Score</span><span class="fsec-sum" x-text="fiche.item && fiche.item.score !== undefined ? fiche.item.score + '/100' : ''"></span></summary>
+        <div class="fsec-body" x-html="ficheDl(ficheParts(fiche).score)"></div>
+      </details>
+      <!-- Nom surveillé : état du suivi sans les champs vides ni les dates déjà dans Dates clés, puis l'historique. -->
+      <template x-if="ficheDomain">
+        <details class="fsec fiche-watch" x-data="{ d: ficheDomain }" x-effect="d = ficheDomain || d">
+          <summary><span class="fsec-title">Suivi</span><span class="fsec-sum" :class="{ 'error-text': d.check_error }" x-text="stateLabel(d) + (d.abandoned ? ' · signes d\'abandon' : '')"></span></summary>
+          <div class="fsec-body">
+            <p class="small error-text fiche-error" x-show="d.check_error" x-text="plainError(d.check_error) + (d.last_success_at ? '. Dernier check réussi ' + relative(d.last_success_at) + ', dernier état conservé.' : '.')"></p>
+            <dl class="fdl">
+              <dt>État</dt>
+              <dd>
+                <span class="badge" :class="'s-' + displayState(d)" :title="stateTitle(d)" x-text="stateLabel(d)"></span>
+                <span class="abandon" x-show="d.abandoned">Signes d'abandon</span>
+                <span class="muted small" x-show="d.state_since" x-text="'depuis le ' + shortDate(d.state_since)"></span>
+              </dd>
+              <div class="frow" x-show="d.expires_at && !ficheHas(fiche, 'expires')"><dt>Expiration</dt><dd><span :title="exact(d.expires_at)" x-text="longDate(d.expires_at) + daysText(d)"></span></dd></div>
+              <div class="frow" x-show="d.release_at && !ficheHas(fiche, 'release')"><dt>Libération</dt><dd><span :title="releaseTitle(d)" x-text="releaseLong(d)"></span></dd></div>
+              <div class="frow" x-show="d.registered_at && !ficheHas(fiche, 'created')"><dt>Création</dt><dd><span :title="exact(d.registered_at)" x-text="longDate(d.registered_at)"></span></dd></div>
+              <div class="frow" x-show="d.updated_at"><dt>Mise à jour</dt><dd><span :title="exact(d.updated_at)" x-text="longDate(d.updated_at)"></span></dd></div>
+              <div class="frow" x-show="d.registrar"><dt>Registrar</dt><dd x-text="d.registrar"></dd></div>
+              <div class="frow" x-show="d.nameservers.length"><dt>Serveurs DNS</dt>
+                <dd><template x-for="ns in d.nameservers" :key="ns"><div class="mono" x-text="ns"></div></template></dd></div>
+              <div class="frow" x-show="d.epp_statuses.length"><dt>Statuts EPP</dt>
+                <dd class="statuses"><template x-for="st in d.epp_statuses" :key="st"><span class="epp mono" :title="eppExplain(st)" x-text="st"></span></template></dd></div>
+              <dt>Tags</dt>
+              <dd class="tags-edit">
+                <template x-for="t in d.tags" :key="t">
+                  <span class="tag"><span x-text="t"></span><button type="button" class="tag-remove" @click="removeTag(d, t)" :aria-label="'Retirer ' + t">×</button></span>
+                </template>
+                <input type="text" class="tag-input" placeholder="Ajouter un tag" @keydown.enter.prevent="addTag(d, $event.target)" list="tag-list" aria-label="Ajouter un tag">
+              </dd>
+              <div class="frow" x-show="registeredState(d)"><dt>Signaux</dt>
                 <dd>
-                  <span class="badge" :class="'s-' + displayState(d)" :title="stateTitle(d)" x-text="stateLabel(d)"></span>
-                  <span class="abandon" x-show="d.abandoned">Signes d'abandon</span>
-                  <span class="muted small" x-show="d.state_since" x-text="'depuis le ' + shortDate(d.state_since)"></span>
-                </dd>
-                <dt>Expiration</dt><dd><span :title="exact(d.expires_at)" x-text="longDate(d.expires_at) + daysText(d)"></span></dd>
-                <dt>Libération</dt>
-                <dd>
-                  <span x-show="d.release_at" :title="releaseTitle(d)" x-text="releaseLong(d)"></span>
-                  <span class="muted" x-show="!d.release_at" x-text="noReleaseReason(d)"></span>
-                </dd>
-                <dt>Création</dt><dd><span :title="exact(d.registered_at)" x-text="longDate(d.registered_at)"></span></dd>
-                <dt>Mise à jour</dt><dd><span :title="exact(d.updated_at)" x-text="longDate(d.updated_at)"></span></dd>
-                <dt>Registrar</dt><dd x-text="d.registrar || 'Aucun'"></dd>
-                <dt>Serveurs DNS</dt>
-                <dd>
-                  <template x-for="ns in d.nameservers" :key="ns"><div class="mono" x-text="ns"></div></template>
-                  <span class="muted" x-show="!d.nameservers.length">Aucun</span>
-                </dd>
-                <dt>Statuts EPP</dt>
-                <dd class="statuses">
-                  <template x-for="st in d.epp_statuses" :key="st"><span class="epp mono" :title="eppExplain(st)" x-text="st"></span></template>
-                  <span class="muted" x-show="!d.epp_statuses.length">Aucun</span>
-                </dd>
-                <dt>Tags</dt>
-                <dd class="tags-edit">
-                  <template x-for="t in d.tags" :key="t">
-                    <span class="tag"><span x-text="t"></span><button type="button" class="tag-remove" @click="removeTag(d, t)" :aria-label="'Retirer ' + t">×</button></span>
-                  </template>
-                  <input type="text" class="tag-input" placeholder="Ajouter un tag" @keydown.enter.prevent="addTag(d, $event.target)" list="tag-list" aria-label="Ajouter un tag">
-                </dd>
-                <dt>Signaux</dt>
-                <dd>
-                  <span class="muted" x-show="!registeredState(d)">Seulement pour un domaine enregistré.</span>
-                  <div x-show="registeredState(d)">
-                    <span class="muted" x-show="!d.signals_checked_at">Pas encore analysé.</span>
-                    <span x-show="d.signals_checked_at && !d.signals.length">Aucun signe d'abandon<span class="muted" x-text="d.signals_web ? ' (site : ' + d.signals_web + ')' : ''"></span>.</span>
-                    <ul class="signals" x-show="d.signals.length">
-                      <template x-for="g in d.signals" :key="g.key"><li x-text="g.label"></li></template>
-                    </ul>
+                  <span class="muted" x-show="!d.signals_checked_at">Pas encore analysé.</span>
+                  <span x-show="d.signals_checked_at && !d.signals.length">Aucun signe d'abandon<span class="muted" x-text="d.signals_web ? ' (site : ' + d.signals_web + ')' : ''"></span>.</span>
+                  <ul class="signals" x-show="d.signals.length">
+                    <template x-for="g in d.signals" :key="g.key"><li x-text="g.label"></li></template>
+                  </ul>
+                  <span class="fsig-foot">
                     <span class="muted small" x-show="d.signals_checked_at" x-text="'Analysé ' + relative(d.signals_checked_at)" :title="exact(d.signals_checked_at)"></span>
                     <button type="button" class="btn-ghost sm" @click="refreshSignals(d)" :disabled="!!busySignals[d.id]" x-text="busySignals[d.id] ? 'Analyse en cours' : 'Analyser'"></button>
-                  </div>
-                </dd>
-                <dt>Source</dt><dd x-text="d.source ? d.source.toUpperCase() : 'Inconnue'"></dd>
-                <dt>Dernier check</dt><dd><span :title="exact(d.last_checked_at)" x-text="d.last_checked_at ? relative(d.last_checked_at) : 'Jamais'"></span></dd>
-                <dt>Prochain check</dt><dd><span :title="exact(d.next_check_at)" x-text="d.next_check_at ? relative(d.next_check_at) : 'Au prochain passage'"></span></dd>
-              </dl>
-            </section>
-            <div class="history fiche-changes">
-              <h3>Historique des changements</h3>
-              <p class="muted" x-show="!history[d.id]">Chargement</p>
-              <p class="muted" x-show="history[d.id] && !history[d.id].length">Aucun changement enregistré.</p>
-              <ol x-show="history[d.id] && history[d.id].length">
-                <template x-for="(h, i) in history[d.id] || []" :key="i">
-                  <li><span class="when" :title="exact(h.at)" x-text="shortDate(h.at)"></span> <span class="what" x-text="describe(h)"></span></li>
-                </template>
-              </ol>
-            </div>
+                  </span>
+                </dd></div>
+              <div class="frow" x-show="d.source"><dt>Source</dt><dd x-text="d.source ? d.source.toUpperCase() : ''"></dd></div>
+              <dt>Dernier check</dt><dd><span :title="exact(d.last_checked_at)" x-text="d.last_checked_at ? relative(d.last_checked_at) : 'Jamais'"></span></dd>
+              <dt>Prochain check</dt><dd><span :title="exact(d.next_check_at)" x-text="d.next_check_at ? relative(d.next_check_at) : 'Au prochain passage'"></span></dd>
+            </dl>
+            <h4 class="fsub">Historique des changements</h4>
+            <p class="muted small" x-show="!history[d.id]">Chargement</p>
+            <p class="muted small" x-show="history[d.id] && !history[d.id].length">Aucun changement enregistré.</p>
+            <ol class="flist fiche-changes" x-show="history[d.id] && history[d.id].length">
+              <template x-for="(h, i) in history[d.id] || []" :key="i">
+                <li><span class="when" :title="exact(h.at)" x-text="shortDate(h.at)"></span> <span class="what" x-text="describe(h)"></span></li>
+              </template>
+            </ol>
           </div>
-        </template>
-        <div x-html="valueHtml(fiche)"></div>
-        <!-- Registre : pour un nom surveillé, la section Suivi le dit déjà, à jour du dernier check. -->
-        <div x-show="!ficheDomain" x-html="rdapDl(fiche.rdap, fiche.rdap_next)"></div>
-        <div class="fiche-more">
-          <button type="button" class="btn-ghost sm" @click="ficheSeo()" :disabled="!!exBusy[fiche.name] || exSeo.running">Analyse SEO</button>
-          <button type="button" class="btn-ghost sm" x-show="fiche.item && ![1, 6].includes(fiche.item.status)" @click="ficheFlag()" x-text="fiche.item && fiche.item.status === 7 ? 'Pas réservé' : 'Réservé'"></button>
-        </div>
-        <!-- Comparables : noms déjà notés avec la grille, même liste, longueur proche ; un nom ouvre sa fiche. -->
-        <div class="history" x-show="(fiche.comparables || []).length">
-          <h3>Comparables</h3>
-          <ol>
+        </details>
+      </template>
+      <details class="fsec" x-show="ficheParts(fiche).name.length">
+        <summary><span class="fsec-title">Le nom</span><span class="fsec-sum" x-text="ficheNameSum(fiche)"></span></summary>
+        <div class="fsec-body" x-html="ficheDl(ficheParts(fiche).name)"></div>
+      </details>
+      <!-- Comparables (noms déjà notés, même liste, longueur proche) puis repères du portefeuille ; un nom ouvre sa fiche. -->
+      <details class="fsec" x-show="(fiche.comparables || []).length || (fiche.references || []).length">
+        <summary><span class="fsec-title">Comparables et repères</span><span class="fsec-sum" x-text="ficheCompSum(fiche)"></span></summary>
+        <div class="fsec-body">
+          <h4 class="fsub" x-show="(fiche.comparables || []).length">Comparables</h4>
+          <ol class="flist" x-show="(fiche.comparables || []).length">
             <template x-for="c in fiche.comparables || []" :key="c.name">
               <li class="fiche-comp">
                 <button type="button" class="link-like mono" @click="openFiche(c.name)" x-text="c.name"></button>
@@ -1635,11 +1658,8 @@
               </li>
             </template>
           </ol>
-        </div>
-        <!-- Repères : ventes et offres reçues du portefeuille, les plus proches en longueur. -->
-        <div class="history" x-show="(fiche.references || []).length">
-          <h3>Repères du portefeuille</h3>
-          <ol>
+          <h4 class="fsub" x-show="(fiche.references || []).length">Repères du portefeuille</h4>
+          <ol class="flist" x-show="(fiche.references || []).length">
             <template x-for="r in fiche.references || []" :key="r.name">
               <li class="fiche-comp">
                 <button type="button" class="link-like mono" @click="openFiche(r.name)" x-text="r.name"></button>
@@ -1648,27 +1668,34 @@
             </template>
           </ol>
         </div>
-        <div class="history" x-show="(fiche.others || []).length">
-          <h3>Autres extensions</h3>
-          <ol>
+      </details>
+      <details class="fsec" x-show="(fiche.others || []).length">
+        <summary><span class="fsec-title">Autres extensions</span><span class="fsec-sum" x-text="ficheOthersSum(fiche)"></span></summary>
+        <div class="fsec-body">
+          <ol class="flist">
             <template x-for="o in fiche.others || []" :key="o.name">
               <li class="fiche-other" x-tpl="['fiche-other', { o }]"></li>
             </template>
           </ol>
         </div>
-      </div>
+      </details>
+      <!-- Registre : pour un nom surveillé, la section Suivi le dit déjà, à jour du dernier check. -->
+      <details class="fsec" x-show="ficheRegistryHtml(fiche)">
+        <summary><span class="fsec-title">Registre et SEO</span><span class="fsec-sum" x-text="ficheRegistrySum(fiche)"></span></summary>
+        <div class="fsec-body" x-html="ficheRegistryHtml(fiche)"></div>
+      </details>
     </aside>
   </template>
 
-  <!-- Autre extension d'un nom (fiche) : nom, état, résumé de son avis IA. -->
+  <!-- Autre extension d'un nom (fiche) : nom, état, résumé de son avis IA, alignés à gauche. -->
   <template id="fiche-other">
     <div class="fiche-other-line">
       <button type="button" class="link-like mono" @click="openFiche(o.name)" x-text="o.name"></button>
+      <span class="badge" :class="badgeClass(o)" x-text="o.status_label"></span>
       <span class="fiche-other-ai small" x-show="o.ai_summary">
         <span class="verdict" :class="verdictClass(o.ai_summary && o.ai_summary.verdict)" x-text="o.ai_summary ? o.ai_summary.verdict : ''"></span>
         <span x-text="o.ai_summary ? 'revente ' + o.ai_summary.resale + ' · ' + priceRange(o.ai_summary.final_low, o.ai_summary.final_high) : ''"></span>
       </span>
-      <span class="badge" :class="badgeClass(o)" x-text="o.status_label"></span>
     </div>
   </template>
 

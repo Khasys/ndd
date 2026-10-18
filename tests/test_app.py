@@ -1397,7 +1397,8 @@ def test_interface_verdict_badges_sorts_and_fiche_labels():
     assert ".verdict {" in css and "font-weight: 400" in css.split(".verdict {")[1].split("}")[0]
     for gone in (".nc-ai", ".fd-ai", ".fiche-comp-ai", ".ex-reason.ai", "lineClass"):
         assert gone not in css + js + html, gone
-    assert html.count('class="verdict"') >= 4 and 'cls: "verdict "' in js and 'class="verdict ${' in js
+    # Fiche : le verdict de la carte décision vient de ficheDecision (cls), le gabarit le met en pastille.
+    assert html.count('class="verdict"') >= 4 and 'cls: "verdict "' in js
     # Tri « Les plus fréquents » dans la Veille et l'Explorer ; « Libération » grisé hors de Bientôt libres.
     assert html.count('<option value="freq"') == 2 and "Les plus fréquents" in html
     assert ":disabled=\"dropTab !== 'coming'\"" in html and ":disabled=\"ex.status !== 'coming'\"" in html
@@ -1435,3 +1436,38 @@ def test_cc_dns_extensions_in_explorer_top_fiche_and_veille(logged):
     veille = client.get("/api/drops").json()
     assert [(i["name"], i["tld"]) for i in veille["items"]] == [("loans.ai", "ai")]
     client.__exit__(None, None, None)
+
+def test_interface_fiche_layout():
+    """Fiche rangée : en-tête collant avec fermer en icône, carte décision, pictos sur une ligne avec menu « Plus »,
+    dates clés résumées, détail en sections repliables ; plus de boutons SEO ni Réservé dans le corps."""
+    from pathlib import Path
+
+    static = Path(__file__).resolve().parent.parent / "app" / "static"
+    js = (static / "app.js").read_text(encoding="utf-8")
+    html = (static / "index.html").read_text(encoding="utf-8")
+    css = (static / "style.css").read_text(encoding="utf-8")
+    fiche = html.split('<template x-if="fiche">')[1].split('<template id="fiche-other">')[0]
+    # En-tête : nom, une ligne d'état, bouton fermer « × » de 44 px avec son libellé accessible.
+    assert 'class="fiche-close"' in fiche and 'aria-label="Fermer"' in fiche and ">Fermer<" not in fiche
+    assert "ficheWhen(fiche)" in fiche and "width: 44px; height: 44px" in css
+    # Ordre : en-tête, carte décision, pictos, dates clés, sections.
+    order = [fiche.index(k) for k in ('class="fiche-head"', 'class="fiche-deal"', 'class="fiche-acts"', 'class="fiche-timeline"',
+                                      *(f'fsec-title">{t}<' for t in ("Avis IA", "Score", "Suivi", "Le nom", "Comparables et repères",
+                                                                      "Autres extensions", "Registre et SEO")))]
+    assert order == sorted(order)
+    assert fiche.count('<details class="fsec') == 7 and fiche.count('class="fsec-sum"') >= 6
+    # Pictos sur une ligne (colonnes égales) ; « Plus » ouvre un menu accessible avec les actions secondaires.
+    assert "repeat(5, minmax(0, 1fr))" in css and 'aria-haspopup="menu"' in fiche and 'role="menu"' in fiche
+    menu = fiche.split('id="fiche-menu"')[1].split("</div>")[0]
+    for label in ("Analyse SEO", "Réservé", "Arrêter le suivi", "Voir dans Portefeuille"):
+        assert label in menu, label
+    assert 'class="fiche-more"' not in fiche and "ficheMenuKey" in js and "ficheMenuClose(true)" in js
+    # Picto IA en HTML, sans la petite coche ; dates clés résumées au-delà de 6.
+    assert 'class="ia-mark"' in fiche and "ia-check" not in fiche + css
+    assert "all.length <= 6" in js and "slice(-3)" in js and "Tout afficher" in fiche
+    # Libellés en casse normale, au-dessus de la valeur sous 360 px ; panneau élargi sur ordinateur.
+    assert ".fdl dt { color: var(--muted)" in css and "@media (max-width: 359px)" in css
+    assert "clamp(400px, 42vw, 520px)" in css
+    # Points d'entrée gardés.
+    for entry in ("async openFiche(name", "    back() {", "async ficheReload()"):
+        assert entry in js, entry
