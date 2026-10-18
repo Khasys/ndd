@@ -1175,21 +1175,35 @@ button:disabled { cursor: default; opacity: .55; }
 
 /* Carte décision : le gros chiffre à gauche, verdict, prix et raison à droite. */
 .fiche-deal {
-  display: flex; align-items: center; gap: 14px; margin: 0 0 12px; padding: 12px 14px;
+  display: grid; gap: 8px; margin: 0 0 12px; padding: 12px 14px;
   background: var(--bg); border: 1px solid var(--line); border-radius: 12px;
 }
-.fd-num { flex: none; display: flex; flex-direction: column; align-items: center; min-width: 64px; padding-right: 14px; border-right: 1px solid var(--line); }
-.fd-num b { font-size: 34px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
+.fiche-deal p { margin: 0; }
+/* En tête de carte : les notes à gauche (celle de l'usage choisi en grand), le verdict à droite. */
+.fd-head { display: flex; align-items: center; justify-content: space-between; gap: 8px 14px; flex-wrap: wrap; }
+.fd-notes { display: flex; align-items: flex-end; gap: 16px; }
+.fd-num { display: flex; flex-direction: column; align-items: flex-start; }
+.fd-num b { font-size: 26px; font-weight: 600; line-height: 1; color: var(--muted); font-variant-numeric: tabular-nums; }
+.fd-num.lead b { font-size: 34px; color: var(--text); }
 .fd-num span { margin-top: 5px; color: var(--muted); font-size: 11.5px; white-space: nowrap; }
-.fd-body { flex: 1; min-width: 0; display: grid; gap: 4px; }
-.fd-body p { margin: 0; }
-.fd-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
-.fd-price { color: var(--muted); font-size: 13px; }
-.fd-price b { color: var(--text); font-weight: 600; }
+.fd-num + .fd-num { padding-left: 16px; border-left: 1px solid var(--line); }
+.fd-prices { display: flex; flex-wrap: wrap; gap: 2px 16px; color: var(--muted); font-size: 13px; }
+.fd-prices b { color: var(--text); font-weight: 600; white-space: nowrap; }
 .fd-none { color: var(--muted); font-size: 13px; }
-.fd-why { font-size: 13.5px; line-height: 1.4; overflow-wrap: anywhere; }
-.fd-old { color: var(--muted); font-size: 12.5px; }
+.fd-why { font-size: 13.5px; font-weight: 500; line-height: 1.4; overflow-wrap: anywhere; }
+.fd-comment { font-size: 13.5px; line-height: 1.45; color: var(--muted); overflow-wrap: anywhere; }
+.fd-queue, .fd-old { color: var(--muted); font-size: 12.5px; }
 .fd-warn { color: var(--danger); font-size: 13px; }
+/* Détail IA : une ligne discrète qui déroule la grille, sous un filet. */
+.fd-more { border-top: 1px solid var(--line); margin-top: 2px; }
+.fd-toggle {
+  display: flex; align-items: center; gap: 6px; width: 100%; min-height: 40px; padding: 0; border: 0;
+  background: none; color: var(--text); font: inherit; font-size: 13.5px; font-weight: 500; text-align: left; cursor: pointer;
+}
+.fd-toggle svg { flex: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform .15s; }
+.fd-toggle svg.open { transform: rotate(90deg); }
+.fd-meta { margin-left: auto; color: var(--muted); font-size: 12px; font-weight: 400; }
+.fd-grid { padding: 2px 0 6px; }
 /* Ouverte depuis la notification d'une analyse prête : l'avis encadré, pour le voir tout de suite. */
 .fiche-deal.fiche-hot { border: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
 
@@ -1274,8 +1288,6 @@ button:disabled { cursor: default; opacity: .55; }
 .fsec-sum.error-text { color: var(--danger); }
 .fsec-body { padding: 0 0 16px; }
 .fsec-body p { margin: 0; }
-.fai-lead { margin: 0 0 12px !important; line-height: 1.45; }
-.fiche .ai-comment { font-style: normal; }
 .fsub { margin: 16px 0 6px; color: var(--muted); font-size: 13px; font-weight: 500; }
 .fsec-body > .fsub:first-child { margin-top: 0; }
 

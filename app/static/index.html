@@ -192,7 +192,7 @@
       <dt>Actions groupées</dt><dd>Domaines, Veille et Explorer : cases, puis Vérifier, Analyse IA, Surveiller… Un seul bilan à la fin : « 3 vérifiés, 1 échec ».</dd>
       <dt>Erreurs réseau</dt><dd>« Réseau injoignable » (NAS, proxy ou annuaire IANA hors d'atteinte) et « Pas de réponse du registre » (délai dépassé) remplacent le détail technique ; « Réessayer » rejoue l'action. Dans la Veille, la ligne des sources distingue une erreur temporaire d'une source à configurer.</dd>
     </dl>
-    <p class="small muted">Fiche d'un nom : en tête l'état et la date qui compte, puis la carte décision (note IA de l'usage choisi, sinon le score ; verdict, prix, raison) et une rangée de pictos : Réserver, Suivre, Analyser (fait noter le nom dans l'heure), Vérifier, et « Plus » (Analyse SEO, Réservé, Arrêter le suivi, Voir dans Portefeuille). Le détail suit en sections repliables, avec un résumé à droite de chaque titre.</p>
+    <p class="small muted">Fiche d'un nom : en tête l'état et la date qui compte, puis la carte décision, qui porte tout l'avis IA : notes de revente et d'exploitation (celle de l'usage choisi en premier), verdict, prix de revente rapide et utilisateur final, pourquoi, commentaire, et « Détail IA » pour la grille des sous-notes ; sans avis, le score et la date de notation prévue. Dessous, une rangée de pictos : Réserver, Suivre (un appui sur « Suivi » arrête le suivi, après confirmation), Analyser (fait noter le nom dans l'heure), Vérifier, et « Plus » (Analyse SEO, Réservé par registre pour un nom refusé par le registre, Voir dans Portefeuille). Le détail suit en sections repliables, avec un résumé à droite de chaque titre.</p>
 
     <h3 id="help-score">Score (0 à 100)</h3>
     <dl class="help-dl">
@@ -1502,22 +1502,33 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
         </button>
       </header>
-      <!-- Carte décision : la note qui trie pour l'usage choisi (sinon le score), verdict, prix, une raison. -->
-      <section class="fiche-deal" x-data="{ k: {} }" x-effect="k = ficheDecision(fiche)" x-show="k.note || k.premium"
+      <!-- Carte décision, tout l'avis IA : les deux notes (l'usage choisi en premier), verdict, prix, pourquoi, avis ;
+           « Détail IA » déroule la grille. Sans avis : le score, où en est la notation, les raisons du score. -->
+      <section class="fiche-deal" x-data="{ k: ficheDecision(null) }" x-effect="k = ficheDecision(fiche)"
                :class="{ 'fiche-hot': fiche.hot && k.verdict }" aria-label="Décision">
-        <div class="fd-num" x-show="k.note" :title="k.note ? k.note.title : ''">
-          <b x-text="k.note ? k.note.value : ''"></b>
-          <span x-text="k.note ? k.note.label : ''"></span>
-        </div>
-        <div class="fd-body">
-          <p class="fd-top" x-show="k.verdict">
-            <span class="verdict" :class="k.verdict ? k.verdict.cls : ''" x-text="k.verdict ? k.verdict.text : ''"></span>
-            <span class="fd-price">utilisateur final <b x-text="k.price"></b></span>
-          </p>
+        <div class="fd-head">
+          <div class="fd-notes" x-show="k.notes.length">
+            <template x-for="n in k.notes" :key="n.label">
+              <div class="fd-num" :class="{ lead: n.main }" :title="n.title"><b x-text="n.value"></b><span x-text="n.label"></span></div>
+            </template>
+          </div>
+          <span :class="k.verdict ? k.verdict.cls : ''" x-show="k.verdict" x-text="k.verdict ? k.verdict.text : ''"></span>
           <p class="fd-none" x-show="!k.verdict">Pas encore d'avis IA</p>
-          <p class="fd-why" x-show="k.why" x-text="k.why"></p>
-          <p class="fd-old" x-show="k.old">Avis à l'ancienne grille, renoté bientôt</p>
-          <p class="fd-warn" x-show="k.premium" x-text="k.premium"></p>
+        </div>
+        <p class="fd-prices" x-show="k.prices.length">
+          <template x-for="pr in k.prices" :key="pr[0]"><span><span x-text="pr[0]"></span> <b x-text="pr[1]"></b></span></template>
+        </p>
+        <p class="fd-why" x-show="k.why" x-text="k.why"></p>
+        <p class="fd-comment" x-show="k.comment" x-text="k.comment"></p>
+        <p class="fd-queue" x-show="k.queue" x-text="k.queue"></p>
+        <p class="fd-old" x-show="k.old">Avis à l'ancienne grille, renoté bientôt</p>
+        <p class="fd-warn" x-show="k.premium" x-text="k.premium"></p>
+        <div class="fd-more" x-show="k.grid">
+          <button type="button" class="fd-toggle" @click="ficheAiOpen = !ficheAiOpen" :aria-expanded="ficheAiOpen ? 'true' : 'false'" aria-controls="fd-grid">
+            <svg viewBox="0 0 24 24" aria-hidden="true" :class="{ open: ficheAiOpen }"><path d="M9 6l6 6-6 6"/></svg>
+            <span>Détail IA</span><span class="fd-meta" x-text="'grille sur 10' + (k.rated ? ' · ' + k.rated : '')"></span>
+          </button>
+          <div id="fd-grid" class="fd-grid" x-show="ficheAiOpen" x-html="ficheGridHtml(k.grid)"></div>
         </div>
       </section>
       <!-- Actions en pictos, une ligne : l'état du nom décide de l'allure ; « Plus » ouvre les actions secondaires. -->
@@ -1552,8 +1563,7 @@
         <div class="fiche-menu" id="fiche-menu" role="menu" aria-label="Plus d'actions" x-show="ficheMenu" x-cloak @keydown="ficheMenuKey($event)">
           <button type="button" role="menuitem" @click="ficheMenu = false; ficheSeo()" :disabled="!!exBusy[fiche.name] || exSeo.running">Analyse SEO</button>
           <button type="button" role="menuitem" x-show="fiche.item && ![1, 6].includes(fiche.item.status)" @click="ficheMenu = false; ficheFlag()"
-                  x-text="fiche.item && fiche.item.status === 7 ? 'Pas réservé' : 'Réservé'"></button>
-          <button type="button" role="menuitem" class="danger" x-show="fiche.domain_id" @click="ficheMenu = false; ficheUnwatch()">Arrêter le suivi</button>
+                  x-text="fiche.item && fiche.item.status === 7 ? 'Pas réservé par registre' : 'Réservé par registre'"></button>
           <button type="button" role="menuitem" x-show="fiche.in_portfolio" @click="ficheMenu = false; fiche = null; openSheet('portfolio')">Voir dans Portefeuille</button>
         </div>
       </div>
@@ -1574,10 +1584,6 @@
         </ol>
       </section>
       <!-- Le détail, en sections repliables : même en-tête (titre, résumé d'un coup d'œil), même rythme. -->
-      <details class="fsec" open>
-        <summary><span class="fsec-title">Avis IA</span><span class="fsec-sum" x-text="ficheAiSum(fiche)"></span></summary>
-        <div class="fsec-body" x-html="ficheAiHtml(fiche)"></div>
-      </details>
       <details class="fsec" :open="!mobile" x-show="fiche.item && fiche.item.score !== undefined">
         <summary><span class="fsec-title">Score</span><span class="fsec-sum" x-text="fiche.item && fiche.item.score !== undefined ? fiche.item.score + '/100' : ''"></span></summary>
         <div class="fsec-body" x-html="ficheDl(ficheParts(fiche).score)"></div>

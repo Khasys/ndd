@@ -183,15 +183,16 @@ Fiche d'un nom, de haut en bas, la même sur téléphone et sur ordinateur (pann
 1. **En-tête** collant : le nom en grand, le bouton fermer « × » ; dessous, une seule ligne d'état : badge,
    la date qui compte (« libération ~17/11 », « libre depuis le 06/10 », « expire le 12/03/2027 ») et les puces
    « Suivi » et « Portefeuille ».
-2. **Carte décision** : en gros la note IA de l'usage choisi (Pour revendre / Pour exploiter, réglage commun),
-   étiquetée « IA revente » ou « IA exploitation », sinon le score ; le verdict en pastille, le prix utilisateur
-   final et une raison courte (le « pourquoi » de l'avis, sinon les deux premières raisons du score). Sans avis :
-   « Pas encore d'avis IA » ; avis de version 4 : « Avis à l'ancienne grille, renoté bientôt » ; premium
-   probable : l'avertissement.
+2. **Carte décision**, qui porte tout l'avis IA : les deux notes, revente et exploitation, celle de l'usage
+   choisi (Pour revendre / Pour exploiter, réglage commun) en premier et en grand ; le verdict en pastille à
+   droite ; les prix de revente rapide et utilisateur final ; le « pourquoi » de l'avis ; le commentaire. Une
+   ligne « Détail IA » (grille sur 10, date de l'avis) déroule les neuf sous-notes en mini-barres ; elle reste
+   ouverte ou fermée d'une fiche à l'autre. Sans avis : le score, « Pas encore d'avis IA », la date de notation
+   prévue (ou la demande en cours) et les deux premières raisons du score. Avis de version 4 : « Avis à
+   l'ancienne grille, renoté bientôt » ; premium probable : l'avertissement.
 3. **Actions** en pictos (voir plus bas).
 4. **Dates clés** (voir l'Explorer).
-5. Le détail en **sections repliables**, chacune avec un résumé à droite du titre : Avis IA (ouverte ;
-   commentaire, notes, prix, grille des neuf sous-notes en mini-barres sur 10, « Pourquoi »), Score (ouverte
+5. Le détail en **sections repliables**, chacune avec un résumé à droite du titre : Score (ouverte
    sur ordinateur ; barre, détail, raisons), Suivi (nom surveillé : état et date d'entrée, erreur de check avec
    le dernier état conservé, registrar, serveurs DNS et statuts EPP expliqués au survol quand il y en a, tags à
    ajouter ou retirer, signaux d'abandon avec « Analyser », source, dernier et prochain check, puis
@@ -213,8 +214,9 @@ ou « Suivi » (teinte verte) pour un nom surveillé, qu'un appui propose d'arr�
 picto « IA » en gras dans un cadre : en pointillés et « En cours » quand une analyse IA est demandée, plein et
 « Analysé » quand un avis existe (un appui relance après confirmation) ; Vérifier, qui tourne pendant la
 vérification ; « Plus » (trois points) ouvre un petit menu sous la rangée, au clavier comme à la souris (flèches,
-Échap, clic dehors) : Analyse SEO, Réservé ou Pas réservé, Arrêter le suivi (nom surveillé), Voir dans
-Portefeuille (nom du portefeuille). L'ajout au portefeuille se fait à la main, dans l'écran Portefeuille.
+Échap, clic dehors) : Analyse SEO, « Réservé par registre » (à cocher quand le registre refuse un nom que
+l'appli croyait libre : il sort des noms à prendre ; « Pas réservé par registre » l'y remet), Voir dans
+Portefeuille (nom du portefeuille). Arrêter le suivi se fait par le picto « Suivi », pas en double dans le menu. L'ajout au portefeuille se fait à la main, dans l'écran Portefeuille.
 
 En .fr, un mot seulement anglais (should) ou une forme conjuguée (vais) perd une vingtaine de
 points de forme et de sens par rapport au même mot bien placé : ils se lisent mal en .fr. La raison

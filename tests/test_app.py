@@ -1147,7 +1147,7 @@ def test_interface_wires_the_wave_one_routes():
     assert ">Ignorer<" in html and "dropBulk('hide')\" :disabled=\"dropBulkRunning\">Masquer" not in html
     assert "masqué(s)" not in html and "noms ignorés" in js
     # Fiche : pourquoi, ancienne grille, comparables, repères, ligne de temps, avis des autres extensions.
-    assert '"Pourquoi"' in js and "ancienne grille" in js
+    assert "k.why = opinion.why" in js and "ancienne grille" in html
     for block in ("fiche.comparables", "fiche.references", "fiche.timeline", "o.ai_summary"):
         assert block in html, block
     # Erreurs réseau en français simple, sans console.error ajouté par l'appli.
@@ -1452,15 +1452,24 @@ def test_interface_fiche_layout():
     assert "ficheWhen(fiche)" in fiche and "width: 44px; height: 44px" in css
     # Ordre : en-tête, carte décision, pictos, dates clés, sections.
     order = [fiche.index(k) for k in ('class="fiche-head"', 'class="fiche-deal"', 'class="fiche-acts"', 'class="fiche-timeline"',
-                                      *(f'fsec-title">{t}<' for t in ("Avis IA", "Score", "Suivi", "Le nom", "Comparables et repères",
+                                      *(f'fsec-title">{t}<' for t in ("Score", "Suivi", "Le nom", "Comparables et repères",
                                                                       "Autres extensions", "Registre et SEO")))]
     assert order == sorted(order)
-    assert fiche.count('<details class="fsec') == 7 and fiche.count('class="fsec-sum"') >= 6
+    assert fiche.count('<details class="fsec') == 6 and fiche.count('class="fsec-sum"') >= 5
+    # Tout l'avis IA dans la carte décision : deux notes, verdict, prix, pourquoi, commentaire, « Détail IA »
+    # qui déroule la grille ; plus de section Avis IA en dessous.
+    deal = fiche.split('class="fiche-deal"')[1].split("</section>")[0]
+    for part in ("k.notes", "k.verdict", "k.prices", "k.why", "k.comment", "k.queue", "ficheGridHtml(k.grid)", ">Détail IA<"):
+        assert part in deal, part
+    assert 'aria-expanded="ficheAiOpen' in deal.replace(":aria-expanded", "aria-expanded").replace(" ? 'true'", "")
+    assert 'fsec-title">Avis IA<' not in fiche and "ficheAiHtml" not in js + html
     # Pictos sur une ligne (colonnes égales) ; « Plus » ouvre un menu accessible avec les actions secondaires.
     assert "repeat(5, minmax(0, 1fr))" in css and 'aria-haspopup="menu"' in fiche and 'role="menu"' in fiche
     menu = fiche.split('id="fiche-menu"')[1].split("</div>")[0]
-    for label in ("Analyse SEO", "Réservé", "Arrêter le suivi", "Voir dans Portefeuille"):
+    for label in ("Analyse SEO", "Réservé par registre", "Voir dans Portefeuille"):
         assert label in menu, label
+    # Arrêter le suivi : seulement par le picto « Suivi », pas en double dans le menu.
+    assert "Arrêter le suivi" not in menu
     assert 'class="fiche-more"' not in fiche and "ficheMenuKey" in js and "ficheMenuClose(true)" in js
     # Picto IA en HTML, sans la petite coche ; dates clés résumées au-delà de 6.
     assert 'class="ia-mark"' in fiche and "ia-check" not in fiche + css

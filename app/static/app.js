@@ -215,9 +215,10 @@ document.addEventListener("alpine:init", () => {
     exFiltersOpen: false,
     exMapOpen: false,
     fiche: null,
-    // Fiche : menu « Plus » ouvert, dates clés toutes affichées.
+    // Fiche : menu « Plus » ouvert, dates clés toutes affichées, détail IA déroulé (gardé d'une fiche à l'autre).
     ficheMenu: false,
     ficheTlAll: false,
+    ficheAiOpen: false,
     aiReq: { pending: [], done: [] },
     dropTab: "free",
     dropNewOnly: false,
@@ -726,27 +727,53 @@ document.addEventListener("alpine:init", () => {
 
     euros(n) { return n === null || n === undefined || n === "" ? "" : `${this.fmt(n)} €`; },
 
-    // Carte décision de la fiche : la note IA de l'usage choisi (réglage commun lens), sinon le score ;
-    // verdict, prix utilisateur final, une raison courte, ancienne grille, premium probable.
+    // Carte décision de la fiche, tout l'avis IA : les deux notes (celle de l'usage choisi, réglage commun lens,
+    // en premier et en grand), verdict, les deux prix, le pourquoi, le commentaire ; la grille dans « Détail IA ».
+    // Sans avis : le score, où en est la notation, les deux premières raisons du score.
     ficheDecision(f) {
-      if (!f) return {};
+      const k = { notes: [], verdict: null, prices: [], why: "", comment: "", queue: "", old: false, grid: null, rated: "", premium: "" };
+      if (!f) return k;
       const item = f.item;
       const opinion = f.ai || (item && item.ai);
-      const use = this.lens === "exploit" ? "exploitation" : "revente";
-      const hasScore = item && item.score !== undefined;
-      const note = opinion
-        ? { value: Number(opinion[this.lens === "exploit" ? "exploit" : "resale"]), label: `IA ${use}`, title: `Note IA de ${use} sur 100 : la valeur qui trie pour cet usage` }
-        : hasScore ? { value: item.score, label: "score", title: this.scoreTitle(item) || `Score ${item.score} sur 100` } : null;
-      return {
-        note,
-        verdict: opinion ? { text: this.aiVerdict(opinion), cls: "verdict " + this.aiClass(opinion) } : null,
-        price: opinion ? this.priceRange(opinion.final_low, opinion.final_high) : "",
-        why: opinion && opinion.why ? opinion.why : ((item && item.reasons) || []).slice(0, 2).join(" · "),
-        old: !!opinion && (opinion.version || 0) < 5,
-        premium: item && item.status === 8
-          ? (item.premium_price ? `Premium probable : ~${this.fmt(item.premium_price)} € chez le registre` : "Premium probable : le registre peut demander bien plus que le prix courant")
-          : "",
-      };
+      const main = this.lens === "exploit" ? "exploit" : "resale";
+      if (opinion) {
+        const notes = [["resale", "IA revente", "revente"], ["exploit", "IA exploitation", "exploitation"]]
+          .map(([key, label, use]) => ({ value: Number(opinion[key]), label, main: key === main,
+            title: key === main ? `Note IA de ${use} sur 100 : la valeur qui trie pour cet usage` : `Note IA de ${use} sur 100` }));
+        k.notes = notes.sort((a, b) => b.main - a.main);
+        k.verdict = { text: this.aiVerdict(opinion), cls: "verdict " + this.aiClass(opinion) };
+        k.prices = [["revente rapide", this.priceRange(opinion.quick_low, opinion.quick_high)],
+          ["utilisateur final", this.priceRange(opinion.final_low, opinion.final_high)]].filter(([, v]) => v);
+        k.why = opinion.why || "";
+        k.comment = (opinion.comment || "").slice(k.verdict.text.length).replace(/^\.\s*/, "");
+        k.old = (opinion.version || 0) < 5;
+        k.grid = opinion.grid || null;
+        k.rated = opinion.rated_at ? `noté le ${this.shortDate(opinion.rated_at)}` : "";
+      } else {
+        if (item && item.score !== undefined) {
+          k.notes = [{ value: item.score, label: "score", main: true, title: this.scoreTitle(item) || `Score ${item.score} sur 100` }];
+        }
+        k.why = ((item && item.reasons) || []).slice(0, 2).join(" · ");
+        const req = f.ai_request;
+        const eta = f.ai_eta;
+        if (req && !req.done_at) k.queue = `Analyse demandée ${this.relative(req.requested_at)}, traitée dans l'heure`;
+        else if (eta && eta.position) k.queue = `Notation la nuit du ${this.shortDate(eta.night)}, ${this.fmt(eta.position)}e de la file`;
+        else if (eta) k.queue = `Pas d'avis prévu dans les ${eta.horizon} prochaines nuits : « Analyser » le demande`;
+      }
+      if (item && item.status === 8) {
+        k.premium = item.premium_price ? `Premium probable : ~${this.fmt(item.premium_price)} € chez le registre` : "Premium probable : le registre peut demander bien plus que le prix courant";
+      }
+      return k;
+    },
+
+    // Détail IA : les neuf sous-notes sur 10 d'où viennent les notes et le verdict ; un risque de 5 ou plus est signalé.
+    ficheGridHtml(g) {
+      if (!g) return "";
+      return `<ul class="fgrid">${AI_GRID.map(([key, label]) => {
+        const v = Math.max(0, Math.min(10, Number(g[key]) || 0));
+        return `<li class="${key === "risque" && v >= 5 ? "warn" : ""}"><span class="fg-label">${label}</span>`
+          + `<span class="fg-bar" aria-hidden="true"><i style="width:${v * 10}%"></i></span><b>${v}</b></li>`;
+      }).join("")}</ul>`;
     },
 
     // Nom de la fiche : coupure permise avant l'extension, jamais au milieu sans besoin.
@@ -921,7 +948,7 @@ document.addEventListener("alpine:init", () => {
         this.say(`${name} : ${e.message}`, "error");
         return;
       }
-      this.say(reserved ? `${name} marqué réservé.` : `${name} remis dans la liste.`);
+      this.say(reserved ? `${name} marqué réservé par le registre.` : `${name} remis dans la liste.`);
       await this.ficheReload();
       // Marqué : il quitte la liste des noms à saisir ; remis : sa ligne prend le nouvel état.
       if (reserved) this.exItems = this.exItems.filter((x) => x.name !== name);
@@ -931,25 +958,9 @@ document.addEventListener("alpine:init", () => {
     // Fiche d'un nom : lignes libellé / valeur de chaque section (valeurs déjà échappées), sans champ vide.
     ficheParts(f) {
       const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-      const ai = [], score = [], name = [], past = [];
-      if (!f) return { ai, score, name, past, opinion: null };
+      const score = [], name = [], past = [];
+      if (!f) return { score, name, past };
       const item = f.item;
-      const opinion = f.ai || (item && item.ai);
-      const req = f.ai_request;
-      if (req && !req.done_at) ai.push(["Demande", esc(`envoyée ${this.relative(req.requested_at)}, traitée dans l'heure`)]);
-      if (!opinion && f.ai_eta && !(req && !req.done_at)) {
-        const e = f.ai_eta;
-        ai.push(["Notation", e.position
-          ? esc(`nuit du ${this.shortDate(e.night)}, ${this.fmt(e.position)}e de la file (${this.fmt(e.per_night)} par nuit)`)
-          : esc(`pas dans les ${e.horizon} prochaines nuits : d'autres noms passent avant`)]);
-      }
-      if (opinion) {
-        // Pourquoi « À laisser » ou « À surveiller » : la cause principale, en mots simples.
-        if (opinion.why) ai.push(["Pourquoi", esc(opinion.why)]);
-        ai.push(["Notes", `<span class="ai-notes">exploitation <b>${Number(opinion.exploit)}</b> · revente <b>${Number(opinion.resale)}</b></span>`]);
-        ai.push(["Revente rapide", esc(this.priceRange(opinion.quick_low, opinion.quick_high))]);
-        ai.push(["Utilisateur final", esc(this.priceRange(opinion.final_low, opinion.final_high))]);
-      }
       if (item && item.score !== undefined) {
         score.push(["Total", `<span class="ex-bar fiche-bar"><i style="width:${Number(item.score)}%"></i><b>${Number(item.score)}</b></span>`]);
         const detail = this.scoreTitle(item).replace(/^Score \d+ : /, "");
@@ -985,7 +996,7 @@ document.addEventListener("alpine:init", () => {
         if (f.seo.wb_first) parts.push(`archivé depuis ${f.seo.wb_first.slice(0, 4)}` + (f.seo.wb_years ? ` (${f.seo.wb_years} ans)` : ""));
         past.push(["SEO", esc(parts.join(", ") || "aucun signal") + `, analysé ${esc(this.relative(f.seo.checked_at))}`]);
       }
-      return { ai, score, name, past, opinion };
+      return { score, name, past };
     },
 
     // Lignes libellé / valeur (valeurs déjà échappées) : libellés en colonne étroite, au-dessus sous 360 px.
@@ -994,41 +1005,7 @@ document.addEventListener("alpine:init", () => {
       return `<dl class="fdl">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>`;
     },
 
-    // Section Avis IA : commentaire, notes et prix, grille des sous-notes en mini-barres.
-    ficheAiHtml(f) {
-      const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-      const p = this.ficheParts(f);
-      const o = p.opinion;
-      if (!o) {
-        const wait = f && f.ai_request && !f.ai_request.done_at;
-        return (wait ? "" : `<p class="fai-lead muted">Pas encore d'avis IA. « Analyser » le demande, traité dans l'heure.</p>`) + this.ficheDl(p.ai);
-      }
-      const rest = o.comment.slice(this.aiVerdict(o).length).replace(/^\.\s*/, "");
-      let html = rest ? `<p class="fai-lead ai-comment">${esc(rest)}</p>` : "";
-      html += this.ficheDl(p.ai);
-      if (o.grid) {
-        // Grille v5 : les sous-notes sur 10 d'où viennent les notes et le verdict ; un risque de 5 ou plus est signalé.
-        const g = o.grid;
-        html += `<h4 class="fsub">Grille, sur 10</h4><ul class="fgrid">${AI_GRID.map(([k, label]) => {
-          const v = Math.max(0, Math.min(10, Number(g[k]) || 0));
-          return `<li class="${k === "risque" && v >= 5 ? "warn" : ""}"><span class="fg-label">${label}</span>`
-            + `<span class="fg-bar" aria-hidden="true"><i style="width:${v * 10}%"></i></span><b>${v}</b></li>`;
-        }).join("")}</ul>`;
-      }
-      return html;
-    },
-
     // Résumés des en-têtes de section, d'un coup d'œil.
-    ficheAiSum(f) {
-      const o = f && (f.ai || (f.item && f.item.ai));
-      if (o) {
-        const use = this.lens === "exploit" ? "exploit" : "resale";
-        return `${this.aiVerdict(o)} · ${use === "exploit" ? "exploitation" : "revente"} ${Number(o[use])}`;
-      }
-      if (f && f.ai_request && !f.ai_request.done_at) return "demandée";
-      return f && f.ai_eta && f.ai_eta.position ? `nuit du ${this.timelineDate(f.ai_eta.night).slice(0, 5)}` : "pas encore d'avis";
-    },
-
     ficheNameSum(f) {
       if (!f || !f.categories) return "";
       const kinds = (this.exData && this.exData.kinds) || (this.dropsData && this.dropsData.kinds) || {};
