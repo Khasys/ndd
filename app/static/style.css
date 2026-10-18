@@ -185,6 +185,9 @@ button:disabled { cursor: default; opacity: .55; }
 }
 .notice-close:hover, .notice-close:focus-visible { background: rgb(255 255 255 / .15); }
 .notice.error { background: var(--danger); color: #fff; }
+/* Détail brut d'une erreur résumée (serveur, type d'erreur), sous le message. */
+.notice-detail { display: block; margin-top: 4px; font-size: 12px; opacity: .85; overflow-wrap: anywhere; }
+.fiche-error-detail { margin: -6px 0 10px; overflow-wrap: anywhere; }
 .add { margin-bottom: 14px; }
 
 .legend {
@@ -782,6 +785,8 @@ button:disabled { cursor: default; opacity: .55; }
 .badge.x-0 { background: none; color: var(--muted); border: 1px dashed var(--line-strong); }
 .badge.x-7 { background: none; color: var(--danger); border: 1px solid var(--danger); }
 .badge.x-8 { background: none; color: var(--muted); border: 1px dashed var(--muted); }
+/* Libre selon le seul WHOIS : vert du libre, en pointillés comme les « probablement libres ». */
+.badge.x-9 { background: none; color: var(--s-available-fg); border: 1px dashed var(--s-available-fg); }
 .ex-bulk { position: sticky; bottom: 8px; z-index: 6; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0 0; padding: 10px 12px; background: var(--surface); border: 1px solid var(--accent); border-radius: 12px; box-shadow: 0 4px 18px rgba(0, 0, 0, .12); }
 .explore-more { display: flex; align-items: center; gap: 12px; margin: 12px 0 0; }
 .link-like { background: none; border: 0; padding: 0; color: inherit; font: inherit; cursor: pointer; text-align: left; text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }

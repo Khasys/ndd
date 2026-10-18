@@ -28,7 +28,7 @@ from . import ai, ccdns, drops, frdns, precompute, prenoms, quality, rdapinfo, s
 from .checker import iso, utcnow
 
 # États, un octet par nom.
-INVALID, REGISTERED, GONE, ABSENT, COMING, FREE, SUSPENDED, RESERVED, PREMIUM = range(9)
+INVALID, REGISTERED, GONE, ABSENT, COMING, FREE, SUSPENDED, RESERVED, PREMIUM, UNCONFIRMED = range(10)
 
 LABELS = {
     REGISTERED: "Enregistré",
@@ -39,6 +39,8 @@ LABELS = {
     SUSPENDED: "Enregistré, suspendu (hold)",
     RESERVED: "Réservé",
     PREMIUM: "Premium probable",
+    # WHOIS seul (.co, .io, .ai…) : « inconnu » ne dit rien des noms réservés ou premium du registre.
+    UNCONFIRMED: "Libre selon le WHOIS, à confirmer",
 }
 # 3 caractères libres sur une extension générique : souvent vendus au prix premium par le registre.
 # Rien ne le confirme sans accès registrar ; l'Explorer les masque sauf si on demande à les voir.
@@ -64,16 +66,16 @@ def absent_label(tld: str) -> str:
     return ABSENT_FR if tld == "fr" else ABSENT_DNS if tld in ccdns.TLDS else ABSENT_ZONE
 
 STATUS_FILTERS = {
-    "available": (GONE, ABSENT, FREE, COMING),
-    "bookable": (GONE, ABSENT, FREE),
-    "maybe_free": (GONE, ABSENT),
+    "available": (GONE, ABSENT, UNCONFIRMED, FREE, COMING),
+    "bookable": (GONE, ABSENT, UNCONFIRMED, FREE),
+    "maybe_free": (GONE, ABSENT, UNCONFIRMED),
     "coming": (COMING,),
     "free": (FREE,),
     "registered": (REGISTERED,),
     "suspended": (SUSPENDED,),
     "reserved": (RESERVED,),
     "premium": (PREMIUM,),
-    "all": (GONE, ABSENT, FREE, COMING, REGISTERED, SUSPENDED),
+    "all": (GONE, ABSENT, UNCONFIRMED, FREE, COMING, REGISTERED, SUSPENDED),
 }
 STATUS_NAMES = {
     "available": "Tous non pris",
@@ -152,7 +154,8 @@ COMPARABLES = 3
 COMPARABLE_LENGTH = 1
 # Ligne de temps : états de la Veille datés par state_since.
 TIMELINE_DROP_STATES = {states.EXPIRED: "Expiré", states.REDEMPTION: "Entré en rédemption",
-                        states.PENDING_DELETE: "En suppression", drops.TAKEN: "Repris"}
+                        states.PENDING_DELETE: "En suppression", drops.TAKEN: "Repris",
+                        drops.UNCONFIRMED: "Libre selon le WHOIS, à confirmer"}
 AI_FIELDS = {"exploit": "Exploitation", "resale": "Revente", "quick_low": "Revente rapide bas",
              "quick_high": "Revente rapide haut", "final_low": "Prix final bas", "final_high": "Prix final haut"}
 
@@ -560,6 +563,8 @@ class Explorer:
                 status[i] = COMING
             elif state == states.AVAILABLE:
                 status[i] = FREE
+            elif state == drops.UNCONFIRMED:
+                status[i] = UNCONFIRMED
             elif state == drops.SUSPENDED:
                 status[i] = SUSPENDED
             elif state == drops.TAKEN:
@@ -567,18 +572,18 @@ class Explorer:
         if self.reserved is not None:
             # Réservé : seulement s'il n'est pas enregistré. Un nom pris reste « Enregistré ».
             for i in self.reserved.indices(tld, u):
-                if status[i] in (GONE, ABSENT, FREE, COMING):
+                if status[i] in (GONE, ABSENT, UNCONFIRMED, FREE, COMING):
                     status[i] = RESERVED
             if tld != "fr":
                 # 1 ou 2 caractères absents de la zone : gardés par le registre (voir reserved.short_reserved).
                 unflagged = self.reserved.unflagged()
                 for i in range(drops.OFFSETS[2]):
-                    if status[i] in (ABSENT, FREE) and f"{u.label(i)}.{tld}" not in unflagged:
+                    if status[i] in (ABSENT, UNCONFIRMED, FREE) and f"{u.label(i)}.{tld}" not in unflagged:
                         status[i] = RESERVED
         if tld != "fr" and tld not in self.premium_tlds_off():
             unflagged = self.reserved.unflagged() if self.reserved is not None else frozenset()
             for i in range(drops.OFFSETS[2], drops.OFFSETS[PREMIUM_LENGTH]):
-                if status[i] in (ABSENT, FREE) and f"{u.label(i)}.{tld}" not in unflagged:
+                if status[i] in (ABSENT, UNCONFIRMED, FREE) and f"{u.label(i)}.{tld}" not in unflagged:
                     status[i] = PREMIUM
         return status
 
@@ -1463,15 +1468,17 @@ class Explorer:
             code = COMING
         elif state == states.AVAILABLE:
             code = FREE
+        elif state == drops.UNCONFIRMED:
+            code = UNCONFIRMED
         elif state == drops.SUSPENDED:
             code = SUSPENDED
         elif state == drops.TAKEN:
             code = REGISTERED
-        if self.reserved is not None and f"{label}.{tld}" in self.reserved.names() and code in (GONE, ABSENT, FREE, COMING):
+        if self.reserved is not None and f"{label}.{tld}" in self.reserved.names() and code in (GONE, ABSENT, UNCONFIRMED, FREE, COMING):
             code = RESERVED
-        elif self.reserved is not None and code in (ABSENT, FREE) and self.reserved.short_reserved(f"{label}.{tld}"):
+        elif self.reserved is not None and code in (ABSENT, UNCONFIRMED, FREE) and self.reserved.short_reserved(f"{label}.{tld}"):
             code = RESERVED
-        elif (tld != "fr" and tld not in self.premium_tlds_off() and code in (ABSENT, FREE)
+        elif (tld != "fr" and tld not in self.premium_tlds_off() and code in (ABSENT, UNCONFIRMED, FREE)
               and drops.OFFSETS[2] <= i < drops.OFFSETS[PREMIUM_LENGTH]
               and (self.reserved is None or f"{label}.{tld}" not in self.reserved.unflagged())):
             code = PREMIUM
@@ -1649,8 +1656,9 @@ class Explorer:
                                  else self._status_label(tld, code)),
                 "created_on": fr["created_on"] if fr else None,
                 # Une sortie de zone repérée puis démentie (nom repris) n'est pas une suppression.
+                # Ligne créée par une vérification à la main : removed_on vide, aucune sortie constatée.
                 "removed_on": (fr["removed_on"] if fr and fr["removed_on"]
-                               else drop["removed_on"] if drop and drop["state"] != drops.TAKEN else None),
+                               else drop["removed_on"] or None if drop and drop["state"] != drops.TAKEN else None),
                 "expires_at": fr["expires_at"] if fr else None,
                 "checked_at": max(filter(None, [fr["checked_at"] if fr else None, drop["checked_at"] if drop else None]), default=None),
                 "next_check_at": (drop["next_check_at"] if drop and drop["next_check_at"] else fr["next_check_at"] if fr else None),
@@ -1836,14 +1844,15 @@ class Explorer:
         if rdap.get("expires_at") and not rdap.get("available"):
             add(rdap["expires_at"], "expires", "Expiration")
         drop = self.conn.execute("SELECT * FROM drops WHERE name = ?", (name,)).fetchone()
-        dns = ccdns.load_names(self.conn, [name]).get(name) if tld in ccdns.TLDS else None
-        if dns and dns["lost_at"] and not (drop is not None and drop["removed_on"]):
-            add(dns["lost_at"], "dns_out", "Sorti du DNS")
+        if tld in ccdns.TLDS:
+            # Sorti du DNS : seulement un nom vu délégué puis absent. Un nom absent dès la première nuit
+            # (réservé, premium, enregistré sans serveurs) n'est jamais « sorti », même vérifié à la main.
+            dns = ccdns.load_names(self.conn, [name]).get(name)
+            if dns and dns["seen_at"] and dns["lost_at"]:
+                add(dns["lost_at"], "dns_out", "Sorti du DNS")
+        elif drop is not None and tld != "fr":
+            add(drop["removed_on"], "zone_out", "Sorti de la zone")  # vide si vérifié à la main : rien
         if drop is not None:
-            if tld in ccdns.TLDS:
-                add(drop["removed_on"], "dns_out", "Sorti du DNS")
-            elif tld != "fr":
-                add(drop["removed_on"], "zone_out", "Sorti de la zone")
             if drop["state"] in TIMELINE_DROP_STATES:
                 add(drop["state_since"], "drop_" + drop["state"], TIMELINE_DROP_STATES[drop["state"]])
             add(drop["available_since"], "available", "Libération constatée")
@@ -1956,7 +1965,10 @@ class Explorer:
                 self.conn.execute("UPDATE fr_names SET checked_at = ?, next_check_at = NULL WHERE label = ?", (iso(now), label))
         self.touch(name)
         i = self.universe.index(label)
-        return self.describe(tld, [i])[0] if i is not None else self._describe_unknown(name, now)
+        item = self.describe(tld, [i])[0] if i is not None else self._describe_unknown(name, now)
+        # Repli sur le WHOIS (RDAP en panne) : dit à l'interface, avec le serveur et le type d'erreur.
+        item["note"] = getattr(result, "note", None)
+        return item
 
     def _describe_unknown(self, name: str, now: datetime) -> dict:
         """Nom hors des listes suivies (tapé dans l'Explorer) : le minimum pour l'afficher, le réserver
@@ -1966,7 +1978,7 @@ class Explorer:
         state = drop["state"] if drop else None
         rdap = rdapinfo.load(self.conn, [name]).get(name)
         if rdap and rdap["available"]:
-            code = FREE
+            code = UNCONFIRMED if rdapinfo.whois_only(rdap) else FREE
         elif state in drops.TRACKED:
             code = COMING
         else:

@@ -47,8 +47,16 @@ def build(conn, explorer, cc_status: dict, base: str, now: datetime, min_score: 
     coming = {r["name"]: r for r in conn.execute(
         f"SELECT name, state, release_at FROM drops WHERE state IN ({','.join('?' * len(drops.TRACKED))}) "
         "AND state_since >= ?", (*drops.TRACKED, since))}
-    values = explorer.value_of(freed + list(coming))
+    # Libres selon le seul WHOIS : pas des « libérés » ; listés à part, à confirmer chez un registrar.
+    unsure = [r["name"] for r in conn.execute(
+        "SELECT name FROM drops WHERE state = ? AND state_since >= ? AND name NOT IN (SELECT name FROM drop_hidden)",
+        (drops.UNCONFIRMED, since))]
+    held = getattr(explorer, "reserved", None)
+    if held is not None:  # marqué « Réservé par registre » : plus à prendre
+        unsure = [n for n in unsure if n not in held.names()]
+    values = explorer.value_of(freed + list(coming) + unsure)
     best_freed = sorted((n for n in freed if _good(values[n], min_score)), key=lambda n: -values[n]["score"])
+    best_unsure = sorted((n for n in unsure if _good(values[n], min_score)), key=lambda n: -values[n]["score"])
     best_coming = sorted((n for n in coming if _good(values[n], min_score)), key=lambda n: -values[n]["score"])
     lost = []
     for tld, status in cc_status.items():
@@ -56,9 +64,9 @@ def build(conn, explorer, cc_status: dict, base: str, now: datetime, min_score: 
         if finished and finished >= now - timedelta(hours=24):
             lost += status.get("freed_names") or []
     # Un nom sorti du DNS passe aussi dans la Veille : déjà listé plus haut avec son état réel, il n'est pas répété.
-    shown = set(best_freed[:MAX_LINES]) | set(best_coming[:MAX_LINES])
+    shown = set(best_freed[:MAX_LINES]) | set(best_coming[:MAX_LINES]) | set(best_unsure[:MAX_LINES])
     lost = [n for n in lost if n not in shown]
-    if not best_freed and not best_coming and not lost:
+    if not best_freed and not best_coming and not best_unsure and not lost:
         return None
     lines = ["Ce matin"]
     if best_freed:
@@ -69,6 +77,9 @@ def build(conn, explorer, cc_status: dict, base: str, now: datetime, min_score: 
         for n in best_coming[:MAX_LINES]:
             release = parse_iso(coming[n]["release_at"])
             lines.append(_line(n, values[n], base, f"libre ~{release.astimezone(digest.local_zone()).strftime('%d/%m')}" if release else ""))
+    if best_unsure:
+        lines.append(f"\nLibres selon le WHOIS, à confirmer chez un registrar ({len(best_unsure)} sur {len(unsure)}) :")
+        lines += [_line(n, values[n], base) for n in best_unsure[:MAX_LINES]]
     if lost:
         lines.append(f"\nSortis du DNS (.co, .ai, .io), à vérifier : {', '.join(lost[:20])}"
                      + (f" et {len(lost) - 20} autres" if len(lost) > 20 else ""))

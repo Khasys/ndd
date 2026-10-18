@@ -138,3 +138,66 @@ def test_rate_limit_is_detected_in_a_bare_answer():
     # Réponse de l'IANA sans champ « whois » : une limite, pas une extension sans serveur.
     assert rate_limited("% Too many queries, try again later\n")
     assert not rate_limited("whois:        whois.nic.so\n")
+
+
+# Réponses écrites à la main d'après les formats publiés (Identity Digital pour .io, registre du .ai) :
+# rien n'est vérifié d'ici, ce conteneur ne joint pas les registres.
+IO_FOUND = """Domain Name: github.io
+Registry Domain ID: REDACTED
+Registrar WHOIS Server: whois.markmonitor.com
+Registrar URL: http://www.markmonitor.com
+Updated Date: 2024-02-05T09:29:35Z
+Creation Date: 2013-03-08T21:36:42Z
+Registry Expiry Date: 2027-03-08T21:36:42Z
+Registrar: MarkMonitor Inc.
+Registrar IANA ID: 292
+Domain Status: clientDeleteProhibited https://icann.org/epp#clientDeleteProhibited
+Domain Status: clientTransferProhibited https://icann.org/epp#clientTransferProhibited
+Name Server: DNS1.P05.NSONE.NET
+Name Server: NS-1622.AWSDNS-10.CO.UK
+DNSSEC: unsigned
+URL of the ICANN Whois Inaccuracy Complaint Form: https://www.icann.org/wicf/
+>>> Last update of WHOIS database: 2026-10-18T08:00:00Z <<<
+
+Terms of Use: Access to WHOIS information is provided to assist persons in determining the contents of a domain name registration record in the registry database. Queries to the Whois services are throttled. If too many queries are received from a single IP address within a specified time, the service will begin to reject further queries.
+"""
+
+AI_FOUND = """Domain Name: google.ai
+Registry Domain ID: 2a2b0e9c1f_DOMAIN_AI-VRSN
+Registrar WHOIS Server: whois.markmonitor.com
+Updated Date: 2025-08-26T09:12:44.512Z
+Creation Date: 2017-12-16T05:37:20.801Z
+Registry Expiry Date: 2027-09-25T15:03:13.391Z
+Registrar: MarkMonitor Inc.
+Domain Status: clientUpdateProhibited https://icann.org/epp#clientUpdateProhibited
+Name Server: NS1.GOOGLE.COM
+Name Server: NS2.GOOGLE.COM
+DNSSEC: unsigned
+>>> Last update of WHOIS database: 2026-10-18T08:00:00.000Z <<<
+"""
+
+
+def test_identity_digital_io_registered():
+    info = parse_whois(IO_FOUND)
+    assert info.expires_at == datetime(2027, 3, 8, 21, 36, 42, tzinfo=timezone.utc)
+    assert info.registered_at == datetime(2013, 3, 8, 21, 36, 42, tzinfo=timezone.utc)
+    assert info.registrar == "MarkMonitor Inc."
+    assert info.nameservers == ["dns1.p05.nsone.net", "ns-1622.awsdns-10.co.uk"]
+    assert info.statuses == ["clientDeleteProhibited", "clientTransferProhibited"]
+
+
+def test_ai_registered_with_milliseconds():
+    info = parse_whois(AI_FOUND)
+    assert info.expires_at == datetime(2027, 9, 25, 15, 3, 13, tzinfo=timezone.utc)
+    assert info.registered_at == datetime(2017, 12, 16, 5, 37, 20, tzinfo=timezone.utc)
+    assert info.registrar == "MarkMonitor Inc." and info.nameservers == ["ns1.google.com", "ns2.google.com"]
+
+
+@pytest.mark.parametrize("text", [
+    "NOT FOUND\n",
+    "Domain not found.\n>>> Last update of WHOIS database: 2026-10-18T08:00:00Z <<<\n",
+    "No Object Found\n",
+    "\n>>> Last update of WHOIS database: 2026-10-18T08:00:00.000Z <<<\nNOT FOUND\n",
+])
+def test_io_and_ai_free_answers(text):
+    assert parse_whois(text) is None

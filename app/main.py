@@ -318,6 +318,9 @@ async def lifespan(app: FastAPI):
     # .co, .ai, .io : une passe par extension, en même temps que le .fr (registres différents).
     app.state.cc_dns = {t: ccdns.CcDns(t, conn, store, app.state.explorer, digest.local_zone(), notify=telegram.send)
                         for t in ccdns.TLDS}
+    # Libres sur la seule foi d'un WHOIS, fausses sorties du DNS : corrigés une fois, sans migration.
+    if any(watcher.repair().values()):
+        app.state.explorer.invalidate()
     # Noms sortis du DNS avant que la Veille ne les suive : repris au démarrage (puis à chaque passe).
     for cc in app.state.cc_dns.values():
         if cc.resume_lost():
@@ -1220,10 +1223,12 @@ def _drop_rows(state) -> list:
     watcher, conn = state.drops, state.conn
     # Un nom libre reste affiché keep_days jours ; il reste en base et dans l'Explorer.
     shown_since = iso(utcnow() - timedelta(days=watcher.keep_days))
+    # Libres selon le seul WHOIS : affichés « à confirmer », depuis leur constat (pas de date de libération).
     rows = conn.execute(
         """SELECT * FROM drops WHERE state IN (?, ?, ?) OR (state = ? AND available_since >= ?)
+             OR (state = ? AND state_since >= ?)
            ORDER BY release_at IS NULL, release_at, name""",
-        (*drops.TRACKED, states.AVAILABLE, shown_since),
+        (*drops.TRACKED, states.AVAILABLE, shown_since, drops.UNCONFIRMED, shown_since),
     ).fetchall()
     held = state.reserved
     reserved_names = held.names()
@@ -1586,7 +1591,7 @@ TOP_SIZES = (10, 50, 100, 200, 500, 1000)
 # État du tableau Top, en toutes lettres : les mêmes mots que les cartes.
 TOP_STATES = {explore.REGISTERED: "pris", explore.SUSPENDED: "pris", explore.GONE: "probablement libre", explore.ABSENT: "probablement libre",
               explore.COMING: "à venir", explore.FREE: "libre", explore.RESERVED: "réservé", explore.INVALID: "pas lu",
-              explore.PREMIUM: "premium probable"}
+              explore.PREMIUM: "premium probable", explore.UNCONFIRMED: "libre à confirmer"}
 
 
 def _top_state(tld: str, code: int) -> str:

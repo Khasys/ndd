@@ -3,7 +3,9 @@ from datetime import datetime
 
 import httpx
 
-from .states import LABELS
+from .states import AVAILABLE, LABELS
+
+UNCONFIRMED_LABEL = "Disponible selon le WHOIS, à confirmer"
 
 log = logging.getLogger(__name__)
 
@@ -16,10 +18,14 @@ def format_change(
     new_registrar: str | None,
     release: datetime | None,
     app_url: str,
+    unconfirmed: bool = False,
 ) -> str:
+    """unconfirmed : « disponible » sur la seule foi d'un WHOIS, qui ne connaît pas les noms réservés ou
+    premium du registre ; l'alerte le dit, à confirmer chez un registrar."""
     lines = [domain]
     if old_state != new_state:
-        lines.append(f"{LABELS.get(old_state, 'Inconnu')} → {LABELS.get(new_state, 'Inconnu')}")
+        new_label = UNCONFIRMED_LABEL if unconfirmed and new_state == AVAILABLE else LABELS.get(new_state, "Inconnu")
+        lines.append(f"{LABELS.get(old_state, 'Inconnu')} → {new_label}")
     if old_registrar != new_registrar:
         lines.append(f"Registrar : {old_registrar or 'aucun'} → {new_registrar or 'aucun'}")
     if release is not None:

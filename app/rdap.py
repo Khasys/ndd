@@ -28,6 +28,15 @@ EXTRA_SERVERS = {
     "ch": "https://rdap.nic.ch/",
 }
 
+# Serveurs WHOIS en dur, utilisés seulement quand l'IANA ne donne pas de referral (injoignable, limite,
+# réponse sans champ « whois ») : le referral IANA reste prioritaire. Non vérifiés d'ici (pas de réseau
+# vers les registres pendant le développement) : à confirmer avant d'en ajouter d'autres.
+KNOWN_WHOIS = {
+    "co": "whois.registry.co",  # non vérifié d'ici (c'est le referral IANA relevé dans tests/fixtures)
+    "io": "whois.nic.io",       # non vérifié d'ici
+    "ai": "whois.nic.ai",       # non vérifié d'ici
+}
+
 # Section ICANN seule : les suffixes privés (github.io...) n'ont pas de registre RDAP.
 _PSL = PublicSuffixList(only_icann=True)
 _LABEL = re.compile(r"^(?!-)[a-z0-9-]{1,63}(?<!-)$")
@@ -86,6 +95,18 @@ class LookupResult:
     info: DomainInfo | None = None
     error: str | None = None
     source: str = "rdap"
+    # Repli sur le WHOIS après un RDAP en panne : pourquoi (serveur, type d'erreur).
+    note: str | None = None
+
+    @property
+    def unconfirmed(self) -> bool:
+        """Libre d'après le seul WHOIS : un WHOIS « inconnu » ne connaît pas les noms réservés ou premium
+        du registre (.co, .io, .ai). Libre à confirmer chez un registrar, pas « Libre (vérifié) »."""
+        return whois_only_free(self.source, self.available)
+
+
+def whois_only_free(source: str | None, available) -> bool:
+    return bool(available) and (source or "").startswith("whois")
 
 
 def _parse_date(value: str | None) -> datetime | None:
@@ -261,12 +282,42 @@ class RdapClient:
         self._host_next[host] = max(self._host_next.get(host, 0.0), time.monotonic() + seconds)
 
     async def lookup(self, domain: str) -> LookupResult:
+        tld = tld_of(domain)
         try:
             base = await self.server_for(domain)
         except (httpx.HTTPError, ValueError) as exc:
-            return LookupResult(error=f"Bootstrap IANA indisponible : {exc.__class__.__name__}")
+            problem = f"Bootstrap IANA indisponible : {exc.__class__.__name__}"
+            # Sans annuaire RDAP : le WHOIS déjà connu de l'extension (mémorisé ou en dur), sans
+            # nouvelle requête à l'IANA, qui est sans doute injoignable elle aussi.
+            return await self._fallback(domain, problem, self.known_whois_server(tld))
         if not base:
             return await self._lookup_whois(domain)
+        result, network = await self._lookup_rdap(domain, base)
+        if network:
+            # Serveur RDAP en panne (réseau, TLS, délai, 5xx répétés) : le WHOIS du registre, s'il en a un.
+            from . import whois
+
+            try:
+                server = await self.whois_server(tld)
+            except whois.WhoisError:  # IANA injoignable elle aussi : l'erreur RDAP, telle quelle
+                server = None
+            return await self._fallback(domain, result.error, server)
+        return result
+
+    async def _fallback(self, domain: str, problem: str, server: str | None) -> LookupResult:
+        """RDAP impossible (problem) : le WHOIS de l'extension (server), s'il est connu ; sinon l'erreur RDAP."""
+        if not server:
+            return LookupResult(error=problem)
+        log.info("%s : %s, repli sur le WHOIS %s", domain, problem, server)
+        result = await self._lookup_whois(domain, server)
+        if result.error:
+            return LookupResult(error=f"{problem} ; repli WHOIS : {result.error}", source="whois")
+        result.note = f"Repli WHOIS : {problem}"
+        return result
+
+    async def _lookup_rdap(self, domain: str, base: str) -> tuple[LookupResult, bool]:
+        """(résultat, panne réseau) : le second est vrai quand l'échec vient du réseau ou d'un serveur
+        en erreur 5xx à chaque essai, pas d'une réponse du registre (404, 429, réponse inattendue)."""
         url = f"{base.rstrip('/')}/domain/{domain}"
         host = urlsplit(url).netloc
         lock = self._host_locks.setdefault(host, asyncio.Lock())
@@ -275,47 +326,53 @@ class RdapClient:
         # attentes de retry comprises : le mode rapide ne peut pas dépasser la cadence.
         async with lock:
             last_error = "Erreur inconnue"
+            network = False
             for attempt in range(self.retries + 1):
                 # Longue pause demandée par le registre (429 avec Retry-After) : on ne dort pas dessus,
                 # l'appelant replanifie ; sinon la file des vérifications resterait bloquée des heures.
                 pause = self._host_next.get(host, 0.0) - time.monotonic()
                 if pause > self.max_retry_after:
-                    return LookupResult(error=f"Limite de requêtes du registre atteinte, reprise dans {int(pause)} s")
+                    return LookupResult(error=f"Limite de requêtes du registre atteinte, reprise dans {int(pause)} s"), False
                 await self._wait_turn(host)
                 wait = self.backoff * (2**attempt)
                 try:
                     response = await self.http.get(url)
                 except httpx.HTTPError as exc:
-                    last_error = f"Erreur réseau : {exc.__class__.__name__}"
+                    # Le serveur et le type d'erreur restent dans le message : l'interface en fait un
+                    # résumé (« Réseau injoignable ») et garde le détail au survol.
+                    last_error = f"Erreur réseau : {exc.__class__.__name__} (serveur RDAP {host})"
+                    network = True
                     self._push_next(host, max(self.min_delay, wait))
                     continue
                 self._push_next(host, self.min_delay)
 
                 if response.status_code == 404:
-                    return LookupResult(available=True)
+                    return LookupResult(available=True), False
                 if response.status_code == 200:
                     try:
                         data = response.json()
                     except ValueError:
                         last_error = "Réponse RDAP illisible"
+                        network = False
                         continue
-                    return LookupResult(found=True, info=parse_domain(data))
+                    return LookupResult(found=True, info=parse_domain(data)), False
                 if response.status_code == 429 or response.status_code >= 500:
                     retry_after = _retry_after(response)
                     if retry_after is not None and retry_after > self.max_retry_after:
                         self._push_next(host, retry_after)
                         return LookupResult(
                             error=f"Limite de requêtes du registre atteinte, reprise dans {int(retry_after)} s"
-                        )
+                        ), False
+                    network = response.status_code >= 500
                     last_error = (
                         "Limite de requêtes du registre atteinte (429)"
                         if response.status_code == 429
-                        else f"Serveur RDAP en erreur ({response.status_code})"
+                        else f"Serveur RDAP {host} en erreur ({response.status_code})"
                     )
                     self._push_next(host, retry_after if retry_after is not None else wait)
                     continue
-                return LookupResult(error=f"Réponse RDAP inattendue ({response.status_code})")
-            return LookupResult(error=last_error)
+                return LookupResult(error=f"Réponse RDAP inattendue ({response.status_code})"), False
+            return LookupResult(error=last_error), network
 
     async def _whois(self, server: str, name: str) -> str:
         from . import whois
@@ -342,10 +399,7 @@ class RdapClient:
         except ValueError:
             return {}
 
-    async def whois_server(self, tld: str) -> str | None:
-        from . import whois
-
-        now = time.time()
+    def _remembered_whois(self, tld: str) -> tuple[str, float] | None:
         known = self._whois_servers.get(tld)
         if known is None:
             saved = self._saved_whois_servers().get(tld) or {}
@@ -354,15 +408,35 @@ class RdapClient:
                     known = (saved["server"], datetime.fromisoformat(saved["at"]).timestamp())
             except (KeyError, TypeError, ValueError):
                 known = None
+        return known
+
+    def known_whois_server(self, tld: str) -> str | None:
+        """Serveur WHOIS connu sans requête : trouvé auparavant (même périmé), sinon en dur."""
+        known = self._remembered_whois(tld)
+        return known[0] if known else KNOWN_WHOIS.get(tld)
+
+    async def whois_server(self, tld: str) -> str | None:
+        from . import whois
+
+        now = time.time()
+        known = self._remembered_whois(tld)
         if known is not None and now - known[1] < WHOIS_SERVER_TTL:
             self._whois_servers[tld] = known
             return known[0]
-        answer = await self._whois(whois.IANA_WHOIS, tld)
-        if whois.rate_limited(answer):
-            raise whois.WhoisError("Limite de requêtes WHOIS de l'IANA atteinte")
+        try:
+            answer = await self._whois(whois.IANA_WHOIS, tld)
+            if whois.rate_limited(answer):
+                raise whois.WhoisError("Limite de requêtes WHOIS de l'IANA atteinte")
+        except whois.WhoisError:
+            # IANA injoignable ou limitée : le serveur déjà trouvé (même périmé), sinon celui en dur.
+            fallback = known[0] if known else KNOWN_WHOIS.get(tld)
+            if fallback:
+                return fallback
+            raise
         server = whois.referral(answer)
         if server is None:
-            return None  # pas mémorisé : une réponse à côté ne condamne pas l'extension jusqu'au redémarrage
+            # Pas mémorisé : une réponse à côté ne condamne pas l'extension jusqu'au redémarrage.
+            return known[0] if known else KNOWN_WHOIS.get(tld)
         self._whois_servers[tld] = (server, now)
         if self.whois_store is not None:
             saved = self._saved_whois_servers()
@@ -370,12 +444,12 @@ class RdapClient:
             self.whois_store.set("whois_servers", json.dumps(saved))
         return server
 
-    async def _lookup_whois(self, domain: str) -> LookupResult:
+    async def _lookup_whois(self, domain: str, server: str | None = None) -> LookupResult:
         from . import whois
 
         tld = tld_of(domain)
         try:
-            server = await self.whois_server(tld)
+            server = server or await self.whois_server(tld)
             if not server:
                 return LookupResult(error=f"Ni RDAP ni WHOIS publié pour .{tld}", source="whois")
             info = whois.parse_whois(await self._whois(server, domain))

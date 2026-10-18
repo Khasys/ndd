@@ -216,6 +216,7 @@ class Checker:
                 values["registrar"] if registrar_changed else None,
                 self.release_estimate(updated, now),
                 self._link(row["name"]),
+                unconfirmed=result.unconfirmed,
             )
             await self.notify(text)
 

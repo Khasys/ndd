@@ -1513,4 +1513,79 @@ def test_fr_counters_use_the_covering_index(logged):
     plan = conn.execute("EXPLAIN QUERY PLAN SELECT COUNT(*) FROM fr_names WHERE removed_on IS NULL "
                         "AND next_check_at IS NOT NULL AND next_check_at <= 'x'").fetchall()
     assert "fr_names_due" in plan[-1][3]
+
+def test_whois_only_free_cc_name_and_reserved_flag(logged):
+    """menu.co : libre selon le seul WHOIS. Dans la Veille « à confirmer », hors des libérés d'Aujourd'hui ;
+    « Réservé par registre » (menu Plus de la fiche) le sort des noms à prendre."""
+    import json as _json
+
+    from app.rdap import LookupResult
+
+    client = logged()
+    state = client.app.state
+    conn = state.conn
+    at = "2026-10-18T03:00:00+00:00"
+    conn.execute("INSERT INTO cc_dns (name, present, checked_at, seen_at, lost_at) VALUES ('menu.co', 0, ?, NULL, NULL)", (at,))
+    state.store.set("co_dns_status", _json.dumps({"finished_at": at, "checked": 1, "present": 0}))
+    state.explorer.invalidate("co")
+
+    async def lookup(name):
+        return LookupResult(available=True, source="whois", note="Repli WHOIS : Erreur réseau : ConnectError (serveur RDAP rdap.test)")
+
+    state.drops.rdap.lookup = lookup
+    item = client.post("/api/explore/check", json={"name": "menu.co"}).json()
+    assert item["status_label"] == "Libre selon le WHOIS, à confirmer" and "rdap.test" in item["note"]
+    fiche = client.get("/api/explore/fiche", params={"name": "menu.co"}).json()
+    assert fiche["item"]["status_label"] == "Libre selon le WHOIS, à confirmer"
+    assert all(t["kind"] not in ("dns_out", "available") for t in fiche["timeline"])
+    veille = client.get("/api/drops").json()["items"]
+    assert [(i["name"], i["state"]) for i in veille] == [("menu.co", "unconfirmed")]
+    today = client.get("/api/today").json()
+    assert today["counts"]["freed_24h"] == 0 and all(i["name"] != "menu.co" for i in today["items"])
+    found = client.get("/api/explore/rank", params={"tld": "co", "status": "bookable", "q": "menu", "mode": "exact"}).json()
+    assert [i["name"] for i in found["items"]] == ["menu.co"]
+    # Réservé par registre : hors de la Veille et des noms à réserver, « Réservé » sur la fiche.
+    assert client.post("/api/reserved/flag", json={"name": "menu.co", "reserved": True}).json()["reserved"] is True
+    assert client.get("/api/drops").json()["items"] == []
+    found = client.get("/api/explore/rank", params={"tld": "co", "status": "bookable", "q": "menu", "mode": "exact"}).json()
+    assert found["items"] == []
+    assert client.get("/api/explore/fiche", params={"name": "menu.co"}).json()["item"]["status"] == 7
+    # Retiré : de nouveau à confirmer.
+    client.post("/api/reserved/flag", json={"name": "menu.co", "reserved": None})
+    assert client.get("/api/explore/fiche", params={"name": "menu.co"}).json()["item"]["status"] == 9
+    client.__exit__(None, None, None)
+
+
+def test_interface_whois_only_state_and_error_detail():
+    """Interface : état « libre selon le WHOIS, à confirmer » (code 9, Veille « unconfirmed ») et détail brut
+    des erreurs résumées (message, fiche)."""
+    from pathlib import Path
+
+    static = Path(__file__).resolve().parent.parent / "app" / "static"
+    js = (static / "app.js").read_text(encoding="utf-8")
+    html = (static / "index.html").read_text(encoding="utf-8")
+    css = (static / "style.css").read_text(encoding="utf-8")
+    assert "case 9:" in js and 'i.state === "unconfirmed"' in js and '["available", "unconfirmed"].includes(d.state)' in js
+    assert "[2, 3, 5, 9].includes(s)" in js and ".badge.x-9" in css
+    assert "function errorDetail" in js and "errorDetail(e && e.message)" in js
+    assert "notice.detail" in html and "'Détail : ' + errorDetail(d.check_error)" in html
+    assert "Libre selon le WHOIS, à confirmer" in html
+
+
+def test_startup_repairs_whois_only_free_names(logged, tmp_path):
+    """Données d'avant : menu.co « libre » sur la seule foi du WHOIS, « sorti du DNS » le jour de sa vérification.
+    Corrigé au démarrage, sans migration."""
+    from app import db
+
+    conn = db.connect(tmp_path / "domain-watch.db")
+    db.migrate(conn, tmp_path / "backups")
+    at = "2026-10-18T09:00:00+00:00"
+    conn.execute("INSERT INTO cc_dns (name, present, checked_at) VALUES ('menu.co', 0, ?)", (at,))
+    conn.execute("""INSERT INTO drops (name, tld, label, kind, removed_on, state, state_since, available_since, checked_at)
+                    VALUES ('menu.co', 'co', 'menu', 'long', '2026-10-18', 'available', ?, ?, ?)""", (at, at, at))
+    conn.execute("INSERT INTO name_rdap (name, at, source, available) VALUES ('menu.co', ?, 'whois', 1)", (at,))
+    conn.close()
+    client = logged()
+    row = client.app.state.conn.execute("SELECT * FROM drops WHERE name = 'menu.co'").fetchone()
+    assert row["state"] == "unconfirmed" and row["available_since"] is None and row["removed_on"] == ""
     client.__exit__(None, None, None)

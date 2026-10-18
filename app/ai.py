@@ -25,7 +25,7 @@ MAX_RESULTS = 5000
 # Codes d'état de l'Explorer (explore.py) : libres ou bientôt libres d'abord, enregistrés en dernier.
 FREE_SOON = (5, 4)        # libre vérifié, libération à venir
 TAKEN_MIN_BASE = 40       # noms enregistrés notés seulement à partir de ce score de base
-MAYBE_FREE = (2, 3)       # supprimé non repris, jamais vu
+MAYBE_FREE = (2, 3, 9)    # supprimé non repris, jamais vu, libre selon le seul WHOIS
 TAKEN = (1, 6, 4)         # enregistré, suspendu, libération à venir (pris ailleurs = demande)
 
 from .ai_format import (COMMENT_MAX, CRITERIA_V5, FIELDS, FIELDS_V5, FORMAT_V5, PRICE_STEPS, check,  # noqa: F401  (réexportés)

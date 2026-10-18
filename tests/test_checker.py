@@ -319,9 +319,10 @@ def test_iana_rate_limit_is_not_remembered_as_no_whois(tmp_path):
 
     rdap = RdapClient(tmp_path / "b.json", 0, 5, 0, 0, 60, transport=httpx.MockTransport(Registry().handler),
                       whois_min_delay=0, whois_query=whois)
-    first = run(rdap.lookup("libre-test.co"))
+    # .gg : pas de serveur WHOIS en dur, l'erreur de l'IANA remonte telle quelle.
+    first = run(rdap.lookup("libre-test.gg"))
     assert "Limite" in first.error
-    second = run(rdap.lookup("libre-test.co"))
+    second = run(rdap.lookup("libre-test.gg"))
     assert second.available and second.source == "whois"
 
 
@@ -398,3 +399,141 @@ def test_whois_server_is_kept_in_the_database_for_a_week(tmp_path):
     assert run(client(registry).lookup("libre-test.co")).available
     assert registry.calls[0] == "whois:whois.iana.org:co"
     conn.close()
+
+
+# --- Repli WHOIS quand le RDAP d'une extension est en panne (.io) ---------------------
+
+IO_BOOTSTRAP = {"services": [[["io"], ["https://rdap.nic.io/"]], [["com"], ["https://rdap.verisign.com/com/v1/"]]]}
+IO_FOUND = "Domain Name: cloud.io\nRegistry Expiry Date: 2027-03-08T21:36:42Z\nRegistrar: Exemple Registrar\nName Server: NS1.EXEMPLE.NET\n"
+
+
+class IoRegistry(Registry):
+    """RDAP du .io en panne (failure : exception ou statut), WHOIS du registre joignable."""
+
+    def __init__(self, failure, iana=""):
+        super().__init__()
+        self.failure = failure
+        self.iana = iana  # réponse de l'IANA pour l'extension (referral), vide : sans champ « whois »
+
+    async def whois(self, server, name, timeout):
+        self.calls.append(f"whois:{server}:{name}")
+        if server == "whois.iana.org":
+            if isinstance(self.iana, Exception):
+                raise self.iana
+            return self.iana or "domain: IO\n"
+        answer = self.whois_answers.get(name)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer or "NOT FOUND\n"
+
+    def handler(self, request):
+        if request.url.host == "data.iana.org":
+            if isinstance(self.failure, dict) and "bootstrap" in self.failure:
+                raise self.failure["bootstrap"]
+            return httpx.Response(200, json=IO_BOOTSTRAP)
+        self.calls.append(request.url.host)
+        if isinstance(self.failure, Exception):
+            raise self.failure
+        if isinstance(self.failure, int):
+            return httpx.Response(self.failure)
+        return httpx.Response(404)
+
+
+def io_client(tmp_path, registry, retries=1):
+    return RdapClient(tmp_path / "boot.json", 0, 5, retries, 0, 60, transport=httpx.MockTransport(registry.handler),
+                      whois_min_delay=0, whois_query=registry.whois)
+
+
+@pytest.mark.parametrize("failure", [
+    httpx.ConnectError("[Errno 111] Connection refused"),
+    httpx.ConnectError("[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed"),  # erreur TLS
+    httpx.ConnectTimeout("timed out"),
+    httpx.ReadTimeout("timed out"),
+    503,
+])
+def test_rdap_outage_falls_back_to_whois(tmp_path, failure):
+    registry = IoRegistry(failure, iana="whois:        whois.nic.io\n")
+    registry.whois_answers["cloud.io"] = IO_FOUND
+    rdap = io_client(tmp_path, registry)
+    found = run(rdap.lookup("cloud.io"))
+    assert found.found and found.source == "whois" and found.info.registrar == "Exemple Registrar"
+    assert found.note.startswith("Repli WHOIS") and "rdap.nic.io" in found.note
+    assert registry.calls.count("rdap.nic.io") == 2  # les essais RDAP d'abord, puis le WHOIS
+    free = run(rdap.lookup("menu.io"))
+    # Libre d'après le seul WHOIS : à confirmer, pas « vérifié ».
+    assert free.available and free.source == "whois" and free.unconfirmed
+    assert "whois:whois.nic.io:menu.io" in registry.calls
+
+
+def test_rdap_outage_detail_names_the_server_and_the_error(tmp_path):
+    from app.whois import WhoisError
+
+    registry = IoRegistry(httpx.ConnectError("refused"), iana="whois:        whois.nic.io\n")
+    registry.whois_answers["cloud.io"] = WhoisError("Serveur WHOIS whois.nic.io injoignable (OSError)")
+    result = run(io_client(tmp_path, registry).lookup("cloud.io"))
+    assert "ConnectError" in result.error and "rdap.nic.io" in result.error
+    assert "repli WHOIS" in result.error and "whois.nic.io" in result.error
+
+
+def test_rate_limit_or_unexpected_answer_does_not_fall_back(tmp_path):
+    registry = IoRegistry(429, iana="whois:        whois.nic.io\n")
+    result = run(io_client(tmp_path, registry).lookup("cloud.io"))
+    assert "429" in result.error and not any(c.startswith("whois:") for c in registry.calls)
+    registry = IoRegistry(403, iana="whois:        whois.nic.io\n")
+    result = run(io_client(tmp_path, registry).lookup("cloud.io"))
+    assert "403" in result.error and not any(c.startswith("whois:") for c in registry.calls)
+
+
+def test_rdap_outage_without_whois_keeps_the_rdap_error(tmp_path):
+    # .com : l'IANA ne donne pas de WHOIS (réponse sans referral) et aucun serveur en dur.
+    registry = IoRegistry(httpx.ConnectError("refused"))
+    result = run(io_client(tmp_path, registry).lookup("exemple.com"))
+    assert result.error == "Erreur réseau : ConnectError (serveur RDAP rdap.verisign.com)"
+
+
+def test_iana_referral_comes_before_the_hardcoded_whois(tmp_path):
+    registry = IoRegistry(httpx.ConnectError("refused"), iana="whois:        whois.autre-registre.test\n")
+    run(io_client(tmp_path, registry).lookup("menu.io"))
+    assert "whois:whois.autre-registre.test:menu.io" in registry.calls
+    # IANA muette ou sans referral : le serveur en dur, sans être mémorisé.
+    from app.whois import WhoisError
+
+    for iana in (WhoisError("Serveur WHOIS whois.iana.org injoignable (OSError)"), ""):
+        registry = IoRegistry(httpx.ConnectError("refused"), iana=iana)
+        rdap = io_client(tmp_path, registry)
+        assert run(rdap.lookup("menu.io")).unconfirmed
+        assert "whois:whois.nic.io:menu.io" in registry.calls and "io" not in rdap._whois_servers
+
+
+def test_bootstrap_unreachable_without_cache_uses_a_known_whois(tmp_path):
+    from app.store import Store
+
+    down = {"bootstrap": httpx.ConnectError("refused")}
+    # Serveur en dur (.io) : WHOIS sans requête à l'IANA.
+    registry = IoRegistry(down)
+    result = run(io_client(tmp_path, registry).lookup("menu.io"))
+    assert result.unconfirmed and "Bootstrap IANA indisponible" in result.note
+    assert not any(c.startswith("whois:whois.iana.org") for c in registry.calls)
+    # Serveur mémorisé (whois_servers) pour une extension sans serveur en dur.
+    conn = db.connect(tmp_path / "t.db")
+    db.migrate(conn, tmp_path / "backups")
+    store = Store(conn)
+    store.set("whois_servers", json.dumps({"gg": {"server": "whois.gg", "at": "2020-01-01T00:00:00+00:00"}}))
+    registry = IoRegistry(down)
+    rdap = io_client(tmp_path, registry)
+    rdap.whois_store = store
+    assert run(rdap.lookup("menu.gg")).source == "whois" and "whois:whois.gg:menu.gg" in registry.calls
+    # Rien de connu : l'erreur du bootstrap.
+    result = run(io_client(tmp_path, IoRegistry(down)).lookup("exemple.com"))
+    assert result.error == "Bootstrap IANA indisponible : ConnectError"
+    conn.close()
+
+
+def test_whois_only_availability_is_labelled_in_the_alert(env):
+    registry, conn, checker, sent = env
+    registry.whois_answers["menu.co"] = (FIXTURES / "whois_co_free.txt").read_text()
+    domain_id = add(conn, "menu.co")
+    conn.execute("UPDATE domains SET state = 'active' WHERE id = ?", (domain_id,))
+    run(checker.check(domain_id))
+    assert row(conn, domain_id)["state"] == states.AVAILABLE and row(conn, domain_id)["source"] == "whois"
+    assert sent and "Actif → Disponible selon le WHOIS, à confirmer" in sent[-1]

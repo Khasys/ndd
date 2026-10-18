@@ -364,7 +364,8 @@ L'appli fonctionne alors en trois temps :
    qui ne l'est plus (« sorti du DNS », souvent un nom qui expire) entre dans la Veille comme un nom
    sorti d'une zone : vérifié auprès du registre (RDAP, sinon WHOIS), puis Libérés ou Bientôt libres
    selon son état ; revenu dans le DNS, il en sort. Un nom absent dès sa première interrogation n'y
-   entre pas. Les noms sortis avant cette version sont repris au démarrage et à chaque passe. Le résumé
+   entre pas, et une vérification à la main n'en fait pas un nom « sorti du DNS » (la date de sortie
+   n'apparaît que pour un nom vu délégué puis absent). Les noms sortis avant cette version sont repris au démarrage et à chaque passe. Le résumé
    Telegram du matin les liste sous « Sortis du DNS », sauf ceux déjà listés avec leur état dans une
    autre rubrique. Pas de date de libération estimée (délais de ces registres non relevés). Paramètres,
    « Sources et lectures » : une ligne par extension, noms interrogés, présents et absents, date de la
@@ -717,6 +718,19 @@ Les durées acceptent `30s`, `5m`, `6h`, `7d`, ou un nombre de secondes.
   Elle ne lit que des lignes « clé: valeur » connues. « Disponible » exige une formule explicite du
   registre (« not found », « no match »...) et aucune donnée d'enregistrement dans la réponse. Toute
   réponse non reconnue donne une erreur de check. La fiche d'un nom surveillé indique la source utilisée.
+- Un WHOIS « inconnu » ne vaut pas « Libre (vérifié) » : il ignore souvent les noms réservés ou premium du
+  registre (.co, .io, .ai). Un nom libre d'après le seul WHOIS est « Libre selon le WHOIS, à confirmer »
+  (Explorer, code d'état 9, parmi « À réserver » et « Probablement libres », pas parmi « Libres vérifiés » ;
+  Veille, état `unconfirmed`, onglet Libérés avec ce libellé ; Domaines, « Disponible selon le WHOIS, à
+  confirmer »). Pas de « Libération constatée », pas compté dans Aujourd'hui, pas d'alerte « À prendre » ;
+  le résumé du matin les liste à part, « à confirmer chez un registrar », et l'alerte d'un nom surveillé le
+  dit. Réserver reste possible ; refusé par le registrar, « Plus », Réservé par registre, le sort des noms
+  à prendre. Au démarrage, les noms marqués libres par une version précédente sur cette seule base sont
+  corrigés (sans migration).
+- RDAP d'une extension en panne (erreur réseau ou TLS, délai, 5xx à chaque essai) : repli sur son WHOIS,
+  noté « Repli WHOIS : … » dans la réponse de Vérifier ; bootstrap IANA injoignable sans cache : même repli
+  si le serveur WHOIS est déjà connu. Serveurs WHOIS en dur pour .co, .io et .ai (`KNOWN_WHOIS` dans
+  `app/rdap.py`, non vérifiés d'ici), utilisés seulement quand l'IANA ne donne pas de referral.
 - Signaux d'abandon, une fois par jour pour chaque domaine enregistré : le nom résout-il, le site
   répond-il, le certificat HTTPS est-il valide, y a-t-il des serveurs de mail, le domaine est-il en
   parking ou affiché à vendre. Le badge « Signes d'abandon » apparaît avec au moins deux indices
@@ -733,7 +747,8 @@ Les durées acceptent `30s`, `5m`, `6h`, `7d`, ou un nombre de secondes.
 - Erreurs réseau dans l'interface : un message technique courant (ProxyError, ConnectError,
   « Bootstrap IANA indisponible », navigateur hors ligne) s'affiche « Réseau injoignable », un délai dépassé
   « Pas de réponse du registre », avec un bouton « Réessayer » dans le message quand l'action est
-  rejouable. Les réponses attendues (409 d'une vérification hors réseau, 422 d'une saisie) s'affichent
+  rejouable. Le détail brut (serveur, type d'erreur) suit en ligne « Détail : … » dans le message et dans
+  la section Suivi de la fiche, et au survol. Les réponses attendues (409 d'une vérification hors réseau, 422 d'une saisie) s'affichent
   telles quelles ; l'appli n'écrit rien dans la console du navigateur, qui journalise déjà la requête.
 - Sondages de l'interface : l'association Telegram et la mise à jour des noms réservés lisent
   `GET /api/settings/status` (pas tous les réglages) ; une lecture de zones ou un import .fr lancés à la

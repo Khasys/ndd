@@ -54,8 +54,14 @@ KINDS = {
 # États propres à cet écran, en plus de ceux de states.
 SUSPENDED = "suspended"  # hors zone mais ni en rédemption ni en suppression (hold, litige)
 TAKEN = "taken"  # renouvelé, restauré ou repris : plus rien à attendre, gardé pour l'historique
+# Libre d'après le seul WHOIS (extension sans RDAP, ou RDAP en panne) : un WHOIS « inconnu » ne connaît pas
+# les noms réservés ou premium du registre (.co, .io, .ai). Libre à confirmer chez un registrar : ni
+# « Libéré » dans la Veille et Aujourd'hui, ni alerte « libre », pas de date de libération constatée.
+UNCONFIRMED = "unconfirmed"
 TRACKED = (states.EXPIRED, states.REDEMPTION, states.PENDING_DELETE)
 
+# removed_on d'une ligne créée par une vérification à la main : aucune sortie constatée (colonne NOT NULL).
+MANUAL = ""
 # Un nom libre reste affiché ce nombre de jours (réglable), puis seulement dans l'Explorer.
 DEFAULT_KEEP_DAYS = 30
 # Au-delà de cette part de noms disparus en un jour, la zone est jugée anormale et ignorée.
@@ -688,7 +694,7 @@ class DropWatcher:
 
     def _next(self, state: str, now: datetime, release: datetime | None) -> datetime | None:
         """Le moins de requêtes possible : on regarde quand quelque chose doit changer."""
-        if state in (states.AVAILABLE, TAKEN):
+        if state in (states.AVAILABLE, TAKEN, UNCONFIRMED):
             return None  # Plus rien à attendre. Bouton « Revérifier » ou « Surveiller » pour la suite.
         if state in (states.REDEMPTION, states.PENDING_DELETE):
             if release:
@@ -732,7 +738,7 @@ class DropWatcher:
             return None
         expires = None
         if result.available:
-            state = states.AVAILABLE
+            state = UNCONFIRMED if result.unconfirmed else states.AVAILABLE
         else:
             info = result.info
             expires = info.expires_at
@@ -775,14 +781,37 @@ class DropWatcher:
         return self.conn.execute("SELECT * FROM drops WHERE name = ?", (name,)).fetchone()
 
     def ensure(self, name: str, now: datetime):
-        """La ligne d'un nom, créée au besoin (vérification manuelle depuis l'Explorer)."""
+        """La ligne d'un nom, créée au besoin (vérification manuelle depuis l'Explorer). Aucune sortie de zone
+        ni du DNS n'a été constatée : removed_on vide (MANUAL), pas la date du jour, sinon la fiche
+        afficherait « Sorti du DNS » ou « Sorti de la zone » ce jour-là."""
         found = self.row(name)
         if found is None:
             label, tld = name.split(".", 1)
             self.record(tld, [label], [], now)
-            self.conn.execute("UPDATE drops SET next_check_at = NULL WHERE name = ?", (name,))
+            self.conn.execute("UPDATE drops SET next_check_at = NULL, removed_on = ? WHERE name = ?", (MANUAL, name))
             found = self.row(name)
         return found
+
+    def repair(self) -> dict:
+        """Au démarrage, idempotent : corrige ce que les versions précédentes ont écrit.
+        - Libres sur la seule foi d'un WHOIS « inconnu » (dernière réponse WHOIS, libre) : libres à confirmer,
+          sans date de libération constatée.
+        - .co, .ai, .io jamais vus dans le DNS : la date de sortie posée par une vérification à la main n'en est pas une."""
+        from .ccdns import TLDS as cc  # import local : les processus de lecture des zones importent ce module
+
+        whois = self.conn.execute(
+            """UPDATE drops SET state = ?, state_since = COALESCE(available_since, state_since), available_since = NULL,
+                 next_check_at = NULL
+               WHERE state = ? AND name IN (SELECT name FROM name_rdap WHERE available = 1 AND source LIKE 'whois%')""",
+            (UNCONFIRMED, states.AVAILABLE)).rowcount
+        removed = self.conn.execute(
+            f"""UPDATE drops SET removed_on = ? WHERE tld IN ({','.join('?' * len(cc))}) AND removed_on != ?
+                AND NOT EXISTS (SELECT 1 FROM cc_dns c WHERE c.name = drops.name AND c.seen_at IS NOT NULL)""",
+            (MANUAL, *cc, MANUAL)).rowcount
+        if whois or removed:
+            log.info("Veille : %s noms libres selon le seul WHOIS passés « à confirmer », %s fausses sorties du DNS effacées",
+                     whois, removed)
+        return {"unconfirmed": whois, "removed_on": removed}
 
     def release(self, state, tld, expires, since, now) -> datetime | None:
         value = states.estimate_release(state, tld, expires, since, now, self.delays)

@@ -3,6 +3,7 @@
 import json
 
 from .checker import iso, utcnow
+from .rdap import whois_only_free
 
 
 def save(conn, name: str, result) -> None:
@@ -38,3 +39,8 @@ def load(conn, names: list[str]) -> dict[str, dict]:
                 "expires_at": row["expires_at"], "nameservers": json.loads(row["nameservers"] or "[]"),
             }
     return found
+
+
+def whois_only(rdap: dict | None) -> bool:
+    """Dernière réponse gardée : libre d'après le seul WHOIS, donc à confirmer (voir LookupResult.unconfirmed)."""
+    return bool(rdap) and whois_only_free(rdap.get("source"), rdap.get("available"))

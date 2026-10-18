@@ -56,6 +56,12 @@ function plainError(message) {
   for (const [re, plain] of PLAIN_ERRORS) if (re.test(text)) return plain;
   return text;
 }
+// Le détail brut (serveur, type d'erreur) quand plainError l'a résumé ; vide sinon. Affiché au survol
+// et en ligne « Détail : … » (message, fiche), pour savoir quel serveur ne répond pas.
+function errorDetail(message) {
+  const text = String(message || "");
+  return plainError(text) !== text ? text : "";
+}
 // Une action est rejouable quand l'échec vient du réseau ou du serveur, pas d'une réponse attendue (409, 422).
 function retryable(e) {
   return !e.status || e.status >= 500 || e.status === 429 || plainError(e.message) !== String(e.message || "");
@@ -69,6 +75,8 @@ function tally(ok, fail, one, many) {
 const LENSES = [{ k: "resale", label: "Pour revendre" }, { k: "exploit", label: "Pour exploiter" }];
 const LABELS = {
   available: "Disponible",
+  // Veille : libre d'après le seul WHOIS (drops.UNCONFIRMED), pas « libéré ».
+  unconfirmed: "Libre selon le WHOIS, à confirmer",
   pending_delete: "Suppression imminente",
   redemption: "En rédemption",
   expired: "Expiré",
@@ -333,6 +341,7 @@ document.addEventListener("alpine:init", () => {
     },
 
     plainError(m) { return plainError(m); },
+    errorDetail(m) { return errorDetail(m); },
 
     escape() {
       // Menu « Plus » de la fiche ouvert : Échap le ferme, la fiche reste.
@@ -551,6 +560,9 @@ document.addEventListener("alpine:init", () => {
         if (i.state === "available") {
           return { badge: { text: "libre", cls: "x-5" }, when: checked || `libéré ${this.relative(i.available_since)}`, canReserve: true, canCheck: false };
         }
+        if (i.state === "unconfirmed") {
+          return { badge: { text: "libre selon le WHOIS, à confirmer", cls: "x-9" }, when: checked, canReserve: true, canCheck: false };
+        }
         return { badge: { text: this.labels[i.state] || i.state, cls: "s-" + i.state },
                  when: i.release_at ? `libération ~${this.shortDate(i.release_at)}` : "libération inconnue", canReserve: false, canCheck: false };
       }
@@ -560,6 +572,8 @@ document.addEventListener("alpine:init", () => {
         case 2: case 3: return { badge: { text: i.status === 3 && DNS_TLDS.includes(i.tld) ? "probablement libre (absent du DNS)" : "probablement libre", cls: "x-3" },
                                  when: checked, canReserve: true, canCheck: true };
         case 5: return { badge: { text: "libre", cls: "x-5" }, when: checked, canReserve: true, canCheck: false };
+        // WHOIS seul (.co, .io, .ai) : « inconnu » ne connaît pas les noms réservés ou premium du registre.
+        case 9: return { badge: { text: "libre selon le WHOIS, à confirmer", cls: "x-9" }, when: checked, canReserve: true, canCheck: true };
         case 4: return { badge: { text: i.status_label || "Libération à venir", cls: this.badgeClass(i) },
                          when: i.release_at ? `libération ~${this.shortDate(i.release_at)}` : "libération à venir", canReserve: false, canCheck: false };
         case 1: return { badge: { text: "pris", cls: "x-1" }, when: detail || checked, canReserve: false, canCheck: false };
@@ -808,6 +822,7 @@ document.addEventListener("alpine:init", () => {
         // Sous dix mois, jour et mois suffisent ; au-delà, l'année aussi.
         return Math.abs(when - this.now) < 300 * 864e5 ? when.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }) : this.shortDate(when);
       };
+      if (item.status === 9 || (d && d.state === "available" && d.source === "whois")) return "à confirmer chez un registrar";
       if (item.status === 5 || (d && d.state === "available")) {
         const seen = [...tl].reverse().find((t) => !t.future && t.kind === "available");
         const since = item.available_since || (seen && seen.at);
@@ -862,7 +877,7 @@ document.addEventListener("alpine:init", () => {
     // Action mise en avant : réserver un nom libre, surveiller un nom qui va se libérer, sinon faire noter.
     fichePrimary(f) {
       const s = f.item ? f.item.status : null;
-      if ([2, 3, 5].includes(s)) return "reserve";
+      if ([2, 3, 5, 9].includes(s)) return "reserve";
       if (s === 4 && !f.domain_id) return "watch";
       if (!(f.ai || (f.item && f.item.ai))) return "ai";
       return "";
@@ -1029,7 +1044,7 @@ document.addEventListener("alpine:init", () => {
 
     ficheOthersSum(f) {
       const all = (f && f.others) || [];
-      const free = all.filter((o) => [2, 3, 5].includes(o.status)).length;
+      const free = all.filter((o) => [2, 3, 5, 9].includes(o.status)).length;
       return `${free ? free : "aucune"} libre${free > 1 ? "s" : ""} sur ${all.length}`;
     },
 
@@ -1443,7 +1458,9 @@ document.addEventListener("alpine:init", () => {
 
     rdapHtml(r) {
       const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-      const rows = [[r.source === "whois" ? "WHOIS" : "RDAP", `${r.available ? "libre" : "enregistré"}, lu ${this.relative(r.at)}`]];
+      // Libre d'après le seul WHOIS : à confirmer (noms réservés ou premium du registre inconnus du WHOIS).
+      const state = r.available ? (r.source === "whois" ? "inconnu du WHOIS, libre à confirmer" : "libre") : "enregistré";
+      const rows = [[r.source === "whois" ? "WHOIS" : "RDAP", `${state}, lu ${this.relative(r.at)}`]];
       if (r.registrar) rows.push(["Registrar", r.registrar]);
       if (r.registered_at) rows.push(["Créé", this.shortDate(r.registered_at)]);
       if (r.updated_at) rows.push(["Modifié", this.shortDate(r.updated_at)]);
@@ -1590,7 +1607,8 @@ document.addEventListener("alpine:init", () => {
       this.exBusy[name] = true;
       try {
         const item = await this.api("POST", "/api/explore/check", { name });
-        if (!quiet) this.say(`${name} : ${item.status_label || "vérifié"}.`);
+        // Repli sur le WHOIS (RDAP en panne) : dit dans le message, avec le détail.
+        if (!quiet) this.say(`${name} : ${item.status_label || "vérifié"}.` + (item.note ? " Lu dans le WHOIS, RDAP indisponible." : ""), "info", null, item.note || "");
         return item;
       } catch (e) {
         if (!quiet) this.sayError(e, name, () => this.verifyName(name));
@@ -1876,7 +1894,7 @@ document.addEventListener("alpine:init", () => {
     dropLensValue(d) { return d.ai ? d.ai[this.lens] : d.score; },
 
     dropInTab(d, tab) {
-      return tab === "free" ? d.state === "available" : ["expired", "redemption", "pending_delete"].includes(d.state);
+      return tab === "free" ? ["available", "unconfirmed"].includes(d.state) : ["expired", "redemption", "pending_delete"].includes(d.state);
     },
 
     dropTabCount(tab) {
@@ -2280,8 +2298,9 @@ document.addEventListener("alpine:init", () => {
     },
 
     // action : bouton dans le message ({ label, run }), par exemple « Annuler » ou « Réessayer ».
-    say(text, kind = "info", action = null) {
-      this.notice = { text, kind, action };
+    // detail : texte brut sous le message (« Détail : … »), aussi au survol.
+    say(text, kind = "info", action = null, detail = "") {
+      this.notice = { text, kind, action, detail };
       clearTimeout(this._noticeTimer);
       // Une erreur reste un peu plus longtemps, un message avec bouton aussi ; la croix ferme avant.
       this._noticeTimer = setTimeout(() => (this.notice = null), kind === "error" || action ? 8000 : 6000);
@@ -2296,7 +2315,8 @@ document.addEventListener("alpine:init", () => {
     // Erreur en français simple (réseau, registre muet), avec « Réessayer » quand l'action est rejouable.
     sayError(e, prefix = "", retry = null) {
       const text = plainError(e && e.message);
-      this.say(prefix ? `${prefix} : ${text}` : text, "error", retry && retryable(e) ? { label: "Réessayer", run: retry } : null);
+      this.say(prefix ? `${prefix} : ${text}` : text, "error", retry && retryable(e) ? { label: "Réessayer", run: retry } : null,
+        errorDetail(e && e.message));
     },
 
     // quiet : pas de message (action groupée). Renvoie le domaine ajouté, ou null.
@@ -2312,7 +2332,7 @@ document.addEventListener("alpine:init", () => {
         added = d;
         if (!quiet) {
           this.say(d.check_error ? `${d.name} ajouté. Premier check en échec : ${plainError(d.check_error)}.` : `${d.name} ajouté : ${this.stateLabel(d)}.`,
-            d.check_error ? "error" : "info");
+            d.check_error ? "error" : "info", null, errorDetail(d.check_error));
         }
       } catch (e) {
         if (!quiet) this.sayError(e, "", () => { this.newName = name; return this.add(); });
@@ -2680,6 +2700,8 @@ document.addEventListener("alpine:init", () => {
 
     stateLabel(d) {
       if (d.check_error) return LABELS.error;
+      // Disponible d'après le seul WHOIS : à confirmer chez un registrar.
+      if (d.state === "available" && d.source === "whois") return "Disponible selon le WHOIS, à confirmer";
       return LABELS[d.state] || "Non vérifié";
     },
 

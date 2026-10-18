@@ -82,7 +82,7 @@
     <button type="submit" class="btn" :disabled="adding || !newName.trim()" x-text="adding ? 'Vérification' : 'Ajouter'"></button>
   </form>
   <div class="notice" :class="[notice && notice.kind, notice ? 'shown' : '']" role="status" aria-live="polite" @click="notice = null">
-    <span x-text="notice ? notice.text : ''"></span>
+    <span :title="notice && notice.detail ? notice.detail : ''"><span x-text="notice ? notice.text : ''"></span><small class="notice-detail" x-show="notice && notice.detail" x-text="notice && notice.detail ? 'Détail : ' + notice.detail : ''"></small></span>
     <button type="button" class="notice-action" x-show="notice && notice.action" @click.stop="noticeAct()" x-text="notice && notice.action ? notice.action.label : ''"></button>
     <button type="button" class="notice-close" aria-label="Fermer le message">×</button>
   </div>
@@ -174,10 +174,11 @@
       <dt>Absent de la zone, à vérifier</dt><dd>.com, .org… : absent de la zone du jour. Libre, ou enregistré sans serveurs DNS.</dd>
       <dt>Absent du DNS, à vérifier</dt><dd>.co, .ai, .io : le registre ne délègue pas le nom. Pas forcément libre : il peut être enregistré sans serveurs DNS, réservé ou premium du registre ; Vérifier tranche. Seuls les 50 000 meilleurs noms par extension sont interrogés chaque nuit, les autres sont « pas interrogé ».</dd>
       <dt>Libération à venir</dt><dd>Expiré, en rédemption ou en suppression imminente.</dd>
-      <dt>Libre (vérifié)</dt><dd>Libre à la dernière vérification auprès du registre.</dd>
+      <dt>Libre (vérifié)</dt><dd>Libre à la dernière vérification auprès du registre (RDAP).</dd>
+      <dt>Libre selon le WHOIS, à confirmer</dt><dd>Extension sans RDAP (.co) ou RDAP en panne : le WHOIS ne connaît pas le nom. Il ignore souvent les noms réservés ou premium du registre (.co, .io, .ai) : à confirmer chez un registrar. Réserver reste possible ; pas compté dans les libérés d'Aujourd'hui, pas d'alerte « libre » ; le résumé du matin les liste à part. Refusé par le registrar : « Plus », Réservé par registre.</dd>
       <dt>Réservé</dt><dd>Bloqué par le registre (termes soumis à examen, communes). Enregistrable sous conditions.</dd>
     </dl>
-    <p class="small muted">Probablement libres : Supprimé non repris, Jamais enregistré, Absent de la zone, Absent du DNS. Vérifier interroge le registre. Un .co, .ai ou .io vu dans le DNS puis absent passe dans la Veille ; absent dès sa première interrogation, il reste dans l'Explorer.</p>
+    <p class="small muted">Probablement libres : Supprimé non repris, Jamais enregistré, Absent de la zone, Absent du DNS. Vérifier interroge le registre. Un .co, .ai ou .io vu dans le DNS puis absent passe dans la Veille (« Sorti du DNS » dans ses dates) ; absent dès sa première interrogation, il reste dans l'Explorer, et une vérification à la main n'en fait pas un nom sorti du DNS.</p>
 
     <h3 id="help-find">Trouver les meilleurs (Veille et Explorer)</h3>
     <dl class="help-dl">
@@ -190,7 +191,7 @@
       <dt>Nom hors des listes</dt><dd>Un nom tapé dans l'Explorer qui n'est dans aucune liste s'affiche quand même, une ligne par extension suivie : Vérifier interroge le registre, puis Réserver ou Surveiller.</dd>
       <dt>Ignorer</dt><dd>Dans la Veille, un nom ou une sélection : il quitte l'écran (il reste dans l'Explorer) et la décision est gardée. Le message propose « Annuler » ; Paramètres, « Tout réafficher », les remet tous. Portefeuille, « Décisions » : chaque nom ignoré ou acheté, son état du jour, « repris » si quelqu'un d'autre l'a enregistré depuis (regrets).</dd>
       <dt>Actions groupées</dt><dd>Domaines, Veille et Explorer : cases, puis Vérifier, Analyse IA, Surveiller… Un seul bilan à la fin : « 3 vérifiés, 1 échec ».</dd>
-      <dt>Erreurs réseau</dt><dd>« Réseau injoignable » (NAS, proxy ou annuaire IANA hors d'atteinte) et « Pas de réponse du registre » (délai dépassé) remplacent le détail technique ; « Réessayer » rejoue l'action. Dans la Veille, la ligne des sources distingue une erreur temporaire d'une source à configurer.</dd>
+      <dt>Erreurs réseau</dt><dd>« Réseau injoignable » (NAS, proxy ou annuaire IANA hors d'atteinte) et « Pas de réponse du registre » (délai dépassé) résument l'erreur ; le détail (serveur, type d'erreur) suit en ligne « Détail : … » et au survol ; « Réessayer » rejoue l'action. RDAP d'une extension injoignable : l'appli se replie sur son WHOIS et le dit. Dans la Veille, la ligne des sources distingue une erreur temporaire d'une source à configurer.</dd>
     </dl>
     <p class="small muted">Fiche d'un nom : en tête l'état et la date qui compte, puis la carte décision, qui porte tout l'avis IA : notes de revente et d'exploitation (celle de l'usage choisi en premier), verdict, prix de revente rapide et utilisateur final, pourquoi, commentaire, et « Détail IA » pour la grille des sous-notes ; sans avis, le score et la date de notation prévue. Dessous, une rangée de pictos : Réserver, Suivre (un appui sur « Suivi » arrête le suivi, après confirmation), Analyser (fait noter le nom dans l'heure), Vérifier, et « Plus » (Analyse SEO, Réservé par registre pour un nom refusé par le registre, Voir dans Portefeuille). Le détail suit en sections repliables, avec un résumé à droite de chaque titre.</p>
 
@@ -1593,7 +1594,8 @@
         <details class="fsec fiche-watch" x-data="{ d: ficheDomain }" x-effect="d = ficheDomain || d">
           <summary><span class="fsec-title">Suivi</span><span class="fsec-sum" :class="{ 'error-text': d.check_error }" x-text="stateLabel(d) + (d.abandoned ? ' · signes d\'abandon' : '')"></span></summary>
           <div class="fsec-body">
-            <p class="small error-text fiche-error" x-show="d.check_error" x-text="plainError(d.check_error) + (d.last_success_at ? '. Dernier check réussi ' + relative(d.last_success_at) + ', dernier état conservé.' : '.')"></p>
+            <p class="small error-text fiche-error" x-show="d.check_error" :title="d.check_error || ''" x-text="plainError(d.check_error) + (d.last_success_at ? '. Dernier check réussi ' + relative(d.last_success_at) + ', dernier état conservé.' : '.')"></p>
+            <p class="small muted fiche-error-detail" x-show="d.check_error && errorDetail(d.check_error)" x-text="'Détail : ' + errorDetail(d.check_error)"></p>
             <dl class="fdl">
               <dt>État</dt>
               <dd>

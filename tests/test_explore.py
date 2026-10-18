@@ -1315,3 +1315,69 @@ def test_map_is_refreshed_in_the_background_after_a_change(env):
             break
         time.sleep(0.05)
     assert env.map() == env._build_map() and env.map() != before
+
+# --- .co, .io, .ai : libre selon le seul WHOIS, à confirmer -----------------------------
+
+def test_whois_only_free_cc_name_is_not_verified_free(env):
+    """menu.co relevé sur le NAS : jamais vu dans le DNS du .co, WHOIS « not found » (nom réservé ou premium
+    du registre, inconnu du WHOIS). Ni « Libre (vérifié) », ni « Sorti du DNS », ni « Libération constatée »."""
+    cc(env, "co", {"menu": (False, None), "cloud": (True, None)})
+    env.drops.rdap = FakeRdap({"menu.co": LookupResult(available=True, source="whois")})
+    item = asyncio.run(env.verify("menu.co"))
+    assert item["status"] == explore.UNCONFIRMED and item["status_label"] == "Libre selon le WHOIS, à confirmer"
+    assert item["drop_state"] == drops.UNCONFIRMED and item["available_since"] is None and item["removed_on"] is None
+    row = env.drops.row("menu.co")
+    assert row["removed_on"] == drops.MANUAL and row["next_check_at"] is None
+    kinds = [e["kind"] for e in env.fiche("menu.co")["timeline"]]
+    assert "dns_out" not in kinds and "available" not in kinds and "drop_unconfirmed" in kinds
+    # Filtres : parmi les noms à réserver et les probablement libres, jamais parmi les libres vérifiés.
+    counts = env.facets("co")
+    assert counts["free"] == 0 and counts["maybe_free"] == 1 and counts["bookable"] == 1
+    assert [i["name"] for i in env.search("co", q="menu", mode="exact", status="bookable")["items"]] == ["menu.co"]
+    assert env.search("co", q="menu", mode="exact", status="free")["items"] == []
+
+
+def test_rdap_free_stays_verified_and_a_real_dns_exit_is_dated(env):
+    cc(env, "io", {"ammonium": (False, "2026-10-17T04:00:00+00:00")})
+    env.drops.rdap = FakeRdap({"ammonium.io": LookupResult(available=True)})
+    item = asyncio.run(env.verify("ammonium.io"))
+    assert item["status"] == explore.FREE and env.drops.row("ammonium.io")["available_since"]
+    line = {e["kind"]: e for e in env.fiche("ammonium.io")["timeline"]}
+    assert line["dns_out"]["at"].startswith("2026-10-17") and line["available"]["label"] == "Libération constatée"
+
+
+def test_manual_check_of_a_zone_name_is_not_a_zone_exit(env):
+    zone(env, [], [])
+    env.drops.rdap = FakeRdap({"qqqq.com": LookupResult(available=True)})
+    asyncio.run(env.verify("qqqq.com"))
+    assert all(e["kind"] != "zone_out" for e in env.fiche("qqqq.com")["timeline"])
+
+
+def test_repair_marks_whois_only_free_names_and_drops_false_dns_exits(env):
+    from app import rdapinfo
+
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    cc(env, "co", {"menu": (False, None), "cloud": (False, "2026-10-17T04:00:00+00:00")})
+    # État écrit par la v0.12.7 : menu.co vérifié à la main, libre sur la foi du WHOIS, « sorti » le jour même.
+    env.drops.record("co", ["menu", "cloud"], [], now)
+    env.conn.execute("UPDATE drops SET state = 'available', available_since = ? WHERE name IN ('menu.co', 'cloud.co')",
+                     (now.isoformat(),))
+    rdapinfo.save(env.conn, "menu.co", LookupResult(available=True, source="whois"))
+    rdapinfo.save(env.conn, "cloud.co", LookupResult(available=True))
+    assert env.drops.repair() == {"unconfirmed": 1, "removed_on": 1}
+    menu, cloud = env.drops.row("menu.co"), env.drops.row("cloud.co")
+    assert menu["state"] == drops.UNCONFIRMED and menu["available_since"] is None and menu["state_since"] == now.isoformat()
+    assert menu["removed_on"] == drops.MANUAL
+    assert cloud["state"] == states.AVAILABLE and cloud["removed_on"] == now.date().isoformat()  # vu puis sorti : gardé
+    assert env.drops.repair() == {"unconfirmed": 0, "removed_on": 0}  # idempotent
+
+
+def test_whois_only_free_names_are_not_freed_in_alerts_and_morning(env):
+    from app import morning, notify
+
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    env.drops.record("co", ["menu"], [], now)
+    env.conn.execute("UPDATE drops SET state = ?, state_since = ? WHERE name = 'menu.co'", (drops.UNCONFIRMED, now.isoformat()))
+    assert notify.changed(env.conn, now - timedelta(hours=1)) == []
+    text = morning.build(env.conn, env, {}, "", now, min_score=0)
+    assert "Libérés" not in text and "Libres selon le WHOIS, à confirmer chez un registrar (1 sur 1)" in text and "menu.co" in text
