@@ -58,3 +58,18 @@ def test_each_thread_has_its_own_connection(tmp_path):
     assert not errors
     assert len(set(seen.values()) | {id(conn._conn())}) == 5
     assert conn.execute("SELECT COUNT(*) FROM domains").fetchone()[0] == 801
+
+
+def test_migration_comments_may_contain_semicolons(tmp_path, monkeypatch):
+    conn = db.connect(tmp_path / "t.db")
+    db.migrate(conn, tmp_path / "backups")
+    extra = tmp_path / "migrations"
+    extra.mkdir()
+    for f in db.MIGRATIONS_DIR.glob("*.sql"):
+        (extra / f.name).write_text(f.read_text())
+    (extra / "998_note.sql").write_text("-- Deux tables ; la seconde garde l'historique.\nCREATE TABLE t1 (x INTEGER);\n"
+                                        "  -- fin ; voilà\nCREATE TABLE t2 (y INTEGER);\n")
+    monkeypatch.setattr(db, "MIGRATIONS_DIR", extra)
+    db.migrate(conn, tmp_path / "backups")
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 998
+    assert conn.execute("SELECT COUNT(*) FROM t2").fetchone()[0] == 0

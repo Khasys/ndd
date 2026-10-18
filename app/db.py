@@ -79,7 +79,9 @@ def migrate(conn: sqlite3.Connection, backup_dir: Path) -> None:
         log.info("Migration %s", path.name)
         conn.execute("BEGIN")
         try:
-            for statement in path.read_text().split(";"):
+            # Les lignes de commentaire « -- » partent d'abord : un point-virgule dans l'une d'elles casserait le découpage.
+            sql = "\n".join(line for line in path.read_text().splitlines() if not line.lstrip().startswith("--"))
+            for statement in sql.split(";"):
                 if statement.strip():
                     conn.execute(statement)
             conn.execute(f"PRAGMA user_version = {version}")

@@ -37,3 +37,8 @@ def test_latest_version_none_when_unreachable():
 )
 def test_newer(current, latest, expected):
     assert newer(current, latest) == expected
+
+
+@pytest.mark.parametrize("payload", [[], {"results": None}, {"results": ["v1.2.3"]}, {"results": [{"name": None}, 5]}])
+def test_latest_version_tolerates_an_unexpected_json_shape(payload):
+    assert asyncio.run(latest_version(hub(payload), "khasys/domain-watch")) is None

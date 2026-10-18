@@ -96,7 +96,7 @@ def clean(payload: dict) -> dict:
 
 
 def due_reminders(conn, now: datetime) -> list[tuple[int, str, str]]:
-    """Rappels de renouvellement à envoyer (30 puis 7 jours avant) : (id, clé, texte).
+    """Rappels de renouvellement à envoyer (30 puis 7 jours avant) : (id, clés séparées par des virgules, texte).
     Marqués envoyés par mark_reminded, une fois le message parti : un échec Telegram ne les perd pas."""
     found = []
     for item in items(conn, now):
@@ -106,12 +106,12 @@ def due_reminders(conn, now: datetime) -> list[tuple[int, str, str]]:
         left = (expiry - now).days
         row = conn.execute("SELECT reminded FROM portfolio WHERE id = ?", (item["id"],)).fetchone()
         sent = set(json.loads(row["reminded"] or "[]"))
-        for days in REMIND_DAYS:
-            key = f"{expiry.date().isoformat()}:{days}"
-            if 0 <= left <= days and key not in sent:
-                price = f", renouvellement {item['renew_price']} €" if item["renew_price"] else ""
-                found.append((item["id"], key, f"{item['name']} expire le {expiry.strftime('%d/%m/%Y')} (dans {left} j){price}."))
-                break
+        # Toutes les clés dues d'un coup : un nom ajouté à J-5 reçoit un rappel, pas celui de J-30 puis celui de J-7.
+        due = [f"{expiry.date().isoformat()}:{days}" for days in REMIND_DAYS if left <= days]
+        due = [k for k in due if k not in sent]
+        if left >= 0 and due:
+            price = f", renouvellement {item['renew_price']} €" if item["renew_price"] else ""
+            found.append((item["id"], ",".join(due), f"{item['name']} expire le {expiry.strftime('%d/%m/%Y')} (dans {left} j){price}."))
     return found
 
 
@@ -119,7 +119,7 @@ def mark_reminded(conn, item_id: int, key: str) -> None:
     row = conn.execute("SELECT reminded FROM portfolio WHERE id = ?", (item_id,)).fetchone()
     if row is None:
         return
-    sent = set(json.loads(row["reminded"] or "[]")) | {key}
+    sent = set(json.loads(row["reminded"] or "[]")) | set(key.split(","))
     conn.execute("UPDATE portfolio SET reminded = ? WHERE id = ?", (json.dumps(sorted(sent)), item_id))
 
 

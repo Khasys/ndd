@@ -1,6 +1,7 @@
 import asyncio
 import hmac
 import html
+import ipaddress
 import secrets
 import time
 import traceback
@@ -18,20 +19,22 @@ from urllib.parse import urlencode
 import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import ai, bot, calendar_ics, ccdns, db, morning, portfolio, digest, drops, explore, frdata, frdns, rdapinfo, reserved, seo, signals, states, updates, value, wordlists
+from . import ai, bot, calendar_ics, ccdns, db, morning, portfolio, digest, drops, explore, frdata, frdns, reserved, seo, signals, states, updates, value, wordlists
 from .auth import (
     COOKIE_NAME,
-    MIN_PASSWORD_LENGTH,
     LoginGuard,
     Sessions,
     compose_escape,
     hash_password,
     load_or_create_secret,
+    password_problem,
     verify_credentials,
 )
 from .checker import Checker, DuplicateDomain, iso, parse_iso, utcnow
@@ -93,7 +96,8 @@ STATIC = Path(__file__).parent / "static"
 PWA_PATHS = {"/manifest.webmanifest", "/sw.js", "/offline"}
 AI_PATHS = {"/api/ai/pending", "/api/ai/results"}
 # Lecture seule avec le même jeton : de quoi observer et analyser, jamais modifier ni lire un réglage.
-READ_PATHS = re.compile(r"^/api/(meta|diag|domains|domains/\d+/history|drops|portfolio|explore(/[a-z]+)?|ai/(status|rated))$")
+# Explorer : les écrans seulement (liste, classement, carte, fiches, export), pas les vues enregistrées.
+READ_PATHS = re.compile(r"^/api/(meta|diag|domains|domains/\d+/history|drops|explore(/(rank|top|map|name|fiche|export))?|ai/(status|rated))$")
 PUBLIC_PATHS = {"/login", "/health", "/favicon.svg", "/logo", *PWA_PATHS}
 SETUP_PATHS = {"/setup", "/health", "/favicon.svg", "/logo"}
 BCRYPT_HASH = re.compile(r"\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}")
@@ -307,6 +311,13 @@ async def log_slow_requests(request: Request, call_next):
     return response
 
 
+@app.exception_handler(RequestValidationError)
+async def invalid_input(request: Request, exc: RequestValidationError):
+    """422 sans recopier l'entrée : un nombre hors limites (1e400) n'est pas encodable en JSON, ce serait un 500."""
+    errors = [{k: v for k, v in error.items() if k != "input"} for error in exc.errors()]
+    return JSONResponse({"detail": jsonable_encoder(errors)}, status_code=422)
+
+
 def _remember_public_url(request: Request) -> None:
     """Adresse publique de l'appli, vue du navigateur : sert aux liens des messages Telegram."""
     host = request.headers.get("x-forwarded-host") or request.headers.get("host")
@@ -445,8 +456,9 @@ async def setup_hash(request: Request, password: str = Form(""), confirm: str = 
     settings = request.app.state.settings
     if not settings.setup_mode:
         return RedirectResponse("/", status_code=303)
-    if len(password) < MIN_PASSWORD_LENGTH:
-        return _page("setup.html", MISSING=_missing(settings), ERROR=f"{MIN_PASSWORD_LENGTH} caractères minimum.")
+    problem = password_problem(password)
+    if problem:
+        return _page("setup.html", MISSING=_missing(settings), ERROR=problem)
     if password != confirm:
         return _page("setup.html", MISSING=_missing(settings), ERROR="Les deux saisies diffèrent.")
     hashed = await run_in_threadpool(hash_password, password)
@@ -463,10 +475,25 @@ def _safe_next(target: str) -> str:
     return target if target.startswith("/") and not target.startswith(("//", "/\\")) and "\n" not in target else "/"
 
 
+def _client_ip(request: Request) -> str:
+    """Adresse du visiteur. Derrière Cloudflare ou le proxy du NAS, request.client est le proxy : ses en-têtes
+    donnent l'adresse réelle, crus seulement si ce proxy est sur le réseau local ou privé."""
+    host = request.client.host if request.client else "unknown"
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return host
+    if address.is_private or address.is_loopback:
+        forwarded = request.headers.get("cf-connecting-ip") or request.headers.get("x-forwarded-for", "").split(",")[0]
+        if forwarded.strip():
+            return forwarded.strip()
+    return host
+
+
 @app.post("/login")
 async def login(request: Request, username: str = Form(""), password: str = Form(""), next: str = Form("/")):
     state = request.app.state
-    client = request.client.host if request.client else "unknown"
+    client = _client_ip(request)
     locked = state.guard.locked_for(client)
     if locked:
         minutes = (locked + 59) // 60
@@ -586,7 +613,7 @@ def _serialize(row: sqlite3.Row, checker: Checker) -> dict:
         "release_is_upper_bound": row["state"] in (states.EXPIRING, states.EXPIRED) and release is not None,
         "release_has_time": bool(release and states.drop_time(tld_of(row["name"]), checker.delays)),
         "tags": json.loads(row["tags"]),
-        "signals": [{"key": k, "label": signals.LABELS[k]} for k in found_signals.get("signals", [])],
+        "signals": [{"key": k, "label": signals.LABELS.get(k, k)} for k in found_signals.get("signals", [])],
         "signals_web": found_signals.get("web"),
         "signals_checked_at": row["signals_checked_at"],
         "abandoned": signals.suspicious(found_signals),
@@ -760,8 +787,20 @@ def _calendar_url(request: Request) -> str | None:
     token = request.app.state.store.get("calendar_token")
     if not token:
         return None
-    base = request.app.state.settings.app_url or str(request.base_url).rstrip("/")
+    # Même adresse publique que les liens Telegram : APP_URL, sinon celle vue du navigateur, proxy compris.
+    base = _public_url(request.app.state)
+    if not base:
+        scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
+        base = f"{scheme}://{request.headers.get('x-forwarded-host') or request.url.netloc}"
     return f"{base}/calendar/{token}.ics"
+
+
+TELEGRAM_RETRY = 3600  # secondes : jeton refusé ou Telegram injoignable, pas de nouvel essai avant
+
+
+def _telegram_retry_due(state) -> bool:
+    failed_at = getattr(state, "telegram_failed_at", None)
+    return failed_at is None or time.monotonic() - failed_at >= TELEGRAM_RETRY
 
 
 @app.get("/api/settings")
@@ -769,11 +808,12 @@ async def get_settings(request: Request):
     state = request.app.state
     store, telegram = state.store, state.telegram
     token = telegram.token
-    if token and not telegram.bot_name:
+    if token and not telegram.bot_name and _telegram_retry_due(state):
         try:
             await telegram.check_token()
         except (TelegramError, httpx.HTTPError):
-            pass
+            # Jeton refusé ou Telegram injoignable : l'écran ne rappelle pas Telegram à chaque ouverture.
+            state.telegram_failed_at = time.monotonic()
     return {
         "telegram": {
             "token_set": bool(token),
@@ -1792,20 +1832,24 @@ class TelegramToken(BaseModel):
     token: str
 
 
+# Forme donnée par BotFather : identifiant numérique, deux-points, puis lettres, chiffres, - et _.
+TELEGRAM_TOKEN = re.compile(r"\d+:[A-Za-z0-9_-]{20,}")
+
+
 @app.put("/api/settings/telegram")
 async def set_telegram_token(request: Request, payload: TelegramToken):
     state = request.app.state
     token = "".join(payload.token.split())
+    if not TELEGRAM_TOKEN.fullmatch(token):
+        raise HTTPException(422, "Jeton invalide : BotFather donne la forme 123456:ABC-DEF… (lettres, chiffres, - et _).")
     previous = state.telegram.token
-    state.store.set("telegram_token", token)
+    # Vérifié avant d'être écrit : un jeton refusé ne touche ni la base ni le bot en place.
     try:
-        name = await state.telegram.check_token()
+        name = await state.telegram.check_token(token)
     except (TelegramError, httpx.HTTPError) as exc:
-        if previous:
-            state.store.set("telegram_token", previous)
-        else:
-            state.store.delete("telegram_token")
         raise HTTPException(422, f"Jeton refusé par Telegram : {exc}") from None
+    state.store.set("telegram_token", token)
+    state.telegram_failed_at = None
     if token != previous:
         # Nouveau bot : l'ancien chat associé ne le connaît pas.
         state.store.set("telegram_chat_id", "")
@@ -1818,6 +1862,7 @@ async def delete_telegram(request: Request):
     store.set("telegram_token", "")
     store.set("telegram_chat_id", "")
     request.app.state.telegram.bot_name = None
+    request.app.state.telegram_failed_at = None
     return Response(status_code=204)
 
 

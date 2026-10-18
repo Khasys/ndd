@@ -681,3 +681,170 @@ def test_premium_devalue_toggle_applies_even_when_tlds_are_sent(logged):
     client.put("/api/settings/premium", json={"devalue": True, "prices": {}, "off": off})
     client.put("/api/settings/premium", json={"devalue": False, "prices": {}, "off": off})
     assert len(calls) == 2
+
+
+# --- Corrections de l'audit serveur ------------------------------------------------------
+
+
+def test_telegram_token_is_checked_before_being_saved(logged):
+    import httpx as _httpx
+    from app.telegram import TelegramError
+
+    client = logged()
+    st = client.app.state
+    calls = []
+
+    def accept(request):
+        calls.append(request.url.path.rsplit("/", 1)[-1])
+        return _httpx.Response(200, json={"ok": True, "result": {"username": "monbot"}})
+
+    st.telegram.http = _httpx.AsyncClient(transport=_httpx.MockTransport(accept))
+    # Forme invalide (dont un caractère de contrôle collé depuis un terminal) : 422 sans appel, rien d'écrit.
+    for raw in ("123:AA\x1b[0mabc", "pas-un-jeton", "123:court"):
+        assert client.put("/api/settings/telegram", json={"token": raw}).status_code == 422, raw
+    assert calls == [] and st.store.get("telegram_token") == ""
+    good = "123456789:" + "A" * 35
+    assert client.put("/api/settings/telegram", json={"token": " " + good + "\n"}).json() == {"bot_name": "monbot"}
+    assert st.store.get("telegram_token") == good and calls == ["getMe"]
+    # Jeton inutilisable déjà en base (ancienne version) : un refus, pas une exception ; le bot et les alertes tiennent.
+    st.store.set("telegram_token", "123:AA\x1bx")
+    st.store.set("telegram_chat_id", "1")
+    assert client.post("/api/alerts/test").status_code == 502
+    with pytest.raises(TelegramError):
+        client.portal.call(st.telegram._call, st.telegram.http, "getUpdates")
+    assert client.get("/api/settings").status_code == 200
+    client.__exit__(None, None, None)
+
+
+def _as_client(app_, host):
+    """Même appli, vue depuis une autre adresse TCP (le proxy du NAS, cloudflared ou un visiteur direct)."""
+
+    async def wrapped(scope, receive, send):
+        if scope["type"] == "http":
+            scope = {**scope, "client": (host, 4000)}
+        await app_(scope, receive, send)
+
+    return TestClient(wrapped, follow_redirects=False)
+
+
+def test_login_lockout_uses_the_address_behind_a_private_proxy(logged, caplog):
+    client = logged()
+    caplog.set_level("INFO", logger="domain-watch")
+    proxy = _as_client(client.app, "172.17.0.1")  # cloudflared ou le proxy du NAS, dans Docker
+    for _ in range(5):
+        proxy.post("/login", data={"username": "x", "password": "x"}, headers={"cf-connecting-ip": "203.0.113.9"})
+    assert "depuis 203.0.113.9" in caplog.text
+    # Un autre visiteur par le même proxy n'est pas bloqué ; l'auteur des échecs l'est.
+    ok = proxy.post("/login", data={"username": "moi", "password": PASSWORD}, headers={"x-forwarded-for": "198.51.100.7, 172.17.0.1"})
+    assert ok.status_code == 303
+    locked = proxy.post("/login", data={"username": "moi", "password": PASSWORD}, headers={"cf-connecting-ip": "203.0.113.9"})
+    assert locked.status_code == 200 and "Nouvel essai possible" in locked.text
+    # Visiteur direct (adresse publique, pas une plage de documentation : Python les dit privées) : ses en-têtes ne font pas foi.
+    direct = _as_client(client.app, "93.184.216.34")
+    assert direct.post("/login", data={"username": "moi", "password": PASSWORD}, headers={"cf-connecting-ip": "203.0.113.9"}).status_code == 303
+    assert set(client.app.state.guard._locked_until) == {"203.0.113.9"}
+    client.__exit__(None, None, None)
+
+
+def test_calendar_url_follows_the_public_address(logged, monkeypatch):
+    monkeypatch.delenv("APP_URL", raising=False)
+    client = logged()
+    proxy = {"host": "domaines.exemple.fr", "x-forwarded-proto": "https"}
+    url = client.post("/api/settings/calendar", headers=proxy).json()["calendar_url"]
+    assert url.startswith("https://domaines.exemple.fr/calendar/")
+    client.get("/", headers=proxy)  # adresse mémorisée pour les liens Telegram : la même sert au calendrier
+    assert client.get("/api/settings").json()["calendar_url"] == url
+    client.__exit__(None, None, None)
+
+
+def test_late_portfolio_entry_gets_a_single_reminder(logged):
+    import asyncio
+    from app import portfolio
+
+    client = logged()
+    client.app.state.checker.add = lambda name: asyncio.sleep(0)
+    conn = client.app.state.conn
+    now = datetime.now(timezone.utc)
+    client.post("/api/portfolio", json={"name": "tardif.fr", "expires_at": (now + timedelta(days=4)).date().isoformat()})
+    assert len(portfolio.reminders(conn, now)) == 1
+    assert portfolio.reminders(conn, now + timedelta(hours=6)) == []
+    assert len(json.loads(conn.execute("SELECT reminded FROM portfolio").fetchone()[0])) == 2
+    client.__exit__(None, None, None)
+
+
+def test_out_of_range_number_in_a_setting_is_a_422(logged):
+    client = logged()
+    for path, body in (("/api/settings/drops", '{"keep_days": 1e400}'),
+                       ("/api/settings/premium", '{"devalue": true, "prices": {"com": {"2": 1e400}}}')):
+        response = client.put(path, content=body, headers={"content-type": "application/json"})
+        assert response.status_code == 422 and '"input"' not in response.text, path
+    client.__exit__(None, None, None)
+
+
+def test_unknown_signal_key_does_not_break_the_domain_list(logged):
+    client = logged()
+    client.app.state.conn.execute("INSERT INTO domains (name, added_at, state, signals) VALUES ('sig.fr', 'x', 'active', ?)",
+                                  (json.dumps({"signals": ["inconnu"]}),))
+    assert client.get("/api/domains").json()[0]["signals"] == [{"key": "inconnu", "label": "inconnu"}]
+    client.__exit__(None, None, None)
+
+
+def test_setup_refuses_passwords_bcrypt_would_truncate(client_factory):
+    from app.auth import password_problem
+
+    long_one = "a" * 80
+    with client_factory() as client:
+        page = client.post("/setup", data={"password": long_one, "confirm": long_one}).text
+        assert "72 octets" in page and '<pre class="hash">' not in page
+    assert password_problem("é" * 40) and password_problem("court")
+    assert password_problem("a" * 72) is None
+
+
+def test_settings_do_not_hammer_telegram_when_the_token_is_refused(logged):
+    import httpx as _httpx
+
+    client = logged()
+    st = client.app.state
+    calls = []
+
+    def refuse(request):
+        calls.append(1)
+        return _httpx.Response(401, json={"ok": False, "description": "Unauthorized"})
+
+    st.telegram.http = _httpx.AsyncClient(transport=_httpx.MockTransport(refuse))
+    st.store.set("telegram_token", "123456789:" + "A" * 35)
+    for _ in range(3):
+        assert client.get("/api/settings").json()["telegram"]["bot_name"] is None
+    assert len(calls) == 1
+    st.telegram_failed_at -= 3601  # une heure plus tard : nouvel essai
+    client.get("/api/settings")
+    assert len(calls) == 2
+    client.__exit__(None, None, None)
+
+
+def test_read_only_token_keeps_portfolio_and_views_closed(logged):
+    client = logged()
+    token = client.post("/api/settings/ai-token").json()["token"]
+    client.cookies.clear()
+    headers = {"Authorization": f"Bearer {token}"}
+    assert client.get("/api/portfolio", headers=headers).status_code == 401
+    assert client.get("/api/explore/views", headers=headers).status_code == 401
+    assert client.get("/api/explore/seo", headers=headers).status_code == 401
+    assert client.get("/api/explore/top", headers=headers).status_code == 200
+    assert client.get("/api/explore/map", headers=headers).status_code == 200
+    client.__exit__(None, None, None)
+
+
+def test_refused_token_never_revives_the_environment_token(client_factory):
+    import httpx as _httpx
+
+    hashed = bcrypt.hashpw(PASSWORD.encode(), bcrypt.gensalt(4)).decode()
+    with client_factory(AUTH_USERNAME="moi", AUTH_PASSWORD_HASH=hashed, TELEGRAM_BOT_TOKEN="111:" + "e" * 30, TELEGRAM_CHAT_ID="42") as client:
+        client.post("/login", data={"username": "moi", "password": PASSWORD})
+        st = client.app.state
+        assert st.telegram.configured
+        assert client.delete("/api/settings/telegram").status_code == 204
+        st.telegram.http = _httpx.AsyncClient(transport=_httpx.MockTransport(
+            lambda r: _httpx.Response(401, json={"ok": False, "description": "Unauthorized"})))
+        assert client.put("/api/settings/telegram", json={"token": "222:" + "f" * 30}).status_code == 422
+        assert st.telegram.token == "" and client.get("/api/settings").json()["telegram"]["token_set"] is False

@@ -37,6 +37,16 @@ class LoginGuard:
 
 
 MIN_PASSWORD_LENGTH = 12
+MAX_PASSWORD_BYTES = 72  # bcrypt ne lit pas plus loin : la fin d'un mot de passe plus long ne compterait pas
+
+
+def password_problem(password: str) -> str | None:
+    """Motif de refus d'un mot de passe, None s'il convient (page /setup et app.hashpw)."""
+    if len(password) < MIN_PASSWORD_LENGTH:
+        return f"{MIN_PASSWORD_LENGTH} caractères minimum."
+    if len(password.encode()) > MAX_PASSWORD_BYTES:
+        return f"{MAX_PASSWORD_BYTES} octets maximum : bcrypt ignorerait la fin du mot de passe."
+    return None
 
 
 def hash_password(password: str) -> str:

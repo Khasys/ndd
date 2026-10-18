@@ -42,8 +42,13 @@ class Telegram:
     def configured(self) -> bool:
         return bool(self.token and self.chat_id)
 
-    async def _call(self, client: httpx.AsyncClient, method: str, **params) -> dict:
-        response = await client.post(f"{API}/bot{self.token}/{method}", json=params)
+    async def _call(self, client: httpx.AsyncClient, method: str, *, token: str | None = None, **params) -> dict:
+        try:
+            response = await client.post(f"{API}/bot{token or self.token}/{method}", json=params)
+        except httpx.InvalidURL as exc:
+            # Jeton avec un caractère interdit dans une URL (collé depuis un terminal) : un refus, pas une
+            # panne qui remonterait jusqu'aux alertes et arrêterait le bot.
+            raise TelegramError(f"jeton inutilisable ({exc})") from None
         try:
             data = response.json()
         except ValueError:
@@ -52,9 +57,9 @@ class Telegram:
             raise TelegramError(data.get("description") or f"HTTP {response.status_code}")
         return data["result"]
 
-    async def check_token(self) -> str:
-        """Nom du bot si le jeton est valide."""
-        me = await self._call(self.http, "getMe")
+    async def check_token(self, token: str | None = None) -> str:
+        """Nom du bot si le jeton est valide : celui enregistré, ou un autre à essayer avant de l'enregistrer."""
+        me = await self._call(self.http, "getMe", token=token)
         self.bot_name = me.get("username")
         return self.bot_name or ""
 

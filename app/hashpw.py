@@ -6,15 +6,16 @@
 import getpass
 import sys
 
-from .auth import MIN_PASSWORD_LENGTH, compose_escape, hash_password
+from .auth import compose_escape, hash_password, password_problem
 
 
 def main() -> None:
     password = getpass.getpass("Mot de passe : ")
     if password != getpass.getpass("Confirmation : "):
         sys.exit("Les deux saisies diffèrent.")
-    if len(password) < MIN_PASSWORD_LENGTH:
-        sys.exit(f"{MIN_PASSWORD_LENGTH} caractères minimum.")
+    problem = password_problem(password)
+    if problem:
+        sys.exit(problem)
     print(compose_escape(hash_password(password)))
 
 

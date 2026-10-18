@@ -19,7 +19,10 @@ async def latest_version(http: httpx.AsyncClient, repository: str) -> str | None
     try:
         response = await http.get(url, params={"page_size": 100, "ordering": "last_updated"})
         response.raise_for_status()
-        names = [tag.get("name", "") for tag in response.json().get("results", [])]
+        data = response.json()
+        # Forme attendue : {"results": [{"name": ...}, ...]} ; tout autre JSON vaut « inconnu », pas une erreur.
+        results = data.get("results") if isinstance(data, dict) else None
+        names = [tag.get("name", "") for tag in results if isinstance(tag, dict)] if isinstance(results, list) else []
     except (httpx.HTTPError, ValueError) as exc:
         log.warning("Vérification de version impossible : %s", exc.__class__.__name__)
         return None
