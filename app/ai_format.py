@@ -104,7 +104,7 @@ OTHER_EXT_FACTOR = 0.4
 QUICK_SHARE = 0.4  # revente rapide : 40 % du prix utilisateur final au plus
 SHORT_UNCAPPED = 2  # noms de 1 ou 2 caractères : pas de plafond de palier
 SHORT_UNCAPPED_BY_TLD = {"com": 3}  # en .com, jusqu'à 3 caractères (marché porté par la rareté)
-UNCAPPED_FROM = 90  # ni pour une note de 90 et plus
+UNCAPPED_FROM = 90  # ni pour une note de revente de 90 et plus
 
 
 def _round5(x: float) -> int:
@@ -169,16 +169,14 @@ def check_v5(item, known) -> str | None:
         return "revente rapide plus chère que l'utilisateur final"
     if quick_high > _step_up(final_high * QUICK_SHARE):
         return f"revente rapide : {int(QUICK_SHARE * 100)} % du prix utilisateur final au plus"
-    notes = derive(item)
-    best = max(notes["exploit"], notes["resale"])
     # Le prix suit la note de revente : elle tient compte du marché et des acheteurs, l'exploitation non.
-    resale = notes["resale"]
+    resale = derive(item)["resale"]
     label, _, tld = name.rpartition(".")
     # Un palier de tolérance de chaque côté : le prix suit la note sans être une formule. Noms de 1 ou
     # 2 caractères : rares, ils se vendent au-dessus des paliers (ev.fr, 120 000 euros en 2022) ; pas de plafond.
     floor = price_band(max(0, resale - 10), tld)[0]
-    # Meilleurs mots du marché (note de 90 et plus) : pas de plafond non plus.
-    uncapped = len(label) <= SHORT_UNCAPPED_BY_TLD.get(tld, SHORT_UNCAPPED) or best >= UNCAPPED_FROM
+    # Meilleurs mots du marché (note de revente de 90 et plus) : pas de plafond non plus.
+    uncapped = len(label) <= SHORT_UNCAPPED_BY_TLD.get(tld, SHORT_UNCAPPED) or resale >= UNCAPPED_FROM
     ceiling = PRICE_STEPS[-1] if uncapped else price_band(min(100, resale + 10), tld)[1]
     if final_low < floor or final_high > ceiling:
         return f"prix utilisateur final hors palier pour une note de revente de {resale} en .{tld} : entre {floor} et {ceiling} euros"

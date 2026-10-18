@@ -327,7 +327,7 @@ utilisateur final, avec de la patience) et une raison avec le type d'acheteur. L
 d'exploitation et de revente sur 100 et le verdict sont calculés par le NAS depuis la grille
 (`app/ai_format.py`, `derive`) : ils ne peuvent plus se contredire. Le prix utilisateur final doit
 tomber dans le palier de la note pour son extension (repères indicatifs, un palier de tolérance ;
-pas de plafond pour les noms de 1 ou 2 caractères ni pour une note de 90 et plus). Validation de
+pas de plafond pour les noms de 1 ou 2 caractères ni pour une note de revente de 90 et plus). Validation de
 la grille : 50 noms témoins notés par plusieurs agents indépendants, écart-type moyen de 3 points,
 même verdict dans 94 % des cas.
 

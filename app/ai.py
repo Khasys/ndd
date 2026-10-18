@@ -54,7 +54,7 @@ Prix en euros, uniquement ces valeurs : 0, 50, 100, 150, 200, 300, 500, 800, 100
 - Grille : le prix final suit la note de revente calculée (elle tient compte du marché et des acheteurs). Pour un .fr : 90 et plus, 10 000 à 100 000 ; 80, 5 000 à 30 000 ; 70, 3 000 à 15 000 ; 60, 1 500 à 8 000 ; 50, 1 000 à 5 000 ; 40, 500 à 2 000 ; 30, 200 à 1 000 ; 20, 100 à 800 ; 10, 50 à 300 ; en dessous, 0 à 100.
 - Autres extensions, mêmes paliers multipliés par : .com 1,5 ; .io et .ai 0,8 ; .co 0,6 ; .org, .app et .dev 0,5 ; .net 0,4 ; .info, .biz et .xyz 0,25 ; autres 0,4.
 - Un palier de tolérance au-dessus ou au-dessous est accepté. Dans le palier, monte si marche et acheteurs sont forts, descends sinon.
-- Exceptions sans plafond de palier : noms de 1 ou 2 caractères (jusqu'à 3 en .com, marché porté par la rareté), et noms dont la meilleure note atteint 90 (mots génériques majeurs). Appuie-toi alors sur les repères publics ci-dessous.
+- Exceptions sans plafond de palier : noms de 1 ou 2 caractères (jusqu'à 3 en .com, marché porté par la rareté), et noms dont la note de revente atteint 90 (mots génériques majeurs). Appuie-toi alors sur les repères publics ci-dessous.
 - Repères publics, ventes exceptionnelles et non la norme : credit.fr 587 500 euros (2010), auto.fr 100 000 euros (2008), ev.fr 120 000 euros (2022). Prix médian des ventes sur Sedo en 2012, toutes extensions : 461 euros.
 
 Raison (comment) : exactement deux phrases sur ce gabarit : « Raison. Acheteur type : qui. »
