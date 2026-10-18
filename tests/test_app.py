@@ -455,6 +455,11 @@ def test_ai_opinions_round_trip_with_a_token(logged):
     assert not [n for n in many if len(n["name"].split(".")[0]) <= 2 and n["status"].startswith(("Jamais", "Absent"))]
     velo = next(n for n in many if n["name"] == "velo.fr")
     assert velo["fr_history"]["removed_on"] == "2025-01-01"
+    # Mots de la seule liste anglaise : hors de la file de masse en .fr (ils valent peu et sont presque toujours laissés).
+    from app import ai as ai_module
+    u = client.app.state.explorer.universe
+    english = [n for n in many if n["name"].endswith(".fr") and ai_module.english_only(u, n["name"][:-3])]
+    assert english == [] and ai_module.english_only(u, "typically") and not ai_module.english_only(u, "velo")
 
     # Hors session : seul le jeton ouvre l'échange, et rien d'autre.
     client.cookies.clear()

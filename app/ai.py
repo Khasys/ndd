@@ -321,9 +321,22 @@ def _queue(explorer, limit: int):
                         label = u.label(i)
                         if code == ABSENT and len(label) <= 2:
                             continue
+                        if tld == "fr" and english_only(u, label):
+                            continue
                         if take(i, label, tld):
                             return picked, data
     return picked, data
+
+
+# Formes de nom : pas des listes de mots (une forme ne dit rien de la langue).
+SHAPES = {"letters", "digits", "mixed", "hyphen", "long"}
+
+
+def english_only(u, label: str) -> bool:
+    """Mot de la seule liste anglaise : en .fr, il vaut peu (consigne) et l'IA le laisse presque toujours.
+    Hors de la file de masse ; un nom libre ou bientôt libre reste noté, quelle que soit sa langue."""
+    lists = set(u.categories(label)) - SHAPES
+    return lists == {"english"}
 
 
 def _describe(explorer, picked, data) -> list[dict]:
