@@ -22,9 +22,9 @@
 <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
 </head>
 <body>
-<div class="page" x-data="app" x-init="init()" @keydown.escape.window="escape()">
+<div class="page" x-data="app" @keydown.escape.window="escape()">
 
-  <aside class="sidebar" aria-label="Navigation">
+  <aside class="sidebar" aria-label="Barre latérale">
     <nav class="side-nav">
       <button type="button" class="side-link" :class="{ on: !paged && filter === null }" @click="home(); filter = null">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span>Domaines</span>
@@ -58,13 +58,6 @@
   <header class="top">
     <a href="/" class="home" @click.prevent="home()" aria-label="Accueil">{{BRAND}}</a>
     <nav class="tools">
-      <button type="button" class="btn-ghost" :class="{ on: legendOpen }" @click="legendOpen = !legendOpen" :aria-expanded="legendOpen">Aide</button>
-      <button type="button" class="btn-ghost has-badge" :class="{ on: settingsOpen }" @click="openSheet('settings')" :aria-expanded="settingsOpen">
-        Paramètres
-        <span class="update-badge" x-show="meta && meta.update_available" x-cloak title="Mise à jour disponible" aria-label="Mise à jour disponible">
-          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 12V4M4.5 7.5 8 4l3.5 3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </span>
-      </button>
       <form method="post" action="/logout" class="logout"><button type="submit" class="btn-text">Déconnexion</button></form>
     </nav>
   </header>
@@ -83,14 +76,17 @@
            autocapitalize="off" spellcheck="false" placeholder="nomdedomaine.fr" :disabled="adding">
     <button type="submit" class="btn" :disabled="adding || !newName.trim()" x-text="adding ? 'Vérification' : 'Ajouter'"></button>
   </form>
-  <p class="notice" :class="[notice && notice.kind, notice ? 'shown' : '']" role="status" aria-live="polite" @click="notice = null" x-text="notice ? notice.text : ''"></p>
+  <div class="notice" :class="[notice && notice.kind, notice ? 'shown' : '']" role="status" aria-live="polite" @click="notice = null">
+    <span x-text="notice ? notice.text : ''"></span>
+    <button type="button" class="notice-close" aria-label="Fermer le message">×</button>
+  </div>
 
   <section class="legend sheet" x-show="legendOpen" x-transition.opacity.duration.150ms x-cloak aria-label="Aide">
     <div class="sheet-head">
       <h2>Aide</h2>
       <button type="button" class="btn-ghost" @click="legendOpen = false">Fermer</button>
     </div>
-    <nav class="help-toc small">
+    <nav class="help-toc small" @click.prevent="helpGo($event.target.getAttribute('href'))">
       <a href="#help-states">États d'un domaine</a>
       <a href="#help-explore">États dans l'Explorer</a>
       <a href="#help-find">Trouver les meilleurs</a>
@@ -321,14 +317,15 @@
             <option value="release" x-show="dropTab === 'coming'">Libération la plus proche</option>
           </select>
           <div class="ex-tools">
-            <button type="button" class="btn-ghost sm" x-show="dropList.length" @click="dropPickAll('', !dropAllPicked())" x-text="dropAllPicked() ? 'Désélectionner' : 'Tout sélectionner'"></button>
+            <button type="button" class="btn-ghost sm" x-show="dropList.length" @click="dropPickAll(!dropAllPicked())" x-text="dropAllPicked() ? 'Désélectionner' : 'Tout sélectionner'"></button>
           </div>
         </div>
         <p class="muted" x-show="!dropList.length" x-text="dropTab === 'free' ? 'Aucun nom libéré pour ces réglages.' : 'Aucun nom en rédemption ou en suppression pour ces réglages.'"></p>
         <ol class="ex-list veille-list">
           <template x-for="d in dropList.slice(0, dropShow)" :key="d.name">
             <li class="ex-row" :class="{ picked: dropSelected.includes(d.name) }">
-              <div class="ex-line name-card" @click="openFiche(d.name)">
+              <div class="ex-line name-card" role="button" tabindex="0" @click="openFiche(d.name)"
+                   @keydown.enter.self.prevent="openFiche(d.name)" @keydown.space.self.prevent="openFiche(d.name)">
                 <input type="checkbox" class="ex-pick" :checked="dropSelected.includes(d.name)" @click.stop="dropToggle(d.name)" :aria-label="'Sélectionner ' + d.name">
                 <div class="nc-main">
                   <div class="nc-head">
@@ -355,11 +352,11 @@
         <button type="button" class="btn-ghost drops-more" x-show="dropList.length > dropShow" @click="dropShow += 100"
                 x-text="'Afficher 100 de plus (' + (dropList.length - dropShow) + ' restants)'"></button>
 
-        <div class="ex-bulk drops-bulk" x-show="dropSelected.length" x-transition>
+        <div class="ex-bulk" x-show="dropSelected.length" x-transition>
           <span x-text="dropSelected.length + ' sélectionné(s)'"></span>
           <button type="button" class="btn-ghost sm" @click="dropBulk('watch')" :disabled="dropBulkRunning">Surveiller</button>
           <button type="button" class="btn-ghost sm" @click="dropBulk('ai')" :disabled="dropBulkRunning">Analyse IA</button>
-          <button type="button" class="btn-ghost sm" @click="dropBulk('check')" :disabled="dropBulkRunning">Revérifier</button>
+          <button type="button" class="btn-ghost sm" @click="dropBulk('check')" :disabled="dropBulkRunning">Vérifier</button>
           <button type="button" class="btn-ghost sm" @click="dropBulk('hide')" :disabled="dropBulkRunning">Masquer</button>
           <button type="button" class="btn-text" @click="dropSelected = []">Annuler</button>
           <span class="muted small" x-show="dropBulkRunning" x-text="dropBulkDone + '/' + dropSelected.length"></span>
@@ -607,7 +604,7 @@
           <div class="ex-top">
             <div class="ex-chips">
               <template x-for="k in ['sector', 'trend', 'expr', 'niche', 'word', 'english', 'firstname', 'surname', 'combo', 'form'].filter((x) => exData.kinds[x])" :key="k">
-                <button type="button" class="tag" :class="{ on: top.cat === k }" @click="top.cat = k; exLoadTop()" x-text="exData.kinds[k]"></button>
+                <button type="button" class="tag" :class="{ on: top.cat === k }" @click="top.cat = k; exLoadTop()" x-text="kindLabel(exData.kinds, k)"></button>
               </template>
             </div>
             <div class="ex-chips">
@@ -643,7 +640,7 @@
           <div class="ex-card">
             <div class="ex-card-head">
               <span class="mono ex-card-name" x-text="exCard.label"></span>
-              <span class="small muted" x-text="exCard.categories.map((c) => exData.kinds[c] || c).join(', ')"></span>
+              <span class="small muted" x-text="exCard.categories.map((c) => kindLabel(exData.kinds, c)).join(', ')"></span>
             </div>
             <div class="ex-card-grid">
               <template x-for="i in exCard.items" :key="i.name">
@@ -655,7 +652,7 @@
                   <div class="ex-bar" x-show="exAvailable(i)" :title="scoreTitle(i)"><i :style="'width:' + i.score + '%'"></i><b x-text="i.score"></b></div>
                                     <template x-if="i.rdap"><dl class="ex-rdap" x-html="rdapHtml(i.rdap)"></dl></template>
                   <div class="ex-actions">
-                    <button type="button" class="btn-ghost sm" @click="exCheck(i)" :disabled="!!exBusy[i.name]" x-text="exBusy[i.name] ? '…' : (i.rdap ? 'Revérifier' : 'Vérifier')"></button>
+                    <button type="button" class="btn-ghost sm" @click="exCheck(i)" :disabled="!!exBusy[i.name]" x-text="exBusy[i.name] ? '…' : 'Vérifier'"></button>
                     <a class="btn-ghost sm" x-show="exAvailable(i)" :href="orderLink(i.name)" target="_blank" rel="noopener">Réserver</a>
                     <button type="button" class="btn-ghost sm" @click="exWatch(i)" :disabled="i.watched" x-text="i.watched ? 'Surveillé' : 'Surveiller'"></button>
                   </div>
@@ -700,8 +697,9 @@
         <p class="muted small" x-show="!exTopOpen && !exLoading && !exItems.length">Aucun nom.</p>
         <ol class="ex-list" :class="{ loading: exLoading }" x-show="!exTopOpen">
           <template x-for="i in exItems" :key="i.name">
-            <li class="ex-row" :class="{ open: fiche && fiche.name === i.name, picked: exSelected.includes(i.name) }">
-              <div class="ex-line name-card" @click="openFiche(i.name)">
+            <li class="ex-row" :class="{ picked: exSelected.includes(i.name) }">
+              <div class="ex-line name-card" role="button" tabindex="0" @click="openFiche(i.name)"
+                   @keydown.enter.self.prevent="openFiche(i.name)" @keydown.space.self.prevent="openFiche(i.name)">
                 <input type="checkbox" class="ex-pick" :checked="exSelected.includes(i.name)" @click.stop="exToggle(i.name)" :aria-label="'Sélectionner ' + i.name">
                 <div class="nc-main">
                   <div class="nc-head">
@@ -720,7 +718,7 @@
           </template>
         </ol>
         <div class="explore-more" x-show="!exTopOpen">
-          <button type="button" class="btn-ghost" x-show="exHasMore" @click="exLimit += 50; exLoad(false)" :disabled="exLoading" x-text="exLoading ? 'Chargement' : 'Afficher 50 de plus'"></button>
+          <button type="button" class="btn-ghost" x-show="exHasMore" @click="exLimit += 50; exLoad(false, true)" :disabled="exLoading" x-text="exLoading ? 'Chargement' : 'Afficher 50 de plus'"></button>
         </div>
 
         <div class="ex-bulk" x-show="exSelected.length" x-transition>
@@ -741,8 +739,9 @@
       <h2>Paramètres</h2>
       <button type="button" class="btn-ghost" @click="settingsOpen = false">Fermer</button>
     </div>
+    <p class="settings-help"><button type="button" class="btn-ghost sm" @click="openSheet('legend')">Aide</button></p>
     <div class="version-block">
-      <h2>Version</h2>
+      <h3>Version</h3>
       <div class="version-line">
         <span class="version-pill" :class="'v-' + versionState" :title="versionTitle">
           <svg x-show="versionState === 'ok'" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5 6.5 11.5 12.5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -764,7 +763,7 @@
     </div>
     <div class="settings-grid">
       <div id="set-telegram">
-        <h2>Telegram</h2>
+        <h3>Telegram</h3>
         <template x-if="cfg && !cfg.telegram.token_set">
           <ol class="steps">
             <li>Dans Telegram, ouvrir <span class="mono">@BotFather</span> et envoyer <span class="mono">/newbot</span>.</li>
@@ -785,8 +784,10 @@
             </p>
             <p x-show="cfg.telegram.chat_set">Chat associé. Les alertes et le résumé y sont envoyés.</p>
             <template x-if="!cfg.telegram.chat_set && !pairing">
-              <p>Aucun chat associé.</p>
-              <p><button type="button" class="btn-ghost primary" @click="startPairing()">Associer mon compte</button></p>
+              <div>
+                <p>Aucun chat associé.</p>
+                <p><button type="button" class="btn-ghost primary" @click="startPairing()">Associer mon compte</button></p>
+              </div>
             </template>
             <template x-if="pairing">
               <div class="pairing">
@@ -808,7 +809,7 @@
       </div>
 
       <div>
-        <h2>Résumé du matin</h2>
+        <h3>Résumé du matin</h3>
         <template x-if="cfg && cfg.morning">
           <div class="setting-lines">
             <label class="check"><input type="checkbox" x-model="cfg.morning.enabled" @change="saveMorning()"> Envoyer chaque matin les bons noms des dernières 24 h</label>
@@ -830,7 +831,7 @@
       </div>
 
       <div>
-        <h2>Résumé hebdomadaire</h2>
+        <h3>Résumé hebdomadaire</h3>
         <template x-if="cfg">
           <div class="setting-lines">
             <label class="check"><input type="checkbox" x-model="cfg.digest.enabled" @change="saveDigest()"> Envoyer un résumé sur Telegram</label>
@@ -853,7 +854,7 @@
 
 
       <div>
-        <h2>Apparence</h2>
+        <h3>Apparence</h3>
         <template x-if="cfg">
           <div class="setting-lines">
             <form class="inline-form" @submit.prevent="saveAppearance()">
@@ -889,7 +890,7 @@
       </div>
 
       <div id="set-czds">
-        <h2>Zones ICANN (CZDS)</h2>
+        <h3>Zones ICANN (CZDS)</h3>
         <template x-if="cfg">
           <div class="setting-lines">
             <template x-if="!cfg.czds.password_set">
@@ -928,7 +929,7 @@
       </div>
 
       <div id="set-fr">
-        <h2>Extension .fr (Afnic)</h2>
+        <h3>Extension .fr (Afnic)</h3>
         <template x-if="cfg">
           <div class="setting-lines">
             <label class="check">
@@ -959,7 +960,7 @@
       </div>
 
       <div>
-        <h2>Écran Veille</h2>
+        <h3>Écran Veille</h3>
         <template x-if="cfg">
           <form class="inline-form" @submit.prevent="saveDropsSettings()">
             <label class="small" for="keep-days">Afficher les noms libres pendant (jours)</label>
@@ -972,7 +973,7 @@
       </div>
 
       <div id="settings-sources" class="setting-wide">
-        <h2>Sources et lectures</h2>
+        <h3>Sources et lectures</h3>
         <template x-if="dropsData && dropsData.configured">
           <div>
             <div class="drops-card drops-status">
@@ -1080,7 +1081,7 @@
       </div>
 
       <div>
-        <h2>Premiums probables</h2>
+        <h3>Premiums probables</h3>
         <template x-if="cfg && cfg.premium">
           <div class="setting-lines">
             <p class="muted small">Noms de 3 caractères libres hors .fr : souvent vendus au prix premium par le registre. Rien ne le confirme sans accès registrar. L'Explorer les masque sauf avec le bouton « Premiums probables ». Décocher « Premium possible » pour une extension sans premium : .com et .net le sont (prix unique imposé au registre).</p>
@@ -1105,7 +1106,7 @@
       </div>
 
       <div>
-        <h2>Noms réservés (.fr)</h2>
+        <h3>Noms réservés (.fr)</h3>
         <template x-if="cfg">
           <div class="setting-lines">
             <label class="check">
@@ -1121,7 +1122,7 @@
       </div>
 
       <div>
-        <h2>SEO (Explorer)</h2>
+        <h3>SEO (Explorer)</h3>
         <template x-if="cfg">
           <form class="inline-form" @submit.prevent="saveSeoKey()">
             <input type="password" x-model="seoKey" :placeholder="cfg.seo.key_set ? 'Clé enregistrée' : 'Clé Open PageRank'" aria-label="Clé Open PageRank" autocomplete="off">
@@ -1132,7 +1133,7 @@
       </div>
 
       <div>
-        <h2>Score de l'Explorer</h2>
+        <h3>Score de l'Explorer</h3>
         <template x-if="cfg">
           <div class="setting-lines">
             <template x-for="(label, k) in cfg.weights.labels" :key="k">
@@ -1147,9 +1148,9 @@
       </div>
 
       <div id="set-ai">
-        <h2>Avis IA</h2>
+        <h3>Avis IA</h3>
         <p class="small" x-show="aiStatus">
-          <span x-text="aiStatus ? fmt(aiStatus.rated) + ' noms notés sur ' + fmt(aiStatus.total) : ''"></span><span x-show="aiStatus && aiStatus.last" x-text="aiStatus && aiStatus.last ? ', dernier envoi ' + relative(aiStatus.last) : ''"></span>.
+          <span x-text="aiStatus ? fmt(aiStatus.rated) + (aiStatus.rated > 1 ? ' noms notés sur ' : ' nom noté sur ') + fmt(aiStatus.total) : ''"></span><span x-show="aiStatus && aiStatus.last" x-text="aiStatus && aiStatus.last ? ', dernier envoi ' + relative(aiStatus.last) : ''"></span>.
         </p>
         <p class="muted small">Une tâche planifiée récupère chaque nuit les noms à noter et renvoie, pour chaque nom complet, le potentiel d'exploitation et de revente, un prix de revente rapide, un prix utilisateur final et un commentaire. Elle se connecte avec ce jeton.</p>
         <button type="button" class="btn-ghost" @click="newAiToken()" x-text="aiStatus && aiStatus.token_set ? 'Nouveau jeton' : 'Créer le jeton'"></button>
@@ -1162,7 +1163,7 @@
       </div>
 
       <div>
-        <h2>Lien « Réserver »</h2>
+        <h3>Lien « Réserver »</h3>
         <template x-if="cfg">
           <form class="inline-form" @submit.prevent="saveOrderUrl()">
             <input type="url" x-model="cfg.order_url" aria-label="Adresse de réservation" class="mono">
@@ -1173,7 +1174,7 @@
       </div>
 
       <div>
-        <h2>Calendrier</h2>
+        <h3>Calendrier</h3>
         <template x-if="cfg">
           <div class="setting-lines">
             <p class="muted small">Expirations et libérations estimées, avec rappel la veille. À ajouter comme calendrier par URL dans l'agenda du téléphone.</p>
@@ -1409,10 +1410,10 @@
         <template x-if="domainFiche && domainFiche.name === shown.name">
           <div>
             <div x-html="valueHtml(domainFiche)"></div>
-            <div class="history" x-show="domainFiche && domainFiche.others.length">
+            <div class="history" x-show="domainFiche && (domainFiche.others || []).length">
               <h3>Autres extensions</h3>
               <ol>
-                <template x-for="o in (domainFiche ? domainFiche.others : [])" :key="o.name">
+                <template x-for="o in (domainFiche && domainFiche.others) || []" :key="o.name">
                   <li class="fiche-other">
                     <button type="button" class="link-like mono" @click="openFiche(o.name)" x-text="o.name"></button>
                     <span class="badge" :class="badgeClass(o)" x-text="o.status_label"></span>
@@ -1471,10 +1472,10 @@
           <button type="button" class="btn-ghost sm" @click="ficheSeo()" :disabled="!!exBusy[fiche.name] || exSeo.running">Analyse SEO</button>
           <button type="button" class="btn-ghost sm" x-show="fiche.item && ![1, 6].includes(fiche.item.status)" @click="ficheFlag()" x-text="fiche.item && fiche.item.status === 7 ? 'Pas réservé' : 'Réservé'"></button>
         </div>
-        <div class="history" x-show="fiche.others.length">
+        <div class="history" x-show="(fiche.others || []).length">
           <h3>Autres extensions</h3>
           <ol>
-            <template x-for="o in fiche.others" :key="o.name">
+            <template x-for="o in fiche.others || []" :key="o.name">
               <li class="fiche-other">
                 <button type="button" class="link-like mono" @click="openFiche(o.name)" x-text="o.name"></button>
                 <span class="badge" :class="badgeClass(o)" x-text="o.status_label"></span>
@@ -1489,7 +1490,7 @@
   <datalist id="tag-list"><template x-for="t in allTags" :key="t"><option :value="t"></option></template></datalist>
 
   <nav class="tabbar" aria-label="Navigation">
-    <button type="button" :class="{ on: !paged }" @click="home()">
+    <button type="button" :class="{ on: !paged }" @click="home(); filter = null">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
       <span>Domaines</span>
     </button>
@@ -1503,15 +1504,11 @@
     </button>
     <button type="button" :class="{ on: portfolioOpen }" @click="openSheet('portfolio')">
       <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="7" width="16" height="12" rx="2"/><path d="M9 7V5h6v2M4 12h16"/></svg>
-      <span>Mes noms</span>
-    </button>
-    <button type="button" :class="{ on: legendOpen }" @click="openSheet('legend')">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 7.5v.5"/></svg>
-      <span>Aide</span>
+      <span>Portefeuille</span>
     </button>
     <button type="button" class="has-badge" :class="{ on: settingsOpen }" @click="openSheet('settings')">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>
-      <span>Réglages</span>
+      <span>Paramètres</span>
       <span class="update-badge" x-show="meta && meta.update_available" x-cloak aria-label="Mise à jour disponible">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 12V4M4.5 7.5 8 4l3.5 3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </span>

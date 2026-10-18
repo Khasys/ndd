@@ -7,10 +7,12 @@ const AI_GRID = [["oral", "prononciation"], ["radio", "test radio"], ["memo", "m
   ["marque", "marque"], ["marche", "marché"], ["ext", "extension"], ["acheteurs", "acheteurs"], ["risque", "risque"]];
 // Catégories de forme ; les autres viennent des listes de noms.
 const SHAPE_KINDS = ["letters", "digits", "mixed", "hyphen"];
-// min : null = score minimum par défaut réglé dans Paramètres ; 0 = tout voir.
-const DROP_FILTER_DEFAULTS = { q: "", nat: "", lang: "", len: "", rank: "", min: null, junk: false, ai: [], quick: "" };
+// min : score minimum des filtres avancés ; 0 = tout voir.
+const DROP_FILTER_DEFAULTS = { q: "", nat: "", lang: "", len: "", rank: "", min: 0, junk: false, ai: [], quick: "" };
 // Filtres vierges de l'Explorer ; l'extension choisie reste.
-const EX_BLANK = { cat: "", nat: "", lang: "", len: "", rank: "", taken: "", min: "", junk: "", seo: "", status: "bookable", sort: "best", level: "good" };
+const EX_BLANK = { cat: "", nat: "", lang: "", len: "", rank: "", taken: "", min: "", junk: "", seo: "", premium: "", status: "bookable", sort: "best", level: "good", ...AI_FILTER_DEFAULTS };
+// Tris de la liste ; « best » suit l'usage (revendre / exploiter).
+const EX_SORTS = ["best", "release", "length", "freq", "score"];
 // Explorer et Veille : trois réglages simples, les mêmes partout.
 const EX_STATES = [{ k: "bookable", label: "Libres" }, { k: "coming", label: "Bientôt libres" }, { k: "all", label: "Tous, même pris" }];
 const EX_TYPES = [
@@ -137,7 +139,6 @@ document.addEventListener("alpine:init", () => {
     exMapOpen: false,
     fiche: null,
     aiReq: { pending: [], done: [] },
-    dropShowFree: 100,
     dropTab: "free",
     dropNewOnly: false,
     dropLevel: "good",
@@ -147,7 +148,6 @@ document.addEventListener("alpine:init", () => {
     dropBulkRunning: false,
     dropBulkDone: 0,
     dropsSeenBefore: "",
-    dropShowComing: 100,
     aiToken: "",
     aiStatus: null,
     domainFiche: null,
@@ -157,7 +157,6 @@ document.addEventListener("alpine:init", () => {
     AI_VERDICTS,
     tldFilter: "",
     aiFilter: [],
-    exOpen: null,
     exSelected: [],
     exBulkRunning: false,
     exBulkDone: 0,
@@ -167,8 +166,6 @@ document.addEventListener("alpine:init", () => {
     orderUrl: "",
     dropTld: "",
     dropKinds: [],
-    dropSort: "release",
-    dropSortFree: "date",
     scansOpen: false,
     czdsUser: "",
     czdsPass: "",
@@ -194,9 +191,11 @@ document.addEventListener("alpine:init", () => {
         this.$watch(key, () => this.saveFilters());
       }
       this.dropRestore();
-      for (const key of ["df", "dropTld", "dropKinds", "dropSort", "dropSortFree"]) {
-        this.$watch(key, () => this.dropSave());
+      // La liste change : la sélection en masse ne doit pas survivre à des noms qui ne s'affichent plus.
+      for (const key of ["df", "dropTld", "dropKinds"]) {
+        this.$watch(key, () => { this.dropSave(); this.dropSelected = []; });
       }
+      for (const key of ["dropLevel", "dropNewOnly"]) this.$watch(key, () => (this.dropSelected = []));
       this.load();
       this.loadAiRequests();
       // Lien direct vers une fiche (message Telegram d'une analyse prête) : ouverte, puis adresse nettoyée.
@@ -223,9 +222,11 @@ document.addEventListener("alpine:init", () => {
       this.$watch("openId", (id) => {
         this.lockScroll();
         // Panneau d'un domaine surveillé : même bloc « Valeur » que la fiche des autres écrans.
+        // La fiche précédente reste en mémoire jusqu'à l'arrivée de la nouvelle : la condition sur le nom
+        // l'empêche de s'afficher, et un démontage et une remise à null dans le même cycle font rejouer
+        // la boucle « Autres extensions » sur un élément déjà retiré (erreur Alpine).
         const d = this.domains.find((x) => x.id === id);
         if (d) this.remember();
-        this.domainFiche = null;
         if (d) this.api("GET", `/api/explore/fiche?name=${encodeURIComponent(d.name)}`).then((f) => (this.domainFiche = f)).catch(() => {});
       });
       this.$watch("fiche", (f) => {
@@ -239,7 +240,7 @@ document.addEventListener("alpine:init", () => {
       }
     },
 
-    get mobile() { return window.matchMedia("(max-width: 640px)").matches; },
+    get mobile() { return window.matchMedia("(max-width: 899px)").matches; },
 
     lockScroll() {
       // La fiche est par-dessus tout : la page derrière ne défile plus, sur ordinateur aussi.
@@ -317,6 +318,7 @@ document.addEventListener("alpine:init", () => {
         this.settingsOpen = false;
         this.dropsOpen = opening;
         if (opening) {
+          this.dropSelected = [];
           // « Nouveau » : depuis la visite précédente ; cette visite devient la référence suivante.
           try {
             this.dropsSeenBefore = localStorage.getItem("drops.seen") || "";
@@ -346,6 +348,11 @@ document.addEventListener("alpine:init", () => {
       this.$nextTick(() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" }));
     },
 
+    // Sommaire de l'Aide : défilement sans toucher à l'adresse (un changement de hash déclenche popstate, qui fermerait l'écran).
+    helpGo(href) {
+      if (href && href.startsWith("#")) document.getElementById(href.slice(1))?.scrollIntoView({ behavior: "smooth", block: "start" });
+    },
+
     // Explorer : tous les noms suivis, extension par extension.
 
     // Fiche d'un nom : la même partout (Domaines, Veille, Explorer).
@@ -358,13 +365,16 @@ document.addEventListener("alpine:init", () => {
     async openFiche(name, hot = false) {
       this.loadOrderUrl();
       if (!this.fiche) this.remember();
+      const ticket = (this._ficheTicket = (this._ficheTicket || 0) + 1);
       try {
         const fiche = await this.api("GET", `/api/explore/fiche?name=${encodeURIComponent(name)}`);
+        // Une autre fiche a été demandée entre-temps : celle-ci est périmée.
+        if (ticket !== this._ficheTicket) return;
         fiche.hot = hot;
         this.fiche = fiche;
         if (hot) this.aiSeen(fiche.name);
       } catch (e) {
-        this.say(`${name} : ${e.message}`, "error");
+        if (ticket === this._ficheTicket) this.say(`${name} : ${e.message}`, "error");
       }
     },
 
@@ -427,7 +437,11 @@ document.addEventListener("alpine:init", () => {
 
     async pfDelete(item) {
       if (!confirm(`Retirer ${item.name} du portefeuille ?`)) return;
-      this.pf = await this.api("DELETE", `/api/portfolio/${item.id}`);
+      try {
+        this.pf = await this.api("DELETE", `/api/portfolio/${item.id}`);
+      } catch (e) {
+        this.say(e.message, "error");
+      }
     },
 
     async ficheBought() {
@@ -479,10 +493,17 @@ document.addEventListener("alpine:init", () => {
     },
 
     async ficheWatch() {
-      this.newName = this.fiche.name;
+      const name = this.fiche.name;
+      this.newName = name;
       await this.add();
-      this.exReplace({ name: this.fiche.name, watched: true });
+      if (this.domains.some((x) => x.name === name)) this.markWatched(name);
       await this.ficheReload();
+    },
+
+    // Un nom passe sous surveillance : les listes déjà affichées (Explorer, Veille) le montrent.
+    markWatched(name) {
+      this.exReplace({ name, watched: true });
+      for (const d of (this.dropsData && this.dropsData.items) || []) if (d.name === name) d.watched = true;
     },
 
     async ficheSeo() {
@@ -493,7 +514,12 @@ document.addEventListener("alpine:init", () => {
     async ficheFlag() {
       const name = this.fiche.name;
       const reserved = this.fiche.item.status !== 7;
-      await this.api("POST", "/api/reserved/flag", { name, reserved });
+      try {
+        await this.api("POST", "/api/reserved/flag", { name, reserved });
+      } catch (e) {
+        this.say(`${name} : ${e.message}`, "error");
+        return;
+      }
       this.say(reserved ? `${name} marqué réservé.` : `${name} remis dans la liste.`);
       await this.ficheReload();
       // Marqué : il quitte la liste des noms à saisir ; remis : sa ligne prend le nouvel état.
@@ -540,7 +566,7 @@ document.addEventListener("alpine:init", () => {
         if (item.reasons && item.reasons.length) score.push(["Raisons", item.reasons.map((r) => `<span class="ex-reason">${esc(r)}</span>`).join(" ")]);
       }
       const kinds = (this.exData && this.exData.kinds) || (this.dropsData && this.dropsData.kinds) || {};
-      if (f.categories && f.categories.length) name.push(["Catégories", esc(f.categories.map((c) => kinds[c] || c).join(", "))]);
+      if (f.categories && f.categories.length) name.push(["Catégories", esc(f.categories.map((c) => this.kindLabel(kinds, c)).join(", "))]);
       const natures = (this.exData && this.exData.natures) || (this.dropsData && this.dropsData.natures) || {};
       if (f.natures && f.natures.length) name.push(["Nature", esc(f.natures.map((n) => natures[n] || n).join(", "))]);
       if (f.rank) name.push(["Fréquence", `n° ${esc(this.fmt(f.rank))} de sa liste`]);
@@ -588,11 +614,10 @@ document.addEventListener("alpine:init", () => {
       return low !== high ? `${n(low || 0)} à ${n(high)} €` : `${n(high)} €`;
     },
 
-    // Étiquette courte dans les listes : verdict, puis revente rapide (sinon prix utilisateur final).
+    // Étiquette de la colonne Valeur : verdict, puis prix utilisateur final (même formule que les cartes).
     aiTag(a) {
       if (!a) return "";
-      const k = (v) => (v >= 1000 ? `${Math.round(v / 1000)} k€` : `${v} €`);
-      return `${this.aiVerdict(a)} · ` + (a.quick_high ? `rapide ${k(a.quick_high)}` : `final ${k(a.final_high)}`);
+      return `${this.aiVerdict(a)} · utilisateur final ${this.priceRange(a.final_low, a.final_high)}`;
     },
 
     aiVerdict(a) { return a && a.comment ? a.comment.split(".")[0] : ""; },
@@ -641,8 +666,9 @@ document.addEventListener("alpine:init", () => {
       return params.toString();
     },
 
-    async exLoad(reset = true) {
-      if (reset) { this.exLimit = 50; this.exNoMore = false; }
+    // more : « 50 de plus » ; sinon rechargement en place (filtre changé, rafraîchissement après une action).
+    async exLoad(reset = true, more = false) {
+      if (reset) { this.exLimit = 50; this.exNoMore = false; this.exSelected = []; }
       const before = this.exItems.length;
       const ticket = (this._exTicket = (this._exTicket || 0) + 1);
       this.exLoading = true;
@@ -655,7 +681,7 @@ document.addEventListener("alpine:init", () => {
         this.ex.tld = data.tld;
         this.exItems = data.items;
         // « 50 de plus » sans rien de nouveau : fin de la liste pour ces filtres.
-        if (!reset && data.items.length <= before) this.exNoMore = true;
+        if (more && data.items.length <= before) this.exNoMore = true;
       } catch (e) {
         if (ticket !== this._exTicket) return;
         // Extension mémorisée qui n'existe plus : retour à l'extension par défaut, une fois.
@@ -663,7 +689,7 @@ document.addEventListener("alpine:init", () => {
           this.ex.tld = "";
           this.ex.taken = "";
           this.exLoading = false;
-          return this.exLoad(reset);
+          return this.exLoad(reset, more);
         }
         this.exError = e.message;
       } finally {
@@ -697,8 +723,9 @@ document.addEventListener("alpine:init", () => {
 
     async exMapPick(key, tld) {
       const f = this.exMap.filters[key];
-      await this.exSet({ tld, cat: f.cat || "", len: f.len ? String(f.len) : "", status: "available" });
-      this.$nextTick(() => document.querySelector(".ex-status")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+      // Les cases comptent les noms non pris, libération à venir comprise : l'état le plus proche est « Libres ».
+      await this.exSet(this.exNormalize({ tld, cat: f.cat || "", len: f.len ? String(f.len) : "", status: "available" }));
+      this.$nextTick(() => document.querySelector(".ex-states")?.scrollIntoView({ behavior: "smooth", block: "start" }));
     },
 
     // Filtres : un seul point d'entrée, mémorisé pour la prochaine ouverture.
@@ -708,7 +735,6 @@ document.addEventListener("alpine:init", () => {
       // Mélanges et tirets ne sont jamais « prononçables » : sans les suites incluses, la liste serait vide.
       if (patch.cat === "mixed") this.ex.junk = "1";
       this.exSelected = [];
-      this.exOpen = null;
       try { localStorage.setItem("explorer", JSON.stringify({ ...this.ex, q: "", v: 2 })); } catch (_) {}
       if (this.exTopOpen) this.exLoadTop();
       await this.exLoad();
@@ -718,10 +744,19 @@ document.addEventListener("alpine:init", () => {
       try {
         const saved = JSON.parse(localStorage.getItem("explorer") || "null");
         // Réglages d'avant la refonte : on repart des réglages simples, en gardant les extensions.
-        if (saved && saved.v === 2) Object.assign(this.ex, saved, { q: "" });
-        if (this.ex.level === "gem") this.ex.level = "good";  // ancien niveau « Pépites » : la case le remplace
+        if (saved && saved.v === 2) Object.assign(this.ex, this.exNormalize(saved), { q: "" });
         else if (saved) this.ex.tld = saved.tld || "";
       } catch (_) {}
+    },
+
+    // Réglages venus d'ailleurs (vue enregistrée, carte, mémoire du navigateur) : état, tri et niveau
+    // ramenés aux réglages simples de l'écran (anciens « available », « seo », « gem »…).
+    exNormalize(filters) {
+      const { v, ...f } = filters || {};
+      if (f.status && !EX_STATES.some((s) => s.k === f.status)) f.status = ["available", "maybe_free", "free"].includes(f.status) ? "bookable" : "all";
+      if (f.sort && !EX_SORTS.includes(f.sort)) f.sort = "best";
+      if (f.level && f.level !== "good") f.level = "good";
+      return f;
     },
 
     exActive() {
@@ -750,8 +785,8 @@ document.addEventListener("alpine:init", () => {
 
     exClear(key) { return this.exSet(Object.fromEntries([].concat(key).map((k) => [k, ""]))); },
 
-    // Filtres avancés seulement : l'état, le type, le niveau et l'usage restent.
-    exReset() { return this.exSet({ nat: "", lang: "", rank: "", taken: "", min: "", junk: "", seo: "", ...AI_FILTER_DEFAULTS }); },
+    // Filtres du panneau Avancé seulement : l'état, le tri, le niveau et l'usage restent.
+    exReset() { return this.exSet({ cat: "", len: "", nat: "", lang: "", rank: "", taken: "", min: "", junk: "", seo: "", premium: "", ...AI_FILTER_DEFAULTS }); },
 
     exSortParam() { return this.ex.sort === "best" ? this.lens : this.ex.sort; },
 
@@ -790,17 +825,27 @@ document.addEventListener("alpine:init", () => {
     },
 
     async exSaveViews(views) {
-      try { this.exViews = await this.api("PUT", "/api/explore/views", { views }); } catch (e) { this.say(e.message, "error"); }
+      try {
+        this.exViews = await this.api("PUT", "/api/explore/views", { views });
+        return true;
+      } catch (e) {
+        this.say(e.message, "error");
+        return false;
+      }
     },
 
     async exSaveView() {
       const name = prompt("Nom de la vue", this.exActive().map((a) => a.label).join(", "));
       if (!name) return;
-      const { q, ...filters } = this.ex;
-      await this.exSaveViews([...this.exViews.filter((v) => v.name !== name), { name, filters }]);
+      // Filtres posés seulement : le serveur limite leur nombre.
+      const filters = Object.fromEntries(Object.entries(this.ex).filter(([k, val]) => !["q", "v"].includes(k) && String(val ?? "") !== ""));
+      if (await this.exSaveViews([...this.exViews.filter((v) => v.name !== name), { name, filters }])) this.say(`Vue « ${name} » enregistrée.`);
     },
 
-    exApplyView(v) { return this.exSet({ ...v.filters, q: "" }); },
+    // Filtres complets d'une vue : les absents sont vierges, les anciens réglages ramenés aux réglages simples.
+    exViewFilters(v) { return { ...EX_BLANK, ...this.exNormalize(v.filters) }; },
+
+    exApplyView(v) { return this.exSet({ ...this.exViewFilters(v), q: "" }); },
 
     exToggleTop() {
       this.exTopOpen = !this.exTopOpen;
@@ -819,14 +864,13 @@ document.addEventListener("alpine:init", () => {
 
     // Vue active : tous ses filtres sont ceux du moment.
     exViewOn(v) {
-      return Object.entries(v.filters).every(([k, val]) => k === "q" || String(this.ex[k] ?? "") === String(val ?? ""));
+      return Object.entries(this.exViewFilters(v)).every(([k, val]) => String(this.ex[k] ?? "") === String(val ?? ""));
     },
 
     async exDeleteView(n) {
       const v = this.exViews[n];
       if (!v || !confirm(`Supprimer la vue « ${v.name} » ? Les filtres affichés restent en place.`)) return;
-      await this.exSaveViews(this.exViews.filter((_, i) => i !== n));
-      this.say(`Vue « ${v.name} » supprimée.`);
+      if (await this.exSaveViews(this.exViews.filter((_, i) => i !== n))) this.say(`Vue « ${v.name} » supprimée.`);
     },
 
     exTlds() { return (this.ex.tld || "").split(",").filter(Boolean); },
@@ -913,19 +957,6 @@ document.addEventListener("alpine:init", () => {
 
     exAvailable(i) { return [2, 3, 4, 5].includes(i.status); },
 
-    scoreClass(n) { return n >= 70 ? "hi" : n >= 45 ? "mid" : "lo"; },
-
-    async exFlag(i, isReserved) {
-      try {
-        await this.api("POST", "/api/reserved/flag", { name: i.name, reserved: isReserved });
-        this.exItems = this.exItems.filter((x) => x.name !== i.name);
-        this.say(isReserved ? `${i.name} marqué réservé.` : `${i.name} remis dans les noms à saisir.`);
-        this.exLoadMap();
-      } catch (e) {
-        this.say(e.message, "error");
-      }
-    },
-
     reservedLine(r) {
       const c = r.counts || {};
       const when = r.at ? `, mis à jour ${this.relative(r.at)}` : ", pas encore téléchargées";
@@ -979,29 +1010,16 @@ document.addEventListener("alpine:init", () => {
       this.exBusy[i.name] = true;
       try {
         await this.api("POST", "/api/explore/seo", { names: [i.name] });
-        await this.exLoad(false);
-        if (this.exCard) await this.exTyped();
+        // Depuis une fiche ouverte ailleurs, la liste de l'Explorer n'est pas affichée : rien à recharger.
+        if (this.exploreOpen) {
+          await this.exLoad(false);
+          if (this.exCard) await this.exTyped();
+        }
         this.say(`${i.name} : analyse SEO faite.`);
       } catch (e) {
         this.say(`${i.name} : ${e.message}`, "error");
       } finally {
         this.exBusy[i.name] = false;
-      }
-    },
-
-    async exSeoTop() {
-      const names = this.exItems.filter((i) => this.exAvailable(i)).slice(0, 50).map((i) => i.name);
-      if (!names.length) return;
-      try {
-        const res = await this.api("POST", "/api/explore/seo", { names });
-        this.exSeo = { ...this.exSeo, running: !res.done, done: 0, total: names.length };
-        this.say(`Analyse SEO de ${names.length} noms lancée : environ une seconde par nom.`);
-        const poll = setInterval(async () => {
-          await this.exSeoStatus();
-          if (!this.exSeo.running) { clearInterval(poll); await this.exLoad(false); this.say("Analyse SEO terminée."); }
-        }, 3000);
-      } catch (e) {
-        this.say(e.message, "error");
       }
     },
 
@@ -1013,17 +1031,6 @@ document.addEventListener("alpine:init", () => {
       } catch (e) {
         this.say(e.message, "error");
       }
-    },
-
-    exDetail(i) {
-      const parts = [];
-      if (i.created_on) parts.push(`créé le ${this.shortDate(i.created_on)}`);
-      if (i.removed_on && i.status !== 1) parts.push(`supprimé le ${this.shortDate(i.removed_on)}`);
-      if (i.expires_at && i.status === 1) parts.push(`échéance ${this.shortDate(i.expires_at)}`);
-      if (i.release_at && i.status === 4) parts.push(`libération ~${this.shortDate(i.release_at)}`);
-      if (i.checked_at) parts.push(`vérifié ${this.relative(i.checked_at)}`);
-      if (i.next_check_at) parts.push(`prochaine vérification le ${this.shortDate(i.next_check_at)}`);
-      return parts.join(", ");
     },
 
     exReplace(item) {
@@ -1055,11 +1062,7 @@ document.addEventListener("alpine:init", () => {
     async exWatch(i) {
       this.newName = i.name;
       await this.add();
-      if (this.domains.some((x) => x.name === i.name)) this.exReplace({ name: i.name, watched: true });
-    },
-
-    async recheckDrop(d) {
-      if (await this.verifyName(d.name)) await this.loadDrops();
+      if (this.domains.some((x) => x.name === i.name)) this.markWatched(i.name);
     },
 
     // Tri en masse dans la Veille : sélection, puis une action pour tous.
@@ -1069,13 +1072,13 @@ document.addEventListener("alpine:init", () => {
 
     dropShown() { return this.dropList.slice(0, this.dropShow); },
 
-    dropAllPicked(kind) {
-      const shown = this.dropShown(kind);
+    dropAllPicked() {
+      const shown = this.dropShown();
       return shown.length > 0 && shown.every((d) => this.dropSelected.includes(d.name));
     },
 
-    dropPickAll(kind, on) {
-      const names = this.dropShown(kind).map((d) => d.name);
+    dropPickAll(on) {
+      const names = this.dropShown().map((d) => d.name);
       const rest = this.dropSelected.filter((n) => !names.includes(n));
       this.dropSelected = on ? [...rest, ...names] : rest;
     },
@@ -1175,7 +1178,6 @@ document.addEventListener("alpine:init", () => {
     async saveDropsSettings() {
       try {
         this.cfg.drops = await this.api("PUT", "/api/settings/drops", { keep_days: this.cfg.drops.keep_days, min_score: Number(this.cfg.drops.min_score) || 0 });
-        if (this.dropsData) this.dropsData.min_score = this.cfg.drops.min_score;
         this.say("Réglages de la Veille enregistrés.");
       } catch (e) {
         this.say(e.message, "error");
@@ -1204,7 +1206,7 @@ document.addEventListener("alpine:init", () => {
     // Listes triées gardées tant que ni les données ni les filtres ne changent : 3 000 noms ne sont
     // plus filtrés et triés à chaque rafraîchissement de l'affichage.
     dropsMemo(kind, build) {
-      const key = JSON.stringify([kind, this._dropsVer, this.df, this.dropTld, this.dropKinds, this.dropSort, this.dropSortFree,
+      const key = JSON.stringify([kind, this._dropsVer, this.df, this.dropTld, this.dropKinds,
         this.dropTab, this.dropNewOnly, this.dropLevel, this.dropSortMode, this.lens, Math.floor(this.now / 600000)]);
       this._memo = this._memo || {};
       if (this._memo[kind]?.key !== key) this._memo[kind] = { key, list: build() };
@@ -1231,14 +1233,13 @@ document.addEventListener("alpine:init", () => {
 
     // Score minimum explicite (filtres avancés) ; les niveaux font le tri courant.
     get dropMin() {
-      return this.df.min === null || this.df.min === undefined ? 0 : this.df.min;
+      return Number(this.df.min) || 0;
     },
 
     // « Masquer les noms faibles », comme dans l'Explorer : avec un avis IA, ce qu'il dit ; sans avis, score de 30.
     dropLevelOk(d) {
       if (!this.dropLevel) return true;
       const v = this.aiVerdict(d.ai);
-      if (this.dropLevel === "gem") return v === "À prendre" || (!v && d.score >= 50);
       if (v) return v !== "À laisser";
       return d.score >= 30;
     },
@@ -1343,27 +1344,18 @@ document.addEventListener("alpine:init", () => {
       }
     },
 
-    get dropsReleased() {
-      if (!this.dropsData) return [];
-      return this.dropsMemo("released", () => {
-        const list = this.dropsData.items.filter((d) => d.state === "available" && this.dropMatches(d));
-        const by = this.compareBy(this.dropSortFree);
-        return list.sort(by || ((a, b) => (b.available_since || "").localeCompare(a.available_since || "")));
-      });
-    },
-
-    // Tris communs aux écrans : score, avis IA (revente rapide haute), nom.
-    compareBy(key) {
-      if (key === "score") return (a, b) => (b.score || 0) - (a.score || 0) || a.name.localeCompare(b.name);
-      if (key === "ai") return (a, b) => this.aiValue(b) - this.aiValue(a) || (b.score || 0) - (a.score || 0);
-      if (key === "name") return (a, b) => a.name.localeCompare(b.name);
-      return null;
-    },
-
+    // Avis IA en valeur triable : revente rapide haute, puis note de revente.
     aiValue(d) { return d.ai ? d.ai.quick_high * 1000 + d.ai.resale : -1; },
 
+    // Listes du panneau Avancé : mêmes libellés que les puces de type quand c'est la même liste.
     kindGroup(kinds, shape) {
-      return Object.fromEntries(Object.entries(kinds || {}).filter(([k]) => SHAPE_KINDS.includes(k) === shape));
+      return Object.fromEntries(Object.entries(kinds || {}).filter(([k]) => SHAPE_KINDS.includes(k) === shape)
+        .map(([k, label]) => [k, this.kindLabel(kinds, k, label)]));
+    },
+
+    kindLabel(kinds, k, fallback) {
+      const type = EX_TYPES.find((t) => t.k === k);
+      return type ? type.label : fallback || (kinds && kinds[k]) || k;
     },
 
     dropActive() {
@@ -1384,7 +1376,6 @@ document.addEventListener("alpine:init", () => {
 
     dropClear(key) {
       if (key.startsWith("kind:")) { this.dropKinds = this.dropKinds.filter((k) => k !== key.slice(5)); return; }
-      if (key === "min") { this.df.min = null; return; }
       this.df[key] = Array.isArray(DROP_FILTER_DEFAULTS[key]) ? [] : DROP_FILTER_DEFAULTS[key];
     },
 
@@ -1396,7 +1387,7 @@ document.addEventListener("alpine:init", () => {
     dropSave() {
       try {
         localStorage.setItem("drops.filters", JSON.stringify({
-          v: 2, df: this.df, tld: this.dropTld, kinds: this.dropKinds, sort: this.dropSort, sortFree: this.dropSortFree,
+          v: 2, df: this.df, tld: this.dropTld, kinds: this.dropKinds,
         }));
       } catch (_) {}
     },
@@ -1406,30 +1397,10 @@ document.addEventListener("alpine:init", () => {
         const saved = JSON.parse(localStorage.getItem("drops.filters") || "null");
         if (!saved) return;
         this.df = { ...DROP_FILTER_DEFAULTS, ...saved.df, ai: Array.isArray(saved.df?.ai) ? saved.df.ai : [] };
-        // Filtres gardés avant le score minimum par défaut : 0 voulait dire « pas choisi ».
-        if (saved.v !== 2 && !this.df.min) this.df.min = null;
+        this.df.min = Number(this.df.min) || 0;  // anciens filtres : null voulait dire « pas choisi »
         this.dropTld = saved.tld || "";
         this.dropKinds = Array.isArray(saved.kinds) ? saved.kinds : [];
-        this.dropSort = saved.sort || "release";
-        this.dropSortFree = saved.sortFree || "date";
       } catch (_) {}
-    },
-
-    get dropsComing() {
-      if (!this.dropsData) return [];
-      return this.dropsMemo("coming", () => {
-        const rank = { pending_delete: 0, redemption: 1, expired: 2 };
-        const list = this.dropsData.items.filter((d) => d.state in rank && this.dropMatches(d));
-        const by = this.compareBy(this.dropSort);
-        if (by) return list.sort(by);
-        return list.sort((a, b) => (a.release_at || "9").localeCompare(b.release_at || "9") || rank[a.state] - rank[b.state]);
-      });
-    },
-
-    get dropsSuspended() {
-      if (!this.dropsData) return 0;
-      const counts = this.dropsData.suspended || {};
-      return this.dropTld ? counts[this.dropTld] || 0 : Object.values(counts).reduce((a, b) => a + b, 0);
     },
 
     get dropTlds() {
@@ -1524,7 +1495,7 @@ document.addEventListener("alpine:init", () => {
     async watchDrop(d) {
       this.newName = d.name;
       await this.add();
-      d.watched = this.domains.some((x) => x.name === d.name);
+      if (this.domains.some((x) => x.name === d.name)) this.markWatched(d.name);
     },
 
     async saveCzds() {
@@ -1542,8 +1513,12 @@ document.addEventListener("alpine:init", () => {
 
     async deleteCzds() {
       if (!confirm("Retirer le compte ICANN ? Les lectures de zones s'arrêtent.")) return;
-      await this.api("DELETE", "/api/settings/czds");
-      await this.loadSettings();
+      try {
+        await this.api("DELETE", "/api/settings/czds");
+        await this.loadSettings();
+      } catch (e) {
+        this.say(e.message, "error");
+      }
     },
 
     async saveZones() {
@@ -1600,7 +1575,8 @@ document.addEventListener("alpine:init", () => {
     say(text, kind = "info") {
       this.notice = { text, kind };
       clearTimeout(this._noticeTimer);
-      if (kind !== "error") this._noticeTimer = setTimeout(() => (this.notice = null), 6000);
+      // Une erreur reste un peu plus longtemps ; la croix ferme avant.
+      this._noticeTimer = setTimeout(() => (this.notice = null), kind === "error" ? 8000 : 6000);
     },
 
     async add() {
@@ -1617,7 +1593,8 @@ document.addEventListener("alpine:init", () => {
         this.say(e.message, "error");
       }
       this.adding = false;
-      this.$nextTick(() => this.$refs.input.focus());
+      // Le champ d'ajout n'est visible que sur l'écran Domaines : ailleurs, le focus ouvrirait le clavier derrière la feuille.
+      if (!this.paged && !this.fiche) this.$nextTick(() => this.$refs.input.focus());
     },
 
     replace(d) {
@@ -1721,10 +1698,14 @@ document.addEventListener("alpine:init", () => {
 
     async removeTelegram() {
       if (!confirm("Retirer le bot Telegram ? Les alertes ne seront plus envoyées.")) return;
-      await this.api("DELETE", "/api/settings/telegram");
-      this.pairing = null;
-      await this.loadSettings();
-      this.say("Bot retiré.");
+      try {
+        await this.api("DELETE", "/api/settings/telegram");
+        this.pairing = null;
+        await this.loadSettings();
+        this.say("Bot retiré.");
+      } catch (e) {
+        this.say(e.message, "error");
+      }
     },
 
     async saveDigest() {
@@ -1842,14 +1823,22 @@ document.addEventListener("alpine:init", () => {
     },
 
     async removeLogo() {
-      await this.api("DELETE", "/api/settings/logo");
-      window.location.reload();
+      try {
+        await this.api("DELETE", "/api/settings/logo");
+        window.location.reload();
+      } catch (e) {
+        this.say(e.message, "error");
+      }
     },
 
     async regenerateCalendar() {
       if (this.cfg.calendar_url && !confirm("Changer l'adresse ? L'ancienne cessera de fonctionner.")) return;
-      const res = await this.api("POST", "/api/settings/calendar");
-      this.cfg.calendar_url = res.calendar_url;
+      try {
+        const res = await this.api("POST", "/api/settings/calendar");
+        this.cfg.calendar_url = res.calendar_url;
+      } catch (e) {
+        this.say(e.message, "error");
+      }
     },
 
     async copy(text) {

@@ -357,6 +357,8 @@ def test_views_weights_order_url(logged):
     views = client.put("/api/explore/views", json={"views": [{"name": "Prénoms top", "filters": {"cat": "firstname", "rank": 500}}, {"name": ""}]}).json()
     assert views == [{"name": "Prénoms top", "filters": {"cat": "firstname", "rank": "500"}}]
     assert client.get("/api/explore/views").json() == views
+    too_many = {"name": "Trop", "filters": {f"f{i}": "1" for i in range(41)}}
+    assert client.put("/api/explore/views", json={"views": [too_many]}).status_code == 422
     weights = client.put("/api/settings/weights", json={"values": {"shape": 5, "seo": 0}}).json()["values"]
     assert weights["shape"] == 2 and weights["seo"] == 0 and weights["demand"] == 1
     assert "gandi" in client.get("/api/settings").json()["order_url"]

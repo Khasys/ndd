@@ -1643,8 +1643,10 @@ async def set_views(request: Request, payload: Views):
     for view in payload.views:
         name = str(view.get("name", "")).strip()[:60]
         filters = view.get("filters")
-        if not name or not isinstance(filters, dict) or len(filters) > 20:
+        if not name or not isinstance(filters, dict):
             continue
+        if len(filters) > 40:
+            raise HTTPException(422, f"Vue « {name} » : {len(filters)} filtres, 40 au plus.")
         keep = [v for v in keep if v["name"] != name]  # même nom : la dernière l'emporte
         # La liste des extensions peut être longue (« Toutes ») : pas de coupure pour elle.
         clean = {str(k)[:20]: ("" if v is None else str(v))[:400 if k == "tld" else 40]
