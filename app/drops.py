@@ -694,8 +694,10 @@ class DropWatcher:
 
     def _next(self, state: str, now: datetime, release: datetime | None) -> datetime | None:
         """Le moins de requêtes possible : on regarde quand quelque chose doit changer."""
-        if state in (states.AVAILABLE, TAKEN, UNCONFIRMED):
-            return None  # Plus rien à attendre. Bouton « Revérifier » ou « Surveiller » pour la suite.
+        if state in (states.AVAILABLE, TAKEN, UNCONFIRMED, states.RENEWED):
+            # Plus rien à attendre. Bouton « Revérifier » ou « Surveiller » pour la suite. Renouvelé (.fr
+            # seulement) : le suivi des dates anniversaire de l'Afnic reprend la main.
+            return None
         if state in (states.REDEMPTION, states.PENDING_DELETE):
             if release:
                 target = release + timedelta(minutes=30)
@@ -742,12 +744,12 @@ class DropWatcher:
         else:
             info = result.info
             expires = info.expires_at
-            state = states.compute_state(info.statuses, info.expires_at, now, 0)
+            state = states.compute_state(info.statuses, info.expires_at, now, 0, row["tld"])
             if state == states.EXPIRED and row["tld"] == "fr":
                 # Le .fr n'a pas de délai de grâce : un nom non renouvelé passe en rédemption.
                 # Échéance dépassée sans rédemption = renouvellement pas encore visible à l'Afnic.
                 state = TAKEN
-            if state not in TRACKED:
+            if state not in TRACKED and state != states.RENEWED:
                 # Hors zone sans être supprimé : suspendu (hold). Sinon il est de nouveau à quelqu'un.
                 held = any("hold" in s.replace(" ", "").lower() for s in info.statuses)
                 state = SUSPENDED if held else TAKEN
@@ -771,7 +773,8 @@ class DropWatcher:
                error = NULL, checked_at = ?, next_check_at = ? WHERE id = ?""",
             (state, iso(since), iso(release), available_since, iso(now), iso(self._next(state, now, release)), row["id"]),
         )
-        if state == TAKEN and row["tld"] == "fr" and self.on_fr_taken:
+        if state in (TAKEN, states.RENEWED) and row["tld"] == "fr" and self.on_fr_taken:
+            # Repris ou renouvelé : de nouveau à quelqu'un, le suivi repart sur les dates anniversaire.
             self.on_fr_taken(row["label"], result)
         if self.on_change:
             self.on_change(row["name"])

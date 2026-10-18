@@ -55,6 +55,17 @@ def test_compute_state(statuses, expires_in_days, expected):
     assert states.compute_state(statuses, expires, NOW, 30) == expected
 
 
+def test_auto_renew_is_renewed_in_fr_only():
+    """.fr : « auto renew period » et échéance repoussée, renouvellement fait (« Renouvelé »), puis « Actif »
+    quand le statut disparaît. Extensions génériques : période de grâce, le nom peut encore se libérer."""
+    later, past = NOW + timedelta(days=360), NOW - timedelta(days=2)
+    assert states.compute_state(["active", "auto renew period"], later, NOW, 30, "fr") == states.RENEWED
+    assert states.compute_state(["active", "auto renew period"], past, NOW, 30, "fr") == states.EXPIRED
+    assert states.compute_state(["active"], later, NOW, 30, "fr") == states.ACTIVE
+    assert states.compute_state(["autoRenewPeriod"], later, NOW, 30, "com") == states.EXPIRED
+    assert states.LABELS[states.RENEWED] == "Renouvelé" and states.estimate_release(states.RENEWED, "fr", later, NOW, NOW, DELAYS) is None
+
+
 def test_release_from_redemption():
     since = datetime(2026, 10, 1, tzinfo=timezone.utc)
     release = states.estimate_release(states.REDEMPTION, "com", None, since, NOW, DELAYS)

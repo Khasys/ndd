@@ -1413,3 +1413,15 @@ def test_several_categories_are_a_union(env):
     top = {w for k in ("firstname", "surname") for w, n in ranks[k].items() if n <= 10}
     assert env.facets("fr", category="firstname,surname", max_rank=10, junk=True)["available"] == len(top)
     assert env.best_rank("martin", "firstname,surname") == min(r["martin"] for k, r in ranks.items() if k in ("firstname", "surname") and "martin" in r)
+
+
+def test_renewed_by_owner_is_not_shown_as_taken_again():
+    """« Repris » seulement pour un nouvel enregistrement : une date de création antérieure à la sortie du nom
+    (ou d'un an au moins avant l'état vu) dit que le titulaire l'a gardé."""
+    event = explore.Explorer._drop_event
+    kept = {"state": drops.TAKEN, "state_since": "2026-10-15T08:50:00+00:00", "removed_on": ""}
+    assert event(kept, {"registered_at": "2006-10-13T07:05:19+00:00"}) == "Renouvelé par le titulaire"
+    retaken = {"state": drops.TAKEN, "state_since": "2026-10-15T08:50:00+00:00", "removed_on": "2026-09-01"}
+    assert event(retaken, {"registered_at": "2026-10-14T10:00:00+00:00"}) == "Repris"
+    assert event(retaken, None) == "Repris"
+    assert event({"state": states.RENEWED, "state_since": "2026-10-15", "removed_on": ""}, {}) == "Renouvelé (même titulaire)"

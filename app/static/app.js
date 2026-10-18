@@ -88,12 +88,13 @@ const LABELS = {
   pending_delete: "Suppression imminente",
   redemption: "En rédemption",
   expired: "Expiré",
+  renewed: "Renouvelé",
   expiring: "Expire bientôt",
   active: "Actif",
   error: "Erreur de check",
 };
 
-const URGENCY = ["available", "pending_delete", "redemption", "expired", "expiring", "active"];
+const URGENCY = ["available", "pending_delete", "redemption", "expired", "renewed", "expiring", "active"];
 
 // Clés normalisées : RDAP écrit « client hold », EPP écrit « clientHold ».
 const EPP = {
@@ -2887,7 +2888,7 @@ document.addEventListener("alpine:init", () => {
     },
 
     // Signaux d'abandon : seulement pour un nom enregistré.
-    registeredState(d) { return ["active", "expiring", "expired", "redemption", "pending_delete"].includes(d.state); },
+    registeredState(d) { return ["active", "expiring", "expired", "renewed", "redemption", "pending_delete"].includes(d.state); },
 
     // Fiche d'un nom surveillé : « , dans 40 jours » après la date d'expiration (rien si passée ou inconnue).
     daysText(d) {
@@ -2933,6 +2934,7 @@ document.addEventListener("alpine:init", () => {
         { key: "pending_delete", definition: "Plus aucun renouvellement ni restauration possible. Libération dans quelques jours.", frequency: f("pending_delete"), action: "Préparer l'achat ou poser un backorder." },
         { key: "redemption", definition: "Nom supprimé par le registrar. Le titulaire peut encore le restaurer, avec frais.", frequency: f("redemption"), action: "Repérer un service de backorder. La plupart des noms de valeur sont restaurés ici." },
         { key: "expired", definition: "Date d'expiration dépassée, période de grâce. Le titulaire peut encore renouveler.", frequency: f("expired"), action: "Attendre. Beaucoup de noms sont renouvelés pendant cette période." },
+        { key: "renewed", definition: "Renouvelé automatiquement à l'échéance, par le même titulaire. Le registrar peut encore le supprimer pendant la période de grâce ; ensuite il redevient Actif.", frequency: f("renewed"), action: "Rien en général : la plupart des noms renouvelés restent à leur titulaire. Une suppression le ferait passer en rédemption." },
         { key: "expiring", definition: `Enregistré, expiration dans moins de ${days} jours.`, frequency: f("expiring"), action: "Surveiller. Les renouvellements de dernière minute sont fréquents." },
         { key: "active", definition: `Enregistré, expiration dans plus de ${days} jours.`, frequency: f("active"), action: "Rien à faire." },
         { key: "error", definition: "Le dernier check a échoué (réseau, limite de requêtes, serveur). Statut inconnu, dernier état connu conservé.", frequency: "selon le dernier état", action: "Rien : le check est retenté. Vérifier à la main si l'erreur persiste." },

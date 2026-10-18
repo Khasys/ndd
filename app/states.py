@@ -5,17 +5,22 @@ from pathlib import Path
 ACTIVE = "active"
 EXPIRING = "expiring"
 EXPIRED = "expired"
+# Renouvelé automatiquement à l'échéance (statut « auto renew period », échéance repoussée) : le titulaire le
+# garde en général ; le registrar peut encore le supprimer pendant la période de grâce. Redevient « Actif »
+# quand le statut disparaît, ou passe en rédemption si le registrar le supprime.
+RENEWED = "renewed"
 REDEMPTION = "redemption"
 PENDING_DELETE = "pending_delete"
 AVAILABLE = "available"
 
 # Ordre d'urgence, utilisé aussi pour le tri par défaut côté interface.
-URGENCY = [AVAILABLE, PENDING_DELETE, REDEMPTION, EXPIRED, EXPIRING, ACTIVE]
+URGENCY = [AVAILABLE, PENDING_DELETE, REDEMPTION, EXPIRED, RENEWED, EXPIRING, ACTIVE]
 
 LABELS = {
     ACTIVE: "Actif",
     EXPIRING: "Expire bientôt",
     EXPIRED: "Expiré",
+    RENEWED: "Renouvelé",
     REDEMPTION: "En rédemption",
     PENDING_DELETE: "Suppression imminente",
     AVAILABLE: "Disponible",
@@ -35,14 +40,19 @@ def _normalize(status: str) -> str:
     return status.replace(" ", "").replace("_", "").lower()
 
 
-def compute_state(statuses: list[str], expires_at: datetime | None, now: datetime, expiring_days: int) -> str:
+def compute_state(statuses: list[str], expires_at: datetime | None, now: datetime, expiring_days: int,
+                  tld: str | None = None) -> str:
     norm = {_normalize(s) for s in statuses}
     if "redemptionperiod" in norm or "pendingrestore" in norm:
         return REDEMPTION
     if "pendingdelete" in norm:
         return PENDING_DELETE
     if "autorenewperiod" in norm:
-        return EXPIRED
+        # .fr : l'Afnic renouvelle à l'échéance ; statut et échéance repoussée disent un renouvellement fait.
+        # Extensions génériques : le registre affiche l'échéance repoussée même si personne n'a payé, et le
+        # registrar peut encore supprimer le nom pendant la période de grâce (la plupart des libérations
+        # passent par là) : expiré, avec l'estimation de libération.
+        return RENEWED if tld == "fr" and expires_at is not None and expires_at > now else EXPIRED
     if expires_at is not None:
         if expires_at <= now:
             return EXPIRED

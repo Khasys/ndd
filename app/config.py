@@ -87,6 +87,8 @@ def load_settings() -> Settings:
             "active": _duration("INTERVAL_ACTIVE", "24h"),
             "expiring": _duration("INTERVAL_EXPIRING", "6h"),
             "expired": _duration("INTERVAL_EXPIRED", "6h"),
+            # Renouvelé : une lecture par jour suffit à voir une suppression (rédemption de 30 jours ensuite).
+            "renewed": _duration("INTERVAL_RENEWED", "24h"),
             "redemption": _duration("INTERVAL_REDEMPTION", "1h"),
             "pending_delete": _duration("INTERVAL_PENDING_DELETE", "5m"),
             "available": _duration("INTERVAL_AVAILABLE", "24h"),

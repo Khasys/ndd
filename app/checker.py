@@ -143,7 +143,8 @@ class Checker:
                 "nameservers": "[]",
             }
         else:
-            new_state = states.compute_state(info.statuses, info.expires_at, now, self.settings.expiring_days)
+            new_state = states.compute_state(info.statuses, info.expires_at, now, self.settings.expiring_days,
+                                             tld_of(row["name"]))
             values = {
                 "epp_statuses": json.dumps(info.statuses),
                 "registered_at": iso(info.registered_at),

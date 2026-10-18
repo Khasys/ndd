@@ -22,7 +22,7 @@ import threading
 import time
 from array import array
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from . import ai, ccdns, drops, frdns, precompute, prenoms, quality, rdapinfo, states, value, wordlists
 from .checker import iso, utcnow
@@ -155,6 +155,7 @@ COMPARABLE_LENGTH = 1
 # Ligne de temps : états de la Veille datés par state_since.
 TIMELINE_DROP_STATES = {states.EXPIRED: "Expiré", states.REDEMPTION: "Entré en rédemption",
                         states.PENDING_DELETE: "En suppression", drops.TAKEN: "Repris",
+                        states.RENEWED: "Renouvelé (même titulaire)",
                         drops.UNCONFIRMED: "Libre selon le WHOIS, à confirmer"}
 AI_FIELDS = {"exploit": "Exploitation", "resale": "Revente", "quick_low": "Revente rapide bas",
              "quick_high": "Revente rapide haut", "final_low": "Prix final bas", "final_high": "Prix final haut"}
@@ -612,7 +613,7 @@ class Explorer:
                 status[i] = UNCONFIRMED
             elif state == drops.SUSPENDED:
                 status[i] = SUSPENDED
-            elif state == drops.TAKEN:
+            elif state in (drops.TAKEN, states.RENEWED):
                 status[i] = REGISTERED
         if self.reserved is not None:
             # Réservé : seulement s'il n'est pas enregistré. Un nom pris reste « Enregistré ».
@@ -1531,7 +1532,7 @@ class Explorer:
             code = UNCONFIRMED
         elif state == drops.SUSPENDED:
             code = SUSPENDED
-        elif state == drops.TAKEN:
+        elif state in (drops.TAKEN, states.RENEWED):
             code = REGISTERED
         if self.reserved is not None and f"{label}.{tld}" in self.reserved.names() and code in (GONE, ABSENT, UNCONFIRMED, FREE, COMING):
             code = RESERVED
@@ -1913,7 +1914,7 @@ class Explorer:
             add(drop["removed_on"], "zone_out", "Sorti de la zone")  # vide si vérifié à la main : rien
         if drop is not None:
             if drop["state"] in TIMELINE_DROP_STATES:
-                add(drop["state_since"], "drop_" + drop["state"], TIMELINE_DROP_STATES[drop["state"]])
+                add(drop["state_since"], "drop_" + drop["state"], self._drop_event(drop, rdap))
             add(drop["available_since"], "available", "Libération constatée")
             if drop["state"] != states.AVAILABLE and not drop["available_since"]:
                 release = drop["release_at"] or release
@@ -2007,7 +2008,7 @@ class Explorer:
         if result.error:
             raise VerifyError(result.error)
         now = utcnow()
-        state = None if result.available else states.compute_state(result.info.statuses, result.info.expires_at, now, 0)
+        state = None if result.available else states.compute_state(result.info.statuses, result.info.expires_at, now, 0, tld)
         # .fr sans délai de grâce : échéance passée sans rédemption ou renouvellement automatique = à quelqu'un.
         registered = not result.available and (state not in drops.TRACKED or (tld == "fr" and state == states.EXPIRED))
         row = self.drops.row(name)
@@ -2028,6 +2029,18 @@ class Explorer:
         # Repli sur le WHOIS (RDAP en panne) : dit à l'interface, avec le serveur et le type d'erreur.
         item["note"] = getattr(result, "note", None)
         return item
+
+    @staticmethod
+    def _drop_event(drop, rdap: dict | None) -> str:
+        """Libellé de l'état de la Veille dans Dates clés. « Repris » seulement pour un nouvel enregistrement :
+        une date de création antérieure à la sortie du nom (ou d'un an au moins avant l'état vu) dit que le
+        titulaire l'a gardé, renouvelé."""
+        label = TIMELINE_DROP_STATES[drop["state"]]
+        if drop["state"] != drops.TAKEN:
+            return label
+        created, since = _day((rdap or {}).get("registered_at")), _day(drop["state_since"])
+        gone = _day(drop["removed_on"]) or (since and since - timedelta(days=365))
+        return "Renouvelé par le titulaire" if created and gone and created < gone else label
 
     def _describe_unknown(self, name: str, now: datetime) -> dict:
         """Nom hors des listes suivies (tapé dans l'Explorer) : le minimum pour l'afficher, le réserver
@@ -2054,6 +2067,11 @@ class Explorer:
             "score": 0, "reasons": [], "parts": {},
         }
 
+
+
+def _day(value: str | None) -> date | None:
+    """Jour d'une date ISO, avec ou sans heure (les dates de l'Afnic n'ont pas d'heure)."""
+    return date.fromisoformat(value[:10]) if value else None
 
 class VerifyError(Exception):
     pass

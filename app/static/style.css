@@ -15,6 +15,7 @@
   --s-active-bg: #eceef2;   --s-active-fg: #434b57;   --s-active-dot: #8a929e;
   --s-expiring-bg: #fbf3d0; --s-expiring-fg: #5f4a00; --s-expiring-dot: #c9a000;
   --s-expired-bg: #fce8d6;  --s-expired-fg: #7c3b05;  --s-expired-dot: #d9731c;
+  --s-renewed-bg: #e2f0ea;  --s-renewed-fg: #1e5641;  --s-renewed-dot: #3b8f6c;
   --s-redemption-bg: #fbe2e2; --s-redemption-fg: #8c1d1d; --s-redemption-dot: #cf3c3c;
   --s-pending-bg: #7d1b1b;  --s-pending-fg: #ffffff;  --s-pending-dot: #7d1b1b;
   --s-available-bg: #dff2e5; --s-available-fg: #1a5c33; --s-available-dot: #2f9a57;
@@ -43,6 +44,7 @@
   --s-active-bg: #262b33;   --s-active-fg: #c3c9d2;   --s-active-dot: #7c8592;
   --s-expiring-bg: #3a3214; --s-expiring-fg: #f0d77a; --s-expiring-dot: #d8b42e;
   --s-expired-bg: #3d2614;  --s-expired-fg: #f5b98a;  --s-expired-dot: #e08a43;
+  --s-renewed-bg: #17322a;  --s-renewed-fg: #a3d9c2;  --s-renewed-dot: #4fb38d;
   --s-redemption-bg: #401c1d; --s-redemption-fg: #f4a9a9; --s-redemption-dot: #e06363;
   --s-pending-bg: #b23a3a;  --s-pending-fg: #ffffff;  --s-pending-dot: #d65252;
   --s-available-bg: #173622; --s-available-fg: #8fdcaa; --s-available-dot: #4fbf78;
@@ -68,6 +70,7 @@
     --s-active-bg: #262b33;   --s-active-fg: #c3c9d2;   --s-active-dot: #7c8592;
     --s-expiring-bg: #3a3214; --s-expiring-fg: #f0d77a; --s-expiring-dot: #d8b42e;
     --s-expired-bg: #3d2614;  --s-expired-fg: #f5b98a;  --s-expired-dot: #e08a43;
+    --s-renewed-bg: #17322a;  --s-renewed-fg: #a3d9c2;  --s-renewed-dot: #4fb38d;
     --s-redemption-bg: #401c1d; --s-redemption-fg: #f4a9a9; --s-redemption-dot: #e06363;
     --s-pending-bg: #b23a3a;  --s-pending-fg: #ffffff;  --s-pending-dot: #d65252;
     --s-available-bg: #173622; --s-available-fg: #8fdcaa; --s-available-dot: #4fbf78;
@@ -219,6 +222,7 @@ button:disabled { cursor: default; opacity: .55; }
 .dot.s-active { background: var(--s-active-dot); }
 .dot.s-expiring { background: var(--s-expiring-dot); }
 .dot.s-expired { background: var(--s-expired-dot); }
+.dot.s-renewed { background: var(--s-renewed-dot); }
 .dot.s-redemption { background: var(--s-redemption-dot); }
 .dot.s-pending_delete { background: var(--s-pending-dot); }
 .dot.s-available { background: var(--s-available-dot); }
@@ -232,6 +236,7 @@ button:disabled { cursor: default; opacity: .55; }
 .badge.s-active { background: var(--s-active-bg); color: var(--s-active-fg); }
 .badge.s-expiring { background: var(--s-expiring-bg); color: var(--s-expiring-fg); }
 .badge.s-expired { background: var(--s-expired-bg); color: var(--s-expired-fg); }
+.badge.s-renewed { background: var(--s-renewed-bg); color: var(--s-renewed-fg); }
 .badge.s-redemption { background: var(--s-redemption-bg); color: var(--s-redemption-fg); }
 .badge.s-pending_delete { background: var(--s-pending-bg); color: var(--s-pending-fg); font-weight: 600; }
 .badge.s-available { background: var(--s-available-bg); color: var(--s-available-fg); }

@@ -541,7 +541,7 @@ class FrWatcher:
         limited = bool(result.error) and ("Limite" in result.error or "429" in result.error)
         outcome = "limite" if limited else "erreur" if result.error else "libre" if result.available else "enregistré"
         if not result.error and not result.available:
-            state = states.compute_state(result.info.statuses, result.info.expires_at, now, 0)
+            state = states.compute_state(result.info.statuses, result.info.expires_at, now, 0, "fr")
             if state in drops.TRACKED:
                 outcome = states.LABELS[state].lower()
         self.conn.execute(
@@ -606,7 +606,7 @@ class FrWatcher:
             self._schedule(row["label"], None, None, now)
             return True
         info = result.info
-        state = states.compute_state(info.statuses, info.expires_at, now, 0)
+        state = states.compute_state(info.statuses, info.expires_at, now, 0, "fr")
         if renewed(info, now):
             # Renouvelé automatiquement : pas expiré, rien à suivre dans l'écran Suppressions.
             self._schedule(row["label"], iso(info.expires_at), following_check(info, now), now)
