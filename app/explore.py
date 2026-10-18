@@ -23,7 +23,7 @@ from array import array
 from dataclasses import dataclass
 from datetime import date, datetime
 
-from . import ai, drops, frdns, precompute, quality, rdapinfo, states, value, wordlists
+from . import ai, drops, frdns, precompute, prenoms, quality, rdapinfo, states, value, wordlists
 from .checker import iso, utcnow
 
 # États, un octet par nom.
@@ -372,6 +372,9 @@ class Explorer:
         # des run_in_executor : chaque accès au dict passe par ce verrou (les calculs restent dehors).
         self._memo_lock = threading.RLock()
         self.generation = 0
+        # Prénoms récents de l'Insee (prenoms.RecentNames), posés par main.py : Top, tri « recent », raison.
+        self.recent = None
+        self._recent_cache: tuple[int, dict] | None = None
         # Les vérifications automatiques corrigent l'Explorer au fil de l'eau, nom par nom.
         drops_watcher.on_change = self.touch
         fr_watcher.on_change = self.touch
@@ -866,11 +869,55 @@ class Explorer:
         found = value.score(label, taken, ctx["gone"].get(i), ctx["seo"].get(f"{label}.{tld}"), ctx["today"], ctx["weights"],
                             rates, ctx["held"].get(form, 0.0), tld)
         found["rank"] = self.best_rank(label)
+        recent = self.recent.rank_of(label) if self.recent is not None else None
+        if recent:
+            found["reasons"] = self._with_recent(found.get("reasons", []), label, recent[0])
         if ctx.get("devalue") and ctx["status"][i] == PREMIUM:
             # Case « dévaluer les premiums probables » : score divisé par deux, la raison le dit.
             found["score"] //= 2
             found["reasons"] = found.get("reasons", []) + ["premium probable"]
         return found
+
+    def _with_recent(self, reasons: list[str], label: str, rank: int) -> list[str]:
+        """Raison « 12e prénom donné en 2024 » : à côté du rang historique, devant lui s'il est meilleur,
+        pour que la carte (deux raisons) la montre. Pas de points : ce n'est pas une mesure du score."""
+        text = prenoms.reason(rank, self.recent.latest)
+        reasons = list(reasons)
+        old = next((n for n, r in enumerate(reasons) if r.endswith(value.POPULAR_PHRASE["firstname"])), None)
+        historic = wordlists.ranks()["firstname"].get(label)
+        if old is not None and historic and rank < historic:
+            reasons.insert(old, text)
+        else:
+            reasons.insert(min(2, len(reasons)) if old is None else old + 1, text)
+        return reasons
+
+    def recent_order(self) -> dict | None:
+        """Prénoms les plus donnés de l'année la plus récente (Insee) qui sont dans l'univers, dans l'ordre
+        de l'Insee : année, positions, rang et nombre par position. None sans données."""
+        recent = self.recent
+        if recent is None or not recent.ranking():
+            return None
+        found = self._recent_cache
+        if found and found[0] == recent.version:
+            return found[1]
+        u = self.universe
+        order, ranks = array("i"), {}
+        for rank, (label, count) in enumerate(recent.ranking(), 1):
+            i = u.index(label)
+            if i is not None and i not in ranks:
+                order.append(i)
+                ranks[i] = (rank, count)
+        result = {"year": recent.latest, "order": order, "ranks": ranks,
+                  "position": {i: n for n, i in enumerate(order)}}
+        self._recent_cache = (recent.version, result)
+        return result
+
+    def recent_meta(self) -> dict | None:
+        """Liste « Prénoms <année> » du Top et tri « Les plus donnés en <année> », s'il y a des données."""
+        recent = self.recent_order()
+        if recent is None:
+            return None
+        return {"key": prenoms.TOP_KEY, "year": recent["year"], "label": f"Prénoms {recent['year']}"}
 
     def _opinions(self, tld: str) -> dict[str, dict]:
         """Avis IA de l'extension : notes et verdict, pour les niveaux et les classements revendre / exploiter.
@@ -902,7 +949,8 @@ class Explorer:
         arrêté dès qu'aucun nom restant ne peut plus entrer dans le classement.
 
         sort="freq" : du plus fréquent au moins fréquent (mots, formes, noms, prénoms).
-        sort="length" : du plus court au plus long, puis dans l'ordre alphabétique."""
+        sort="length" : du plus court au plus long, puis dans l'ordre alphabétique.
+        sort="recent" : les plus donnés l'année la plus récente du fichier de l'Insee, puis les autres par fréquence."""
         kwargs.setdefault("status", "available")
         f = Filters.of(*args, **kwargs)
         limit = max(1, min(limit, MAX_LIMIT * 5))
@@ -914,6 +962,14 @@ class Explorer:
             return self._by_frequency(tld, f, limit)
         if sort == "release":
             return self._by_release(tld, f, limit)
+        if sort == "recent":
+            # Comme SEO et avis IA, le tri ne filtre pas : les prénoms classés d'abord, puis les autres.
+            first = self._by_recent(tld, f, limit)["items"]
+            if len(first) < limit:
+                seen = {i["label"] for i in first}
+                rest = self._by_frequency(tld, f, limit + len(first))["items"]
+                first += [i for i in rest if i["label"] not in seen][: limit - len(first)]
+            return {"items": first}
         if sort in ("seo", "ai"):
             # Un tri ne filtre pas : les noms analysés (ou notés) d'abord, puis les autres par score.
             first = (self._by_seo if sort == "seo" else self._by_ai)(tld, f, limit)["items"]
@@ -1090,6 +1146,10 @@ class Explorer:
         if sort == "freq":
             key = category if category in wordlists.LABELS else ""
             return lambda item: (u.position(key, where(item)), item["tld"])
+        if sort == "recent":
+            key = category if category in wordlists.LABELS else ""
+            ranked = (self.recent_order() or {}).get("position", {})
+            return lambda item: (ranked.get(where(item), len(ranked) + u.position(key, where(item))), item["tld"])
         if sort == "seo":
             return lambda item: (-(item.get("_pr") or 0), -(item.get("_wb") or 0), -item["score"], where(item), item["tld"])
         if sort == "ai":
@@ -1144,6 +1204,34 @@ class Explorer:
                 if len(hits) >= limit * (4 if f.min_score else 1):
                     break
         return {"items": self._scored(tld, f, hits, data, self._bonus_context(tld))["items"][:limit]}
+
+    def _by_recent(self, tld: str, f: Filters, limit: int) -> dict:
+        """Prénoms les plus donnés l'année la plus récente (Insee), avec tous les filtres."""
+        recent = self.recent_order()
+        if recent is None:
+            return {"items": []}
+        codes = self.codes(f.status, "available", f.premium)
+        data = self.status_bytes(tld)
+        others = self._others(tld, f)
+        u = self.universe
+        q = self.normalize(f.q, tld)
+        allowed = self._restrict(tld, f)
+        ctx = self._bonus_context(tld)
+        items, hits = [], []
+        order = recent["order"]
+        for n, i in enumerate(order):
+            if allowed is None or i in allowed:
+                if data[i] in codes and self._good_ok(i, f) and self._taken_ok(i, others):
+                    label = u.label(i)
+                    if self._matches(label, f, q) and self._keep(label, f):
+                        hits.append(i)
+            # Notés par paquets : score minimum et niveau peuvent écarter des noms, la page se remplit quand même.
+            if len(hits) >= limit or (hits and n == len(order) - 1):
+                items += self._scored(tld, f, hits, data, ctx)["items"]
+                hits = []
+                if len(items) >= limit:
+                    break
+        return {"items": items[:limit]}
 
     def _by_frequency(self, tld: str, f: Filters, limit: int) -> dict:
         codes = self.codes(f.status, "available", f.premium)

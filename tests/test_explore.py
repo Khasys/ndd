@@ -1093,3 +1093,48 @@ def test_fiche_of_a_watched_name_shows_the_last_check_state(env):
                      (states.ACTIVE,))
     item = env.fiche("velo.fr")["item"]
     assert item["status"] == explore.REGISTERED and item["status_label"] == states.LABELS[states.ACTIVE]
+
+
+def set_recent(ex, tmp_path, ranked, year=2024):
+    """Prénoms récents de l'Insee, fabriqués pour le test (aucune donnée réelle)."""
+    from app import prenoms
+    (tmp_path / prenoms.FILE_NAME).write_text(json.dumps({"latest": year, "years": {str(year): ranked}, "url": "x"}))
+    ex.recent = prenoms.RecentNames(ex.fr.store, tmp_path)
+
+
+RECENT = [["gabriel", 5000], ["xylophonix", 4900], ["louise", 4800], ["jade", 4700], ["arthur", 4600], ["raphael", 4500]]
+
+
+def test_recent_first_names_sort_with_filters(env, tmp_path):
+    assert env.recent_meta() is None
+    set_recent(env, tmp_path, RECENT)
+    add_fr(env, "louise")
+    assert env.recent_meta() == {"key": "firstname_recent", "year": 2024, "label": "Prénoms 2024"}
+
+    def labels(**kw):
+        return [i["label"] for i in env.rank("fr", category="firstname", sort="recent", **kw)["items"]]
+
+    # Les plus donnés en 2024 d'abord (louise, prise, et le prénom hors des listes sautés), puis l'historique.
+    found = labels(limit=6)
+    assert found[:4] == ["gabriel", "jade", "arthur", "raphael"]
+    assert found[4] == "jean" and "xylophonix" not in found
+    assert labels(length=-4, limit=1) == ["jade"]
+    assert labels(q="ra", limit=1) == ["raphael"]
+    assert labels(status="registered", limit=1) == ["louise"]
+    # Plusieurs extensions : même ordre à la fusion.
+    key = env.merge_key("recent", "firstname")
+    merged = sorted([{"label": "jean", "tld": "fr"}, {"label": "raphael", "tld": "fr"}, {"label": "gabriel", "tld": "com"}], key=key)
+    assert [i["label"] for i in merged] == ["gabriel", "raphael", "jean"]
+
+
+def test_recent_rank_is_a_reason_not_points(env, tmp_path):
+    add_fr(env, "louise")
+    before = {i["tld"]: i for i in env.card("jade")["items"]}["fr"]
+    set_recent(env, tmp_path, RECENT)
+    after = {i["tld"]: i for i in env.card("jade")["items"]}["fr"]
+    assert after["score"] == before["score"]
+    assert "4e prénom donné en 2024" in after["reasons"]
+    # Mieux classée que le rang historique : avant lui, pour que la carte la montre.
+    assert after["reasons"].index("4e prénom donné en 2024") < after["reasons"].index("260e prénom le plus donné")
+    assert env.fiche("gabriel.fr")["item"]["reasons"].count("1er prénom donné en 2024") == 1
+    assert not any("donné en" in r for r in {i["tld"]: i for i in env.card("jean")["items"]}["fr"]["reasons"])

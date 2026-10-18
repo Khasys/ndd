@@ -546,6 +546,48 @@ def test_language_is_ignored_for_first_names(logged):
     assert len(every["items"]) == len(french["items"]) == 500
 
 
+def test_recent_first_names_in_top_sort_and_settings(logged, tmp_path):
+    import httpx as _httpx
+    from app import prenoms
+    client = logged()
+    st = client.app.state
+    st.conn.execute("INSERT INTO fr_names (label, created_on) VALUES ('louise', '2001-01-01')")
+    # Sans fichier lu : ni liste ni tri, et le Top le dit.
+    assert client.get("/api/explore/rank", params={"cat": "firstname"}).json()["recent"] is None
+    assert client.get("/api/explore/top", params={"cat": "firstname_recent", "n": 10}).status_code == 409
+    assert client.get("/api/settings").json()["prenoms"]["latest"] is None
+    # Fichier fabriqué pour le test, servi par un faux data.gouv.fr.
+    text = "sexe;prenom;periode;valeur\n2;LOUISE;2024;900\n1;GABRIEL;2024;1000\n1;XYLOPHONIX;2024;950\n2;JADE;2023;5\n"
+    datasets = {"data": [{"title": "Fichier des prénoms", "organization": {"name": "Insee"}, "resources": [
+        {"title": "France entière", "url": "https://insee.example/prenoms-nat.csv", "format": "csv", "last_modified": "2025-06-01"}]}]}
+
+    def handler(request):
+        if request.url.host == "www.data.gouv.fr":
+            return _httpx.Response(200, json=datasets)
+        return _httpx.Response(200, content=text.encode())
+
+    st.prenoms._http_factory = lambda: _httpx.AsyncClient(transport=_httpx.MockTransport(handler))
+    assert client.post("/api/prenoms/refresh").json() == {"started": True}
+    for _ in range(50):
+        if not client.get("/api/settings/status").json()["prenoms"]["running"]:
+            break
+        time.sleep(0.05)
+    card = client.get("/api/settings").json()["prenoms"]
+    assert card["latest"] == 2024 and card["names"] == 3 and card["untracked"] == 1 and card["error"] is None
+    assert client.get("/api/diag").json()["prenoms"]["latest"] == 2024
+    top = client.get("/api/explore/top", params={"cat": "firstname_recent", "n": 10, "tld": "fr"}).json()
+    assert top["lists"]["firstname_recent"] == "Prénoms 2024" and top["year"] == 2024
+    assert [(i["rank"], i["label"], i["count"]) for i in top["items"]] == [(1, "gabriel", 1000), (3, "louise", 900)]
+    assert top["items"][1]["cells"]["fr"]["state"] == "pris"
+    ranked = client.get("/api/explore/rank", params={"cat": "firstname", "sort": "recent", "tld": "fr", "limit": 2}).json()
+    assert ranked["recent"]["year"] == 2024 and ranked["items"][0]["name"] == "gabriel.fr"
+    assert "1er prénom donné en 2024" in ranked["items"][0]["reasons"]
+    assert client.get("/api/explore/export", params={"cat": "firstname", "sort": "recent", "tld": "fr"}).status_code == 200
+    assert client.put("/api/settings/prenoms", json={"url": "http://insee.example/x.csv"}).status_code == 422
+    assert client.put("/api/settings/prenoms", json={"url": " https://insee.example/x.csv "}).json()["url"] == "https://insee.example/x.csv"
+    client.__exit__(None, None, None)
+
+
 def test_ai_analysis_on_request(logged):
     client = logged()
     token = client.post("/api/settings/ai-token").json()["token"]
@@ -1040,7 +1082,8 @@ def test_light_polls_for_pairing_reserved_and_drops(logged):
     st = client.app.state
     status = client.get("/api/settings/status").json()
     assert status == {"telegram": {"chat_set": False, "bot_name": None, "pairing": False},
-                      "reserved": {"running": False, "at": None, "error": None, "count": 0}}
+                      "reserved": {"running": False, "at": None, "error": None, "count": 0},
+                      "prenoms": {"running": False, "latest": None}}
     st.store.set("telegram_chat_id", "42")
     st.telegram.bot_name = "monbot"
     st.telegram.start_pairing()

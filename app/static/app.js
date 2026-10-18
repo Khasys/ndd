@@ -11,8 +11,8 @@ const SHAPE_KINDS = ["letters", "digits", "mixed", "hyphen"];
 const DROP_FILTER_DEFAULTS = { q: "", nat: "", lang: "", len: "", rank: "", min: 0, junk: false, ai: [], quick: "" };
 // Filtres vierges de l'Explorer ; l'extension choisie reste.
 const EX_BLANK = { cat: "", nat: "", lang: "", len: "", rank: "", taken: "", min: "", junk: "", seo: "", premium: "", status: "bookable", sort: "best", level: "good", ...AI_FILTER_DEFAULTS };
-// Tris de la liste ; « best » suit l'usage (revendre / exploiter).
-const EX_SORTS = ["best", "release", "length", "freq", "score"];
+// Tris de la liste ; « best » suit l'usage (revendre / exploiter) ; « recent » : prénoms de la dernière année Insee.
+const EX_SORTS = ["best", "release", "length", "freq", "recent", "score"];
 // Explorer et Veille : trois réglages simples, les mêmes partout.
 const EX_STATES = [{ k: "bookable", label: "Libres" }, { k: "coming", label: "Bientôt libres" }, { k: "all", label: "Tous, même pris" }];
 const EX_TYPES = [
@@ -22,8 +22,8 @@ const EX_TYPES = [
   { k: "sport", label: "Sport" }, { k: "animal", label: "Animaux" }, { k: "food", label: "Cuisine" }, { k: "trend", label: "Tendances" },
   { k: "niche", label: "Sites de niche" }, { k: "expr", label: "Expressions" }, { k: "short", label: "Courts (1 à 4)" },
 ];
-// Listes du Top (Classements), dans l'ordre des puces de type.
-const TOP_LISTS = ["sector", "job", "sport", "animal", "food", "trend", "expr", "niche", "word", "english", "firstname", "surname", "combo", "form"];
+// Listes du Top (Classements), dans l'ordre des puces de type ; firstname_recent : « Prénoms <année> » (Insee), si lus.
+const TOP_LISTS = ["sector", "job", "sport", "animal", "food", "trend", "expr", "niche", "word", "english", "firstname", "firstname_recent", "surname", "combo", "form"];
 // Erreurs réseau en français simple : le détail technique reste dans la console du navigateur, qui
 // journalise la requête de toute façon ; l'appli n'y ajoute rien.
 const PLAIN_ERRORS = [
@@ -1012,6 +1012,8 @@ document.addEventListener("alpine:init", () => {
       if ("cat" in patch && patch.cat && !["word", "form"].includes(patch.cat)) this.ex.nat = "";
       // Mélanges et tirets ne sont jamais « prononçables » : sans les suites incluses, la liste serait vide.
       if (patch.cat === "mixed") this.ex.junk = "1";
+      // « Les plus donnés en … » n'existe qu'avec le type Prénoms.
+      if ("cat" in patch && patch.cat !== "firstname" && this.ex.sort === "recent") this.ex.sort = "best";
       this.exSelected = [];
       try { localStorage.setItem("explorer", JSON.stringify({ ...this.ex, q: "", v: 2 })); } catch (_) {}
       if (this.exTopOpen) this.exLoadTop();
@@ -1124,6 +1126,17 @@ document.addEventListener("alpine:init", () => {
     exToggleTop() {
       this.exTopOpen = !this.exTopOpen;
       if (this.exTopOpen) this.exLoadTop();
+    },
+
+    // Listes du Top : celles de l'Explorer, plus « Prénoms <année> » quand le fichier de l'Insee a été lu.
+    topLists() {
+      const recent = this.exData && this.exData.recent;
+      return TOP_LISTS.filter((k) => this.exData.kinds[k] || (recent && k === recent.key));
+    },
+
+    topLabel(k) {
+      const recent = this.exData && this.exData.recent;
+      return recent && k === recent.key ? recent.label : this.kindLabel(this.exData.kinds, k);
     },
 
     async exLoadTop() {
@@ -1262,6 +1275,36 @@ document.addEventListener("alpine:init", () => {
         const res = await this.api("PUT", "/api/settings/order-url", { url: this.cfg.order_url || "" });
         this.cfg.order_url = this.orderUrl = res.order_url;
         this.say("Lien de réservation enregistré.");
+      } catch (e) {
+        this.say(e.message, "error");
+      }
+    },
+
+    prenomsLine(p) {
+      if (!p.latest) return p.at ? `Pas encore de données, dernier essai ${this.relative(p.at)}.` : "Pas encore téléchargé : premier essai quelques minutes après le démarrage.";
+      const missing = p.untracked ? `, ${this.fmt(p.untracked)} hors des listes suivies (${p.untracked_examples.join(", ")}…), non suivis` : "";
+      return `Année ${p.latest} : ${this.fmt(p.names)} prénoms les plus donnés, ${this.fmt(p.tracked)} suivis${missing}. Lu ${this.relative(p.at)}.`;
+    },
+
+    async refreshPrenoms() {
+      try {
+        await this.api("POST", "/api/prenoms/refresh");
+        this.cfg.prenoms.running = true;
+        const poll = setInterval(async () => {
+          const st = await this.settingsStatus();
+          if (!st || st.prenoms.running) return;
+          clearInterval(poll);
+          await this.loadSettings();
+        }, 3000);
+      } catch (e) {
+        this.sayError(e, "", () => this.refreshPrenoms());
+      }
+    },
+
+    async savePrenomsUrl() {
+      try {
+        this.cfg.prenoms = await this.api("PUT", "/api/settings/prenoms", { url: this.cfg.prenoms.url || "" });
+        this.say("Adresse enregistrée. « Mettre à jour » pour lire le fichier.");
       } catch (e) {
         this.say(e.message, "error");
       }

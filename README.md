@@ -92,8 +92,8 @@ appareils.
 En tête, le bloc **Démarrer en 3 étapes** (le même que sur Aujourd'hui) tant qu'une étape manque. Puis,
 dans l'ordre : les sources (Extension .fr, Zones ICANN, Sources et lectures), Telegram, Alertes, Avis IA.
 Le reste est replié sous « Afficher les réglages avancés » : Résumé du matin, Résumé hebdomadaire, Écran
-Veille, Premiums probables, Noms réservés, SEO, Score de l'Explorer, Lien « Réserver », Calendrier,
-Apparence. La carte Version est en bas. Sur téléphone, Paramètres s'ouvre par l'icône en haut à droite de
+Veille, Premiums probables, Noms réservés, Prénoms récents (Insee), SEO, Score de l'Explorer, Lien « Réserver »,
+Calendrier, Apparence. La carte Version est en bas. Sur téléphone, Paramètres s'ouvre par l'icône en haut à droite de
 chaque écran.
 
 ### Calendrier
@@ -234,6 +234,23 @@ liste anglaise (roofer, petshop, dumbbell), sinon il garde son rang dans celle-c
 `app/data/marques.txt` (marques connues, aussi retirées de la liste anglaise) servent au score,
 pas à la surveillance.
 
+**Prénoms récents** : `prenoms.txt` classe les prénoms sur 1900-2018. Les années récentes viennent du
+fichier des prénoms de l'Insee, publié une fois par an avec les naissances jusqu'à l'année précédente
+(parfois deux ans avant) : l'année en cours n'existe jamais. Le NAS le télécharge une fois par mois
+(`app/prenoms.py`, nouvel essai le lendemain après une erreur) : recherche du jeu de données « fichier
+des prénoms » de l'Insee par l'API de data.gouv.fr, ressource nationale la plus récente (zip ou csv,
+« nat » ou « France » dans le titre ou le nom), sinon l'adresse collée dans Paramètres, carte « Prénoms
+récents (Insee) », « Adresse du fichier ». Le fichier est lu en flux puis effacé ; colonnes repérées par
+leur intitulé (ancien format `sexe;preusuel;annais;nombre`, récent `sexe;prenom;periode;valeur`) ; prénoms
+rares (« XXXX », « _PRENOMS_RARES ») écartés ; même normalisation que `prenoms.txt`, filles et garçons
+additionnés. Reste `data/prenoms_recents.json` : les 2 000 prénoms les plus donnés de chacune des trois
+années les plus récentes. Il ne change ni les listes suivies ni le score : un prénom récent absent de
+l'univers de l'Explorer (ni nom court, ni nom d'une liste) n'est pas suivi, la carte le compte. Si
+l'Insee renomme ses colonnes, la lecture s'arrête et la carte affiche les colonnes lues ; le classement
+précédent reste en place. La carte donne l'année couverte, le nombre de prénoms, l'heure de la dernière
+lecture et l'erreur éventuelle ; « Mettre à jour » relance la lecture (`POST /api/prenoms/refresh`,
+état dans `prenoms` de `GET /api/settings` et de `/api/diag`).
+
 Source : les fichiers de zone publiés chaque jour par les registres via CZDS d'ICANN, gratuits sur
 inscription. Le .fr et les autres extensions nationales n'y sont pas.
 
@@ -371,6 +388,11 @@ requête : zones ICANN lues chaque jour, open data de l'Afnic, données de la Ve
   cuisine, tendances, sites de niche, mots, anglais, prénoms, noms…), pris ou non, avec l'état sur chaque extension en toutes lettres
   (probablement libre, pris, à venir, libre, réservé, premium probable). Un état ouvre la fiche. Les
   puces d'état de la liste sont masquées tant que le Top est ouvert : il montre tous les états.
+  À côté de « Prénoms » (1900-2018), « Prénoms 2024 » (l'année la plus récente du fichier de l'Insee,
+  voir « Listes de noms »), dès que le fichier a été lu : rang de l'Insee, nombre de naissances au
+  survol, prénoms hors de l'univers sautés (`cat=firstname_recent` de `/api/explore/top`, avec `year`
+  et `count` ; 409 tant qu'aucun fichier n'est lu ; `recent` de `/api/explore/rank` donne `key`, `year`
+  et `label`, ou null).
 - **Langue** : filtre Français / Anglais (Explorer et Veille). Listes mêlées : langue relevée à
   la construction (app/data/langues.txt) ; jargon des tendances absent des deux listes : les deux.
 - **Fiche** : nuit prévue pour l'avis IA (place dans la file, 1 000 noms par nuit, horizon de 30
@@ -386,7 +408,10 @@ requête : zones ICANN lues chaque jour, open data de l'Afnic, données de la Ve
   prénoms), nombre de noms réservables par case, le même compte que la puce « Libres » de la liste
   (libération à venir exclue). Une case ouvre la liste filtrée et referme la carte.
 - **Liste** : les meilleurs d'abord (selon revendre ou exploiter), libération la plus proche, les plus
-  courts, les plus courants, ou score seul. Une carte ouvre la fiche du nom.
+  courts, les plus courants, ou score seul ; avec le type Prénoms et le fichier de l'Insee lu, « Les plus
+  donnés en 2024 » (`sort=recent`) : prénoms de l'année la plus récente dans l'ordre de l'Insee, tous les
+  filtres appliqués, puis les autres par fréquence. Un prénom classé porte la raison « 12e prénom donné
+  en 2024 » sur sa carte et sa fiche, sans point de score. Une carte ouvre la fiche du nom.
 - **Fiche** : la même dans Domaines, Veille et Explorer. État, score détaillé, raisons,
   catégories, nature, fréquence, historique .fr, SEO, dernière réponse RDAP ou WHOIS (registrar,
   dates, statuts, DNS ; pour un nom surveillé, la section Suivi la remplace), autres extensions (avec le
@@ -463,7 +488,7 @@ note de 0 à 10 tirée des liens (Common Crawl), avec une clé gratuite à saisi
 la Wayback Machine donne les années où le site a été archivé, sans clé. Le nombre exact de
 backlinks n'existe que chez des services payants (Ahrefs, Majestic, Moz).
 
-Tri : score, fréquence (mot, nom ou prénom du plus courant au moins courant), longueur, SEO, avis IA. Un tri ne filtre pas : avec SEO ou avis IA, les noms analysés viennent d'abord, puis les autres par score.
+Tri : score, fréquence (mot, nom ou prénom du plus courant au moins courant), prénoms de l'année la plus récente (Insee), longueur, SEO, avis IA. Un tri ne filtre pas : avec SEO ou avis IA, les noms analysés viennent d'abord, puis les autres par score.
 
 #### Avis IA
 

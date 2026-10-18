@@ -221,6 +221,7 @@
       <dt>Formes</dt><dd>Tous les noms de 1 à 4 caractères.</dd>
       <dt>Mots, formes fléchies</dt><dd>20 000 mots français les plus fréquents, 10 000 formes fléchies.</dd>
       <dt>Noms de famille, prénoms</dt><dd>Noms donnés plus de 500 fois, prénoms plus de 100 fois en France (Insee).</dd>
+      <dt>Prénoms récents</dt><dd>Les plus donnés de la dernière année publiée par l'Insee (jamais l'année en cours) : liste du Top, tri « Les plus donnés en … » avec le type Prénoms, raison sur la carte.</dd>
       <dt>Mots anglais</dt><dd>30 000 plus fréquents, hors marques connues.</dd>
       <dt>Secteurs porteurs</dt><dd>Assurance, crédit, immobilier, droit, santé, travaux… en français et en anglais.</dd>
       <dt>Tendances</dt><dd>IA, énergie, mobilité, bien-être…</dd>
@@ -673,8 +674,8 @@
               <button type="button" class="btn-ghost sm" @click="exToggleTop()">Fermer</button>
             </div>
             <div class="ex-chips">
-              <template x-for="k in TOP_LISTS.filter((x) => exData.kinds[x])" :key="k">
-                <button type="button" class="tag" :class="{ on: top.cat === k }" @click="top.cat = k; exLoadTop()" x-text="kindLabel(exData.kinds, k)"></button>
+              <template x-for="k in topLists()" :key="k">
+                <button type="button" class="tag" :class="{ on: top.cat === k }" @click="top.cat = k; exLoadTop()" x-text="topLabel(k)"></button>
               </template>
             </div>
             <div class="ex-chips">
@@ -682,7 +683,8 @@
                 <button type="button" class="tag" :class="{ on: top.n === n }" @click="top.n = n; exLoadTop()" x-text="'Top ' + n"></button>
               </template>
             </div>
-            <p class="muted small" x-show="ex.lang && ['surname', 'firstname'].includes(top.cat)">Langue ignorée : les prénoms et les noms n'en ont pas.</p>
+            <p class="muted small" x-show="ex.lang && ['surname', 'firstname', 'firstname_recent'].includes(top.cat)">Langue ignorée : les prénoms et les noms n'en ont pas.</p>
+            <p class="muted small" x-show="top.cat === 'firstname_recent' && topData && topData.year"><span x-text="'Naissances ' + (topData || {}).year + ' (Insee).'"></span> L'année en cours n'est jamais publiée. Rang de l'Insee : les prénoms hors des listes suivies sont sautés.</p>
             <p class="muted small" x-show="!topData">Chargement…</p>
             <template x-if="topData">
               <div class="ex-top-scroll">
@@ -691,7 +693,7 @@
                   <tbody>
                     <template x-for="r in topData.items" :key="r.label">
                       <tr>
-                        <td class="num muted" x-text="r.rank"></td>
+                        <td class="num muted" x-text="r.rank" :title="r.count ? fmt(r.count) + ' naissances' : ''"></td>
                         <td class="mono" x-text="r.label"></td>
                         <template x-for="t in topData.tlds" :key="t">
                           <td><button type="button" class="top-cell" :class="'top-' + r.cells[t].code" @click="openFiche(r.label + '.' + t)" :title="r.label + '.' + t" x-text="r.cells[t].state + (r.cells[t].ai ? ' · ' + aiVerdict(r.cells[t].ai).replace('À ', '') : '')"></button></td>
@@ -761,6 +763,9 @@
               <option value="release">Libération la plus proche</option>
               <option value="length">Les plus courts</option>
               <option value="freq">Les plus courants</option>
+              <template x-if="ex.cat === 'firstname' && exData && exData.recent">
+                <option value="recent" :selected="ex.sort === 'recent'" x-text="'Les plus donnés en ' + exData.recent.year"></option>
+              </template>
               <option value="score">Score seul</option>
             </select>
             <div class="ex-tools">
@@ -1190,6 +1195,25 @@
           </div>
         </template>
         <p class="muted small">Examen préalable Afnic et noms de communes : intérêt légitime exigé.</p>
+      </div>
+
+      <div>
+        <h3>Prénoms récents (Insee)</h3>
+        <template x-if="cfg && cfg.prenoms">
+          <div class="setting-lines">
+            <p class="small" x-text="prenomsLine(cfg.prenoms)"></p>
+            <p class="small error-text" x-show="cfg.prenoms.error" x-text="cfg.prenoms.error"></p>
+            <p><button type="button" class="btn-ghost" @click="refreshPrenoms()" :disabled="cfg.prenoms.running">Mettre à jour</button></p>
+            <details class="fr-advanced">
+              <summary class="small muted">Adresse du fichier (facultatif)</summary>
+              <form class="inline-form" @submit.prevent="savePrenomsUrl()">
+                <input type="url" x-model="cfg.prenoms.url" placeholder="Trouvée automatiquement sur data.gouv.fr" aria-label="Adresse du fichier des prénoms">
+                <button type="submit" class="btn-ghost">Enregistrer</button>
+              </form>
+            </details>
+          </div>
+        </template>
+        <p class="muted small">L'Insee publie les prénoms d'une année l'année suivante : l'année en cours n'est jamais disponible.</p>
       </div>
 
       <div>

@@ -42,6 +42,17 @@ puis les autres, filles et garçons en alternance du plus au moins donné. En mi
 Source : Insee, fichier des prénoms, données publiques. Lu dans le même dépôt
 github.com/cnovel/prenoms (fichiers dist.prenoms.f.all.txt et dist.prenoms.m.all.txt).
 
+## Prénoms récents (hors de ce dossier)
+
+Pas de fichier ici : le NAS télécharge chaque mois le fichier national des prénoms de l'Insee
+(« Fichier des prénoms », une édition par an, naissances jusqu'à l'année précédente ou celle
+d'avant), trouvé par l'API de data.gouv.fr ou à l'adresse saisie dans Paramètres. Il en garde,
+dans son dossier de données (`prenoms_recents.json`), les 2 000 prénoms les plus donnés des trois
+années les plus récentes, normalisés comme prenoms.txt, filles et garçons réunis. Rien n'est
+téléchargé à la construction de l'image ni pendant les tests.
+
+Source : Insee, fichier des prénoms, Licence Ouverte (Etalab).
+
 ## mots_courts.txt
 
 Toutes les formes de 2 à 4 lettres de Lexique 3.83, même rares (« oye », « ovni »), pour

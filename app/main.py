@@ -28,7 +28,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import ai, bot, calendar_ics, ccdns, db, decisions, morning, notify, portfolio, digest, drops, explore, frdata, frdns, reserved, seo, signals, states, updates, value, wordlists
+from . import ai, bot, calendar_ics, ccdns, db, decisions, morning, notify, portfolio, digest, drops, explore, frdata, frdns, prenoms, reserved, seo, signals, states, updates, value, wordlists
 from .auth import (
     COOKIE_NAME,
     LoginGuard,
@@ -258,6 +258,11 @@ async def lifespan(app: FastAPI):
             start_pass(app.state.cc_dns[tld])
         return check
 
+    async def refresh_prenoms() -> None:
+        # Une fois par mois : l'Insee publie une édition par an, la date exacte varie.
+        if app.state.prenoms.due():
+            await app.state.prenoms.refresh()
+
     async def refresh_reserved() -> None:
         if app.state.reserved.due():
             await app.state.reserved.refresh()
@@ -279,6 +284,8 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(check_drops, "interval", minutes=5, next_run_time=now + timedelta(minutes=3), max_instances=1)
     scheduler.add_job(import_fr, "interval", hours=6, next_run_time=now + timedelta(minutes=4), max_instances=1)
     scheduler.add_job(refresh_reserved, "interval", hours=6, next_run_time=now + timedelta(minutes=2), max_instances=1)
+    scheduler.add_job(refresh_prenoms, "interval", hours=6, next_run_time=now + timedelta(minutes=11), max_instances=1,
+                      id="prenoms")
     # File .fr : chaque minute, autant de requêtes que le plafond réglé le permet.
     scheduler.add_job(tick_fr, "interval", minutes=1, next_run_time=now + timedelta(minutes=6), max_instances=1)
     # DNS .fr : une passe par jour, lancée à minuit, étalée sur la journée.
@@ -298,6 +305,8 @@ async def lifespan(app: FastAPI):
     app.state.fr = fr
     app.state.reserved = reserved.Reserved(conn, store)
     app.state.explorer = explore.Explorer(conn, watcher, fr, app.state.reserved)
+    app.state.prenoms = prenoms.RecentNames(store, settings.data_dir)
+    app.state.explorer.recent = app.state.prenoms
     fr_dns = frdns.FrDns(conn, store, app.state.explorer, digest.local_zone(), notify=telegram.send)
     app.state.fr_dns = fr_dns
     # .co, .ai, .io : une passe par extension, en même temps que le .fr (registres différents).
@@ -915,6 +924,7 @@ async def get_settings(request: Request):
                     "tlds": [t for t in state.explorer.tlds() if t != "fr"]},
         "seo": {"key_set": bool(state.seo.key)},
         "reserved": state.reserved.status(),
+        "prenoms": state.prenoms.status(),
         "weights": {"values": value.weights_from(store.get("score_weights")), "labels": value.CRITERIA},
         "order_url": _order_url(store),
         "alerts": _alert_settings(store),
@@ -933,10 +943,12 @@ async def settings_status(request: Request):
     sonder sans relire tous les réglages (et sans rappeler Telegram)."""
     state = request.app.state
     telegram, held = state.telegram, state.reserved.status()
+    names = state.prenoms
     return {
         "telegram": {"chat_set": bool(telegram.chat_id), "bot_name": telegram.bot_name, "pairing": telegram.pairing_active},
         "reserved": {"running": held["running"], "at": held.get("at"), "error": held.get("error"),
                      "count": sum(held["counts"].values())},
+        "prenoms": {"running": names.running, "latest": names.latest},
     }
 
 
@@ -1404,7 +1416,7 @@ def _ai_param(p) -> str:
     return explore.ai_filter(verdicts, ranges)
 
 
-RANK_SORTS = ("score", "freq", "length", "seo", "ai", "release", "resale", "exploit")
+RANK_SORTS = ("score", "freq", "length", "seo", "ai", "release", "resale", "exploit", "recent")
 
 
 def _limit(request: Request, most: int) -> int:
@@ -1440,6 +1452,8 @@ def _explore_meta(explorer, tld: str, chosen: list[str] | None = None) -> dict:
         "ai_fields": explore.AI_FIELDS,
         "statuses": explore.STATUS_NAMES,
         "absent_label": explore.ABSENT_FR if chosen == ["fr"] else explore.ABSENT_ZONE,
+        # Prénoms récents (Insee) : liste du Top et tri « recent », absents tant qu'aucun fichier n'est lu.
+        "recent": explorer.recent_meta(),
     }
 
 
@@ -1526,8 +1540,10 @@ async def explore_top(request: Request):
     """Les N premiers d'une liste, pris ou non, avec leur état sur chaque extension."""
     explorer = request.app.state.explorer
     category = request.query_params.get("cat", "sector")
-    if category not in wordlists.LABELS:
+    if category not in wordlists.LABELS and category != prenoms.TOP_KEY:
         raise HTTPException(422, "Liste inconnue.")
+    if category == prenoms.TOP_KEY and await _off(explorer.recent_order) is None:
+        raise HTTPException(409, "Prénoms récents pas encore téléchargés (Paramètres, Prénoms récents).")
     try:
         size = int(request.query_params.get("n", "50"))
     except ValueError:
@@ -1545,20 +1561,28 @@ def _top(explorer, category, size, wanted, lang):
     chosen = [t for t in wanted.split(",") if t in known]
     tlds = chosen or known
     data = {t: explorer.status_bytes(t) for t in tlds}
-    order = u.by_frequency[category]
-    if lang in wordlists.LANGS and category not in wordlists.NO_LANG:
-        names = wordlists.languages()[lang]
-        order = [i for i in order if u.label(i) in names]
-    order = list(order[:size])
-    opinions = ai.load(explorer.conn, [f"{u.label(i)}.{t}" for i in order for t in tlds])
+    lists = dict(wordlists.LABELS)
+    recent = explorer.recent_order()
+    if recent is not None:
+        lists[prenoms.TOP_KEY] = f"Prénoms {recent['year']}"
+    if category == prenoms.TOP_KEY:
+        # Rang et nombre de naissances de l'Insee ; les prénoms hors de l'univers (non suivis) sont sautés.
+        ranked = [(*recent["ranks"][i], i) for i in recent["order"][:size]]
+    else:
+        order = u.by_frequency[category]
+        if lang in wordlists.LANGS and category not in wordlists.NO_LANG:
+            names = wordlists.languages()[lang]
+            order = [i for i in order if u.label(i) in names]
+        ranked = [(rank, None, i) for rank, i in enumerate(order[:size], 1)]
+    opinions = ai.load(explorer.conn, [f"{u.label(i)}.{t}" for _, _, i in ranked for t in tlds])
     items = []
-    for rank, i in enumerate(order, 1):
+    for rank, count, i in ranked:
         label = u.label(i)
         cells = {t: {"code": data[t][i], "state": TOP_STATES.get(data[t][i], ""), "ai": opinions.get(f"{label}.{t}")}
                  for t in tlds}
-        items.append({"rank": rank, "label": label, "cells": cells})
+        items.append({"rank": rank, "label": label, "cells": cells, **({"count": count} if count else {})})
     return {"category": category, "size": size, "tlds": tlds, "items": items,
-            "lists": wordlists.LABELS, "sizes": TOP_SIZES}
+            "lists": lists, "sizes": TOP_SIZES, "year": recent["year"] if recent else None}
 
 
 @app.get("/api/explore/map")
@@ -1849,6 +1873,8 @@ async def diag(request: Request):
         "cc_dns": {tld: c.status() for tld, c in state.cc_dns.items()},
         "ai": ai.stats(explorer),
         "reserved": state.reserved.status(),
+        # Sans l'adresse saisie : le jeton en lecture seule ne voit aucun réglage.
+        "prenoms": {k: v for k, v in state.prenoms.status().items() if k != "url"},
         "lists": {k: len(v) for k, v in wordlists.lists().items()},
         "domains": dict(conn.execute("SELECT COALESCE(state, 'inconnu'), COUNT(*) FROM domains GROUP BY 1").fetchall()),
         "drops": drops_by_state,
@@ -1918,6 +1944,29 @@ async def refresh_reserved_now(request: Request):
 
         request.app.state.reserved_task = asyncio.create_task(refresh())
     return {"started": not lists.running}
+
+
+class PrenomsSettings(BaseModel):
+    url: str = ""
+
+
+@app.put("/api/settings/prenoms")
+async def set_prenoms(request: Request, payload: PrenomsSettings):
+    """Adresse du fichier des prénoms de l'Insee, si la découverte par data.gouv.fr échoue (vide : automatique)."""
+    url = payload.url.strip()
+    if url and not url.startswith("https://"):
+        raise HTTPException(422, "Adresse du fichier : https:// attendu.")
+    request.app.state.store.set("prenoms_url", url)
+    return request.app.state.prenoms.status()
+
+
+@app.post("/api/prenoms/refresh", status_code=202)
+async def refresh_prenoms_now(request: Request):
+    names = request.app.state.prenoms
+    if names.running:
+        return {"started": False}
+    request.app.state.prenoms_task = asyncio.create_task(names.refresh())
+    return {"started": True}
 
 
 class NameFlag(BaseModel):
