@@ -18,9 +18,33 @@ const EX_STATES = [{ k: "bookable", label: "Libres" }, { k: "coming", label: "Bi
 const EX_TYPES = [
   { k: "", label: "Tout" }, { k: "word", label: "Mots courants" }, { k: "english", label: "Anglais" },
   { k: "firstname", label: "Prénoms" }, { k: "surname", label: "Noms de famille" }, { k: "startup", label: "Tech et startups" },
-  { k: "media", label: "Médias et marques" }, { k: "sector", label: "Secteurs" }, { k: "trend", label: "Tendances" },
+  { k: "media", label: "Médias et marques" }, { k: "sector", label: "Secteurs" }, { k: "job", label: "Métiers" },
+  { k: "sport", label: "Sport" }, { k: "animal", label: "Animaux" }, { k: "food", label: "Cuisine" }, { k: "trend", label: "Tendances" },
   { k: "niche", label: "Sites de niche" }, { k: "expr", label: "Expressions" }, { k: "short", label: "Courts (1 à 4)" },
 ];
+// Listes du Top (Classements), dans l'ordre des puces de type.
+const TOP_LISTS = ["sector", "job", "sport", "animal", "food", "trend", "expr", "niche", "word", "english", "firstname", "surname", "combo", "form"];
+// Erreurs réseau en français simple : le détail technique reste dans la console du navigateur, qui
+// journalise la requête de toute façon ; l'appli n'y ajoute rien.
+const PLAIN_ERRORS = [
+  [/ProxyError|ConnectError|ConnectTimeout|Bootstrap IANA indisponible|injoignable|Failed to fetch|NetworkError|Load failed|ECONN|getaddrinfo|Name or service not known|RemoteProtocolError|ReadError|TransportError/i, "Réseau injoignable"],
+  [/timeout|timed out|délai dépassé|pas de réponse|aucune réponse/i, "Pas de réponse du registre"],
+];
+function plainError(message) {
+  const text = String(message || "");
+  for (const [re, plain] of PLAIN_ERRORS) if (re.test(text)) return plain;
+  return text;
+}
+// Une action est rejouable quand l'échec vient du réseau ou du serveur, pas d'une réponse attendue (409, 422).
+function retryable(e) {
+  return !e.status || e.status >= 500 || e.status === 429 || plainError(e.message) !== String(e.message || "");
+}
+// « 3 vérifiés, 1 échec » : bilan d'une action groupée.
+function tally(ok, fail, one, many) {
+  const parts = [`${ok} ${ok > 1 ? many : one}`];
+  if (fail) parts.push(`${fail} échec${fail > 1 ? "s" : ""}`);
+  return parts.join(", ");
+}
 const LENSES = [{ k: "resale", label: "Pour revendre" }, { k: "exploit", label: "Pour exploiter" }];
 const LABELS = {
   available: "Disponible",
@@ -135,6 +159,16 @@ document.addEventListener("alpine:init", () => {
     portfolioOpen: false,
     pf: null,
     pfNew: { name: "", buy_price: "", bought_on: "", renew_price: "" },
+    // Noms ajoutés au portefeuille dont le registre est interrogé en arrière-plan (jusqu'au rechargement suivant).
+    pfChecking: [],
+    decisions: null,
+    aiOutcomes: null,
+    savingAlerts: false,
+    // Domaines : sélection multiple, actions groupées.
+    domSelected: [],
+    domBulkRunning: false,
+    domBulkDone: 0,
+    TOP_LISTS,
     exData: null,
     exError: "",
     exItems: [],
@@ -403,12 +437,15 @@ document.addEventListener("alpine:init", () => {
       // La pastille principale est ce qui trie : la note IA de l'usage en cours, sinon le score ; « Score seul » garde le score.
       const scoreFirst = !note || (list === "explore" && this.ex.sort === "score");
       const st = this.cardState(i, list);
+      const verdict = this.aiVerdict(ai);
       return {
         name: i.name, list, item: i,
         primary: scoreFirst ? score : note,
         secondary: scoreFirst ? note : score,
-        line: ai ? `${this.aiVerdict(ai)} · utilisateur final ${this.priceRange(ai.final_low, ai.final_high)}` : (i.reasons || []).slice(0, 2).join(" · "),
+        line: ai ? `${verdict} · utilisateur final ${this.priceRange(ai.final_low, ai.final_high)}` : (i.reasons || []).slice(0, 2).join(" · "),
         lineClass: this.aiClass(ai),
+        // Pourquoi « À laisser » ou « À surveiller », en fin de phrase, discret.
+        why: ai && ai.why && verdict !== "À prendre" ? ai.why : "",
         ...st,
         isNew: list === "veille" && this.dropNew(i),
         premium: list === "veille" && i.premium ? (i.premium_price ? `premium probable ~${this.fmt(i.premium_price)} €` : "premium probable")
@@ -417,8 +454,12 @@ document.addEventListener("alpine:init", () => {
         busy: !!this.exBusy[i.name],
         pickable: list === "veille" || list === "explore",
         picked: list === "veille" ? this.dropSelected.includes(i.name) : list === "explore" && this.exSelected.includes(i.name),
+        // « Ignorer » : le nom quitte la Veille, la décision est gardée (Portefeuille, Décisions).
+        canIgnore: list === "veille",
       };
     },
+
+    cardIgnore(c) { return this.ignoreDrops([c.name]); },
 
     // État explicite d'une carte : badge (texte et couleur), date ou détail, actions possibles.
     cardState(i, list) {
@@ -481,9 +522,16 @@ document.addEventListener("alpine:init", () => {
         this.fiche = fiche;
         if (hot) this.aiSeen(fiche.name);
       } catch (e) {
-        if (ticket === this._ficheTicket) this.say(`${name} : ${e.message}`, "error");
+        if (ticket === this._ficheTicket) this.sayError(e, name, () => this.openFiche(name, hot));
       }
     },
+
+    // Ligne de temps : date seule (AAAA-MM-JJ) ou instant ISO, en court.
+    timelineDate(at) {
+      return at && at.length <= 10 ? this.shortDate(at + "T12:00:00") : this.shortDate(at);
+    },
+
+    decisionLabel(d) { return { ignored: "Ignoré", bought: "Acheté" }[d.decision] || d.decision; },
 
     // Analyses IA demandées : en attente, et prêtes pas encore ouvertes (bandeau).
     async loadAiRequests() {
@@ -506,40 +554,75 @@ document.addEventListener("alpine:init", () => {
         this.loadAiRequests();
         this.say(`Analyse IA demandée pour ${name}. Traitement dans l'heure.`);
       } catch (e) {
-        this.say(`${name} : ${e.message}`, "error");
+        this.sayError(e, name, () => this.ficheAskAi());
       }
     },
 
-    // Portefeuille : noms achetés, renouvellements, mise en vente, ventes.
+    // Portefeuille : noms achetés, renouvellements, mise en vente, ventes ; et les décisions gardées.
     async loadPortfolio() {
+      // Rechargement : les vérifications de registre lancées à l'ajout sont parties, la mention s'efface.
+      this.pfChecking = [];
       try {
-        this.pf = await this.api("GET", "/api/portfolio");
+        [this.pf] = await Promise.all([this.api("GET", "/api/portfolio"), this.loadDecisions()]);
       } catch (e) {
-        this.say(`Portefeuille indisponible : ${e.message}`, "error");
+        this.sayError(e, "Portefeuille indisponible", () => this.loadPortfolio());
       }
     },
 
-    async pfAdd(name, extra = {}) {
+    async loadDecisions() {
+      try { this.decisions = await this.api("GET", "/api/decisions"); } catch (_) {}
+    },
+
+    async deleteDecision(d) {
+      if (!confirm(`Retirer la décision sur ${d.name} ?`)) return;
+      try {
+        await this.api("DELETE", `/api/decisions/${encodeURIComponent(d.name)}`);
+        await this.loadDecisions();
+        this.say(`Décision sur ${d.name} retirée.`);
+      } catch (e) {
+        this.sayError(e, d.name);
+      }
+    },
+
+    // quiet : pas de message ici (l'appelant fait le sien). Renvoie la réponse, ou null si refusé.
+    async pfAdd(name, extra = {}, quiet = false) {
       const body = { ...this.pfNew, ...extra, name: name || this.pfNew.name };
       for (const k of Object.keys(body)) if (body[k] === "") delete body[k];
       try {
-        this.pf = await this.api("POST", "/api/portfolio", body);
+        const res = await this.api("POST", "/api/portfolio", body);
+        this.pf = res;
         this.pfNew = { name: "", buy_price: "", bought_on: "", renew_price: "" };
-        this.say(`${body.name} ajouté au portefeuille.`);
-        return true;
+        // Vérification RDAP en arrière-plan : l'échéance arrive après ; la mention part au rechargement suivant.
+        if (res.checking) this.pfChecking = [...this.pfChecking, body.name.trim().toLowerCase()];
+        this.loadDecisions();
+        if (!quiet) this.say(`${body.name} ajouté au portefeuille.`);
+        return res;
       } catch (e) {
-        this.say(e.message, "error");
-        return false;
+        this.sayError(e, body.name);
+        return null;
       }
     },
 
+    // Chaque changement de statut ou de prix est confirmé : un champ modifié sans retour laisse un doute.
     async pfSet(item, key, value) {
       try {
         this.pf = await this.api("PUT", `/api/portfolio/${item.id}`, { [key]: value });
+        this.say(`Enregistré pour ${item.name} : ${this.pfChange(key, value)}.`);
       } catch (e) {
-        this.say(e.message, "error");
+        this.sayError(e, item.name);
         await this.loadPortfolio();
       }
+    },
+
+    // « statut En vente », « prix demandé 900 € », « échéance 06/11/2026 », « notes » : ce qui vient d'être enregistré.
+    pfChange(key, value) {
+      if (key === "status") return `statut ${(this.pf && this.pf.statuses[value]) || value}`;
+      const labels = { buy_price: "prix d'achat", renew_price: "renouvellement", asking_price: "prix demandé", best_offer: "meilleure offre",
+        sold_price: "prix de vente", bought_on: "date d'achat", sold_on: "date de vente", expires_at: "échéance", notes: "notes" };
+      const label = labels[key] || key;
+      if (value === "" || value === null) return `${label} (vide)`;
+      if (/prix|offre|renouvellement/.test(label)) return `${label} ${this.euros(value)}`;
+      return /date|échéance/.test(label) ? `${label} ${this.shortDate(value)}` : label;
     },
 
     async pfDelete(item) {
@@ -552,8 +635,12 @@ document.addEventListener("alpine:init", () => {
     },
 
     async ficheBought() {
+      const name = this.fiche.name;
       const today = new Date().toISOString().slice(0, 10);
-      if (await this.pfAdd(this.fiche.name, { bought_on: today })) this.ficheReload();
+      const res = await this.pfAdd(name, { bought_on: today }, true);
+      if (!res) return;
+      this.say(`${name} ajouté au portefeuille.`, "info", { label: "Voir dans Portefeuille", run: () => { this.fiche = null; this.openSheet("portfolio"); } });
+      this.ficheReload();
     },
 
     euros(n) { return n === null || n === undefined || n === "" ? "" : `${this.fmt(n)} €`; },
@@ -657,6 +744,9 @@ document.addEventListener("alpine:init", () => {
       }
       if (opinion) {
         ai.push(["Verdict", `<span class="ai-comment">${esc(opinion.comment)}</span>`]);
+        // Pourquoi « À laisser » ou « À surveiller » : la cause principale, en mots simples.
+        if (opinion.why) ai.push(["Pourquoi", esc(opinion.why)]);
+        if ((opinion.version || 0) < 5) ai.push(["Grille", `<span class="muted">Avis à l'ancienne grille, renoté bientôt.</span>`]);
         ai.push(["Notes", `<span class="ai-notes">Exploitation <b>${Number(opinion.exploit)}</b> · revente <b>${Number(opinion.resale)}</b></span>`]);
         ai.push(["Revente rapide", esc(this.priceRange(opinion.quick_low, opinion.quick_high))]);
         ai.push(["Utilisateur final", esc(this.priceRange(opinion.final_low, opinion.final_high))]);
@@ -945,9 +1035,16 @@ document.addEventListener("alpine:init", () => {
     async exSaveView() {
       const name = prompt("Nom de la vue", this.exActive().map((a) => a.label).join(", "));
       if (!name) return;
-      // Filtres posés seulement : le serveur limite leur nombre.
+      // Filtres posés seulement : le serveur limite leur nombre. Une vue réenregistrée garde son réglage d'alerte.
       const filters = Object.fromEntries(Object.entries(this.ex).filter(([k, val]) => !["q", "v"].includes(k) && String(val ?? "") !== ""));
-      if (await this.exSaveViews([...this.exViews.filter((v) => v.name !== name), { name, filters }])) this.say(`Vue « ${name} » enregistrée.`);
+      const before = this.exViews.find((v) => v.name === name);
+      if (await this.exSaveViews([...this.exViews.filter((v) => v.name !== name), { name, filters, alert: !!(before && before.alert) }])) this.say(`Vue « ${name} » enregistrée.`);
+    },
+
+    // Case « alerte » d'une vue : Telegram signale ses nouveaux noms libres, une fois par heure au plus.
+    async exSetViewAlert(n, on) {
+      const views = this.exViews.map((v, i) => (i === n ? { ...v, alert: on } : v));
+      if (await this.exSaveViews(views)) this.say(on ? `Vue « ${views[n].name} » : alerte Telegram activée.` : `Vue « ${views[n].name} » : alerte retirée.`);
     },
 
     // Filtres complets d'une vue : les absents sont vierges, les anciens réglages ramenés aux réglages simples.
@@ -1018,16 +1115,30 @@ document.addEventListener("alpine:init", () => {
           }, 3000);
           return;
         }
+        // Bilan en fin de lot (« 3 vérifiés, 1 échec ») plutôt qu'un message par nom.
+        let ok = 0, fail = 0;
         for (const i of items) {
-          if (action === "check") await this.exCheck(i);
-          else if (action === "watch" && !i.watched) await this.watchName(i);
-          else if (action === "reserve") await this.api("POST", "/api/reserved/flag", { name: i.name, reserved: true });
+          try {
+            if (action === "check") {
+              const item = await this.verifyName(i.name, true);
+              if (item) { this.exReplace(item); ok += 1; } else fail += 1;
+            } else if (action === "watch") {
+              if (i.watched || await this.watchName(i, true)) ok += 1; else fail += 1;
+            } else if (action === "reserve") {
+              await this.api("POST", "/api/reserved/flag", { name: i.name, reserved: true });
+              ok += 1;
+            }
+          } catch (_) {
+            fail += 1;
+          }
           this.exBulkDone += 1;
         }
-        if (action === "reserve") { await this.exLoad(false); this.exLoadMap(); }
+        if (action === "check") { this.exLoadMap(); this.say(tally(ok, fail, "vérifié", "vérifiés"), fail ? "error" : "info"); }
+        if (action === "watch") this.say(tally(ok, fail, "surveillé", "surveillés"), fail ? "error" : "info");
+        if (action === "reserve") { await this.exLoad(false); this.exLoadMap(); this.say(tally(ok, fail, "marqué réservé", "marqués réservés"), fail ? "error" : "info"); }
         this.exSelected = [];
       } catch (e) {
-        this.say(e.message, "error");
+        this.sayError(e);
       } finally {
         this.exBulkRunning = false;
       }
@@ -1099,13 +1210,20 @@ document.addEventListener("alpine:init", () => {
       try {
         await this.api("POST", "/api/reserved/refresh");
         this.cfg.reserved.running = true;
+        // Sondage léger (/api/settings/status) ; les compteurs complets sont relus une fois à la fin.
         const poll = setInterval(async () => {
+          const st = await this.settingsStatus();
+          if (!st || st.reserved.running) return;
+          clearInterval(poll);
           await this.loadSettings();
-          if (!this.cfg.reserved.running) clearInterval(poll);
         }, 3000);
       } catch (e) {
-        this.say(e.message, "error");
+        this.sayError(e, "", () => this.refreshReserved());
       }
+    },
+
+    async settingsStatus() {
+      try { return await this.api("GET", "/api/settings/status"); } catch (_) { return null; }
     },
 
     async exSeoStatus() {
@@ -1123,7 +1241,7 @@ document.addEventListener("alpine:init", () => {
         }
         this.say(`${i.name} : analyse SEO faite.`);
       } catch (e) {
-        this.say(`${i.name} : ${e.message}`, "error");
+        this.sayError(e, i.name, () => this.exSeoOne(i));
       } finally {
         this.exBusy[i.name] = false;
       }
@@ -1146,14 +1264,15 @@ document.addEventListener("alpine:init", () => {
       }
     },
 
-    async verifyName(name) {
+    // quiet : pas de message (action groupée, le bilan vient à la fin).
+    async verifyName(name, quiet = false) {
       this.exBusy[name] = true;
       try {
         const item = await this.api("POST", "/api/explore/check", { name });
-        this.say(`${name} : ${item.status_label || "vérifié"}.`);
+        if (!quiet) this.say(`${name} : ${item.status_label || "vérifié"}.`);
         return item;
       } catch (e) {
-        this.say(`${name} : ${e.message}`, "error");
+        if (!quiet) this.sayError(e, name, () => this.verifyName(name));
         return null;
       } finally {
         this.exBusy[name] = false;
@@ -1163,10 +1282,11 @@ document.addEventListener("alpine:init", () => {
     async exCheck(i) { return this.cardCheck({ name: i.name, list: "explore" }); },
 
     // Surveiller depuis une carte (Veille, Explorer, recherche) : ajouté à Domaines, cartes mises à jour.
-    async watchName(i) {
+    async watchName(i, quiet = false) {
       this.newName = i.name;
-      await this.add();
+      const d = await this.add(quiet);
       if (this.domains.some((x) => x.name === i.name)) this.markWatched(i.name);
+      return !!d;
     },
 
     // Tri en masse dans la Veille : sélection, puis une action pour tous.
@@ -1194,37 +1314,94 @@ document.addEventListener("alpine:init", () => {
       this.dropBulkDone = 0;
       try {
         if (action === "hide") {
-          const r = await this.api("POST", "/api/drops/hide", { names });
-          this.dropsData.items = this.dropsData.items.filter((d) => !names.includes(d.name));
-          this.dropsData.hidden = r.hidden;
-          this._dropsVer = (this._dropsVer || 0) + 1;
-          this.say(`${names.length} nom(s) masqué(s). Réaffichage possible dans Paramètres.`);
+          await this.ignoreDrops(names);
         } else {
+          // Bilan en fin de lot (« 3 vérifiés, 1 échec ») plutôt qu'un message par nom.
+          let ok = 0, fail = 0;
           for (const d of items) {
-            if (action === "watch" && !d.watched) await this.watchName(d);
-            else if (action === "ai") await this.api("POST", "/api/ai/request", { name: d.name });
-            else if (action === "check") await this.verifyName(d.name);
+            try {
+              if (action === "watch") { if (d.watched || await this.watchName(d, true)) ok += 1; else fail += 1; }
+              else if (action === "ai") { await this.api("POST", "/api/ai/request", { name: d.name }); ok += 1; }
+              else if (action === "check") { if (await this.verifyName(d.name, true)) ok += 1; else fail += 1; }
+            } catch (_) {
+              fail += 1;
+            }
             this.dropBulkDone += 1;
           }
-          if (action === "ai") { this.loadAiRequests(); this.say(`${items.length} analyse(s) IA demandée(s). Traitement dans l'heure.`); }
-          if (action === "check") await this.loadDrops();
+          const kind = fail ? "error" : "info";
+          if (action === "ai") { this.loadAiRequests(); this.say(tally(ok, fail, "analyse IA demandée", "analyses IA demandées") + (ok ? ". Traitement dans l'heure." : ""), kind); }
+          if (action === "watch") this.say(tally(ok, fail, "surveillé", "surveillés"), kind);
+          if (action === "check") { await this.loadDrops(); this.say(tally(ok, fail, "vérifié", "vérifiés"), kind); }
         }
         this.dropSelected = [];
       } catch (e) {
-        this.say(e.message, "error");
+        this.sayError(e);
       } finally {
         this.dropBulkRunning = false;
       }
     },
 
-    async unhideDrops() {
+    // « Ignorer » (un nom ou une sélection) : le nom quitte la Veille, la décision est gardée ;
+    // le message propose d'annuler (POST /api/drops/unhide avec les noms).
+    async ignoreDrops(names) {
       try {
-        await this.api("POST", "/api/drops/unhide");
-        await this.loadDrops();
-        this.say("Noms masqués réaffichés.");
+        const r = await this.api("POST", "/api/drops/hide", { names });
+        this.dropsData.items = this.dropsData.items.filter((d) => !names.includes(d.name));
+        this.dropsData.hidden = r.hidden;
+        this.dropSelected = this.dropSelected.filter((n) => !names.includes(n));
+        this._dropsVer = (this._dropsVer || 0) + 1;
+        this.say(names.length > 1 ? `${names.length} noms ignorés.` : `${names[0]} ignoré.`, "info", { label: "Annuler", run: () => this.unhideDrops(names) });
       } catch (e) {
-        this.say(e.message, "error");
+        this.sayError(e, "", () => this.ignoreDrops(names));
       }
+    },
+
+    // Sans noms : tout réafficher (Paramètres) ; avec : ces noms seulement (bouton Annuler).
+    async unhideDrops(names = null) {
+      try {
+        await this.api("POST", "/api/drops/unhide", names ? { names } : undefined);
+        await this.loadDrops();
+        this.say(names ? (names.length > 1 ? `${names.length} noms réaffichés.` : `${names[0]} réaffiché.`) : "Noms ignorés réaffichés.");
+      } catch (e) {
+        this.sayError(e, "", () => this.unhideDrops(names));
+      }
+    },
+
+    // Domaines : sélection multiple, puis Vérifier ou Analyse IA pour tous, bilan en un message.
+    domToggle(id) {
+      this.domSelected = this.domSelected.includes(id) ? this.domSelected.filter((x) => x !== id) : [...this.domSelected, id];
+    },
+
+    domSelectAll() {
+      this.domSelected = this.domSelected.length ? [] : this.rows.map((d) => d.id);
+    },
+
+    async domBulk(action) {
+      const items = this.domains.filter((d) => this.domSelected.includes(d.id));
+      this.domBulkRunning = true;
+      this.domBulkDone = 0;
+      let ok = 0, fail = 0;
+      for (const d of items) {
+        try {
+          if (action === "check") {
+            const updated = await this.api("POST", `/api/domains/${d.id}/check`);
+            this.replace(updated);
+            if (updated.check_error) fail += 1; else ok += 1;
+          } else if (action === "ai") {
+            await this.api("POST", "/api/ai/request", { name: d.name });
+            ok += 1;
+          }
+        } catch (_) {
+          fail += 1;
+        }
+        this.domBulkDone += 1;
+      }
+      this.now = Date.now();
+      if (action === "ai") this.loadAiRequests();
+      this.say(action === "check" ? tally(ok, fail, "vérifié", "vérifiés") : tally(ok, fail, "analyse IA demandée", "analyses IA demandées") + (ok ? ". Traitement dans l'heure." : ""),
+        fail ? "error" : "info");
+      this.domSelected = [];
+      this.domBulkRunning = false;
     },
 
     fmt(n) { return (n || 0).toLocaleString("fr-FR"); },
@@ -1303,7 +1480,7 @@ document.addEventListener("alpine:init", () => {
         this.dropsData = await this.api("GET", "/api/drops");
         this._dropsVer = (this._dropsVer || 0) + 1;
       } catch (e) {
-        if (!statusOnly) this.say(`Veille indisponible : ${e.message}`, "error");
+        if (!statusOnly) this.sayError(e, "Veille indisponible", () => this.loadDrops());
       }
     },
 
@@ -1398,18 +1575,30 @@ document.addEventListener("alpine:init", () => {
       return !!at && at > this.dropSince();
     },
 
-    sourcesError() {
+    // Ligne rouge des sources : une panne de réseau (« erreur temporaire », l'appli réessaie à la lecture
+    // suivante) ne se règle pas comme un compte refusé ou un fichier illisible (« à configurer »).
+    sourcesIssue() {
       const d = this.dropsData;
-      if (!d) return "";
+      if (!d) return null;
       const zone = (d.zones || []).find((z) => z.error);
-      return d.error || (zone && `.${zone.tld} : ${zone.error}`) || (d.fr && d.fr.enabled && d.fr.error) || "";
+      const raw = d.error || (zone && zone.error) || (d.fr && d.fr.enabled && d.fr.error) || "";
+      if (!raw) return null;
+      const where = d.error ? "zones ICANN" : zone ? `.${zone.tld}` : ".fr";
+      const plain = plainError(raw);
+      if (plain !== raw) return { kind: "temporary", text: `Erreur temporaire (${where}) : ${plain}. Nouvel essai à la prochaine lecture.` };
+      return { kind: "config", text: `Pas encore configuré ou refusé (${where}) : ${raw}` };
+    },
+
+    sourcesError() {
+      const issue = this.sourcesIssue();
+      return issue ? issue.text : "";
     },
 
     sourcesLine() {
       const d = this.dropsData;
       if (!d) return "";
       const error = this.sourcesError();
-      if (error) return `Erreur de lecture : ${error}`;
+      if (error) return error;
       const last = (d.zones || []).reduce((m, z) => (z.at && z.at > m ? z.at : m), "");
       const parts = [];
       if (last) parts.push(`zones lues ${this.relative(last)}`);
@@ -1558,12 +1747,13 @@ document.addEventListener("alpine:init", () => {
         const res = await this.api("POST", "/api/drops/fr/import");
         this.say(res.started ? "Import du .fr lancé. Compter quelques minutes." : "Un import est déjà en cours.");
         this.dropsData.fr.running = true;
+        // Sondage de l'état seul (items=0) ; la liste complète est relue une fois à la fin.
         const poll = setInterval(async () => {
-          await this.loadDrops();
-          if (!this.dropsData || !this.dropsData.fr.running) clearInterval(poll);
+          await this.loadDrops(true);
+          if (!this.dropsData || !this.dropsData.fr.running) { clearInterval(poll); await this.loadDrops(); }
         }, 10000);
       } catch (e) {
-        this.say(e.message, "error");
+        this.sayError(e, "", () => this.importFr());
       }
     },
 
@@ -1582,14 +1772,34 @@ document.addEventListener("alpine:init", () => {
         const res = await this.api("POST", "/api/drops/scan");
         this.say(res.started ? "Lecture des zones lancée. Compter quelques minutes pour .com." : "Une lecture est déjà en cours.");
         this.dropsData.running = true;
+        // Sondage de l'état seul (items=0) ; la liste complète est relue une fois à la fin.
         const poll = setInterval(async () => {
-          await this.loadDrops();
-          if (!this.dropsData || !this.dropsData.running) clearInterval(poll);
+          await this.loadDrops(true);
+          if (!this.dropsData || !this.dropsData.running) { clearInterval(poll); await this.loadDrops(); }
         }, 10000);
       } catch (e) {
-        this.say(e.message, "error");
+        this.sayError(e, "", () => this.scanDrops());
       }
     },
+
+    // Écart de zone refusé : la prochaine lecture de cette extension passe quand même, une fois.
+    async acceptGap(tld) {
+      try {
+        const res = await this.api("POST", "/api/settings/czds/accept-gap", { tld });
+        Object.assign(this.dropsData, res);
+        this.say(`.${tld} : l'écart sera accepté à la prochaine lecture.`);
+      } catch (e) {
+        this.sayError(e, `.${tld}`);
+      }
+    },
+
+    gapLine(tld) {
+      const g = this.dropsData && this.dropsData.gap_refused && this.dropsData.gap_refused[tld];
+      if (!g) return "";
+      return `Lecture refusée ${this.relative(g.at)} : ${this.fmt(g.expected)} noms attendus, ${this.fmt(g.found)} lus (zone tronquée ?).`;
+    },
+
+    gapAccepted(tld) { return !!(this.dropsData && (this.dropsData.accept_gap || []).includes(tld)); },
 
     async saveCzds() {
       this.savingCzds = true;
@@ -1629,12 +1839,18 @@ document.addEventListener("alpine:init", () => {
     },
 
     async api(method, url, body) {
-      const res = await fetch(url, {
-        method,
-        headers: body ? { "Content-Type": "application/json" } : {},
-        body: body ? JSON.stringify(body) : undefined,
-        credentials: "same-origin",
-      });
+      let res;
+      try {
+        res = await fetch(url, {
+          method,
+          headers: body ? { "Content-Type": "application/json" } : {},
+          body: body ? JSON.stringify(body) : undefined,
+          credentials: "same-origin",
+        });
+      } catch (_) {
+        // Navigateur hors ligne ou NAS injoignable : pas de statut, l'action est rejouable.
+        throw Object.assign(new Error("Réseau injoignable"), { status: 0 });
+      }
       if (res.status === 401) {
         window.location.href = "/login";
         throw new Error("Session expirée");
@@ -1665,29 +1881,48 @@ document.addEventListener("alpine:init", () => {
       this.loaded = true;
     },
 
-    say(text, kind = "info") {
-      this.notice = { text, kind };
+    // action : bouton dans le message ({ label, run }), par exemple « Annuler » ou « Réessayer ».
+    say(text, kind = "info", action = null) {
+      this.notice = { text, kind, action };
       clearTimeout(this._noticeTimer);
-      // Une erreur reste un peu plus longtemps ; la croix ferme avant.
-      this._noticeTimer = setTimeout(() => (this.notice = null), kind === "error" ? 8000 : 6000);
+      // Une erreur reste un peu plus longtemps, un message avec bouton aussi ; la croix ferme avant.
+      this._noticeTimer = setTimeout(() => (this.notice = null), kind === "error" || action ? 8000 : 6000);
     },
 
-    async add() {
+    noticeAct() {
+      const action = this.notice && this.notice.action;
+      this.notice = null;
+      if (action) action.run();
+    },
+
+    // Erreur en français simple (réseau, registre muet), avec « Réessayer » quand l'action est rejouable.
+    sayError(e, prefix = "", retry = null) {
+      const text = plainError(e && e.message);
+      this.say(prefix ? `${prefix} : ${text}` : text, "error", retry && retryable(e) ? { label: "Réessayer", run: retry } : null);
+    },
+
+    // quiet : pas de message (action groupée). Renvoie le domaine ajouté, ou null.
+    async add(quiet = false) {
       const name = this.newName.trim();
-      if (!name) return;
+      if (!name) return null;
       this.adding = true;
+      let added = null;
       try {
         const d = await this.api("POST", "/api/domains", { name });
         this.domains.push(d);
         this.newName = "";
-        this.say(d.check_error ? `${d.name} ajouté. Premier check en échec : ${d.check_error}.` : `${d.name} ajouté : ${this.stateLabel(d)}.`,
-          d.check_error ? "error" : "info");
+        added = d;
+        if (!quiet) {
+          this.say(d.check_error ? `${d.name} ajouté. Premier check en échec : ${plainError(d.check_error)}.` : `${d.name} ajouté : ${this.stateLabel(d)}.`,
+            d.check_error ? "error" : "info");
+        }
       } catch (e) {
-        this.say(e.message, "error");
+        if (!quiet) this.sayError(e, "", () => { this.newName = name; return this.add(); });
       }
       this.adding = false;
       // Le champ d'ajout n'est visible que sur l'écran Domaines : ailleurs, le focus ouvrirait le clavier derrière la feuille.
       if (!this.paged && !this.fiche) this.$nextTick(() => this.$refs.input.focus());
+      return added;
     },
 
     replace(d) {
@@ -1701,10 +1936,10 @@ document.addEventListener("alpine:init", () => {
         const updated = await this.api("POST", `/api/domains/${d.id}/check`);
         this.replace(updated);
         this.now = Date.now();
-        if (updated.check_error) this.say(`${d.name} : ${updated.check_error}.`, "error");
+        if (updated.check_error) this.sayError({ message: updated.check_error }, d.name, () => this.check(d));
         if (this.openId === d.id) this.loadHistory(d.id);
       } catch (e) {
-        this.say(`${d.name} : ${e.message}`, "error");
+        this.sayError(e, d.name, () => this.check(d));
       }
       this.busy[d.id] = false;
     },
@@ -1751,10 +1986,40 @@ document.addEventListener("alpine:init", () => {
         this.czdsUser = this.cfg.czds.username;
         this.orderUrl = this.cfg.order_url;
         this.loadAiStatus();
+        this.loadAiOutcomes();
       } catch (e) {
-        this.say(`Paramètres indisponibles : ${e.message}`, "error");
+        this.sayError(e, "Paramètres indisponibles", () => this.loadSettings());
       }
     },
+
+    // Alerte « À prendre » : case et seuil de note de revente, enregistrés d'un bouton.
+    async saveAlerts() {
+      this.savingAlerts = true;
+      try {
+        const a = this.cfg.alerts;
+        this.cfg.alerts = await this.api("PUT", "/api/settings/alerts", { take_enabled: !!a.take_enabled, take_min: Number(a.take_min) || 0 });
+        this.say(this.cfg.alerts.take_enabled ? `Alerte « À prendre » activée dès une note de revente de ${this.cfg.alerts.take_min}.` : "Alerte « À prendre » désactivée.");
+      } catch (e) {
+        this.sayError(e, "Alertes");
+      }
+      this.savingAlerts = false;
+    },
+
+    // Fiabilité des verdicts : part des noms repris, par verdict et par tranche de note de revente.
+    async loadAiOutcomes() {
+      try { this.aiOutcomes = await this.api("GET", "/api/ai/outcomes"); } catch (_) {}
+    },
+
+    outcomeRows() {
+      const o = this.aiOutcomes;
+      if (!o || !o.total) return [];
+      const rows = [];
+      for (const v of Object.values(AI_VERDICTS)) if (o.by_verdict[v]) rows.push({ key: "v:" + v, label: v, ...o.by_verdict[v] });
+      for (const [band, cell] of Object.entries(o.by_resale)) if (cell.count) rows.push({ key: "b:" + band, label: `Revente ${band.replace("-", " à ")}`, ...cell });
+      return rows;
+    },
+
+    share(cell) { return cell.share === null || cell.share === undefined ? "" : `${Math.round(cell.share * 100)} %`; },
 
     async saveToken() {
       this.savingToken = true;
@@ -1779,12 +2044,15 @@ document.addEventListener("alpine:init", () => {
       }
       clearInterval(this._pairTimer);
       // Le serveur efface le code dès que le bon message arrive, ou au bout de 10 minutes.
+      // Sondage léger : /api/settings/status, pas tous les réglages (ni un appel à Telegram à chaque tour).
       this._pairTimer = setInterval(async () => {
-        await this.loadSettings();
-        if (this.cfg && !this.cfg.telegram.pairing) {
+        const st = await this.settingsStatus();
+        if (!st || !this.cfg) return;
+        Object.assign(this.cfg.telegram, st.telegram);
+        if (!st.telegram.pairing) {
           clearInterval(this._pairTimer);
           this.pairing = null;
-          if (this.cfg.telegram.chat_set) this.say("Compte Telegram associé.");
+          if (st.telegram.chat_set) this.say("Compte Telegram associé.");
         }
       }, 3000);
     },

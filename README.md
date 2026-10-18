@@ -101,7 +101,7 @@ Les lignes du fichier sont pliées à 75 octets, comme le demande la RFC 5545 : 
 et **Bientôt libres** (en rédemption ou en suppression, avec la date estimée). **Explorer** : tous
 les noms suivis, pour chercher. Grande barre de recherche, puis l'état : **Libres**, **Bientôt
 libres** ou **Tous, même pris**, et le type de nom en mots simples (mots courants, anglais,
-prénoms, tech et startups, médias et marques, courts…).
+prénoms, tech et startups, médias et marques, secteurs, métiers, sport, animaux, cuisine, courts…).
 
 Réglages communs, gardés d'un écran à l'autre :
 
@@ -126,12 +126,16 @@ probablement libre), Vérifier (nom probablement libre), Surveiller ; une case d
 Dans la Veille, **Nouveaux depuis ma dernière visite** (bouton et étiquette « Nouveau », même règle)
 ne garde que les noms libérés ou entrés en rédemption depuis l'ouverture précédente de l'écran
 (heure gardée par le navigateur ; à la première visite, depuis 24 h). Tri en masse : cases à cocher
-(« Tout sélectionner » pour les noms affichés), puis Surveiller, Analyse IA, Revérifier ou Ignorer ;
-un nom ignoré quitte la Veille mais reste dans l'Explorer (Paramètres : « Tout réafficher », ou un nom
-à la fois). La décision est gardée (`decisions`), comme « J'ai acheté » : si un nom ignoré est ensuite
-enregistré par quelqu'un d'autre, la liste des décisions le dit (« repris », avec la date quand elle
-est connue) et compte ces regrets. L'état des lectures (zones, .fr, DNS, historique) est dans Paramètres, carte « Sources et lectures » ; une
-ligne d'état reste en haut de la Veille. Sur téléphone, seuls les onglets et le tri restent collants
+(« Tout sélectionner » pour les noms affichés), puis Surveiller, Analyse IA, Revérifier ou Ignorer, avec
+un seul bilan à la fin (« 3 vérifiés, 1 échec ») ; chaque carte a aussi son bouton « Ignorer ». Un nom
+ignoré quitte la Veille mais reste dans l'Explorer ; le message propose « Annuler » (`POST /api/drops/unhide`
+avec les noms), et Paramètres, « Tout réafficher », les remet tous. La décision est gardée (`decisions`),
+comme « J'ai acheté » : si un nom ignoré est ensuite enregistré par quelqu'un d'autre, la liste des
+décisions le dit (« repris », avec la date quand elle est connue) et compte ces regrets. Cette liste est
+en bas du Portefeuille, section « Décisions » (nom, décision, date, état du jour, bouton « Retirer »).
+L'état des lectures (zones, .fr, DNS, historique) est dans Paramètres, carte « Sources et lectures » ; une
+ligne d'état reste en haut de la Veille, qui distingue une erreur temporaire (réseau injoignable, registre
+muet : nouvel essai à la lecture suivante) d'une source à configurer. Sur téléphone, seuls les onglets et le tri restent collants
 en haut ; l'usage, la case des noms faibles, « Nouveaux », les extensions et les types sont dans le
 panneau Avancé.
 
@@ -284,8 +288,9 @@ Un nom libre reste dans la Veille 30 jours (réglable dans Paramètres). Rien n'
 base : passé ce délai, il reste visible dans l'Explorer. La Veille a les mêmes filtres avancés que
 l'Explorer, gardés d'une visite à l'autre. Tri : les meilleurs d'abord (selon revendre ou
 exploiter), les plus récents, ou la libération la plus proche. Chaque nom ouvre la même fiche.
-Domaines a aussi une colonne Valeur (score et avis IA), triable, et des filtres par extension et
-par verdict IA.
+Domaines a aussi une colonne Valeur (score et avis IA), triable, des filtres par extension et
+par verdict IA, et une sélection multiple (case devant chaque nom, « Sélectionner » pour les lignes
+affichées) avec Vérifier et Analyse IA groupés, bilan en un message (« 3 vérifiés, 1 échec »).
 
 Quand les listes suivies changent (formes fléchies ajoutées, par exemple), le dernier fichier
 .fr est relu automatiquement : sans ça, les nouveaux noms passeraient pour jamais enregistrés.
@@ -306,7 +311,11 @@ d'abandon étant inconnue), ventes, bénéfice. Chaque nom porte des liens de mi
 relevés sur les sites ; Dan.com rejoint Afternic, son lien peut y renvoyer). `GET /api/portfolio/export` :
 le portefeuille en CSV (point-virgule, BOM pour Excel), colonnes nom, statut, dates et prix, échéance et
 sa source, bénéfice, avis IA (verdict, note de revente, prix final), notes. Réservé à la session : le
-jeton en lecture seule n'y accède pas.
+jeton en lecture seule n'y accède pas. Dans l'écran : tableau « Par année », bouton « Export CSV »,
+liens « Mettre en vente » (Sedo, Dan, Afternic, dans un nouvel onglet : des liens de recherche, pas une
+mise en vente automatique), message de confirmation à chaque changement de statut ou de prix ; « J'ai
+acheté » depuis la fiche affiche un message avec « Voir dans Portefeuille » ; à l'ajout, « vérification du
+registre en cours » tant que l'écran n'a pas été rechargé.
 
 #### Explorer
 
@@ -314,8 +323,8 @@ Tous les noms suivis, extension par extension : les 1 926 220 noms possibles de 
 puis les mots, noms de famille et prénoms. L'état vient des données déjà sur le NAS, sans aucune
 requête : zones ICANN lues chaque jour, open data de l'Afnic, données de la Veille par-dessus.
 
-- **Top** : les 10, 50, 100, 200, 500 ou 1 000 premiers d'une liste (secteurs, tendances, sites de niche,
-  mots, anglais, prénoms, noms…), pris ou non, avec l'état sur chaque extension en toutes lettres
+- **Top** : les 10, 50, 100, 200, 500 ou 1 000 premiers d'une liste (secteurs, métiers, sport, animaux,
+  cuisine, tendances, sites de niche, mots, anglais, prénoms, noms…), pris ou non, avec l'état sur chaque extension en toutes lettres
   (probablement libre, pris, à venir, libre, réservé, premium probable). Un état ouvre la fiche. Les
   puces d'état de la liste sont masquées tant que le Top est ouvert : il montre tous les états.
 - **Langue** : filtre Français / Anglais (Explorer et Veille). Listes mêlées : langue relevée à
@@ -346,7 +355,9 @@ requête : zones ICANN lues chaque jour, open data de l'Afnic, données de la Ve
   en longueur. **Ligne de temps** : tout ce que la base sait du nom, daté et trié : création et
   suppression (Afnic), sortie de zone, entrée en rédemption ou en suppression, libération
   constatée, reprise, avis IA (noté, renoté), surveillance et changements d'état ou de registrar,
-  achat et vente.
+  achat et vente ; repliée par défaut sur téléphone. Sous le verdict IA, « Pourquoi » (`why`) quand l'avis
+  est réservé, et la mention « Avis à l'ancienne grille, renoté bientôt » pour un avis de version 4 ; les
+  cartes de la Veille et de l'Explorer ajoutent ce « pourquoi » en fin de phrase.
 - **Avancé** (panneau du bas sur téléphone) : catégorie, nature des mots (verbes, noms communs,
   adjectifs, adverbes, mots outils), longueur, fréquence (top 100 à top 5 000), pris sur une
   autre extension, SEO (analysé, PageRank 1, 3 ou 5 et plus, archivé 5 ans et plus), score
@@ -355,8 +366,10 @@ requête : zones ICANN lues chaque jour, open data de l'Afnic, données de la Ve
 - **Extensions** : une ou plusieurs à la fois (« Toutes » dès qu'il y en a deux). Les listes sont
   fusionnées dans l'ordre du tri choisi, les compteurs additionnés.
 - **Vues enregistrées** : un jeu de filtres nommé, rappelé d'un geste. La vue en cours est
-  surlignée ; sa suppression demande confirmation et laisse les filtres affichés en place.
-- **Sélection multiple** : Vérifier, SEO, Surveiller ou Réservé en lot.
+  surlignée ; sa suppression demande confirmation et laisse les filtres affichés en place. Case
+  « alerte » par vue (`alert` de `PUT /api/explore/views`) : Telegram signale ses nouveaux noms, une fois
+  par heure au plus.
+- **Sélection multiple** : Vérifier, SEO, Surveiller ou Réservé en lot, bilan en un message.
 - Recherche : le nom tapé sur toutes les extensions, puis les noms qui commencent pareil. Un nom
   absent de toutes les listes (monsuperprojet) s'affiche quand même, une ligne par extension suivie
   (ou celle tapée, monsuperprojet.fr) : « Vérifier » interroge le registre (`POST /api/explore/check`,
@@ -438,10 +451,13 @@ nuit, les avis vieux de 30 jours au moins sur des noms alors libres ou probablem
 confrontés à l'état du jour : enregistré par quelqu'un d'autre (ni surveillé ni au portefeuille), le
 nom compte comme repris, daté du premier passage qui l'a vu (`ai_outcomes`). `GET /api/ai/outcomes`
 résume, par verdict et par tranche de note de revente (0-39, 40-59, 60-79, 80-100), le nombre de noms
-et la part reprise : si les « À prendre » partent vraiment, la grille tient.
+et la part reprise : si les « À prendre » partent vraiment, la grille tient. Paramètres, carte Avis IA,
+bloc « Fiabilité des verdicts » : le tableau par verdict et par tranche, avec le nombre de noms mesurés ;
+tant qu'aucun avis n'a 30 jours, une phrase l'explique.
 
 Alerte « À prendre » : dès qu'un nom de la Veille passe libre ou entre en rédemption avec un avis « À
-prendre » et une note de revente au seuil réglé (70 par défaut, désactivable), un message Telegram
+prendre » et une note de revente au seuil réglé (70 par défaut, désactivable ; Paramètres, carte
+« Alertes » : case et seuil, `GET/PUT /api/settings/alerts`), un message Telegram
 part avec le verdict, les notes, le prix utilisateur final, la raison, le lien vers la fiche et le lien
 Réserver. Une alerte par nom et par état ; le résumé du matin reste, lui récapitule.
 
@@ -584,6 +600,14 @@ Les durées acceptent `30s`, `5m`, `6h`, `7d`, ou un nombre de secondes.
   l'autre. Tags libres par domaine, ajoutés dans le détail.
 - Certains registres n'ont ni RDAP ni WHOIS public, ou réservent leur WHOIS à des accès
   authentifiés : leurs domaines restent en erreur de check.
+- Erreurs réseau dans l'interface : un message technique courant (ProxyError, ConnectError,
+  « Bootstrap IANA indisponible », navigateur hors ligne) s'affiche « Réseau injoignable », un délai dépassé
+  « Pas de réponse du registre », avec un bouton « Réessayer » dans le message quand l'action est
+  rejouable. Les réponses attendues (409 d'une vérification hors réseau, 422 d'une saisie) s'affichent
+  telles quelles ; l'appli n'écrit rien dans la console du navigateur, qui journalise déjà la requête.
+- Sondages de l'interface : l'association Telegram et la mise à jour des noms réservés lisent
+  `GET /api/settings/status` (pas tous les réglages) ; une lecture de zones ou un import .fr lancés à la
+  main lisent `GET /api/drops?items=0` (état sans la liste), puis la liste une fois à la fin.
 - Toutes les requêtes vers un même registre passent par une file unique, avec le délai minimum
   entre deux appels. Le check global et les fréquences rapides ne peuvent pas la contourner.
 - La date de libération est une estimation. Elle repose sur `app/tld_delays.toml`, qui donne pour

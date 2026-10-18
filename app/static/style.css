@@ -1071,3 +1071,87 @@ button:disabled { cursor: default; opacity: .55; }
 .weak-toggle input { flex: none; width: 16px; height: 16px; margin-top: 2px; accent-color: var(--accent); }
 /* Aide courte visible : la case cache aussi les « À laisser » de l'IA. */
 .weak-help { display: block; font-size: 11.5px; }
+
+/* Messages : bouton d'action (« Annuler », « Réessayer », « Voir dans Portefeuille »). */
+.notice-action {
+  flex: none; margin: -4px 0; padding: 4px 10px; border: 1px solid rgb(255 255 255 / .45); border-radius: 6px;
+  background: none; color: inherit; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.notice-action:hover, .notice-action:focus-visible { background: rgb(255 255 255 / .15); }
+
+/* Carte de nom : « pourquoi » d'un avis réservé en fin de phrase ; « Ignorer » discret. */
+.nc-why { font-size: 13px; }
+.nc-ignore { color: var(--muted); }
+
+/* Portefeuille : bilan par année, liens de mise en vente, décisions. */
+.pf-checking { color: var(--accent); }
+.pf-years-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+.pf-years-head h3 { margin: 0; }
+.pf-years-table, .pf-decisions-table, .outcomes-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.pf-years-table th, .pf-years-table td, .pf-decisions-table th, .pf-decisions-table td, .outcomes-table th, .outcomes-table td {
+  padding: 5px 8px 5px 0; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top;
+}
+.pf-years-table th, .pf-decisions-table th, .outcomes-table th { font-weight: 500; font-size: 12px; color: var(--muted); }
+.pf-years-table th.num, .pf-years-table td.num, .outcomes-table th.num, .outcomes-table td.num { text-align: right; }
+.pf-years-table tbody tr:last-child td, .pf-decisions-table tbody tr:last-child td, .outcomes-table tbody tr:last-child td { border-bottom: 0; }
+.pf-sale { display: inline-flex; gap: 8px; flex-wrap: wrap; }
+.pf-sale a { color: var(--accent); }
+.pf-regret { margin-left: 6px; font-size: 12px; color: var(--danger); }
+.pf-decision-x { text-align: right; white-space: nowrap; }
+.pf-decisions-table td:first-child { overflow-wrap: anywhere; }
+@media (max-width: 899px) {
+  .pf-years-table, .pf-decisions-table { display: block; overflow-x: auto; }
+  .pf-decisions-table thead { display: none; }
+  .pf-decisions-table, .pf-decisions-table tbody { display: block; }
+  .pf-decisions-table tr { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .pf-decisions-table tr:last-child { border-bottom: 0; }
+  .pf-decisions-table td { display: block; padding: 0; border: 0; }
+  .pf-decisions-table td:first-child { grid-column: 1; font-size: 15px; }
+  .pf-decisions-table td.pf-decision-x { grid-column: 2; grid-row: 1 / span 3; align-self: start; }
+}
+
+/* Explorer : case « alerte » d'une vue enregistrée. */
+.ex-view-alert { display: inline-flex; align-items: center; gap: 4px; padding: 0 2px 0 6px; font-size: 11.5px; color: var(--muted); cursor: pointer; }
+.ex-view-alert input { width: 14px; height: 14px; margin: 0; accent-color: var(--accent); }
+.ex-view.on .ex-view-alert { color: inherit; }
+.ex-field-help { margin: 4px 0 0; }
+
+/* Sources : écart de zone refusé. */
+.zone-gap { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; width: 100%; margin: 2px 0 4px; }
+
+/* Avis IA : fiabilité des verdicts. */
+.ai-outcomes { margin-top: 14px; }
+.ai-outcomes h4 { margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.outcomes-table { max-width: 420px; }
+.outcomes-table tr.outcomes-band td { color: var(--muted); }
+.outcomes-table tr.outcomes-band:first-of-type td { border-top: 1px solid var(--line-strong); }
+
+/* Domaines : case de sélection devant le nom. */
+.dom-pick { vertical-align: middle; margin: 0 8px 0 0; }
+@media (max-width: 899px) { .dom-pick { width: 22px; height: 22px; margin-right: 10px; } }
+
+/* Fiche : comparables, repères, ligne de temps, autres extensions avec leur avis. */
+.fiche-comp { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 6px 0; }
+.fiche-comp-ai, .fiche-other-ai { font-weight: 600; }
+.fiche-comp-ai.take, .fiche-other-ai.take { color: var(--accent); }
+.fiche-comp-ai.skip, .fiche-other-ai.skip { color: var(--muted); font-weight: 500; }
+.fiche-other-line { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px 10px; }
+.fiche-other-line .fiche-other-ai { flex: 1 1 auto; }
+.fiche-other { display: block; }
+.fiche-timeline summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 6px; }
+.fiche-timeline summary::-webkit-details-marker { display: none; }
+.fiche-timeline summary::before { content: "▸"; font-size: 11px; color: var(--muted); }
+.fiche-timeline[open] summary::before { content: "▾"; }
+.fiche-timeline summary h3 { margin: 0; }
+.fiche-timeline ol { margin-top: 6px; }
+.fiche-timeline .what.tl-bought, .fiche-timeline .what.tl-sold { font-weight: 600; }
+.fiche-timeline .what.tl-drop_taken { color: var(--danger); }
+/* Sur ordinateur, les puces (types, listes du Top, extensions) passent à la ligne : un défilement
+   horizontal sans barre visible cacherait les dernières (Métiers, Sport, Animaux, Cuisine). */
+@media (min-width: 900px) {
+  .ex-chips, .ex-types { flex-wrap: wrap; overflow: visible; }
+}
+/* Sur téléphone, un comparable ou une étape de la ligne de temps reste sur une ligne (qui passe à la ligne si besoin). */
+@media (max-width: 899px) {
+  .history li.fiche-comp, .fiche-timeline li { flex-direction: row; flex-wrap: wrap; gap: 4px 10px; }
+}

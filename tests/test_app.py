@@ -1080,3 +1080,33 @@ def test_diag_lists_missed_and_failed_scheduler_runs(logged):
     assert error["job"] == "flush" and error["error"].startswith("ValueError: bot<masqué>") and "secret" not in error["error"]
     assert diag["telegram_outbox"] == 0
     client.__exit__(None, None, None)
+
+
+def test_interface_wires_the_wave_one_routes():
+    """L'interface branche ce que les serveurs exposent : routes, libellés et listes (chantier F2b)."""
+    from pathlib import Path
+
+    static = Path(__file__).resolve().parent.parent / "app" / "static"
+    js = (static / "app.js").read_text(encoding="utf-8")
+    html = (static / "index.html").read_text(encoding="utf-8")
+    # Routes de la vague 1 branchées, sondages légers compris.
+    for route in ("/api/settings/alerts", "/api/ai/outcomes", "/api/decisions", "/api/drops/unhide", "/api/settings/status",
+                  "/api/settings/czds/accept-gap", "/api/drops?items=0", "/api/explore/views"):
+        assert route in js, route
+    assert "/api/portfolio/export" in html
+    assert 'this.api("GET", "/api/settings")' not in js.split("async startPairing")[1].split("async removeTelegram")[0]
+    # Nouvelles listes : puces de type et gabarit du Top, après Secteurs.
+    kinds = [k.split('"')[0] for k in js.split("const EX_TYPES")[1].split("];")[0].split('k: "')[1:]]
+    assert kinds[kinds.index("sector"):kinds.index("sector") + 5] == ["sector", "job", "sport", "animal", "food"]
+    top = js.split("const TOP_LISTS = [")[1].split("]")[0]
+    assert top.startswith('"sector", "job", "sport", "animal", "food"')
+    # « Masquer » devient « Ignorer » pour la décision (la case « Masquer les noms faibles » est un filtre, elle reste).
+    assert ">Ignorer<" in html and "dropBulk('hide')\" :disabled=\"dropBulkRunning\">Masquer" not in html
+    assert "masqué(s)" not in html and "noms ignorés" in js
+    # Fiche : pourquoi, ancienne grille, comparables, repères, ligne de temps, avis des autres extensions.
+    assert '"Pourquoi"' in js and "ancienne grille" in js
+    for block in ("fiche.comparables", "fiche.references", "fiche.timeline", "o.ai_summary"):
+        assert block in html, block
+    # Erreurs réseau en français simple, sans console.error ajouté par l'appli.
+    assert "Réseau injoignable" in js and "Pas de réponse du registre" in js and "console." not in js
+    assert "Réessayer" in js

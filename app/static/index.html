@@ -78,6 +78,7 @@
   </form>
   <div class="notice" :class="[notice && notice.kind, notice ? 'shown' : '']" role="status" aria-live="polite" @click="notice = null">
     <span x-text="notice ? notice.text : ''"></span>
+    <button type="button" class="notice-action" x-show="notice && notice.action" @click.stop="noticeAct()" x-text="notice && notice.action ? notice.action.label : ''"></button>
     <button type="button" class="notice-close" aria-label="Fermer le message">×</button>
   </div>
 
@@ -134,6 +135,9 @@
       <dt>Masquer les noms faibles</dt><dd>Sans avis IA : score sous 30. Avec un avis : « À laisser », même à bon score.</dd>
       <dt>Sur une carte</dt><dd>L'état en toutes lettres (probablement libre, libre vérifié, libération estimée, pris, réservé, premium probable), le verdict IA et le prix utilisateur final, puis Réserver, Vérifier (nom probablement libre) et Surveiller.</dd>
       <dt>Nom hors des listes</dt><dd>Un nom tapé dans l'Explorer qui n'est dans aucune liste s'affiche quand même, une ligne par extension suivie : Vérifier interroge le registre, puis Réserver ou Surveiller.</dd>
+      <dt>Ignorer</dt><dd>Dans la Veille, un nom ou une sélection : il quitte l'écran (il reste dans l'Explorer) et la décision est gardée. Le message propose « Annuler » ; Paramètres, « Tout réafficher », les remet tous. Portefeuille, « Décisions » : chaque nom ignoré ou acheté, son état du jour, « repris » si quelqu'un d'autre l'a enregistré depuis (regrets).</dd>
+      <dt>Actions groupées</dt><dd>Domaines, Veille et Explorer : cases, puis Vérifier, Analyse IA, Surveiller… Un seul bilan à la fin : « 3 vérifiés, 1 échec ».</dd>
+      <dt>Erreurs réseau</dt><dd>« Réseau injoignable » (NAS, proxy ou annuaire IANA hors d'atteinte) et « Pas de réponse du registre » (délai dépassé) remplacent le détail technique ; « Réessayer » rejoue l'action. Dans la Veille, la ligne des sources distingue une erreur temporaire d'une source à configurer.</dd>
     </dl>
     <p class="small muted">Le bouton « Analyse IA » de la fiche fait noter un nom dans l'heure.</p>
 
@@ -156,10 +160,10 @@
       <dt>Utilisateur final</dt><dd>Fourchette encadrée par des paliers selon la note de revente et l'extension, un palier de tolérance de chaque côté (.fr : 90, 10 000 à 150 000 ; 85, 8 000 à 80 000 ; 80, 5 000 à 30 000 ; 70, 3 000 à 15 000…, sans plafond pour 1 ou 2 caractères). Repères indicatifs, pas une cote.</dd>
       <dt>Pourquoi</dt><dd>Pour « À laisser » ou « À surveiller », la cause principale : risque fort, sinon la sous-note la plus faible (sens, marque, marché, acheteurs). Un avis à l'ancienne grille sera renoté.</dd>
       <dt>Comparables</dt><dd>Dans la fiche, jusqu'à trois noms déjà notés de la même liste (ou de même forme et longueur pour un nom court), de longueur proche, les plus proches par note de revente ; et trois ventes ou offres reçues du portefeuille.</dd>
-      <dt>Mesure a posteriori</dt><dd>Chaque nuit, les avis d'il y a 30 jours au moins sur des noms alors libres sont confrontés à l'état du jour : part des noms repris par quelqu'un d'autre, par verdict et par tranche de note de revente.</dd>
-      <dt>Alertes</dt><dd>Un nom « À prendre » dont la note de revente atteint le seuil réglé (70 par défaut) part sur Telegram dès qu'il se libère ou entre en rédemption, une fois par état ; une vue enregistrée marquée « alerte » signale ses nouveaux noms libres, une fois par heure au plus.</dd>
+      <dt>Mesure a posteriori</dt><dd>Chaque nuit, les avis d'il y a 30 jours au moins sur des noms alors libres sont confrontés à l'état du jour : part des noms repris par quelqu'un d'autre, par verdict et par tranche de note de revente. Paramètres, carte Avis IA, « Fiabilité des verdicts ».</dd>
+      <dt>Alertes</dt><dd>Un nom « À prendre » dont la note de revente atteint le seuil réglé (70 par défaut, Paramètres, carte Alertes) part sur Telegram dès qu'il se libère ou entre en rédemption, une fois par état ; une vue enregistrée marquée « alerte » (Explorer, panneau Avancé) signale ses nouveaux noms libres, une fois par heure au plus.</dd>
     </dl>
-    <p class="small muted">La fiche montre aussi la ligne de temps du nom (création, suppression, rédemption, libération, avis IA, surveillance, achat, vente). Portefeuille : bilan par année, liens de mise en vente (Sedo, Dan, Afternic) et export CSV.</p>
+    <p class="small muted">La fiche montre aussi la ligne de temps du nom (création, suppression, rédemption, libération, avis IA, surveillance, achat, vente), repliée sur téléphone, et le résumé de l'avis IA des autres extensions. Portefeuille : bilan par année, liens de mise en vente (Sedo, Dan, Afternic : liens de recherche, pas une mise en vente automatique), export CSV, confirmation de chaque changement.</p>
 
     <h3 id="help-lists">Listes de noms</h3>
     <dl class="help-dl">
@@ -329,7 +333,7 @@
           <button type="button" class="btn-ghost sm" @click="dropBulk('watch')" :disabled="dropBulkRunning">Surveiller</button>
           <button type="button" class="btn-ghost sm" @click="dropBulk('ai')" :disabled="dropBulkRunning">Analyse IA</button>
           <button type="button" class="btn-ghost sm" @click="dropBulk('check')" :disabled="dropBulkRunning">Vérifier</button>
-          <button type="button" class="btn-ghost sm" @click="dropBulk('hide')" :disabled="dropBulkRunning">Masquer</button>
+          <button type="button" class="btn-ghost sm" @click="dropBulk('hide')" :disabled="dropBulkRunning">Ignorer</button>
           <button type="button" class="btn-text" @click="dropSelected = []">Annuler</button>
           <span class="muted small" x-show="dropBulkRunning" x-text="dropBulkDone + '/' + dropSelected.length"></span>
         </div>
@@ -360,8 +364,34 @@
           <button type="submit" class="btn">Ajouter</button>
         </form>
         <p class="muted small">Un nom ajouté est aussi surveillé : son échéance réelle vient du RDAP. Rappel Telegram 30 puis 7 jours avant le renouvellement. Les ventes et les offres reçues servent de repères de prix à la notation IA.</p>
+        <p class="small pf-checking" x-show="pfChecking.length" x-text="pfChecking.join(', ') + ' : vérification du registre en cours, l\'échéance suivra.'"></p>
+
+        <!-- Bilan par année : achats, renouvellements, ventes, bénéfice. -->
+        <template x-if="pf.years && pf.years.length">
+          <div class="drops-card pf-years">
+            <div class="pf-years-head">
+              <h3>Par année</h3>
+              <a class="btn-ghost sm" href="/api/portfolio/export" download="portefeuille.csv">Export CSV</a>
+            </div>
+            <table class="pf-years-table">
+              <thead><tr><th>Année</th><th class="num">Investi</th><th class="num">Renouvellements</th><th class="num">Ventes</th><th class="num">Bénéfice</th></tr></thead>
+              <tbody>
+                <template x-for="y in pf.years" :key="y.year">
+                  <tr>
+                    <td x-text="y.year"></td>
+                    <td class="num" x-text="euros(y.invested)"></td>
+                    <td class="num" x-text="euros(y.renewals)"></td>
+                    <td class="num" x-text="euros(y.sold)"></td>
+                    <td class="num" :class="y.profit > 0 ? 'pf-gain' : (y.profit < 0 ? 'pf-loss' : '')" x-text="euros(y.profit)"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </template>
 
         <p class="muted" x-show="!pf.items.length">Aucun nom pour l'instant. « J'ai acheté » dans la fiche d'un nom l'ajoute ici.</p>
+        <p class="muted small" x-show="pf.items.length">« Mettre en vente » : liens de recherche vers Sedo, Dan et Afternic, pas une mise en vente automatique.</p>
         <div class="pf-list">
           <template x-for="i in pf.items" :key="i.id">
             <div class="drops-card pf-item" :class="'pf-' + i.status">
@@ -386,11 +416,46 @@
               <p class="small pf-compare">
                 <span x-show="i.ai" x-text="i.ai ? 'Estimation IA, utilisateur final : ' + priceRange(i.ai.final_low, i.ai.final_high) : ''"></span>
                 <span x-show="i.profit !== null" :class="i.profit >= 0 ? 'pf-gain' : 'pf-loss'" x-text="'Bénéfice ' + euros(i.profit)"></span>
+                <span class="pf-sale" x-show="i.sale_links && i.status !== 'sold' && i.status !== 'dropped'">
+                  <span class="muted">Mettre en vente :</span>
+                  <a :href="i.sale_links && i.sale_links.sedo" target="_blank" rel="noopener">Sedo</a>
+                  <a :href="i.sale_links && i.sale_links.dan" target="_blank" rel="noopener">Dan</a>
+                  <a :href="i.sale_links && i.sale_links.afternic" target="_blank" rel="noopener">Afternic</a>
+                </span>
               </p>
               <input type="text" class="filter-input pf-notes" :value="i.notes ?? ''" placeholder="Notes" @change="pfSet(i, 'notes', $event.target.value)" aria-label="Notes">
             </div>
           </template>
         </div>
+
+        <!-- Décisions gardées : ignoré (Veille) ou acheté ; un nom ignoré puis repris par quelqu'un d'autre est un regret. -->
+        <template x-if="decisions">
+          <div class="drops-card pf-decisions">
+            <div class="pf-years-head">
+              <h3>Décisions</h3>
+              <span class="small" :class="decisions.regrets ? 'warn-text' : 'muted'" x-text="'regrets = ' + decisions.regrets"></span>
+            </div>
+            <p class="muted small">Ce qui a été ignoré dans la Veille ou acheté, avec l'état du nom aujourd'hui. « repris » : un nom ignoré enregistré depuis par quelqu'un d'autre.</p>
+            <p class="muted small" x-show="!decisions.items.length">Aucune décision pour l'instant.</p>
+            <table class="pf-decisions-table" x-show="decisions.items.length">
+              <thead><tr><th>Nom</th><th>Décision</th><th>Date</th><th>État actuel</th><th></th></tr></thead>
+              <tbody>
+                <template x-for="d in decisions.items" :key="d.name">
+                  <tr>
+                    <td><button type="button" class="link-like mono" @click="openFiche(d.name)" x-text="d.name"></button></td>
+                    <td><span x-text="decisionLabel(d)"></span><span class="muted small" x-show="d.note" x-text="d.note ? ' · ' + d.note : ''"></span></td>
+                    <td class="muted" x-text="shortDate(d.at)"></td>
+                    <td>
+                      <span x-text="d.state_label || 'inconnu'"></span>
+                      <span class="pf-regret" x-show="d.outcome" x-text="d.outcome === 'repris' ? 'repris' + (d.taken_at ? ' le ' + shortDate(d.taken_at) : '') : d.outcome"></span>
+                    </td>
+                    <td class="pf-decision-x"><button type="button" class="btn-text small" @click="deleteDecision(d)" :aria-label="'Retirer la décision sur ' + d.name">Retirer</button></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </template>
       </div>
     </template>
   </section>
@@ -442,11 +507,16 @@
               <template x-for="(v, n) in exViews" :key="v.name">
                 <span class="tag ex-view" :class="{ on: exViewOn(v) }">
                   <button type="button" class="ex-view-name" @click="exApplyView(v)" x-text="v.name"></button>
+                  <label class="ex-view-alert" :title="'Alerte Telegram pour la vue ' + v.name">
+                    <input type="checkbox" :checked="!!v.alert" @change="exSetViewAlert(n, $event.target.checked)" :aria-label="'Alerte Telegram pour la vue ' + v.name">
+                    <span>alerte</span>
+                  </label>
                   <button type="button" class="ex-x" @click="exDeleteView(n)" :aria-label="'Supprimer la vue ' + v.name">×</button>
                 </span>
               </template>
               <button type="button" class="tag" @click="exSaveView()">+ Enregistrer la vue actuelle</button>
             </div>
+            <p class="muted small ex-field-help" x-show="exViews.length">Case « alerte » : un message Telegram, une fois par heure au plus, quand de nouveaux noms libres ou bientôt libres répondent à la vue.</p>
           </div>
           <h4 class="ex-group-title">Le nom</h4>
           <div class="ex-field"><span>Forme</span>
@@ -549,7 +619,7 @@
               <button type="button" class="btn-ghost sm" @click="exToggleTop()">Fermer</button>
             </div>
             <div class="ex-chips">
-              <template x-for="k in ['sector', 'trend', 'expr', 'niche', 'word', 'english', 'firstname', 'surname', 'combo', 'form'].filter((x) => exData.kinds[x])" :key="k">
+              <template x-for="k in TOP_LISTS.filter((x) => exData.kinds[x])" :key="k">
                 <button type="button" class="tag" :class="{ on: top.cat === k }" @click="top.cat = k; exLoadTop()" x-text="kindLabel(exData.kinds, k)"></button>
               </template>
             </div>
@@ -785,6 +855,22 @@
       </div>
 
 
+      <div id="set-alerts">
+        <h3>Alertes</h3>
+        <template x-if="cfg && cfg.alerts">
+          <form class="setting-lines" @submit.prevent="saveAlerts()">
+            <label class="check"><input type="checkbox" x-model="cfg.alerts.take_enabled"> Alerte Telegram dès qu'un nom À prendre se libère</label>
+            <p class="inline-form">
+              <label class="small" for="alert-min">Note de revente au moins</label>
+              <input id="alert-min" type="number" min="0" max="100" step="5" class="filter-input num-input" x-model.number="cfg.alerts.take_min" :disabled="!cfg.alerts.take_enabled">
+              <button type="submit" class="btn-ghost" :disabled="savingAlerts" x-text="savingAlerts ? 'Enregistrement' : 'Enregistrer'"></button>
+            </p>
+            <p class="muted small">Un nom de la Veille qui passe libre ou entre en rédemption avec un avis « À prendre » et une note de revente au seuil : verdict, notes, prix utilisateur final, lien vers la fiche et lien Réserver. Une alerte par nom et par état, dans les 10 minutes. Les vues enregistrées ont leur propre case « alerte » (Explorer, panneau Avancé).</p>
+            <p class="muted small" x-show="!cfg.telegram.chat_set">Aucun chat Telegram associé : les alertes ne partent pas. Carte Telegram ci-dessus.</p>
+          </form>
+        </template>
+      </div>
+
       <div>
         <h3>Apparence</h3>
         <template x-if="cfg">
@@ -900,8 +986,8 @@
             <button type="submit" class="btn-ghost">Enregistrer</button>
           </form>
         </template>
-        <p class="small" x-show="dropsData && dropsData.hidden"><span x-text="(dropsData && dropsData.hidden) + ' nom(s) masqué(s) à la main.'"></span> <button type="button" class="link-like" @click="unhideDrops()">Tout réafficher</button></p>
-        <p class="muted small">Ensuite visible dans l'Explorer seulement.</p>
+        <p class="small" x-show="dropsData && dropsData.hidden"><span x-text="(dropsData && dropsData.hidden) + ' nom(s) ignoré(s) à la main.'"></span> <button type="button" class="link-like" @click="unhideDrops()">Tout réafficher</button></p>
+        <p class="muted small">Un nom ignoré reste visible dans l'Explorer ; la décision est gardée dans Portefeuille, « Décisions ».</p>
       </div>
 
       <div id="settings-sources" class="setting-wide">
@@ -911,9 +997,17 @@
             <div class="drops-card drops-status">
               <div class="drops-zones">
                 <template x-for="z in dropsData.zones" :key="z.tld">
-                  <div class="zone-line" :class="{ error: z.error }">
+                  <div class="zone-line" :class="{ error: z.error, 'fr-zone': gapLine(z.tld) }">
                     <span class="mono zone-tld" x-text="'.' + z.tld"></span>
                     <span class="small" x-text="zoneLine(z)"></span>
+                    <!-- Écart de zone refusé (plus de 5 % des noms disparus d'un coup) : accepter fait passer la lecture suivante, une fois. -->
+                    <template x-if="gapLine(z.tld)">
+                      <p class="small zone-gap">
+                        <span class="warn-text" x-text="gapLine(z.tld)"></span>
+                        <button type="button" class="btn-ghost sm" x-show="!gapAccepted(z.tld)" @click="acceptGap(z.tld)">Accepter l'écart</button>
+                        <span class="muted" x-show="gapAccepted(z.tld)">Écart accepté pour la prochaine lecture.</span>
+                      </p>
+                    </template>
                   </div>
                 </template>
                 <template x-if="dropsData.fr.enabled">
@@ -1092,6 +1186,32 @@
             <div class="hash" x-text="aiToken"></div>
           </div>
         </template>
+        <!-- Mesure a posteriori : part des noms repris par quelqu'un d'autre, par verdict et par tranche de note. -->
+        <template x-if="aiOutcomes">
+          <div class="ai-outcomes">
+            <h4>Fiabilité des verdicts</h4>
+            <template x-if="!aiOutcomes.total">
+              <p class="muted small" x-text="'Aucune mesure encore : chaque avis est confronté à l\'état du nom ' + aiOutcomes.min_age_days + ' jours après la notation (noms libres au moment de l\'avis).'"></p>
+            </template>
+            <template x-if="aiOutcomes.total">
+              <div>
+                <p class="muted small" x-text="'Mesure sur ' + fmt(aiOutcomes.total) + ' noms notés il y a ' + aiOutcomes.min_age_days + ' jours au moins, libres au moment de l\'avis : part reprise par quelqu\'un d\'autre depuis.'"></p>
+                <table class="outcomes-table">
+                  <thead><tr><th>Verdict ou note</th><th class="num">Noms</th><th class="num">Part reprise</th></tr></thead>
+                  <tbody>
+                    <template x-for="r in outcomeRows()" :key="r.key">
+                      <tr :class="{ 'outcomes-band': r.key.startsWith('b:') }">
+                        <td x-text="r.label"></td>
+                        <td class="num" x-text="fmt(r.count)"></td>
+                        <td class="num" x-text="share(r)"></td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+            </template>
+          </div>
+        </template>
       </div>
 
       <div>
@@ -1139,6 +1259,7 @@
         </button>
       </template>
     </div>
+    <button type="button" class="btn-ghost check-all" @click="domSelectAll()" :aria-pressed="domSelected.length > 0" x-text="domSelected.length ? 'Désélectionner' : 'Sélectionner'"></button>
     <button type="button" class="btn-ghost check-all" @click="checkAll()" :disabled="bulkRunning" aria-label="Tout vérifier" title="Tout vérifier">
       <svg viewBox="0 0 24 24" aria-hidden="true" :class="{ spin: bulkRunning }"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v4h-4"/></svg>
       <span class="check-all-label" x-text="bulkRunning ? 'Vérification en cours' : 'Tout vérifier'"></span>
@@ -1224,6 +1345,7 @@
         <tbody :class="{ open: openId === d.id }">
           <tr class="row" @click="toggle(d)">
             <td class="domain">
+              <input type="checkbox" class="ex-pick dom-pick" :checked="domSelected.includes(d.id)" @click.stop="domToggle(d.id)" :aria-label="'Sélectionner ' + d.unicode_name">
               <button type="button" class="expander" :aria-expanded="openId === d.id" @click.stop="toggle(d)">
                 <span class="mono" x-text="d.unicode_name"></span>
               </button>
@@ -1262,6 +1384,15 @@
         </tbody>
       </template>
     </table>
+
+    <!-- Actions groupées sur les domaines cochés : bilan en un message (« 3 vérifiés, 1 échec »). -->
+    <div class="ex-bulk" x-show="domSelected.length" x-transition x-cloak>
+      <span x-text="domSelected.length + ' sélectionné(s)'"></span>
+      <button type="button" class="btn-ghost sm" @click="domBulk('check')" :disabled="domBulkRunning">Vérifier</button>
+      <button type="button" class="btn-ghost sm" @click="domBulk('ai')" :disabled="domBulkRunning">Analyse IA</button>
+      <button type="button" class="btn-text" @click="domSelected = []">Annuler</button>
+      <span class="muted small" x-show="domBulkRunning" x-text="domBulkDone + '/' + domSelected.length"></span>
+    </div>
 
     <template x-if="selected">
       <aside class="drawer details" aria-label="Détail du domaine" x-transition.opacity.duration.150ms>
@@ -1346,10 +1477,7 @@
               <h3>Autres extensions</h3>
               <ol>
                 <template x-for="o in (domainFiche && domainFiche.others) || []" :key="o.name">
-                  <li class="fiche-other">
-                    <button type="button" class="link-like mono" @click="openFiche(o.name)" x-text="o.name"></button>
-                    <span class="badge" :class="badgeClass(o)" x-text="o.status_label"></span>
-                  </li>
+                  <li class="fiche-other" x-tpl="['fiche-other', { o }]"></li>
                 </template>
               </ol>
             </div>
@@ -1404,19 +1532,65 @@
           <button type="button" class="btn-ghost sm" @click="ficheSeo()" :disabled="!!exBusy[fiche.name] || exSeo.running">Analyse SEO</button>
           <button type="button" class="btn-ghost sm" x-show="fiche.item && ![1, 6].includes(fiche.item.status)" @click="ficheFlag()" x-text="fiche.item && fiche.item.status === 7 ? 'Pas réservé' : 'Réservé'"></button>
         </div>
+        <!-- Comparables : noms déjà notés avec la grille, même liste, longueur proche ; un nom ouvre sa fiche. -->
+        <div class="history" x-show="(fiche.comparables || []).length">
+          <h3>Comparables</h3>
+          <ol>
+            <template x-for="c in fiche.comparables || []" :key="c.name">
+              <li class="fiche-comp">
+                <button type="button" class="link-like mono" @click="openFiche(c.name)" x-text="c.name"></button>
+                <span class="fiche-comp-ai" :class="{ 'À prendre': 'take', 'À surveiller': 'watch', 'À laisser': 'skip' }[c.verdict] || ''" x-text="c.verdict"></span>
+                <span class="muted" x-text="'revente ' + c.resale"></span>
+                <span class="muted" x-text="priceRange(c.final_low, c.final_high)"></span>
+                <span class="muted small" x-text="c.status_label"></span>
+              </li>
+            </template>
+          </ol>
+        </div>
+        <!-- Repères : ventes et offres reçues du portefeuille, les plus proches en longueur. -->
+        <div class="history" x-show="(fiche.references || []).length">
+          <h3>Repères du portefeuille</h3>
+          <ol>
+            <template x-for="r in fiche.references || []" :key="r.name">
+              <li class="fiche-comp">
+                <button type="button" class="link-like mono" @click="openFiche(r.name)" x-text="r.name"></button>
+                <span x-text="r.kind === 'vendu' ? 'vendu ' + euros(r.sold_price) + (r.sold_on ? ' le ' + shortDate(r.sold_on) : '') : 'offre reçue ' + euros(r.best_offer)"></span>
+              </li>
+            </template>
+          </ol>
+        </div>
+        <!-- Ligne de temps : tout ce que la base sait du nom, daté ; repliée par défaut sur téléphone. -->
+        <details class="history fiche-timeline" x-show="(fiche.timeline || []).length" :open="!mobile">
+          <summary><h3>Ligne de temps</h3></summary>
+          <ol>
+            <template x-for="(t, n) in fiche.timeline || []" :key="n">
+              <li>
+                <span class="when" :title="t.at" x-text="timelineDate(t.at)"></span>
+                <span class="what" :class="'tl-' + t.kind" x-text="t.label"></span>
+              </li>
+            </template>
+          </ol>
+        </details>
         <div class="history" x-show="(fiche.others || []).length">
           <h3>Autres extensions</h3>
           <ol>
             <template x-for="o in fiche.others || []" :key="o.name">
-              <li class="fiche-other">
-                <button type="button" class="link-like mono" @click="openFiche(o.name)" x-text="o.name"></button>
-                <span class="badge" :class="badgeClass(o)" x-text="o.status_label"></span>
-              </li>
+              <li class="fiche-other" x-tpl="['fiche-other', { o }]"></li>
             </template>
           </ol>
         </div>
       </div>
     </aside>
+  </template>
+
+  <!-- Autre extension d'un nom (fiche et panneau Domaines) : nom, état, résumé de son avis IA. -->
+  <template id="fiche-other">
+    <div class="fiche-other-line">
+      <button type="button" class="link-like mono" @click="openFiche(o.name)" x-text="o.name"></button>
+      <span class="fiche-other-ai small" x-show="o.ai_summary" :class="{ 'À prendre': 'take', 'À surveiller': 'watch', 'À laisser': 'skip' }[o.ai_summary && o.ai_summary.verdict] || ''"
+            x-text="o.ai_summary ? o.ai_summary.verdict + ' · revente ' + o.ai_summary.resale + ' · ' + priceRange(o.ai_summary.final_low, o.ai_summary.final_high) : ''"></span>
+      <span class="badge" :class="badgeClass(o)" x-text="o.status_label"></span>
+    </div>
   </template>
 
   <datalist id="tag-list"><template x-for="t in allTags" :key="t"><option :value="t"></option></template></datalist>
@@ -1435,7 +1609,7 @@
             <span class="nc-pill" x-show="c.secondary" :title="c.secondary ? c.secondary.title : ''"><span x-text="c.secondary ? c.secondary.label : ''"></span> <b x-text="c.secondary ? c.secondary.value : ''"></b></span>
           </span>
         </div>
-        <p class="nc-line" x-show="c.line"><span class="nc-ai" :class="c.lineClass" x-text="c.line"></span></p>
+        <p class="nc-line" x-show="c.line"><span class="nc-ai" :class="c.lineClass" x-text="c.line"></span><span class="nc-why muted" x-show="c.why" x-text="c.why ? ' · ' + c.why : ''"></span></p>
         <p class="nc-meta small">
           <span class="ex-reason new" x-show="c.isNew">Nouveau</span>
           <span class="badge" :class="c.badge.cls" x-text="c.badge.text"></span>
@@ -1447,6 +1621,7 @@
         <a class="btn-ghost sm" x-show="c.canReserve" :href="orderLink(c.name)" target="_blank" rel="noopener">Réserver</a>
         <button type="button" class="btn-ghost sm" x-show="c.canCheck" @click="cardCheck(c)" :disabled="c.busy" x-text="c.busy ? 'Vérification' : 'Vérifier'"></button>
         <button type="button" class="btn-ghost sm" @click="cardWatch(c)" :disabled="c.watched" x-text="c.watched ? 'Surveillé' : 'Surveiller'"></button>
+        <button type="button" class="btn-ghost sm nc-ignore" x-show="c.canIgnore" @click="cardIgnore(c)" title="Retirer de la Veille ; la décision est gardée">Ignorer</button>
       </div>
     </div>
   </template>
