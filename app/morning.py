@@ -55,6 +55,9 @@ def build(conn, explorer, cc_status: dict, base: str, now: datetime, min_score: 
         finished = parse_iso(status.get("finished_at"))
         if finished and finished >= now - timedelta(hours=24):
             lost += status.get("freed_names") or []
+    # Un nom sorti du DNS passe aussi dans la Veille : déjà listé plus haut avec son état réel, il n'est pas répété.
+    shown = set(best_freed[:MAX_LINES]) | set(best_coming[:MAX_LINES])
+    lost = [n for n in lost if n not in shown]
     if not best_freed and not best_coming and not lost:
         return None
     lines = ["Ce matin"]

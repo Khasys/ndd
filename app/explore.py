@@ -6,6 +6,7 @@ famille et prénoms de 5 caractères et plus. Pour chaque extension, un octet d'
 
 - zones ICANN : carte de bits des noms courts et liste des mots présents, lues chaque jour ;
 - .fr : open data de l'Afnic (fr_names) ;
+- .co, .ai, .io : présence dans le DNS du registre (cc_dns), pour les noms interrogés chaque nuit ;
 - par-dessus, l'écran Suppressions (table drops), plus récent.
 
 Recherche, filtres et comptages se font sur ces octets : bytes.find et bytes.count tournent en C.
@@ -23,7 +24,7 @@ from array import array
 from dataclasses import dataclass
 from datetime import date, datetime
 
-from . import ai, drops, frdns, precompute, prenoms, quality, rdapinfo, states, value, wordlists
+from . import ai, ccdns, drops, frdns, precompute, prenoms, quality, rdapinfo, states, value, wordlists
 from .checker import iso, utcnow
 
 # États, un octet par nom.
@@ -52,6 +53,15 @@ ABSENT_ZONE = "Absent de la zone, à vérifier"
 # Libération à venir : l'état précis, avec les libellés de la légende de l'écran Domaines.
 DROP_LABELS = {"expired": "Expiré", "redemption": "En rédemption", "pending_delete": "Suppression imminente"}
 ABSENT_FR = "Jamais enregistré"
+# .co, .ai, .io : pas de zone, seulement le DNS du registre. Absent du DNS ne veut pas dire libre
+# (enregistré sans serveurs, réservé ou premium du registre) ; jamais interrogé : rien n'est connu.
+ABSENT_DNS = "Absent du DNS, à vérifier"
+NOT_ASKED = "Pas interrogé"
+
+
+def absent_label(tld: str) -> str:
+    """Libellé d'un nom absent de la source de l'extension : open data .fr, zone ICANN ou DNS."""
+    return ABSENT_FR if tld == "fr" else ABSENT_DNS if tld in ccdns.TLDS else ABSENT_ZONE
 
 STATUS_FILTERS = {
     "available": (GONE, ABSENT, FREE, COMING),
@@ -372,6 +382,8 @@ class Explorer:
         # des run_in_executor : chaque accès au dict passe par ce verrou (les calculs restent dehors).
         self._memo_lock = threading.RLock()
         self.generation = 0
+        # .co, .ai, .io : extension présente dès qu'une passe DNS a rangé des noms (version de la passe, oui ou non).
+        self._dns_known: dict[str, tuple] = {}
         # Prénoms récents de l'Insee (prenoms.RecentNames), posés par main.py : Top, tri « recent », raison.
         self.recent = None
         self._recent_cache: tuple[int, dict] | None = None
@@ -430,11 +442,23 @@ class Explorer:
         for tld in sorted(self.drops.approved()):
             if self.drops._path(tld, "short").exists():
                 found.append(tld)
-        return found
+        return found + [t for t in ccdns.TLDS if t not in found and self._dns_has(t)]
+
+    def _dns_has(self, tld: str) -> bool:
+        """Des noms de cette extension ont été interrogés dans le DNS. Relu seulement quand une passe finit."""
+        version = self._version(tld)
+        known = self._dns_known.get(tld)
+        if known is None or known[0] != version:
+            found = self.conn.execute("SELECT 1 FROM cc_dns WHERE name LIKE ? LIMIT 1", (f"%.{tld}",)).fetchone()
+            known = self._dns_known[tld] = (version, found is not None)
+        return known[1]
 
     def _version(self, tld: str):
         if tld == "fr":
             return self.fr.store.get("fr_status")
+        if tld in ccdns.TLDS:
+            # État de la dernière passe DNS, réécrit à la fin de chaque passe : nouvelle version des données.
+            return self.fr.store.get(f"{tld}_dns_status")
         path = self.drops._path(tld, "short")
         return path.stat().st_mtime if path.exists() else None
 
@@ -443,8 +467,19 @@ class Explorer:
         cached = self._cache.get(tld)
         if cached and cached[1] == version and time.monotonic() - cached[0] < CACHE_SECONDS:
             return cached[2]
-        status = self._build_fr() if tld == "fr" else self._build_zone(tld)
+        status = self._build_fr() if tld == "fr" else self._build_dns(tld) if tld in ccdns.TLDS else self._build_zone(tld)
         self._cache[tld] = (time.monotonic(), version, status)
+        return status
+
+    def _build_dns(self, tld: str) -> bytearray:
+        """.co, .ai, .io : délégué dans le DNS, enregistré ; absent, à vérifier ; jamais interrogé, rien
+        (INVALID : hors des listes et des compteurs, comme un nom pas encore lu dans une zone)."""
+        u = self.universe
+        status = bytearray(u.size)
+        for name, present in self.conn.execute("SELECT name, present FROM cc_dns WHERE name LIKE ?", (f"%.{tld}",)):
+            i = u.index(name[: -len(tld) - 1])
+            if i is not None:
+                status[i] = REGISTERED if present else ABSENT
         return status
 
     def _build_zone(self, tld: str) -> bytearray:
@@ -543,6 +578,7 @@ class Explorer:
             self._memos.clear()
         if tld:
             self._cache.pop(tld, None)
+            self._dns_known.pop(tld, None)
 
     # --- Recherche -------------------------------------------------------------------
 
@@ -1376,6 +1412,9 @@ class Explorer:
         if tld == "fr":
             row = self.conn.execute("SELECT removed_on FROM fr_names WHERE label = ?", (label,)).fetchone()
             base = ABSENT if row is None else GONE if row["removed_on"] else REGISTERED
+        elif tld in ccdns.TLDS:
+            row = self.conn.execute("SELECT present FROM cc_dns WHERE name = ?", (f"{label}.{tld}",)).fetchone()
+            base = INVALID if row is None else REGISTERED if row["present"] else ABSENT
         else:
             base = self._base(tld)[i]
         code = base
@@ -1528,9 +1567,9 @@ class Explorer:
                 "length": len(label),
                 "categories": u.categories(label),
                 "status": code,
-                "status_label": ((ABSENT_FR if tld == "fr" else ABSENT_ZONE) if code == ABSENT
+                "status_label": (absent_label(tld) if code == ABSENT
                                  else DROP_LABELS.get(drop["state"], LABELS[code]) if code == COMING and drop
-                                 else LABELS.get(code, "")),
+                                 else self._status_label(tld, code)),
                 "created_on": fr["created_on"] if fr else None,
                 # Une sortie de zone repérée puis démentie (nom repris) n'est pas une suppression.
                 "removed_on": (fr["removed_on"] if fr and fr["removed_on"]
@@ -1622,7 +1661,9 @@ class Explorer:
         }
 
     def _status_label(self, tld: str, code: int) -> str:
-        return (ABSENT_FR if tld == "fr" else ABSENT_ZONE) if code == ABSENT else LABELS.get(code, "")
+        if code == INVALID and tld in ccdns.TLDS:
+            return NOT_ASKED
+        return absent_label(tld) if code == ABSENT else LABELS.get(code, "")
 
     def _family(self, i: int, label: str) -> str:
         """Liste principale d'un nom (la première de ses listes) ; pour un nom court hors des listes, sa
@@ -1697,8 +1738,13 @@ class Explorer:
         if rdap.get("expires_at") and not rdap.get("available"):
             add(rdap["expires_at"], "expires", "Expiration")
         drop = self.conn.execute("SELECT * FROM drops WHERE name = ?", (name,)).fetchone()
+        dns = ccdns.load_names(self.conn, [name]).get(name) if tld in ccdns.TLDS else None
+        if dns and dns["lost_at"] and not (drop is not None and drop["removed_on"]):
+            add(dns["lost_at"], "dns_out", "Sorti du DNS")
         if drop is not None:
-            if tld != "fr":
+            if tld in ccdns.TLDS:
+                add(drop["removed_on"], "dns_out", "Sorti du DNS")
+            elif tld != "fr":
                 add(drop["removed_on"], "zone_out", "Sorti de la zone")
             if drop["state"] in TIMELINE_DROP_STATES:
                 add(drop["state_since"], "drop_" + drop["state"], TIMELINE_DROP_STATES[drop["state"]])
@@ -1756,6 +1802,10 @@ class Explorer:
             if row is not None:
                 return {"at": None, "why": "aucune lecture prévue : vérification à la demande"}
             return {"at": None, "why": "jamais enregistré d'après l'Afnic : vérification à la demande"}
+        if tld in ccdns.TLDS:
+            best = f"{ccdns.PER_TLD:,}".replace(",", " ")
+            return {"at": None, "why": f"pas de lecture RDAP : le DNS du .{tld}, interrogé chaque nuit pour les {best} "
+                                      "meilleurs noms, signale le jour où il en sort ; le surveiller pour suivre son échéance"}
         if tld in self.tlds():
             return {"at": None, "why": f"pas de lecture RDAP : la zone .{tld}, lue chaque nuit, signale le jour où il en sort ; "
                                       "le surveiller pour suivre son échéance"}

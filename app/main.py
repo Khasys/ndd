@@ -248,6 +248,9 @@ async def lifespan(app: FastAPI):
             passes.discard(t)
             if not t.cancelled() and t.exception() is not None:
                 log.error("Passe DNS .%s interrompue", checker.tld, exc_info=t.exception())
+            elif not t.cancelled() and checker.tld in ccdns.TLDS and t.result().get("checked"):
+                # .co, .ai, .io : nouvelles données de l'Explorer, préparées avant qu'on l'ouvre.
+                app.state.explorer_warm = asyncio.create_task(_off(app.state.explorer.warm))
         task.add_done_callback(done)
 
     async def check_fr_dns() -> None:
@@ -312,6 +315,10 @@ async def lifespan(app: FastAPI):
     # .co, .ai, .io : une passe par extension, en même temps que le .fr (registres différents).
     app.state.cc_dns = {t: ccdns.CcDns(t, conn, store, app.state.explorer, digest.local_zone(), notify=telegram.send)
                         for t in ccdns.TLDS}
+    # Noms sortis du DNS avant que la Veille ne les suive : repris au démarrage (puis à chaque passe).
+    for cc in app.state.cc_dns.values():
+        if cc.resume_lost():
+            app.state.explorer.invalidate(cc.tld)
     app.state.seo = seo.Seo(conn, store)
     # Explorer : univers et classement préparés hors requête (thread), puis états et carte en mémoire.
     async def warm_explorer() -> None:
@@ -1451,7 +1458,7 @@ def _explore_meta(explorer, tld: str, chosen: list[str] | None = None) -> dict:
         "langs": wordlists.LANGS,
         "ai_fields": explore.AI_FIELDS,
         "statuses": explore.STATUS_NAMES,
-        "absent_label": explore.ABSENT_FR if chosen == ["fr"] else explore.ABSENT_ZONE,
+        "absent_label": explore.absent_label(chosen[0]) if len({explore.absent_label(t) for t in chosen}) == 1 else explore.ABSENT_ZONE,
         # Prénoms récents (Insee) : liste du Top et tri « recent », absents tant qu'aucun fichier n'est lu.
         "recent": explorer.recent_meta(),
     }
@@ -1535,6 +1542,11 @@ TOP_STATES = {explore.REGISTERED: "pris", explore.SUSPENDED: "pris", explore.GON
               explore.PREMIUM: "premium probable"}
 
 
+def _top_state(tld: str, code: int) -> str:
+    # .co, .ai, .io : seuls les meilleurs noms sont interrogés dans le DNS, les autres ne sont pas lus.
+    return "pas interrogé" if code == explore.INVALID and tld in ccdns.TLDS else TOP_STATES.get(code, "")
+
+
 @app.get("/api/explore/top")
 async def explore_top(request: Request):
     """Les N premiers d'une liste, pris ou non, avec leur état sur chaque extension."""
@@ -1578,7 +1590,7 @@ def _top(explorer, category, size, wanted, lang):
     items = []
     for rank, count, i in ranked:
         label = u.label(i)
-        cells = {t: {"code": data[t][i], "state": TOP_STATES.get(data[t][i], ""), "ai": opinions.get(f"{label}.{t}")}
+        cells = {t: {"code": data[t][i], "state": _top_state(t, data[t][i]), "ai": opinions.get(f"{label}.{t}")}
                  for t in tlds}
         items.append({"rank": rank, "label": label, "cells": cells, **({"count": count} if count else {})})
     return {"category": category, "size": size, "tlds": tlds, "items": items,

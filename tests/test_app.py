@@ -1405,3 +1405,33 @@ def test_interface_verdict_badges_sorts_and_fiche_labels():
     assert 'class="dom-sort"' in html and "openDomains(); filter = null" not in html
     # Fiche : catégories et nature traduites même sans écran chargé, rang en clair.
     assert 'noun: "nom commun"' in js and 'letters: "Lettres"' in js and 'firstname: "prénom le plus donné"' in js
+
+
+def test_cc_dns_extensions_in_explorer_top_fiche_and_veille(logged):
+    import json as _json
+
+    client = logged()
+    state = client.app.state
+    conn = state.conn
+    at = "2026-10-18T03:00:00+00:00"
+    for name, present, lost in [("assurance.ai", 1, None), ("insurance.ai", 0, None), ("loans.ai", 0, at)]:
+        conn.execute("INSERT INTO cc_dns (name, present, checked_at, seen_at, lost_at) VALUES (?, ?, ?, ?, ?)",
+                     (name, present, at, at, lost))
+    state.store.set("ai_dns_status", _json.dumps({"finished_at": at, "checked": 3, "present": 1}))
+    state.cc_dns["ai"].resume_lost()
+    ranked = client.get("/api/explore/rank", params={"tld": "ai", "status": "all"}).json()
+    assert "ai" in ranked["tlds"] and ranked["absent_label"] == "Absent du DNS, à vérifier"
+    labels = {i["label"]: i["status_label"] for i in ranked["items"]}
+    assert labels["assurance"] == "Enregistré" and labels["insurance"] == "Absent du DNS, à vérifier"
+    top = client.get("/api/explore/top", params={"cat": "sector", "n": 50, "tld": "ai"}).json()
+    cells = {i["label"]: i["cells"]["ai"]["state"] for i in top["items"]}
+    assert cells["assurance"] == "pris" and cells["insurance"] == "probablement libre" and cells["mutuelle"] == "pas interrogé"
+    fiche = client.get("/api/explore/fiche", params={"name": "insurance.ai"}).json()
+    assert fiche["item"]["status_label"] == "Absent du DNS, à vérifier" and fiche["cc_dns"]["present"] is False
+    # Sorti du DNS : confié à la Veille, avec son extension (puce .ai).
+    row = conn.execute("SELECT * FROM drops WHERE name = 'loans.ai'").fetchone()
+    assert row is not None and row["next_check_at"]
+    conn.execute("UPDATE drops SET state = 'redemption', state_since = ? WHERE name = 'loans.ai'", (at,))
+    veille = client.get("/api/drops").json()
+    assert [(i["name"], i["tld"]) for i in veille["items"]] == [("loans.ai", "ai")]
+    client.__exit__(None, None, None)

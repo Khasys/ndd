@@ -198,8 +198,8 @@ En .fr, un mot seulement anglais (should) ou une forme conjuguée (vais) perd un
 points de forme et de sens par rapport au même mot bien placé : ils se lisent mal en .fr. La raison
 est affichée sur la carte.
 
-Menu Veille : les noms qui quittent les zones des extensions génériques, suivis jusqu'à leur
-libération. Sont suivis tous les noms de 1 à 4 caractères (lettres, chiffres, tiret), les 20 000
+Menu Veille : les noms qui quittent les zones des extensions génériques (et le DNS de .co, .ai et
+.io), suivis jusqu'à leur libération. Sont suivis tous les noms de 1 à 4 caractères (lettres, chiffres, tiret), les 20 000
 mots français les plus courants (forme de base, sans accents), les noms de famille donnés plus
 de 500 fois en France entre 1891 et 2000 (environ 21 700) et les prénoms donnés plus de 100 fois
 entre 1900 et 2018 (environ 10 000). S'y ajoutent les 30 000 mots anglais les plus fréquents
@@ -330,10 +330,18 @@ L'appli fonctionne alors en trois temps :
    que le .fr, l'appli interroge leurs serveurs DNS pour les 50 000 meilleurs noms (plus de 2
    caractères), jamais interrogés d'abord : toutes les listes pour .co (vendu comme le .com) ; Mots
    anglais, Tendances et Tech et startups pour .ai et .io. Mêmes garde-fous, propres à chaque
-   extension. Un nom délégué qui ne l'est plus (« sorti du DNS ») part dans le résumé Telegram du
-   matin : souvent un nom qui expire, à vérifier
-   en RDAP. Pas de date de libération estimée ; un nom absent du DNS peut être enregistré sans
-   serveurs, réservé ou premium du registre.
+   extension. Dès la première passe, chaque extension apparaît dans l'Explorer : délégué, « Enregistré » ;
+   absent, « Absent du DNS, à vérifier » ; pas interrogé, hors des listes et des compteurs. Absent du DNS
+   ne veut pas dire libre : le nom peut être enregistré sans serveurs DNS, réservé ou premium du registre,
+   et Vérifier tranche ; seuls les 50 000 meilleurs noms par extension sont interrogés. Un nom délégué
+   qui ne l'est plus (« sorti du DNS », souvent un nom qui expire) entre dans la Veille comme un nom
+   sorti d'une zone : vérifié auprès du registre (RDAP, sinon WHOIS), puis Libérés ou Bientôt libres
+   selon son état ; revenu dans le DNS, il en sort. Un nom absent dès sa première interrogation n'y
+   entre pas. Les noms sortis avant cette version sont repris au démarrage et à chaque passe. Le résumé
+   Telegram du matin les liste sous « Sortis du DNS », sauf ceux déjà listés avec leur état dans une
+   autre rubrique. Pas de date de libération estimée (délais de ces registres non relevés). Paramètres,
+   « Sources et lectures » : une ligne par extension, noms interrogés, présents et absents, date de la
+   dernière passe.
 
 Le fichier de l'Afnic ne donne pas de date d'expiration, d'où le calcul par la date de création.
 Un nom sans date de création dans le fichier n'est pas suivi. Ses colonnes
@@ -394,7 +402,9 @@ registre en cours » tant que l'écran n'a pas été rechargé.
 
 Tous les noms suivis, extension par extension : les 1 926 220 noms possibles de 1 à 4 caractères,
 puis les mots, noms de famille et prénoms. L'état vient des données déjà sur le NAS, sans aucune
-requête : zones ICANN lues chaque jour, open data de l'Afnic, données de la Veille par-dessus.
+requête : zones ICANN lues chaque jour, open data de l'Afnic, DNS de .co, .ai et .io (les 50 000
+meilleurs noms de chacune, voir « Le .fr », point 5), données de la Veille par-dessus. Une extension
+DNS change de version à la fin de chaque passe : l'Explorer se recalcule alors.
 
 - **Top** : les 10, 50, 100, 200, 500 ou 1 000 premiers d'une liste (secteurs, métiers, sport, animaux,
   cuisine, tendances, sites de niche, mots, anglais, prénoms, noms…), pris ou non, avec l'état sur chaque extension en toutes lettres
@@ -494,8 +504,9 @@ Concordance de rang avec les avis IA, sur des noms gardés hors du calage : 0,25
 croisée) après l'ajout de 240 noms de ces deux formes à l'échantillon. Point faible connu : entre deux
 mots courants, la valeur tient au sens et au marché, que seule la notation IA juge bien. Demande et
 historique : taux de base par extension et par forme (1 à 4 lettres prononçables ou non, chiffres,
-mélanges, mots), mesurés sur les zones lues ; la raison dit « courant pour cette forme » quand le
-signal est banal. Le score de base de tous les noms est précalculé à la construction de l'image
+mélanges, mots), mesurés sur les zones lues (pour .co, .ai et .io, parmi les seuls noms interrogés
+dans le DNS) ; la raison dit « courant pour cette forme » quand le signal est banal. Un nom délégué en
+.co, .ai ou .io compte comme pris ailleurs, comme un nom d'une zone. Le score de base de tous les noms est précalculé à la construction de l'image
 (`app/precompute.py`, `scores.bin`) ; le classement écarte d'abord les noms sur cette borne et ne
 fait le calcul complet que pour ceux qui peuvent entrer dans la page.
 
@@ -594,8 +605,9 @@ pour corriger une liste. La liste Afnic publiée n'est pas exhaustive : l'Afnic 
 publier les termes dont la seule mention heurterait le public.
 
 « Probablement libre » veut dire : pour le .fr, supprimé sans réenregistrement connu ou jamais
-enregistré d'après l'open data ; pour une zone ICANN, absent de la zone. Un nom enregistré sans
-serveurs DNS est absent de la zone lui aussi. Toujours vérifier avant de conclure.
+enregistré d'après l'open data ; pour une zone ICANN, absent de la zone ; pour .co, .ai et .io, absent
+du DNS du registre (carte « probablement libre (absent du DNS) »). Un nom enregistré sans serveurs DNS
+est absent de la zone et du DNS lui aussi. Toujours vérifier avant de conclure.
 
 ### Appli sur le téléphone
 

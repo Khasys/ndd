@@ -7,6 +7,8 @@ const AI_GRID = [["oral", "prononciation"], ["radio", "test radio"], ["memo", "m
   ["marque", "marque"], ["marche", "marché"], ["ext", "extension"], ["acheteurs", "acheteurs"], ["risque", "risque"]];
 // Catégories de forme ; les autres viennent des listes de noms.
 const SHAPE_KINDS = ["letters", "digits", "mixed", "hyphen"];
+// Extensions sans zone, lues dans le DNS du registre : absent du DNS ne veut pas dire libre.
+const DNS_TLDS = ["co", "ai", "io"];
 // Libellés des valeurs brutes (catégories, nature) : la fiche s'ouvre aussi depuis Domaines, avant que la
 // Veille ou l'Explorer aient chargé les leurs. Mêmes mots que drops.KINDS et wordlists.LABELS / NATURES.
 const KIND_LABELS = {
@@ -542,7 +544,8 @@ document.addEventListener("alpine:init", () => {
       const r = i.rdap;
       const detail = r && !r.available ? [r.registrar ? `registrar ${r.registrar}` : "", r.expires_at ? `expire le ${this.shortDate(r.expires_at)}` : ""].filter(Boolean).join(", ") : "";
       switch (i.status) {
-        case 2: case 3: return { badge: { text: "probablement libre", cls: "x-3" }, when: checked, canReserve: true, canCheck: true };
+        case 2: case 3: return { badge: { text: i.status === 3 && DNS_TLDS.includes(i.tld) ? "probablement libre (absent du DNS)" : "probablement libre", cls: "x-3" },
+                                 when: checked, canReserve: true, canCheck: true };
         case 5: return { badge: { text: "libre", cls: "x-5" }, when: checked, canReserve: true, canCheck: false };
         case 4: return { badge: { text: i.status_label || "Libération à venir", cls: this.badgeClass(i) },
                          when: i.release_at ? `libération ~${this.shortDate(i.release_at)}` : "libération à venir", canReserve: false, canCheck: false };
@@ -550,7 +553,7 @@ document.addEventListener("alpine:init", () => {
         case 6: return { badge: { text: "pris, suspendu", cls: "x-6" }, when: detail || checked, canReserve: false, canCheck: false };
         case 7: return { badge: { text: "réservé", cls: "x-7" }, when: (i.reserved || []).join(", "), canReserve: false, canCheck: false };
         case 8: return { badge: { text: "premium probable", cls: "x-8" }, when: "", canReserve: false, canCheck: false };
-        default: return { badge: { text: "pas encore vérifié", cls: "x-0" }, when: "", canReserve: false, canCheck: true };
+        default: return { badge: { text: DNS_TLDS.includes(i.tld) ? "pas interrogé" : "pas encore vérifié", cls: "x-0" }, when: "", canReserve: false, canCheck: true };
       }
     },
 
@@ -891,7 +894,7 @@ document.addEventListener("alpine:init", () => {
         const c = f.cc_dns;
         const lost = !c.present && c.lost_at ? `, sorti du DNS ${this.relative(c.lost_at)} : à vérifier` : "";
         past.push([`DNS .${f.tld}, dernière`, esc((c.present ? "délégué : nom pris" : "aucun serveur") + lost + `, ${this.relative(c.at)}`)]);
-      } else if (["co", "ai", "io"].includes(f.tld)) past.push([`DNS .${f.tld}`, "pas dans les noms suivis chaque nuit"]);
+      } else if (DNS_TLDS.includes(f.tld)) past.push([`DNS .${f.tld}`, "pas dans les noms suivis chaque nuit"]);
       if (f.seo) {
         const parts = [];
         if (f.seo.pr) parts.push(`PageRank ${String(f.seo.pr).replace(".", ",")}`);
@@ -1600,6 +1603,24 @@ document.addEventListener("alpine:init", () => {
       const detail = Object.entries(w.done_today).map(([k, n]) => `${this.fmt(n)} ${this.sourceLabel(k)}`).join(", ");
       const rest = left ? `${this.fmt(left)} restante(s) (${this.fmt(w.left_today.anniversaries)} date(s) anniversaire, ${this.fmt(w.left_today.removals)} suppression(s))` : "plus rien de prévu";
       return `${this.fmt(done)} faite(s)${detail ? " (" + detail + ")" : ""}, ${rest}.`;
+    },
+
+    // .co, .ai, .io : noms interrogés, présents et absents à la dernière passe, avec sa date ; puis les totaux.
+    ccDnsLine(d) {
+      if (!d || !d.enabled) return "désactivé.";
+      if (d.running) return "passe en cours.";
+      if (d.error) return `erreur à la dernière passe : ${d.error}`;
+      if (!d.finished_at) return "première passe à minuit, étalée sur la journée.";
+      const checked = d.checked || 0;
+      const present = d.present || 0;
+      const parts = [`dernière passe le ${this.exact(d.finished_at)} : ${this.fmt(checked)} nom(s) interrogé(s), ${this.fmt(present)} présent(s), ${this.fmt(checked - present)} absent(s)`];
+      const t = d.totals;
+      if (t && t.known !== checked) parts.push(`en tout ${this.fmt(t.known)} interrogé(s), ${this.fmt(t.present)} présent(s), ${this.fmt(t.absent)} absent(s)`);
+      if (t && t.lost) parts.push(`${this.fmt(t.lost)} sorti(s) du DNS, suivi(s) dans la Veille`);
+      if (d.skipped) parts.push(`${this.fmt(d.skipped)} sans réponse`);
+      if (d.stopped === "heure de fin atteinte") parts.push("arrêtée à 23 h, la suite le lendemain");
+      else if (d.stopped) parts.push(`arrêtée : ${d.stopped}`);
+      return parts.join(", ") + ".";
     },
 
     frDns(d) {

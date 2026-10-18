@@ -136,7 +136,7 @@
     <dl class="help-dl">
       <dt>Aujourd'hui</dt><dd>L'accueil : les 20 meilleurs noms libres ou libérés sous 48 h, avec les chiffres du jour (libérés depuis 24 h, sous 48 h, nouveaux « À prendre », regrets) ; Réserver ce qui vaut le coup.</dd>
       <dt>Domaines</dt><dd>Les noms surveillés, revérifiés au registre selon leur état ; saisir un nom pour le suivre, un clic sur un nom ouvre sa fiche.</dd>
-      <dt>Veille</dt><dd>Les noms sortis des zones : Libérés (réservables) et Bientôt libres (date estimée) ; trier par usage, puis Réserver, Surveiller ou Ignorer.</dd>
+      <dt>Veille</dt><dd>Les noms sortis des zones (et, pour .co, .ai, .io, du DNS) : Libérés (réservables) et Bientôt libres (date estimée) ; trier par usage, puis Réserver, Surveiller ou Ignorer.</dd>
       <dt>Explorer</dt><dd>Tous les noms suivis, pris ou non, extension par extension ; taper un mot pour voir son état partout et le vérifier.</dd>
       <dt>Portefeuille</dt><dd>Les noms possédés : achat, renouvellement, mise en vente, bilan, et les décisions gardées ; un nom s'y ajoute à la main.</dd>
       <dt>Paramètres</dt><dd>Sources, Telegram, alertes et avis IA d'abord ; le reste sous « Afficher les réglages avancés », la version en bas.</dd>
@@ -168,15 +168,16 @@
 
     <h3 id="help-explore">États dans l'Explorer</h3>
     <dl class="help-dl">
-      <dt>Enregistré</dt><dd>Dans la zone, dans le fichier de l'Afnic ou délégué dans le DNS du .fr.</dd>
+      <dt>Enregistré</dt><dd>Dans la zone, dans le fichier de l'Afnic, ou délégué dans le DNS (.fr, .co, .ai, .io).</dd>
       <dt>Supprimé, non repris</dt><dd>.fr : supprimé, non repris dans le dernier fichier de l'Afnic.</dd>
       <dt>Jamais enregistré</dt><dd>.fr : absent du fichier de l'Afnic.</dd>
       <dt>Absent de la zone, à vérifier</dt><dd>.com, .org… : absent de la zone du jour. Libre, ou enregistré sans serveurs DNS.</dd>
+      <dt>Absent du DNS, à vérifier</dt><dd>.co, .ai, .io : le registre ne délègue pas le nom. Pas forcément libre : il peut être enregistré sans serveurs DNS, réservé ou premium du registre ; Vérifier tranche. Seuls les 50 000 meilleurs noms par extension sont interrogés chaque nuit, les autres sont « pas interrogé ».</dd>
       <dt>Libération à venir</dt><dd>Expiré, en rédemption ou en suppression imminente.</dd>
       <dt>Libre (vérifié)</dt><dd>Libre à la dernière vérification auprès du registre.</dd>
       <dt>Réservé</dt><dd>Bloqué par le registre (termes soumis à examen, communes). Enregistrable sous conditions.</dd>
     </dl>
-    <p class="small muted">Probablement libres : Supprimé non repris, Jamais enregistré, Absent de la zone. Vérifier interroge le registre.</p>
+    <p class="small muted">Probablement libres : Supprimé non repris, Jamais enregistré, Absent de la zone, Absent du DNS. Vérifier interroge le registre. Un .co, .ai ou .io vu dans le DNS puis absent passe dans la Veille ; absent dès sa première interrogation, il reste dans l'Explorer.</p>
 
     <h3 id="help-find">Trouver les meilleurs (Veille et Explorer)</h3>
     <dl class="help-dl">
@@ -940,7 +941,7 @@
                 <template x-for="[tld, d] in Object.entries(dropsData.cc_dns || {})" :key="tld">
                   <div class="zone-line fr-zone" :class="{ error: d.error }">
                     <span class="mono zone-tld" x-text="'.' + tld"></span>
-                    <span class="small"><strong>DNS du jour</strong> <span x-text="frDns(d)"></span></span>
+                    <span class="small"><strong>DNS</strong> <span x-text="ccDnsLine(d)"></span></span>
                     <details class="small" x-show="(d.freed_names || []).length || (d.failure_log || []).length">
                       <summary class="muted">Sortis du DNS et échecs</summary>
                       <p x-show="(d.freed_names || []).length"><span class="muted">Sortis du DNS, souvent un nom qui expire :</span>

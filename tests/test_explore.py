@@ -1152,3 +1152,122 @@ def test_timeline_shows_what_is_coming(env):
     # Une fois libre, plus de libération « estimée ».
     env.conn.execute("UPDATE drops SET state = 'available', available_since = '2099-01-05T13:00:00Z' WHERE name = 'velo.com'")
     assert all(e["kind"] != "release" for e in env.fiche("velo.com")["timeline"])
+
+
+def cc(ex, tld, names, at="2026-10-18T03:00:00+00:00"):
+    """Résultat d'une passe DNS .co/.ai/.io : {label: (présent, lost_at)}."""
+    for label, (present, lost) in names.items():
+        ex.conn.execute("INSERT INTO cc_dns (name, present, checked_at, seen_at, lost_at) VALUES (?, ?, ?, ?, ?)",
+                        (f"{label}.{tld}", int(present), at, at if present or lost else None, lost))
+    ex.fr.store.set(f"{tld}_dns_status", json.dumps({"finished_at": at, "checked": len(names)}))
+
+
+def test_cc_dns_names_are_an_explorer_extension(env):
+    add_fr(env, "cloud")
+    assert env.tlds() == ["fr"]
+    cc(env, "co", {"cloud": (True, None), "insurance": (True, None), "maison": (False, None), "abc": (False, None),
+                   "velo": (False, None)})
+    assert env.tlds() == ["fr", "co"]  # nouvelle passe : nouvelle version, l'extension apparaît
+    by_label = {i["label"]: i for i in env.search("co", status="all", limit=50)["items"]}
+    assert by_label["cloud"]["status_label"] == "Enregistré" and by_label["maison"]["status_label"] == explore.ABSENT_DNS
+    assert "zebre" not in by_label  # jamais interrogé : hors des listes
+    counts = env.facets("co")
+    # 3 caractères absents : premium probable, comme sur une zone ; les noms pas interrogés ne comptent nulle part.
+    assert counts["registered"] == 2 and counts["maybe_free"] == 2 and counts["premium"] == 1 and counts["all"] == 4
+    ranked = [i["label"] for i in env.rank("co", status="available")["items"]]
+    assert set(ranked) == {"maison", "velo"}
+    card = {i["tld"]: i for i in env.card("zebre")["items"]}
+    assert card["co"]["status"] == explore.INVALID and card["co"]["status_label"] == "Pas interrogé"
+    fiche = env.fiche("maison.co")
+    assert fiche["item"]["status_label"] == explore.ABSENT_DNS and "DNS du .co" in fiche["rdap_next"]["why"]
+    # Pris en .co : demande pour le .fr ; taux de base mesurés parmi les noms interrogés seulement.
+    ctx = env._bonus_context("fr")
+    assert ctx["rates"]["co"]["W"] == pytest.approx(2 / 3)  # cloud, insurance pris ; maison absent
+    assert "pris en .co" in " ".join(env.value_of(["insurance.fr"])["insurance.fr"]["reasons"])
+    assert env.map()["cells"]["co"]["word"] >= 1
+    # La Veille par-dessus : un nom suivi en rédemption passe « à venir ».
+    env.drops.record("co", ["velo"], [], datetime.now(timezone.utc))
+    env.conn.execute("UPDATE drops SET state = 'redemption' WHERE name = 'velo.co'")
+    env.touch("velo.co")
+    assert env.search("co", q="velo", mode="exact", status="all")["items"][0]["status"] == explore.COMING
+    assert env.facets("co")["coming"] == 1
+
+
+def test_cc_dns_lost_name_goes_to_the_veille_and_leaves_when_back(env, monkeypatch):
+    from app import ccdns, frdns
+
+    monkeypatch.setattr(frdns, "RATE", 1_000_000.0)
+    checker = ccdns.CcDns("ai", env.conn, env.fr.store, env, timezone.utc)
+    checker.servers = ["192.0.2.1"]
+    checker.pending = lambda limit, now=None: ["cloud", "maison", "insurance"]
+    state = {"cloud": True, "maison": False, "insurance": True}
+
+    async def query(label):
+        return state[label]
+
+    checker.query = query
+    asyncio.run(checker.run(limit=3))
+    assert "ai" in env.tlds()
+    # Absent dès la première passe : pas dans la Veille, « Absent du DNS, à vérifier » dans l'Explorer.
+    assert env.conn.execute("SELECT COUNT(*) FROM drops").fetchone()[0] == 0
+    assert env.status_bytes("ai")[env.universe.index("cloud")] == explore.REGISTERED
+    state["cloud"] = False
+    asyncio.run(checker.run(limit=3))
+    row = env.drops.row("cloud.ai")
+    assert row is not None and row["next_check_at"] and row["state"] is None and env.drops.row("maison.ai") is None
+    # Vérifié auprès du registre au passage suivant : en rédemption, il est dans Bientôt libres.
+    expires = datetime.now(timezone.utc) - timedelta(days=40)
+    env.drops.rdap = FakeRdap({"cloud.ai": LookupResult(found=True, info=DomainInfo(statuses=["redemption period"], expires_at=expires))})
+    assert asyncio.run(env.drops.check_due()) == 1
+    assert env.drops.row("cloud.ai")["state"] == "redemption"
+    assert env.status_bytes("ai")[env.universe.index("cloud")] == explore.COMING
+    # Revenu dans le DNS : il sort de la Veille, comme un nom revenu dans sa zone.
+    state["cloud"] = True
+    asyncio.run(checker.run(limit=3))
+    assert env.drops.row("cloud.ai")["state"] == drops.TAKEN
+    assert env.status_bytes("ai")[env.universe.index("cloud")] == explore.REGISTERED
+    assert checker.status()["totals"] == {"known": 3, "present": 2, "absent": 1, "lost": 0}
+
+
+def test_cc_dns_names_lost_before_the_veille_are_resumed_once(env):
+    from app import ccdns
+
+    cc(env, "io", {"ammonium": (False, "2026-10-17T04:00:00+00:00"), "maison": (False, None), "cloud": (True, None)})
+    checker = ccdns.CcDns("io", env.conn, env.fr.store, env, timezone.utc)
+    assert checker.resume_lost() == 1
+    row = env.drops.row("ammonium.io")
+    assert row["removed_on"] == "2026-10-17" and row["next_check_at"]
+    assert env.drops.row("maison.io") is None and env.drops.row("cloud.io") is None
+    assert checker.resume_lost() == 0  # déjà suivi : pas de nouvelle entrée
+
+
+def test_cc_dns_pass_changes_the_explorer_version(env, monkeypatch):
+    from app import ccdns, frdns
+
+    monkeypatch.setattr(frdns, "RATE", 1_000_000.0)
+    cc(env, "co", {"cloud": (False, None)})
+    i = env.universe.index("maison")
+    assert env.status_bytes("co")[i] == explore.INVALID and env.facets("co")["all"] == 1
+    checker = ccdns.CcDns("co", env.conn, env.fr.store, env, timezone.utc)
+    checker.servers = ["192.0.2.1"]
+    checker.pending = lambda limit, now=None: ["maison"]
+
+    async def query(label):
+        return True
+
+    checker.query = query
+    asyncio.run(checker.run(limit=1))
+    # Premier passage sur ce nom (pas un changement) : seule la fin de passe met l'Explorer à jour.
+    assert env.status_bytes("co")[i] == explore.REGISTERED and env.facets("co")["all"] == 2
+
+
+def test_morning_summary_does_not_repeat_a_name_lost_from_the_dns(env):
+    from app import morning
+
+    now = datetime.now(timezone.utc)
+    env.drops.record("io", ["cloud"], [], now)
+    env.conn.execute("UPDATE drops SET state = 'redemption', state_since = ? WHERE name = 'cloud.io'", (now.isoformat(),))
+    status = {"io": {"finished_at": now.isoformat(), "freed_names": ["cloud.io", "maison.io"]}}
+    text = morning.build(env.conn, env, status, "", now, min_score=0)
+    assert text.count("cloud.io") == 1 and "Entrés en rédemption" in text
+    assert "Sortis du DNS (.co, .ai, .io), à vérifier : maison.io" in text

@@ -5,15 +5,20 @@ directement à leurs serveurs si les meilleurs noms des listes y sont délégué
 garde-fous du DNS .fr (rythme progressif, arrêt sur refus ou silence, plafond abaissé, alerte).
 
 Le signal utile : un nom délégué qui ne l'est plus (« sorti du DNS »), souvent un nom qui expire.
-Le résumé Telegram du matin liste ces noms ; le RDAP (bouton Vérifier) tranche. Pas de date de libération :
-les délais de ces registres ne sont pas relevés. Un nom absent du DNS n'est pas forcément libre
-(enregistré sans serveurs, réservé ou premium du registre).
+Il passe dans la Veille comme un nom sorti d'une zone (drops.record) : vérifié auprès du registre,
+puis Libérés ou Bientôt libres selon son état réel. Un nom qui revient dans le DNS en sort. Un nom
+absent dès sa première interrogation n'y entre pas : rien ne dit qu'il vient d'expirer (enregistré
+sans serveurs, réservé ou premium du registre) ; l'Explorer l'affiche « Absent du DNS, à vérifier ».
+Pas de date de libération : les délais de ces registres ne sont pas relevés.
 """
 
+import json
 import logging
+from datetime import date
 
 from . import wordlists
-from .frdns import FrDns
+from .checker import utcnow
+from .frdns import NIGHTLY, FrDns
 
 log = logging.getLogger(__name__)
 
@@ -86,7 +91,46 @@ class CcDns(FrDns):
         )
 
     def changed(self, label: str, present: bool) -> None:
-        pass  # pas de colonne dans l'Explorer pour ces extensions : la fiche lit cc_dns
+        """Sorti du DNS : confié à la Veille, vérifié auprès du registre au prochain passage (check_due).
+        Revenu : il sort de la Veille, comme un nom revenu dans sa zone."""
+        watcher = self.explorer.drops
+        if present:
+            watcher.record(self.tld, [], [label], utcnow())
+        else:
+            watcher.record(self.tld, [label], [], utcnow())
+        self.explorer.touch(f"{label}.{self.tld}")
+
+    def resume_lost(self) -> int:
+        """Noms sortis du DNS avant que la Veille ne les suive (ou sortis de nouveau depuis leur dernière
+        entrée) : confiés à la Veille, datés du jour de leur sortie. Les absents d'emblée (lost_at nul) restent hors."""
+        rows = self.conn.execute(
+            """SELECT c.name, c.lost_at FROM cc_dns c LEFT JOIN drops d ON d.name = c.name
+               WHERE c.name LIKE ? AND c.present = 0 AND c.lost_at IS NOT NULL
+                 AND (d.name IS NULL OR d.removed_on IS NULL OR d.removed_on < substr(c.lost_at, 1, 10))""",
+            (f"%.{self.tld}",)).fetchall()
+        for name, lost_at in rows:
+            self.explorer.drops.record(self.tld, [name[: -len(self.tld) - 1]], [], utcnow(),
+                                       removed_on=date.fromisoformat(lost_at[:10]))
+        return len(rows)
+
+    def totals(self) -> dict:
+        """Noms de l'extension déjà interrogés, présents, absents et sortis du DNS (Paramètres, Sources et lectures)."""
+        known, present, lost = self.conn.execute(
+            "SELECT COUNT(*), COALESCE(SUM(present), 0), COALESCE(SUM(present = 0 AND lost_at IS NOT NULL), 0) "
+            "FROM cc_dns WHERE name LIKE ?", (f"%.{self.tld}",)).fetchone()
+        return {"known": known, "present": present, "absent": known - present, "lost": lost}
+
+    async def run(self, limit: int = NIGHTLY) -> dict:
+        stats = await super().run(limit)
+        if stats.get("checked"):
+            # Passe faite : reprise des sorties pas encore suivies, totaux, puis nouvelle version des données de
+            # l'Explorer (l'état de la passe, réécrit ici, en est la version).
+            stats["resumed"] = self.resume_lost()
+            stats["totals"] = self.totals()
+            info = json.loads(self.store.get(f"{self.key}_status") or "{}")
+            self.store.set(f"{self.key}_status", json.dumps({**info, "resumed": stats["resumed"], "totals": stats["totals"]}))
+            self.explorer.invalidate(self.tld)
+        return stats
 
     def position(self, label: str):
         return None

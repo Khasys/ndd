@@ -310,7 +310,7 @@ def _queue(explorer, limit: int):
 
 
 def _describe(explorer, picked, data) -> list[dict]:
-    from .explore import ABSENT, ABSENT_FR, ABSENT_ZONE, LABELS  # import local : explore importe ce module
+    from .explore import ABSENT, LABELS, absent_label  # import local : explore importe ce module
 
     u = explorer.universe
     ranks = wordlists.ranks()
@@ -328,7 +328,7 @@ def _describe(explorer, picked, data) -> list[dict]:
         code = data[tld][i]
         item = {
             "name": name,
-            "status": (ABSENT_FR if tld == "fr" else ABSENT_ZONE) if code == ABSENT else LABELS.get(code, ""),
+            "status": absent_label(tld) if code == ABSENT else LABELS.get(code, ""),
             "categories": u.categories(label),
             "natures": sorted(natures.get(label, ())),
             "ranks": {k: r[label] for k, r in ranks.items() if label in r},
