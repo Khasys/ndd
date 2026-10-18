@@ -5,6 +5,24 @@ from .checker import Checker, parse_iso
 from .rdap import tld_of
 
 
+MAX_LINE = 75  # octets par ligne, RFC 5545 : au-delà, pliage sur une ligne qui commence par une espace
+
+
+def fold(line: str) -> list[str]:
+    """Plie une ligne à 75 octets, sans couper un caractère UTF-8 ; la suite commence par une espace."""
+    data = line.encode("utf-8")
+    if len(data) <= MAX_LINE:
+        return [line]
+    parts, room = [], MAX_LINE
+    while data:
+        cut = min(room, len(data))
+        while 0 < cut < len(data) and (data[cut] & 0xC0) == 0x80:
+            cut -= 1  # octet de continuation : on recule au début du caractère
+        parts.append((" " if parts else "") + data[:cut].decode("utf-8"))
+        data, room = data[cut:], MAX_LINE - 1
+    return parts
+
+
 def _escape(text: str) -> str:
     return text.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
 
@@ -60,5 +78,5 @@ def build(checker: Checker, now: datetime, app_url: str = "") -> str:
                 f"Estimation calculée depuis le statut et les délais du registre, pas une date garantie.{link}",
             )
     lines.append("END:VCALENDAR")
-    # RFC 5545 : lignes en CRLF.
-    return "\r\n".join(lines) + "\r\n"
+    # RFC 5545 : lignes en CRLF, pliées à 75 octets.
+    return "\r\n".join(part for line in lines for part in fold(line)) + "\r\n"

@@ -10,6 +10,7 @@ import math
 import logging
 import re
 import sqlite3
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -17,6 +18,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 import httpx
+from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_MISSED
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
@@ -121,6 +123,7 @@ async def lifespan(app: FastAPI):
         whois_min_delay=settings.whois_min_delay,
     )
     store = Store(conn, {"telegram_token": settings.telegram_token, "telegram_chat_id": settings.telegram_chat_id})
+    rdap.whois_store = store  # serveurs WHOIS gardés en base, 7 jours
     telegram = Telegram(store, http)
     checker = Checker(conn, settings, rdap, http, notify=telegram.send)
     checker.link_base = lambda: settings.app_url or store.get("public_url") or ""
@@ -130,6 +133,21 @@ async def lifespan(app: FastAPI):
     # en retard est rattrapée au lieu d'être sautée (tolérance par défaut d'APScheduler : 1 s).
     scheduler = AsyncIOScheduler(timezone="UTC", job_defaults={"misfire_grace_time": 300, "coalesce": True})
     scheduler.add_job(checker.run_due, "interval", seconds=30, max_instances=1, coalesce=True)
+    # Exécutions manquées ou en erreur : les 20 dernières, pour /api/diag et l'alerte de panne (morning.problems).
+    events = {"missed": deque(maxlen=20), "errors": deque(maxlen=20)}
+
+    def on_job_event(event) -> None:
+        job = scheduler.get_job(event.job_id)
+        entry = {"at": iso(utcnow()), "job": job.name.rsplit(".", 1)[-1] if job else event.job_id,
+                 "scheduled": iso(event.scheduled_run_time.astimezone(timezone.utc).replace(microsecond=0)) if event.scheduled_run_time else None}
+        if event.code == EVENT_JOB_ERROR:
+            entry["error"] = _redact(_exception_line(event.exception)) if event.exception else None
+            events["errors"].append(entry)
+        else:
+            events["missed"].append(entry)
+
+    scheduler.add_listener(on_job_event, EVENT_JOB_MISSED | EVENT_JOB_ERROR)
+    app.state.scheduler_events = events
 
     app.state.latest_version = None
     app.state.version_checked_at = None
@@ -206,6 +224,7 @@ async def lifespan(app: FastAPI):
         await watcher.check_due(limit=20)
 
     fr = frdata.FrWatcher(conn, store, settings.data_dir, rdap, watcher)
+    checker.fr = fr  # les .fr de l'écran Domaines passent par la file Afnic
 
     async def import_fr() -> None:
         if fr.due(datetime.now(digest.local_zone())):
@@ -248,6 +267,8 @@ async def lifespan(app: FastAPI):
     now = datetime.now(timezone.utc)
     scheduler.add_job(refresh_latest, "interval", hours=24, next_run_time=now, max_instances=1, id="latest")
     scheduler.add_job(send_digest, "interval", minutes=15, max_instances=1)
+    # Messages Telegram en file de rejeu (429, panne, réseau) : renvoyés quand leur heure est venue.
+    scheduler.add_job(telegram.flush, "interval", minutes=5, next_run_time=now + timedelta(minutes=7), max_instances=1, id="telegram_flush")
     scheduler.add_job(send_morning, "interval", minutes=15, next_run_time=now + timedelta(minutes=5), max_instances=1)
     scheduler.add_job(check_health, "interval", hours=1, next_run_time=now + timedelta(minutes=20), max_instances=1)
     scheduler.add_job(remind_renewals, "interval", hours=6, next_run_time=now + timedelta(minutes=25), max_instances=1)
@@ -265,7 +286,7 @@ async def lifespan(app: FastAPI):
     # DNS .co, .ai, .io : même passe du jour, une par extension en parallèle.
     for n, tld in enumerate(ccdns.TLDS):
         scheduler.add_job(cc_job(tld), "interval", minutes=10, next_run_time=now + timedelta(minutes=9 + n),
-                          max_instances=1, id=f"check_{tld}_dns")
+                          max_instances=1, id=f"check_{tld}_dns", name=f"check_{tld}_dns")
     scheduler.start()
     telegram.start()
 
@@ -393,6 +414,25 @@ async def require_session(request: Request, call_next):
     return RedirectResponse("/login", status_code=303)
 
 
+# Pages et API : jamais dans un cadre d'un autre site, pas de devinette de type, adresse non transmise ailleurs.
+# La CSP s'arrête à frame-ancestors : le reste bloquerait Alpine (inline) et le CDN.
+SECURITY_HEADERS = {
+    "Content-Security-Policy": "frame-ancestors 'none'",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "same-origin",
+    "X-Frame-Options": "DENY",
+}
+
+
+# Déclaré en dernier : le plus extérieur, il couvre aussi les réponses courtes des autres middlewares (401, 503).
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    for key, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(key, value)  # /logo garde sa propre CSP
+    return response
+
+
 THEMES = {"system": ("", "light dark"), "light": (' data-theme="light"', "light"), "dark": (' data-theme="dark"', "dark")}
 LOGO_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/svg+xml": "svg"}
 LOGO_MAX_BYTES = 300 * 1024
@@ -491,7 +531,11 @@ async def setup_hash(request: Request, password: str = Form(""), confirm: str = 
 
 
 @app.get("/login", response_class=HTMLResponse)
-async def login_page(next: str = ""):
+async def login_page(request: Request, next: str = ""):
+    state = request.app.state
+    # Déjà connecté (lien Telegram, page gardée ouverte) : droit à l'appli.
+    if state.sessions.valid(request.cookies.get(COOKIE_NAME), state.settings.username):
+        return RedirectResponse(_safe_next(next), status_code=303)
     return _page("login.html", ERROR="", NEXT=_safe_next(next))
 
 
@@ -772,7 +816,8 @@ async def test_alert(request: Request):
     lines = ["domain-watch : alerte test", f"Version {VERSION}"]
     if _public_url(state):
         lines.append(_public_url(state))
-    error = await state.telegram.send("\n".join(lines))
+    # Message de test : pas de rejeu, le bouton doit dire tout de suite si ça passe.
+    error = await state.telegram.send("\n".join(lines), retry=False)
     if error:
         raise HTTPException(502, error)
     return {"sent": True}
@@ -880,6 +925,19 @@ async def get_settings(request: Request):
     }
 
 
+@app.get("/api/settings/status")
+async def settings_status(request: Request):
+    """Ce qui bouge pendant une association Telegram ou un rafraîchissement des noms réservés : de quoi
+    sonder sans relire tous les réglages (et sans rappeler Telegram)."""
+    state = request.app.state
+    telegram, held = state.telegram, state.reserved.status()
+    return {
+        "telegram": {"chat_set": bool(telegram.chat_id), "bot_name": telegram.bot_name, "pairing": telegram.pairing_active},
+        "reserved": {"running": held["running"], "at": held.get("at"), "error": held.get("error"),
+                     "count": sum(held["counts"].values())},
+    }
+
+
 def _czds_settings(watcher: drops.DropWatcher) -> dict:
     store = watcher.store
     return {
@@ -944,6 +1002,20 @@ async def set_czds_zones(request: Request, payload: CzdsZones):
     watcher.store.set("czds_enabled", json.dumps(sorted(t for t in payload.enabled if t in approved)))
     watcher.store.set("czds_hour", str(payload.hour))
     return _czds_settings(watcher)
+
+
+class GapTld(BaseModel):
+    tld: str
+
+
+@app.post("/api/settings/czds/accept-gap")
+async def accept_zone_gap(request: Request, payload: GapTld):
+    """Écart de plus de 5 % refusé : la prochaine lecture de cette extension passe quand même, une fois."""
+    watcher = request.app.state.drops
+    tld = payload.tld.strip().lower().lstrip(".")
+    if tld not in watcher.enabled():
+        raise HTTPException(422, "Extension inconnue ou désactivée.")
+    return {"accept_gap": watcher.accept_gap(tld), "gap_refused": watcher.gap_refused()}
 
 
 class FrSettings(BaseModel):
@@ -1111,6 +1183,8 @@ async def list_drops(request: Request):
         "last_run": watcher.last_run(),
         "error": watcher.store.get("czds_error") or None,
         "zones": [{"tld": t, **watcher.status(t)} for t in watcher.enabled()],
+        "gap_refused": watcher.gap_refused(),
+        "accept_gap": watcher.gap_accepted(),
         "history": watcher.history(),
         "fr": {"enabled": request.app.state.fr.enabled, "running": request.app.state.fr.running, **request.app.state.fr.status(),
                "dns": request.app.state.fr_dns.status()},
@@ -1558,12 +1632,30 @@ async def add_portfolio(request: Request, payload: dict):
                  (name, iso(utcnow()), *values.values()))
     decisions.set_decision(conn, name, "bought", None, utcnow())  # « J'ai acheté » : décision gardée
     # Surveillé aussi : l'échéance réelle vient du RDAP, et les changements arrivent sur Telegram.
+    # La vérification part en tâche de fond : la réponse ne l'attend pas (checking), l'échéance se met à jour après.
+    checking = False
     if not conn.execute("SELECT 1 FROM domains WHERE name = ?", (name,)).fetchone():
-        try:
-            await request.app.state.checker.add(name)
-        except Exception as exc:  # noqa: BLE001  le nom reste au portefeuille, la surveillance se rattrape
-            log.info("Portefeuille : %s non surveillé (%s)", name, exc)
-    return await get_portfolio(request)
+        _background(request.app.state.checker.add(name), f"Portefeuille : vérification de {name}")
+        await asyncio.sleep(0)  # un tour de boucle : le domaine est inséré avant la réponse, la requête RDAP suit
+        checking = True
+    return {**await get_portfolio(request), "checking": checking}
+
+
+_BACKGROUND: set[asyncio.Task] = set()
+
+
+def _background(coro, label: str) -> asyncio.Task:
+    """Tâche détachée, référence gardée, exception au journal (sinon elle se perdrait sans bruit)."""
+    task = asyncio.create_task(coro)
+    _BACKGROUND.add(task)
+
+    def done(t: asyncio.Task) -> None:
+        _BACKGROUND.discard(t)
+        if not t.cancelled() and t.exception() is not None:
+            log.warning("%s : %s", label, _exception_line(t.exception()))
+
+    task.add_done_callback(done)
+    return task
 
 
 @app.put("/api/portfolio/{item_id}")
@@ -1672,6 +1764,8 @@ async def diag(request: Request):
         "map": await _off(explorer.map),
         "jobs": [{"id": j.id, "name": j.name, "next": iso(j.next_run_time) if j.next_run_time else None}
                  for j in state.scheduler.get_jobs()],
+        "scheduler": {k: list(v) for k, v in state.scheduler_events.items()},
+        "telegram_outbox": state.telegram.pending(),
         "recent_errors": list(RECENT.records),
     }
 

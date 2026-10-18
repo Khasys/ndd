@@ -1,4 +1,5 @@
 import asyncio
+import json
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -996,3 +997,39 @@ def test_ai_outcomes_measure_names_taken_after_rating(env):
     env.invalidate("fr")
     ai.update_outcomes(env.conn, env, now + timedelta(days=1))
     assert env.conn.execute("SELECT taken_at FROM ai_outcomes WHERE name = 'mot.fr'").fetchone()[0] == now.isoformat()
+
+def test_health_flags_silent_dns_passes_czds_silence_and_missed_jobs(env):
+    from types import SimpleNamespace
+    from app import morning
+
+    now = datetime.now(timezone.utc)
+
+    class Pass:
+        def __init__(self, **status):
+            self._status = status
+
+        def status(self):
+            return self._status
+
+    fr_dns = Pass(enabled=True, finished_at=now.isoformat(), queued=1200, checked=0, stopped="refus du serveur")
+    cc = {"co": Pass(enabled=True, finished_at=now.isoformat(), error="résolveur muet", queued=10, checked=0),
+          "ai": Pass(enabled=True, finished_at=now.isoformat(), queued=10, checked=10),
+          "io": Pass(enabled=True, queued=10, checked=0)}  # jamais terminée : rien à dire
+    events = {"missed": [{"at": (now - timedelta(hours=h)).isoformat(), "job": "scan_zones"} for h in (1, 2, 3, 30)], "errors": []}
+    state = SimpleNamespace(drops=env.drops, fr=env.fr, explorer=env, fr_dns=fr_dns, cc_dns=cc, scheduler_events=events)
+    found = morning.problems(state, now)
+    assert found["dns:fr"] == "Passe DNS .fr : aucun nom vérifié sur 1200 en file (refus du serveur)"
+    assert found["dns:co"].startswith("Passe DNS .co en erreur") and "dns:ai" not in found and "dns:io" not in found
+    assert "scheduler" not in found  # 3 manquées en 24 h : tolérées
+    events["missed"].append({"at": now.isoformat(), "job": "check_drops"})
+    assert morning.problems(state, now)["scheduler"] == "Planificateur : 4 exécutions manquées en 24 h (dernière : check_drops)"
+    # Compte CZDS configuré et lectures lancées, mais aucune zone lue avec succès depuis 36 h.
+    env.drops.store.set("czds_username", "moi")
+    env.drops.store.set("czds_password", "x")
+    env.drops.store.set("czds_last_run", now.date().isoformat())
+    assert morning.problems(state, now)["czds_late"] == "Zones ICANN : aucune lecture réussie à ce jour"
+    env.drops.store.set("zone_com", json.dumps({"ok_at": (now - timedelta(hours=40)).isoformat()}))
+    found = morning.problems(state, now)
+    assert found["czds_late"].startswith("Zones ICANN : aucune lecture réussie depuis le") and "zone:com" in found
+    env.drops.store.set("zone_com", json.dumps({"ok_at": (now - timedelta(hours=2)).isoformat()}))
+    assert "czds_late" not in morning.problems(state, now)

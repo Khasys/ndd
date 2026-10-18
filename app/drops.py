@@ -520,14 +520,21 @@ class DropWatcher:
                 current_list = {w.decode() for w in scanner.watched}
                 removed_words = sorted((previous_words & current_list) - words)
                 added_words = sorted(words - previous_words)
-            for label, gone, before in (
-                ("noms courts", removed, count(previous)),
-                ("noms des listes", removed_words, len(previous_words or ())),
+            # Écart accepté une fois dans Paramètres : cette lecture passe, puis la garde revient.
+            accepted = self._take_gap_acceptance(tld)
+            for label, gone, before, found in (
+                ("noms courts", removed, count(previous), count(bits)),
+                ("noms des listes", removed_words, len(previous_words or ()), len(words)),
             ):
                 if before >= 1000 and len(gone) > before * MAX_DAILY_REMOVED_SHARE:
+                    if accepted:
+                        log.warning("Zone .%s : écart accepté (%s %s disparus sur %s)", tld, len(gone), label, before)
+                        continue
                     result.error = f"Écart anormal ({len(gone)} {label} disparus sur {before}) : zone ignorée ce jour."
+                    self._set_gap_refused(tld, {"expected": before, "found": found, "at": iso(utcnow())})
                     self._set_status(tld, result, started, scanner.bytes_in)
                     return result
+            self._set_gap_refused(tld, None)
             removed += removed_words
             added += added_words
             result.removed, result.added = len(removed), len(added)
@@ -535,6 +542,39 @@ class DropWatcher:
         self._save(tld, bits, words, scanner.watched)
         self._set_status(tld, result, started, scanner.bytes_in)
         return result
+
+    # Écart de zone refusé (plus de 5 % de noms disparus) : état pour l'interface, et acceptation une fois.
+
+    def gap_refused(self) -> dict:
+        return json.loads(self.store.get("czds_gap_refused") or "{}")
+
+    def _set_gap_refused(self, tld: str, info: dict | None) -> None:
+        refused = self.gap_refused()
+        if info is None:
+            if tld not in refused:
+                return
+            refused.pop(tld)
+        else:
+            refused[tld] = info
+        self.store.set("czds_gap_refused", json.dumps(refused))
+
+    def gap_accepted(self) -> list[str]:
+        return json.loads(self.store.get("czds_accept_gap") or "[]")
+
+    def accept_gap(self, tld: str) -> list[str]:
+        """La prochaine lecture de cette extension passe malgré l'écart, une fois."""
+        accepted = self.gap_accepted()
+        if tld not in accepted:
+            accepted.append(tld)
+            self.store.set("czds_accept_gap", json.dumps(accepted))
+        return accepted
+
+    def _take_gap_acceptance(self, tld: str) -> bool:
+        accepted = self.gap_accepted()
+        if tld not in accepted:
+            return False
+        self.store.set("czds_accept_gap", json.dumps([t for t in accepted if t != tld]))
+        return True
 
     def _set_status(self, tld: str, result: ScanResult, started: float, size: int) -> None:
         previous = self.status(tld)

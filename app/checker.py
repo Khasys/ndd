@@ -47,6 +47,9 @@ class Checker:
         self.delays = states.load_delays()
         self._running: set[int] = set()
         self._bulk: asyncio.Task | None = None
+        # FrWatcher, posé par main : les .fr passent par sa file (plafond par minute, pause Afnic),
+        # un seul chemin vers l'Afnic. Absent ou désactivé : requête RDAP directe.
+        self.fr = None
 
     async def _notify_from_env(self, text: str) -> str | None:
         return await alerts.send_telegram(self.http, self.settings.telegram_token, self.settings.telegram_chat_id, text)
@@ -103,7 +106,18 @@ class Checker:
         row = self.conn.execute("SELECT * FROM domains WHERE id = ?", (domain_id,)).fetchone()
         if row is None:
             return
-        result = await self.rdap.lookup(row["name"])
+        fr = self.fr if self.fr is not None and tld_of(row["name"]) == "fr" and self.fr.enabled else None
+        if fr is not None:
+            hold = fr.hold_until(utcnow())
+            result = None if hold else await fr.lookup(row["name"], "domaines")
+            if result is None:
+                # Afnic en pause ou plafond de la minute atteint : le domaine garde son dernier état,
+                # vérification suivante à la reprise.
+                hold = hold or fr.paused_until(utcnow()) or utcnow() + timedelta(hours=1)
+                self.conn.execute("UPDATE domains SET next_check_at = ? WHERE id = ?", (iso(hold), domain_id))
+                return
+        else:
+            result = await self.rdap.lookup(row["name"])
         now = utcnow()
         # Le domaine a pu être supprimé pendant la requête.
         if self.conn.execute("SELECT 1 FROM domains WHERE id = ?", (domain_id,)).fetchone() is None:

@@ -16,6 +16,7 @@ log = logging.getLogger(__name__)
 
 BOOTSTRAP_URL = "https://data.iana.org/rdap/dns.json"
 BOOTSTRAP_TTL = 24 * 3600
+WHOIS_SERVER_TTL = 7 * 24 * 3600  # serveur WHOIS d'une extension, trouvé via l'IANA, regardé de nouveau après
 
 # Registres qui ont un RDAP fonctionnel mais absent du bootstrap IANA. Le bootstrap reste
 # prioritaire. N'ajouter une entrée qu'après avoir vérifié un domaine enregistré (200) et un
@@ -194,7 +195,10 @@ class RdapClient:
         self._bootstrap_lock = asyncio.Lock()
         self._host_locks: dict[str, asyncio.Lock] = {}
         self._host_next: dict[str, float] = {}
-        self._whois_servers: dict[str, str] = {}
+        # Serveur WHOIS par extension et moment où il a été trouvé (epoch) : en mémoire, et dans le
+        # réglage whois_servers de whois_store (un Store) quand main l'a posé, pour survivre au redémarrage.
+        self._whois_servers: dict[str, tuple[str, float]] = {}
+        self.whois_store = None
         self._whois_query = whois_query
 
     async def close(self) -> None:
@@ -332,18 +336,39 @@ class RdapClient:
                 return text
             raise last
 
+    def _saved_whois_servers(self) -> dict:
+        try:
+            return json.loads(self.whois_store.get("whois_servers") or "{}") if self.whois_store is not None else {}
+        except ValueError:
+            return {}
+
     async def whois_server(self, tld: str) -> str | None:
         from . import whois
 
-        if tld not in self._whois_servers:
-            answer = await self._whois(whois.IANA_WHOIS, tld)
-            if whois.rate_limited(answer):
-                raise whois.WhoisError("Limite de requêtes WHOIS de l'IANA atteinte")
-            server = whois.referral(answer)
-            if server is None:
-                return None  # pas mémorisé : une réponse à côté ne condamne pas l'extension jusqu'au redémarrage
-            self._whois_servers[tld] = server
-        return self._whois_servers[tld]
+        now = time.time()
+        known = self._whois_servers.get(tld)
+        if known is None:
+            saved = self._saved_whois_servers().get(tld) or {}
+            try:
+                if saved.get("server"):
+                    known = (saved["server"], datetime.fromisoformat(saved["at"]).timestamp())
+            except (KeyError, TypeError, ValueError):
+                known = None
+        if known is not None and now - known[1] < WHOIS_SERVER_TTL:
+            self._whois_servers[tld] = known
+            return known[0]
+        answer = await self._whois(whois.IANA_WHOIS, tld)
+        if whois.rate_limited(answer):
+            raise whois.WhoisError("Limite de requêtes WHOIS de l'IANA atteinte")
+        server = whois.referral(answer)
+        if server is None:
+            return None  # pas mémorisé : une réponse à côté ne condamne pas l'extension jusqu'au redémarrage
+        self._whois_servers[tld] = (server, now)
+        if self.whois_store is not None:
+            saved = self._saved_whois_servers()
+            saved[tld] = {"server": server, "at": datetime.fromtimestamp(now, timezone.utc).replace(microsecond=0).isoformat()}
+            self.whois_store.set("whois_servers", json.dumps(saved))
+        return server
 
     async def _lookup_whois(self, domain: str) -> LookupResult:
         from . import whois

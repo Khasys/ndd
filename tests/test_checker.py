@@ -323,3 +323,78 @@ def test_iana_rate_limit_is_not_remembered_as_no_whois(tmp_path):
     assert "Limite" in first.error
     second = run(rdap.lookup("libre-test.co"))
     assert second.available and second.source == "whois"
+
+
+def test_fr_domains_go_through_the_afnic_queue(env, tmp_path):
+    """Écran Domaines : un .fr passe par la file de frdata (journal, plafond par minute, pause Afnic)."""
+    from app import drops, frdata
+    from app.store import Store
+
+    registry, conn, checker, _ = env
+    store = Store(conn)
+    watcher = drops.DropWatcher(conn, store, tmp_path, checker.rdap, checker.delays)
+    fr = frdata.FrWatcher(conn, store, tmp_path, checker.rdap, watcher)
+    checker.fr = fr
+    registry.responses["exemple-test.fr"] = [rdap_json("fr_active.json")]
+    # FrWatcher pas activé : chemin actuel, requête directe, rien dans le journal Afnic.
+    domain_id = add(conn, "exemple-test.fr")
+    run(checker.check(domain_id))
+    state = row(conn, domain_id)["state"]
+    assert state in ("active", "expiring")  # la fixture vieillit : l'échéance se rapproche
+    assert conn.execute("SELECT COUNT(*) FROM fr_requests").fetchone()[0] == 0
+    # Activé : la requête est journalisée comme les autres (source « domaines »).
+    store.set("fr_enabled", "1")
+    store.set("fr_rate", "1")
+    run(checker.check(domain_id))
+    assert [tuple(r) for r in conn.execute("SELECT name, source FROM fr_requests")] == [("exemple-test.fr", "domaines")]
+    # Plafond de la minute atteint : pas de requête, vérification repoussée d'une minute.
+    calls = len(registry.calls)
+    run(checker.check(domain_id))
+    assert len(registry.calls) == calls
+    assert parse_iso(row(conn, domain_id)["next_check_at"]) - datetime.now(timezone.utc) <= timedelta(minutes=1)
+    # Afnic en pause : le domaine garde son état, prochaine vérification à la fin de la pause.
+    conn.execute("DELETE FROM fr_requests")
+    paused = (datetime.now(timezone.utc) + timedelta(hours=3)).replace(microsecond=0)
+    store.set("fr_paused_until", paused.isoformat())
+    registry.responses["exemple-test.fr"] = [httpx.Response(404)]
+    run(checker.check(domain_id))
+    r = row(conn, domain_id)
+    assert r["state"] == state and parse_iso(r["next_check_at"]) == paused and len(registry.calls) == calls
+    # L'Afnic limite pendant la requête : pause posée par frdata, même traitement.
+    store.set("fr_paused_until", "")
+    registry.responses["exemple-test.fr"] = [httpx.Response(429)]
+    run(checker.check(domain_id))
+    r = row(conn, domain_id)
+    assert r["state"] == state and fr.paused_until() and parse_iso(r["next_check_at"]) == fr.paused_until()
+
+
+def test_whois_server_is_kept_in_the_database_for_a_week(tmp_path):
+    from app.store import Store
+
+    conn = db.connect(tmp_path / "t.db")
+    db.migrate(conn, tmp_path / "backups")
+    store = Store(conn)
+
+    def client(registry):
+        rdap = RdapClient(tmp_path / "b.json", 0, 5, 0, 0, 60, transport=httpx.MockTransport(registry.handler),
+                          whois_min_delay=0, whois_query=registry.whois)
+        rdap.whois_store = store
+        return rdap
+
+    registry = Registry()
+    registry.whois_answers["libre-test.co"] = (FIXTURES / "whois_co_free.txt").read_text()
+    assert run(client(registry).lookup("libre-test.co")).available
+    saved = json.loads(store.get("whois_servers"))
+    assert saved["co"]["server"] == "whois.registry.co" and saved["co"]["at"]
+    assert registry.calls.count("whois:whois.iana.org:co") == 1
+    # Nouveau client (redémarrage) : le serveur vient de la base, l'IANA n'est pas interrogée.
+    registry.calls.clear()
+    assert run(client(registry).lookup("libre-test.co")).available
+    assert registry.calls == ["whois:whois.registry.co:libre-test.co"]
+    # Plus de 7 jours : l'IANA est consultée de nouveau.
+    saved["co"]["at"] = (datetime.now(timezone.utc) - timedelta(days=8)).isoformat()
+    store.set("whois_servers", json.dumps(saved))
+    registry.calls.clear()
+    assert run(client(registry).lookup("libre-test.co")).available
+    assert registry.calls[0] == "whois:whois.iana.org:co"
+    conn.close()

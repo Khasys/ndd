@@ -202,3 +202,73 @@ def test_telegram_dates_follow_the_container_time_zone(monkeypatch):
     release = datetime(2026, 10, 30, 23, 30, tzinfo=timezone.utc)  # 00:30 le 31 à Paris
     text = alerts.format_change("velo.fr", states.REDEMPTION, states.PENDING_DELETE, None, None, release, "")
     assert "Libération estimée : ~31/10/2026" in text
+
+
+# File de rejeu Telegram ---------------------------------------------------
+
+def test_failed_telegram_messages_are_queued_then_replayed_together(env, caplog):
+    from app import telegram as tg_module
+
+    _, conn, _, _ = env
+    api = FakeTelegramApi()
+    api.status = 200
+
+    def handler(request):
+        if request.url.path.endswith("/sendMessage") and api.status != 200:
+            return httpx.Response(api.status, json={"ok": False, "description": "Too Many Requests"})
+        return api.handler(request)
+
+    store = Store(conn)
+    store.set("telegram_token", "123:abc")
+    store.set("telegram_chat_id", "42")
+    tg = Telegram(store, httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    api.status = 429
+    # Échec passager : le message attend en file, l'appelant n'a pas à le renvoyer.
+    assert run(tg.send("Première alerte")) is None
+    assert run(tg.send("Deuxième alerte")) is None
+    # Message de test : erreur tout de suite, jamais rejoué.
+    assert run(tg.send("test", retry=False)).startswith("Telegram a refusé")
+    # Refus définitif (400) : pas de rejeu non plus.
+    api.status = 400
+    assert run(tg.send("mauvais")).startswith("Telegram a refusé")
+    assert tg.pending() == 2
+    # Toujours en panne : essais comptés, prochain essai repoussé (5 min, puis doublé jusqu'à 6 h).
+    api.status = 500
+    assert run(tg.flush()) == 0
+    rows = conn.execute("SELECT attempts, next_try_at FROM telegram_outbox").fetchall()
+    assert [r["attempts"] for r in rows] == [1, 1]
+    delay = datetime.fromisoformat(rows[0]["next_try_at"]) - datetime.now(timezone.utc)
+    assert timedelta(minutes=4) < delay <= timedelta(minutes=5)
+    conn.execute("UPDATE telegram_outbox SET attempts = 10, next_try_at = created_at")
+    assert run(tg.flush()) == 0
+    delay = datetime.fromisoformat(conn.execute("SELECT next_try_at FROM telegram_outbox").fetchone()[0]) - datetime.now(timezone.utc)
+    assert timedelta(hours=5, minutes=59) < delay <= timedelta(hours=6)
+    # Telegram répond : les deux messages partent en un seul, la file se vide.
+    api.status = 200
+    conn.execute("UPDATE telegram_outbox SET next_try_at = created_at")
+    assert run(tg.flush()) == 2
+    assert api.messages[-1] == ("42", "Première alerte\n\nDeuxième alerte") and tg.pending() == 0
+    # Plus de 48 h : abandonné avec une ligne de journal.
+    old = (datetime.now(timezone.utc) - timedelta(hours=49)).isoformat()
+    conn.execute("INSERT INTO telegram_outbox (text, created_at, attempts, next_try_at, last_error) VALUES ('vieux', ?, 9, ?, 'x')", (old, old))
+    with caplog.at_level("ERROR", logger="app.telegram"):
+        assert run(tg.flush()) == 0
+    assert "abandonné après 9 essais" in caplog.text and tg.pending() == 0
+    assert tg_module.MAX_TEXT == 4000
+
+
+def test_calendar_lines_are_folded_at_75_octets(env):
+    registry, conn, checker, _ = env
+    name = "tres-long-nom-de-domaine-pour-le-test-du-pliage-des-lignes.com"
+    registry.responses[name] = [rdap_json("com_redemption.json")]
+    run(checker.add(name))
+    ics = calendar_ics.build(checker, datetime.now(timezone.utc), "https://domaines.exemple.fr/une/adresse/assez/longue")
+    lines = ics.split("\r\n")
+    assert all(len(line.encode()) <= 75 for line in lines)
+    assert any(line.startswith(" ") for line in lines)
+    unfolded = ics.replace("\r\n ", "")
+    assert f"SUMMARY:Libération estimée {name}" in unfolded
+    assert "DESCRIPTION:Estimation calculée depuis le statut et les délais du registre\\, pas une date garantie.\\nhttps://domaines.exemple.fr/une/adresse/assez/longue" in unfolded
+    # Un caractère accentué n'est jamais coupé en deux.
+    parts = calendar_ics.fold("DESCRIPTION:" + "é" * 80)
+    assert all(len(p.encode()) <= 75 for p in parts) and "".join(p.lstrip(" ") for p in parts) == "DESCRIPTION:" + "é" * 80

@@ -192,6 +192,17 @@ def test_abnormal_drop_count_is_ignored(watcher):
     assert result.error.startswith("Écart anormal")
     assert watcher.conn.execute("SELECT COUNT(*) FROM drops").fetchone()[0] == 0
     assert drops.count(watcher._load("com")) == baseline > 1000
+    # Écart refusé : exposé pour l'interface, puis accepté une fois depuis Paramètres.
+    refused = watcher.gap_refused()["com"]
+    assert refused["expected"] == baseline and 0 < refused["found"] < baseline and refused["at"]
+    assert watcher.accept_gap("com") == ["com"]
+    result = asyncio.run(watcher.run())[0]
+    assert result.error is None and result.removed == baseline - refused["found"]
+    assert watcher.conn.execute("SELECT COUNT(*) FROM drops").fetchone()[0] == result.removed
+    assert watcher.gap_refused() == {} and watcher.gap_accepted() == []
+    # L'acceptation ne vaut qu'une lecture : le garde-fou est de retour.
+    icann.zones["com"] = zone(names[: len(names) // 8])
+    assert asyncio.run(watcher.run())[0].error.startswith("Écart anormal")
 
 
 def test_network_cut_is_recorded_and_other_zones_still_read(watcher):

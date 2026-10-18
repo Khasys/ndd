@@ -4,7 +4,8 @@
   noms .co / .ai / .io sortis du DNS ; seulement les bons (score minimum ou avis IA favorable),
   chacun avec le lien direct vers sa fiche. Rien à signaler : pas de message.
 - Alertes de panne : lecture de zone en erreur ou en retard, .fr en erreur ou en pause longue,
-  notation IA de nuit muette. Un message à l'apparition du problème, un autre quand il disparaît.
+  notation IA de nuit muette, passe DNS en erreur ou à vide, exécutions manquées du planificateur.
+  Un message à l'apparition du problème, un autre quand il disparaît.
 """
 
 import json
@@ -18,6 +19,7 @@ MAX_LINES = 10            # noms par rubrique
 ZONE_LATE = timedelta(hours=36)
 AI_LATE = timedelta(hours=36)
 FR_PAUSE_ALERT = timedelta(hours=1)
+SCHEDULER_MISSED_MAX = 3   # exécutions manquées en 24 h tolérées avant l'alerte
 GOOD_VERDICTS = ("À prendre", "À surveiller")
 
 
@@ -87,13 +89,24 @@ def problems(state, now: datetime) -> dict[str, str]:
     watcher = state.drops
     if watcher.store.get("czds_error"):
         found["czds"] = f"Zones ICANN : {watcher.store.get('czds_error')}"
+    latest_ok = None
     for tld in watcher.enabled():
         status = watcher.status(tld)
         ok_at = parse_iso(status.get("ok_at"))
+        latest_ok = max(latest_ok or ok_at, ok_at) if ok_at else latest_ok
         if status.get("error"):
             found[f"zone:{tld}"] = f"Lecture de la zone .{tld} en erreur : {status['error']}"
         elif ok_at and now - ok_at > ZONE_LATE:
             found[f"zone:{tld}"] = f"Zone .{tld} pas lue depuis le {ok_at.strftime('%d/%m %H:%M')} UTC"
+    # Compte configuré, lectures déjà lancées, et aucune zone lue avec succès depuis 36 h (ou jamais).
+    if watcher.configured and watcher.enabled() and watcher.last_run() and (latest_ok is None or now - latest_ok > ZONE_LATE):
+        found["czds_late"] = (f"Zones ICANN : aucune lecture réussie depuis le {latest_ok.strftime('%d/%m %H:%M')} UTC"
+                              if latest_ok else "Zones ICANN : aucune lecture réussie à ce jour")
+    _dns_problems(found, state)
+    missed = [e for e in (getattr(state, "scheduler_events", None) or {}).get("missed", ())
+              if (parse_iso(e.get("at")) or now) >= now - timedelta(hours=24)]
+    if len(missed) > SCHEDULER_MISSED_MAX:
+        found["scheduler"] = f"Planificateur : {len(missed)} exécutions manquées en 24 h (dernière : {missed[-1].get('job')})"
     fr = state.fr
     if fr.enabled:
         error = json.loads(fr.store.get("fr_status") or "{}").get("error")
@@ -106,6 +119,22 @@ def problems(state, now: datetime) -> dict[str, str]:
     if state.explorer.fr.store.get("ai_token_hash") and last and now - last > AI_LATE:
         found["ai"] = f"Notation IA de nuit : aucun avis reçu depuis le {last.strftime('%d/%m %H:%M')} UTC"
     return found
+
+
+def _dns_problems(found: dict[str, str], state) -> None:
+    """Passes DNS (.fr, .co, .ai, .io) : dernière passe en erreur, ou aucun nom vérifié alors qu'il y en avait en file."""
+    passes = {t: c for t, c in (getattr(state, "cc_dns", None) or {}).items()}
+    if getattr(state, "fr_dns", None) is not None:
+        passes["fr"] = state.fr_dns
+    for tld, checker in passes.items():
+        status = checker.status()
+        if not status.get("enabled", True) or not status.get("finished_at"):
+            continue
+        if status.get("error"):
+            found[f"dns:{tld}"] = f"Passe DNS .{tld} en erreur : {status['error']}"
+        elif status.get("queued") and not status.get("checked"):
+            why = f" ({status['stopped']})" if status.get("stopped") else ""
+            found[f"dns:{tld}"] = f"Passe DNS .{tld} : aucun nom vérifié sur {status['queued']} en file{why}"
 
 
 def health_message(store, current: dict[str, str]) -> str | None:

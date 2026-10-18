@@ -495,6 +495,16 @@ class FrWatcher:
             "SELECT COUNT(*) FROM fr_requests WHERE at > ?", (iso(now - timedelta(minutes=1)),)
         ).fetchone()[0]
 
+    def hold_until(self, now: datetime) -> datetime | None:
+        """Quand une requête hors file (écran Domaines) peut partir : None tout de suite, sinon la fin de
+        la pause Afnic, ou la minute suivante quand le plafond est atteint."""
+        paused = self.paused_until(now)
+        if paused:
+            return paused
+        if self._used_last_minute(now) >= self.rate:
+            return now + timedelta(minutes=1)
+        return None
+
     async def tick(self) -> int:
         """Appelée chaque minute : autant de vérifications que le plafond le permet."""
         if not self.enabled:

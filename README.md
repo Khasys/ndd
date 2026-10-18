@@ -69,10 +69,17 @@ Messages envoyés :
 | Vue enregistrée en alerte : « Vue « X » : N nouveaux noms », les noms devenus libres ou bientôt libres depuis le dernier passage qui répondent aux filtres de la vue, lien vers chaque fiche | une fois par heure au plus, après les lectures de la nuit comme en journée |
 | Résumé hebdomadaire | jour et heure choisis |
 | Analyse IA demandée prête, lien vers la fiche | dans l'heure qui suit la demande |
-| Panne : zone en erreur ou pas lue depuis 36 h, fichier .fr en erreur, pause .fr de plus d'une heure, notation IA muette depuis 36 h | à l'apparition, puis « Réglé » à la disparition |
+| Panne : zone en erreur ou pas lue depuis 36 h (ou aucune zone lue avec succès depuis 36 h), fichier .fr en erreur, pause .fr de plus d'une heure, notation IA muette depuis 36 h, passe DNS (.fr, .co, .ai, .io) en erreur ou finie sans aucun nom vérifié, plus de 3 exécutions manquées du planificateur en 24 h | à l'apparition, puis « Réglé » à la disparition |
 | Passe DNS arrêtée (refus ou silence du registre) | à l'arrêt |
 
 Les liens utilisent `APP_URL`, sinon l'adresse vue par le navigateur à la dernière ouverture de l'appli.
+
+Rejeu : un message que Telegram refuse passagèrement (trop de requêtes, panne de leur côté) ou qui ne
+part pas (réseau coupé) est mis en file dans la base au lieu d'être perdu. Toutes les 5 minutes, l'appli
+renvoie ce qui est dû, plusieurs messages en attente regroupés en un seul (4 000 caractères au plus) ;
+après un nouvel échec, l'essai suivant attend deux fois plus longtemps (6 h au plus) ; après 48 h, le
+message est abandonné avec une ligne de journal. Le message du bouton « Tester » n'est jamais rejoué,
+ni un message refusé pour de bon (jeton invalide, chat inconnu). `/api/diag` donne la taille de la file.
 
 ### Apparence
 
@@ -85,6 +92,8 @@ appareils.
 Paramètres, Calendrier, « Créer l'adresse » : une URL secrète au format ICS, à ajouter comme
 calendrier par URL dans l'agenda du téléphone. Elle contient les expirations et les libérations
 estimées, avec un rappel la veille. Elle s'ouvre sans mot de passe : la changer si elle a fuité.
+Les lignes du fichier sont pliées à 75 octets, comme le demande la RFC 5545 : les agendas stricts
+(Apple, Thunderbird) lisent les longs noms et descriptions sans rien tronquer.
 
 ### Veille et Explorer : deux écrans, mêmes réglages
 
@@ -158,6 +167,12 @@ veille et absent ce jour est vérifié en RDAP : en rédemption ou en suppressio
 sa date de libération estimée ; suspendu pour une autre raison, il est masqué. Un nom qui revient
 dans la zone (renouvelé ou repris) sort de la liste.
 
+Écart de zone : une lecture où plus de 5 % des noms connus disparaissent d'un coup est refusée (zone
+tronquée ou incomplète, le plus souvent) ; la carte précédente est gardée et rien n'est marqué supprimé.
+La carte « Sources et lectures » signale l'extension refusée, avec le nombre attendu et le nombre lu.
+« Accepter l'écart » fait passer la lecture suivante de cette extension malgré l'écart, une seule fois :
+le garde-fou revient ensuite.
+
 La zone .com pèse plusieurs Go compressés : compter un gros téléchargement par jour et plusieurs
 minutes de calcul sur le NAS. La recherche est répartie sur tous les cœurs sauf un (4 au plus) ;
 la décompression reste sur un seul. Le mot de passe ICANN est stocké dans la base sur le NAS, puisque
@@ -179,12 +194,14 @@ L'appli fonctionne alors en trois temps :
 2. Un nom .fr expire à la date anniversaire de sa création. L'appli le vérifie en RDAP le
    lendemain de cet anniversaire : renouvelé, la vraie échéance lue en RDAP fixe la vérification
    suivante, un an plus tard ; en rédemption ou libre, il passe dans l'écran Veille.
-3. Toutes les requêtes vers l'Afnic (dates anniversaire, suppressions, boutons « Vérifier »)
-   passent par une seule file, sous un plafond par minute réglable (2 par défaut, soit 2 880 par
+3. Toutes les requêtes vers l'Afnic (dates anniversaire, suppressions, boutons « Vérifier », et les
+   .fr de l'écran Domaines) passent par une seule file, sous un plafond par minute réglable (2 par défaut, soit 2 880 par
    jour au plus). L'Afnic ne publie pas de limite. Au premier signal de trop de requêtes, pause
    d'une heure, doublée à chaque nouveau signal (24 h au plus), et durée demandée par l'Afnic
    respectée. Paramètres, carte « Sources et lectures », montre en direct le nom en cours, le travail du jour et du
-   lendemain, et les dernières requêtes.
+   lendemain, et les dernières requêtes. Pendant la pause, un domaine .fr de l'écran Domaines garde son
+   dernier état et sa vérification est reportée à la reprise ; le plafond de la minute atteint, elle attend
+   la minute suivante.
 4. Chaque jour à partir de minuit, l'appli demande directement aux serveurs DNS du .fr si les
    noms « probablement libres » y sont délégués (150 000 par jour au plus, de 2 à 4 requêtes par
    seconde selon les réponses, ralenti au premier silence, arrêt à 23 h). La passe est étalée
@@ -240,8 +257,9 @@ Quand les listes suivies changent (formes fléchies ajoutées, par exemple), le 
 Les noms que tu possèdes : prix et date d'achat, renouvellement par an, échéance, prix demandé,
 meilleure offre, statut (possédé, en exploitation, pas à vendre, en vente, vendu, abandonné), prix et date de vente, notes. Totaux :
 investi, renouvellements par an, ventes, bénéfice. « J'ai acheté » dans la fiche d'un nom l'ajoute
-avec la date du jour. Un nom ajouté est aussi surveillé : l'échéance réelle vient du RDAP (sinon la
-date saisie), rappel Telegram 30 puis 7 jours avant. Les ventes et les offres reçues sont ajoutées à
+avec la date du jour. Un nom ajouté est aussi surveillé : la vérification RDAP part en arrière-plan, la
+réponse n'attend pas (`checking`), et l'échéance réelle remplace la date saisie dès qu'elle est lue ;
+rappel Telegram 30 puis 7 jours avant. Les ventes et les offres reçues sont ajoutées à
 la consigne de notation IA comme repères de prix réels, et l'estimation IA s'affiche à côté du prix
 obtenu. Bilan par année (`years` de `GET /api/portfolio`) : investi (achats), renouvellements (un par an
 après l'année d'achat, jusqu'à la vente ou l'année en cours ; rien pour un nom abandonné, sa date
@@ -400,7 +418,8 @@ connexion, puis retour sur la fiche.
 
 Le jeton se crée dans Paramètres > Avis IA ; il n'est montré qu'une fois. Il ouvre l'échange des
 avis et, en lecture seule (GET), le diagnostic `/api/diag` (version, mémoire, zones, .fr, DNS, avis
-IA, compteurs, tâches planifiées, dernières erreurs du journal), les écrans (Domaines, Veille,
+IA, compteurs, tâches planifiées, exécutions manquées ou en erreur du planificateur, file Telegram,
+dernières erreurs du journal), les écrans (Domaines, Veille,
 Explorer, Top, fiches) et `/api/ai/rated` (avis enregistrés, filtres `verdict` et `tld`). Jamais
 les réglages, les secrets ni une écriture. Lecture depuis une session Claude :
 `python3 scripts/read_api.py /api/diag`. L'avis s'affiche dans la fiche et les listes, avec un tri « Par avis IA » (revente
@@ -450,8 +469,11 @@ Ouvrir ensuite `https://domaines.xxx.synology.me` sur le téléphone. Android (C
 Installer l'application. iPhone (Safari) : Partager, Sur l'écran d'accueil.
 
 Accessible depuis Internet, l'appli n'est protégée que par son mot de passe (verrouillage après
-5 échecs). Pour la garder en réseau local, ne pas ouvrir le port 443 sur la box, ou passer par le
-VPN du NAS.
+5 échecs, adresse réelle du visiteur lue derrière Cloudflare ou le proxy du NAS). Pour la garder en
+réseau local, ne pas ouvrir le port 443 sur la box, ou passer par le VPN du NAS. Chaque réponse porte
+les en-têtes `Content-Security-Policy: frame-ancestors 'none'`, `X-Frame-Options: DENY`,
+`X-Content-Type-Options: nosniff` et `Referrer-Policy: same-origin` : l'appli ne s'affiche pas dans le
+cadre d'un autre site. `/login` ouvert avec une session valide renvoie directement à l'appli.
 
 ## Variables d'environnement
 
@@ -495,7 +517,8 @@ Les durées acceptent `30s`, `5m`, `6h`, `7d`, ou un nombre de secondes.
   .so pour l'instant).
 - Une réponse 404 du registre donne l'état « disponible ». Une erreur réseau, un 429 ou un 5xx ne
   le donnent jamais : le domaine passe en « erreur de check » et garde son dernier état connu.
-- Sans RDAP (.co par exemple), l'appli interroge le WHOIS du registre, trouvé via `whois.iana.org`.
+- Sans RDAP (.co par exemple), l'appli interroge le WHOIS du registre, trouvé via `whois.iana.org`
+  et gardé en base 7 jours (réglage `whois_servers`) : pas de nouvelle question à l'IANA à chaque redémarrage.
   Elle ne lit que des lignes « clé: valeur » connues. « Disponible » exige une formule explicite du
   registre (« not found », « no match »...) et aucune donnée d'enregistrement dans la réponse. Toute
   réponse non reconnue donne une erreur de check. Le détail d'un domaine indique la source utilisée.

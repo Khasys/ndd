@@ -1,3 +1,5 @@
+import asyncio
+import time
 import json
 from datetime import datetime, timedelta, timezone
 
@@ -618,6 +620,7 @@ def test_portfolio_tracks_purchases_sales_and_reminders(logged):
                                                "bought_on": "2025-03-01", "expires_at": soon}).json()
     item = data["items"][0]
     assert item["name"] == "forumdomotique.fr" and item["status"] == "owned" and added == ["forumdomotique.fr"]
+    assert data["checking"] is True
     assert data["totals"]["invested"] == 12 and data["totals"]["yearly_renewals"] == 12
     assert client.post("/api/portfolio", json={"name": "forumdomotique.fr"}).status_code == 409
     # Rappel 30 jours avant l'échéance, une seule fois.
@@ -986,4 +989,94 @@ def test_decisions_regrets_and_targeted_unhide(logged):
     # Tout réafficher : les décisions « ignoré » des noms masqués s'effacent, l'achat reste.
     assert client.post("/api/drops/unhide").json() == {"hidden": 0}
     assert {i["name"] for i in client.get("/api/decisions").json()["items"]} == {"velo.fr"}
+
+def test_security_headers_and_login_redirect_when_already_connected(logged):
+    client = logged()
+    expected = {"content-security-policy": "frame-ancestors 'none'", "x-content-type-options": "nosniff",
+                "referrer-policy": "same-origin", "x-frame-options": "DENY"}
+    for path in ("/", "/api/meta", "/api/settings/status", "/login"):
+        headers = client.get(path).headers
+        assert {k: headers.get(k) for k in expected} == expected, path
+    # /logo garde sa CSP propre (SVG sans script), les autres en-têtes s'ajoutent.
+    assert client.get("/api/inconnue").headers["x-frame-options"] == "DENY"
+    # Déjà connecté : /login renvoie à l'appli, ou à la page demandée si elle est locale.
+    assert client.get("/login").headers["location"] == "/"
+    assert client.get("/login", params={"next": "/?fiche=velo.fr"}).headers["location"] == "/?fiche=velo.fr"
+    assert client.get("/login", params={"next": "https://ailleurs.example"}).headers["location"] == "/"
+    client.cookies.clear()
+    response = client.get("/login")
+    assert response.status_code == 200 and response.headers["x-frame-options"] == "DENY"
+    assert client.get("/api/meta").status_code == 401 and client.get("/api/meta").headers["x-frame-options"] == "DENY"
+    client.__exit__(None, None, None)
+
+
+def test_portfolio_check_runs_in_the_background(logged, caplog):
+    client = logged()
+    started = []
+
+    async def slow_add(name):
+        started.append(name)
+        await asyncio.sleep(0.05)
+        raise RuntimeError("registre muet")
+
+    client.app.state.checker.add = slow_add
+    caplog.set_level("WARNING", logger="domain-watch")
+    data = client.post("/api/portfolio", json={"name": "velo.fr", "expires_at": "2027-01-01"}).json()
+    # Réponse tout de suite, vérification lancée derrière.
+    assert data["checking"] is True and data["items"][0]["expiry_source"] == "saisie" and started == ["velo.fr"]
+    time.sleep(0.2)
+    client.get("/api/meta")  # un tour de boucle : la tâche de fond rend la main
+    assert "Portefeuille : vérification de velo.fr : RuntimeError: registre muet" in caplog.text
+    # Nom déjà surveillé : rien à vérifier.
+    conn = client.app.state.conn
+    conn.execute("INSERT INTO domains (name, added_at, expires_at, state) VALUES ('maison.fr', 'x', '2027-06-01T00:00:00+00:00', 'active')")
+    data = client.post("/api/portfolio", json={"name": "maison.fr"}).json()
+    assert data["checking"] is False and data["items"][0]["expiry_source"] == "RDAP"
+    client.__exit__(None, None, None)
+
+
+def test_light_polls_for_pairing_reserved_and_drops(logged):
+    client = logged()
+    st = client.app.state
+    status = client.get("/api/settings/status").json()
+    assert status == {"telegram": {"chat_set": False, "bot_name": None, "pairing": False},
+                      "reserved": {"running": False, "at": None, "error": None, "count": 0}}
+    st.store.set("telegram_chat_id", "42")
+    st.telegram.bot_name = "monbot"
+    st.telegram.start_pairing()
+    st.conn.execute("INSERT INTO reserved_names (name, source) VALUES ('paris.fr', 'communes')")
+    st.store.set("reserved_status", json.dumps({"at": "2026-10-17T06:00:00+00:00", "error": None}))
+    status = client.get("/api/settings/status").json()
+    assert status["telegram"] == {"chat_set": True, "bot_name": "monbot", "pairing": True}
+    assert status["reserved"] == {"running": False, "at": "2026-10-17T06:00:00+00:00", "error": None, "count": 1}
+    # Veille : l'état seul, sans la liste, avec l'écart refusé et l'acceptation.
+    st.store.set("czds_username", "moi")
+    st.store.set("czds_password", "x")
+    st.store.set("czds_approved", '["com", "net"]')
+    st.store.set("czds_gap_refused", json.dumps({"com": {"expected": 1000, "found": 900, "at": "2026-10-18T06:00:00+00:00"}}))
+    light = client.get("/api/drops", params={"items": "0"}).json()
+    assert light["items"] is None and light["czds"] is True and light["running"] is False
+    assert light["gap_refused"]["com"]["found"] == 900 and light["accept_gap"] == []
+    assert client.post("/api/settings/czds/accept-gap", json={"tld": "org"}).status_code == 422
+    assert client.post("/api/settings/czds/accept-gap", json={"tld": ".COM"}).json()["accept_gap"] == ["com"]
+    assert client.get("/api/drops", params={"items": "0"}).json()["accept_gap"] == ["com"]
+    client.__exit__(None, None, None)
+
+
+def test_diag_lists_missed_and_failed_scheduler_runs(logged):
+    from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_MISSED, JobExecutionEvent
+
+    client = logged()
+    scheduler = client.app.state.scheduler
+    when = datetime.now(timezone.utc)
+    scheduler._dispatch_event(JobExecutionEvent(EVENT_JOB_MISSED, "latest", None, when))
+    try:
+        raise ValueError("bot123456:ABC-def token=secret")
+    except ValueError as exc:
+        scheduler._dispatch_event(JobExecutionEvent(EVENT_JOB_ERROR, "telegram_flush", None, when, exception=exc))
+    diag = client.get("/api/diag").json()
+    assert diag["scheduler"]["missed"][0]["job"] == "refresh_latest" and diag["scheduler"]["missed"][0]["scheduled"] == when.replace(microsecond=0).isoformat()
+    error = diag["scheduler"]["errors"][0]
+    assert error["job"] == "flush" and error["error"].startswith("ValueError: bot<masqué>") and "secret" not in error["error"]
+    assert diag["telegram_outbox"] == 0
     client.__exit__(None, None, None)

@@ -2,6 +2,7 @@ import asyncio
 import logging
 import secrets
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Awaitable, Callable
 
 import httpx
@@ -13,6 +14,11 @@ log = logging.getLogger(__name__)
 API = "https://api.telegram.org"
 PAIRING_TTL = 600
 POLL_TIMEOUT = 25
+# File de rejeu : premier nouvel essai après 5 min, délai doublé à chaque échec jusqu'à 6 h, abandon après 48 h.
+OUTBOX_FIRST_RETRY = timedelta(minutes=5)
+OUTBOX_MAX_RETRY = timedelta(hours=6)
+OUTBOX_TTL = timedelta(hours=48)
+MAX_TEXT = 4000  # caractères par message (limite Telegram : 4 096)
 
 Handler = Callable[[str, str], Awaitable[str]]
 
@@ -54,7 +60,7 @@ class Telegram:
         except ValueError:
             data = {}
         if response.status_code != 200 or not data.get("ok"):
-            raise TelegramError(data.get("description") or f"HTTP {response.status_code}")
+            raise TelegramError(data.get("description") or f"HTTP {response.status_code}", response.status_code)
         return data["result"]
 
     async def check_token(self, token: str | None = None) -> str:
@@ -63,20 +69,75 @@ class Telegram:
         self.bot_name = me.get("username")
         return self.bot_name or ""
 
-    async def send(self, text: str, chat_id: str | None = None) -> str | None:
-        """None si le message est parti, sinon le motif de l'échec."""
+    async def send(self, text: str, chat_id: str | None = None, retry: bool = True) -> str | None:
+        """None si le message est parti (ou attend en file de rejeu), sinon le motif de l'échec.
+
+        retry : un échec passager (429, 5xx, réseau) vers le chat associé met le message en file, renvoyé
+        par flush. False pour un message de test ou un rejeu, qui doivent dire tout de suite s'ils passent."""
         target = chat_id or self.chat_id
         if not self.token or not target:
             return "Telegram n'est pas configuré."
+        queue = retry and chat_id is None
         try:
             await self._call(self.http, "sendMessage", chat_id=target, text=text, disable_web_page_preview=True)
         except TelegramError as exc:
             log.warning("Telegram a refusé le message : %s", exc)
+            if queue and exc.transient:
+                self._enqueue(text, str(exc))
+                return None
             return f"Telegram a refusé le message : {exc}."
         except httpx.HTTPError as exc:
             log.warning("Telegram injoignable : %s", exc.__class__.__name__)
+            if queue:
+                self._enqueue(text, exc.__class__.__name__)
+                return None
             return f"Telegram injoignable ({exc.__class__.__name__})."
         return None
+
+    # File de rejeu
+
+    def _enqueue(self, text: str, error: str) -> None:
+        now = _now()
+        self.store.conn.execute(
+            "INSERT INTO telegram_outbox (text, created_at, attempts, next_try_at, last_error) VALUES (?, ?, 0, ?, ?)",
+            (text, now.isoformat(), now.isoformat(), error[:200]),
+        )
+        log.warning("Telegram : message mis en file de rejeu (%s)", error)
+
+    def pending(self) -> int:
+        return self.store.conn.execute("SELECT COUNT(*) FROM telegram_outbox").fetchone()[0]
+
+    async def flush(self) -> int:
+        """Renvoie ce qui est dû dans la file, regroupé en un seul message. Nombre de messages partis."""
+        conn = self.store.conn
+        now = _now()
+        for row in conn.execute("SELECT * FROM telegram_outbox WHERE created_at < ?", ((now - OUTBOX_TTL).isoformat(),)):
+            log.error("Telegram : message abandonné après %s essais depuis le %s (%s) : %s",
+                      row["attempts"], row["created_at"][:16], row["last_error"], row["text"][:120].replace("\n", " "))
+            conn.execute("DELETE FROM telegram_outbox WHERE id = ?", (row["id"],))
+        if not self.configured:
+            return 0
+        rows = conn.execute("SELECT * FROM telegram_outbox WHERE next_try_at <= ? ORDER BY id", (now.isoformat(),)).fetchall()
+        if not rows:
+            return 0
+        batch, text = [], ""
+        for row in rows:
+            joined = f"{text}\n\n{row['text']}" if text else row["text"]
+            if batch and len(joined) > MAX_TEXT:
+                break  # le reste partira au passage suivant
+            batch.append(row)
+            text = joined
+        error = await self.send(text[:MAX_TEXT], retry=False)
+        if error is None:
+            conn.executemany("DELETE FROM telegram_outbox WHERE id = ?", [(r["id"],) for r in batch])
+            log.info("Telegram : %d message(s) de la file renvoyé(s)", len(batch))
+            return len(batch)
+        for row in batch:
+            attempts = row["attempts"] + 1
+            delay = min(OUTBOX_MAX_RETRY, OUTBOX_FIRST_RETRY * (2 ** (attempts - 1)))
+            conn.execute("UPDATE telegram_outbox SET attempts = ?, next_try_at = ?, last_error = ? WHERE id = ?",
+                         (attempts, (now + delay).isoformat(), error[:200], row["id"]))
+        return 0
 
     def start_pairing(self) -> str:
         code = f"{secrets.randbelow(10**6):06d}"
@@ -156,4 +217,15 @@ class Telegram:
 
 
 class TelegramError(Exception):
-    pass
+    def __init__(self, message: str, status: int | None = None):
+        super().__init__(message)
+        self.status = status
+
+    @property
+    def transient(self) -> bool:
+        """Refus passager (trop de requêtes, panne côté Telegram) : le message mérite un nouvel essai."""
+        return self.status == 429 or (self.status or 0) >= 500
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc).replace(microsecond=0)
