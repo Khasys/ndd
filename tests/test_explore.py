@@ -774,3 +774,147 @@ def test_save_keeps_the_grid_against_old_format_and_batch_duplicates(env):
     assert env.conn.execute("SELECT version FROM domain_ai WHERE name = 'velo.fr'").fetchone()[0] == ai.VERSION
     bad = {**v5, "quick_low": 15000, "quick_high": 15000, "final_low": 10000, "final_high": 50000}
     assert ai.save(env.conn, [bad], known)["rejected"][0]["reason"] == "revente rapide plus chère que l'utilisateur final"
+
+
+# --- Fiche : comparables, repères du portefeuille, ligne de temps ; avis IA : pourquoi, paliers ------
+
+GRIDS = {
+    "velo": {"oral": 10, "radio": 10, "memo": 10, "sens": 10, "marque": 9, "marche": 8, "ext": 10, "acheteurs": 9, "risque": 0},
+    "ciel": {"oral": 9, "radio": 8, "memo": 8, "sens": 8, "marque": 4, "marche": 2, "ext": 3, "acheteurs": 3, "risque": 0},
+    "kalo": {"oral": 9, "radio": 8, "memo": 9, "sens": 0, "marque": 7, "marche": 2, "ext": 6, "acheteurs": 4, "risque": 0},
+    "sommes": {"oral": 8, "radio": 5, "memo": 5, "sens": 3, "marque": 2, "marche": 2, "ext": 7, "acheteurs": 2, "risque": 1},
+    "puer": {"oral": 8, "radio": 7, "memo": 7, "sens": 6, "marque": 1, "marche": 1, "ext": 6, "acheteurs": 1, "risque": 8},
+    "femmes": {"oral": 9, "radio": 8, "memo": 8, "sens": 9, "marque": 7, "marche": 8, "ext": 9, "acheteurs": 8, "risque": 0},
+}
+
+
+def rate(env, name, grid, final=(1000, 3000), rated_at="2026-09-01T00:00:00Z", reviewed_at=None):
+    """Un avis v5 enregistré comme le ferait ai.save : notes et verdict dérivés de la grille."""
+    import json
+    from app import ai_format
+
+    d = ai_format.derive(grid)
+    env.conn.execute("""INSERT INTO domain_ai (name, exploit, resale, quick_low, quick_high, final_low, final_high,
+                        comment, rated_at, version, grid, reviewed_at) VALUES (?, ?, ?, 0, 0, ?, ?, ?, ?, 5, ?, ?)""",
+                     (name, d["exploit"], d["resale"], final[0], final[1], f"{d['verdict']}. Raison. Acheteur type : x.",
+                      rated_at, json.dumps(grid), reviewed_at))
+    env.ai_changed()
+    return d
+
+
+def test_fiche_lists_comparables_of_the_same_family_and_portfolio_references(env):
+    add_fr(env, "velo", removed="2026-01-01")
+    zone(env, [], set())  # .com suivi, sans avis
+    rate(env, "velo.fr", GRIDS["velo"], (15000, 50000))             # mot de 4 lettres, revente 90
+    rate(env, "ciel.fr", GRIDS["ciel"], (800, 3000))                # mot de 4 lettres, revente 40
+    rate(env, "sel.fr", GRIDS["femmes"], (5000, 15000))             # mot de 3 lettres, revente 75
+    rate(env, "table.fr", GRIDS["kalo"], (800, 2000))               # mot de 5 lettres, revente 40
+    rate(env, "maison.fr", GRIDS["velo"], (15000, 50000))           # 6 lettres : trop loin
+    rate(env, "durand.fr", GRIDS["velo"], (15000, 50000))           # nom de famille : autre liste
+    rate(env, "lea.fr", GRIDS["femmes"], (5000, 15000))             # liste principale : prénom, pas mot
+    env.conn.execute("""INSERT INTO domain_ai (name, exploit, resale, quick_low, quick_high, final_low, final_high, comment,
+                        rated_at, version) VALUES ('moto.fr', 90, 90, 0, 0, 10000, 30000, 'À prendre. Ok. Acheteur type : x.', 'x', 4)""")
+    env.ai_changed()
+    fiche = env.fiche("velo.fr")
+    names = [c["name"] for c in fiche["comparables"]]
+    assert names == ["sel.fr", "ciel.fr", "table.fr"]  # les plus proches de 90 d'abord ; moto.fr (v4) écarté
+    first = fiche["comparables"][0]
+    assert first["verdict"] == "À prendre" and first["resale"] == 75 and first["final_high"] == 15000
+    assert first["status_label"] == "Jamais enregistré" and first["exploit"] == 75
+    assert fiche["item"]["ai"]["why"] == "" and fiche["item"]["ai"]["version"] == 5
+    # Nom court hors des listes : même longueur et même forme (chiffres, lettres prononçables ou non).
+    rate(env, "qsd.fr", GRIDS["sommes"], (100, 300))
+    rate(env, "wxz.fr", GRIDS["sommes"], (100, 300))
+    rate(env, "382.fr", GRIDS["sommes"], (100, 300))
+    rate(env, "591.fr", GRIDS["kalo"], (100, 300))
+    assert [c["name"] for c in env.fiche("382.fr")["comparables"]] == ["591.fr"]
+    assert [c["name"] for c in env.fiche("qsd.fr")["comparables"]] == ["wxz.fr"]
+    rate(env, "mai.fr", GRIDS["femmes"], (3000, 10000))  # mot avant prénom : lea.fr n'en est pas
+    assert [c["name"] for c in env.fiche("mai.fr")["comparables"]] == ["sel.fr", "velo.fr", "ciel.fr"]
+    # Sans avis sur le nom : les comparables suivent l'estimation du score.
+    assert len(env.fiche("auto.fr")["comparables"]) == 3
+    assert env.fiche("zzqx.fr")["comparables"] == []
+    # Repères : ventes et offres reçues du portefeuille, les plus proches en longueur, 3 au plus.
+    env.conn.executemany("INSERT INTO portfolio (name, status, sold_on, sold_price, best_offer, created_at) VALUES (?, ?, ?, ?, ?, 'x')", [
+        ("moto.fr", "sold", "2026-03-01", 900, None), ("recette.fr", "for_sale", None, None, 250),
+        ("lea.fr", "sold", "2026-04-01", 400, None), ("forumdomotique.fr", "sold", "2026-05-01", 300, None),
+        ("velo.fr", "sold", "2026-06-01", 5000, None), ("ciel.fr", "owned", None, None, None)])
+    refs = env.fiche("velo.fr")["references"]
+    assert [r["name"] for r in refs] == ["moto.fr", "lea.fr", "recette.fr"]
+    assert refs[0] == {"name": "moto.fr", "kind": "vendu", "sold_price": 900, "best_offer": None, "sold_on": "2026-03-01"}
+    assert refs[2]["kind"] == "offre reçue" and refs[2]["best_offer"] == 250 and refs[2]["sold_price"] is None
+    # Autres extensions : l'avis résumé quand il existe.
+    others = {o["tld"]: o for o in env.fiche("velo.com")["others"]}
+    assert others["fr"]["ai_summary"] == {"verdict": "À prendre", "resale": 90, "final_low": 15000, "final_high": 50000}
+    assert env.fiche("velo.fr")["others"][0]["ai_summary"] is None
+
+
+def test_public_opinion_says_why_in_plain_words(env):
+    from app import ai
+
+    rate(env, "puer.fr", GRIDS["puer"], (50, 200))
+    rate(env, "sommes.fr", GRIDS["sommes"], (200, 800))
+    rate(env, "kalo.fr", GRIDS["kalo"], (800, 2000))
+    rate(env, "velo.fr", GRIDS["velo"], (15000, 50000), reviewed_at="2026-09-02T00:00:00Z")
+    env.conn.execute("""INSERT INTO domain_ai (name, exploit, resale, quick_low, quick_high, final_low, final_high, comment,
+                        rated_at, version) VALUES ('moto.fr', 20, 20, 0, 0, 0, 100, 'À laisser. Faible. Acheteur type : x.', 'x', 4)""")
+    found = ai.load(env.conn, ["puer.fr", "sommes.fr", "kalo.fr", "velo.fr", "moto.fr"])
+    assert found["puer.fr"]["why"] == "risque fort (marque connue, sens négatif ou gênant)"
+    assert found["sommes.fr"]["why"] == "peu de potentiel de marque"      # la sous-note la plus faible (marque 2)
+    assert found["kalo.fr"]["why"] == "sens faible"                         # « À surveiller » : son point faible
+    assert found["velo.fr"]["why"] == "" and found["velo.fr"]["reviewed_at"] == "2026-09-02T00:00:00Z"
+    assert found["moto.fr"]["why"] == "" and found["moto.fr"]["version"] == 4 and found["moto.fr"]["reviewed_at"] is None
+    assert ai.why("À laisser", {"sens": 5, "marque": 5, "marche": 1, "acheteurs": 4, "risque": 0}) == "marché étroit"
+    assert ai.why("À laisser", {"sens": 5, "marque": 5, "marche": 4, "acheteurs": 1, "risque": 0}) == "peu d'acheteurs"
+
+
+def test_fiche_timeline_gathers_dated_facts(env):
+    add_fr(env, "velo", removed="2026-01-01")
+    env.conn.execute("""INSERT INTO drops (name, tld, label, kind, removed_on, state, state_since, available_since)
+                        VALUES ('velo.fr', 'fr', 'velo', 'word', '2026-01-01', 'available', '2026-02-01T08:00:00Z', '2026-02-01T08:00:00Z')""")
+    env.conn.execute("""INSERT INTO drops (name, tld, label, kind, removed_on, state, state_since)
+                        VALUES ('velo.com', 'com', 'velo', 'word', '2026-03-01', 'redemption', '2026-03-02T06:00:00Z')""")
+    rate(env, "velo.fr", GRIDS["velo"], (15000, 50000), rated_at="2026-02-10T00:00:00Z")
+    rate(env, "velo.com", GRIDS["velo"], (15000, 50000), rated_at="2026-03-10T00:00:00Z", reviewed_at="2026-03-20T00:00:00Z")
+    domain_id = env.conn.execute("INSERT INTO domains (name, added_at) VALUES ('velo.fr', '2026-02-02T00:00:00Z')").lastrowid
+    env.conn.executemany("INSERT INTO history (domain_id, at, field, old_value, new_value) VALUES (?, ?, ?, ?, ?)", [
+        (domain_id, "2026-02-03T00:00:00Z", "state", None, "available"),
+        (domain_id, "2026-02-20T00:00:00Z", "state", "available", "active"),
+        (domain_id, "2026-02-20T00:00:00Z", "registrar", None, "Gandi"),
+        (domain_id, "2026-02-21T00:00:00Z", "nameservers", "[]", '["ns1"]')])
+    env.conn.execute("INSERT INTO portfolio (name, status, bought_on, sold_on, sold_price, created_at) "
+                     "VALUES ('velo.fr', 'sold', '2026-02-19', '2026-06-01', 5000, 'x')")
+    line = env.fiche("velo.fr")["timeline"]
+    assert [e["at"] for e in line] == sorted(e["at"] for e in line)
+    assert [(e["kind"], e["label"]) for e in line] == [
+        ("created", "Créé (Afnic)"), ("removed", "Supprimé (Afnic)"), ("available", "Libération constatée"),
+        ("watched", "Surveillé"), ("state", "Disponible"), ("rated", "Noté par l'IA"), ("bought", "Acheté"),
+        ("state", "Actif"), ("registrar", "Registrar : Gandi"), ("sold", "Vendu (5000 €)")]
+    assert line[0]["at"] == "2010-02-01"
+    com = env.fiche("velo.com")["timeline"]
+    assert [(e["kind"], e["label"]) for e in com] == [("zone_out", "Sorti de la zone"), ("drop_redemption", "Entré en rédemption"),
+                                                       ("rated", "Renoté par l'IA (second passage)")]
+    assert env.fiche("zzqx.fr")["timeline"] == []
+
+
+def test_price_tiers_are_smooth_above_80():
+    from app import ai, ai_format
+
+    assert ai_format.price_band(85, "fr") == (8000, 80000) and ai_format.price_band(90, "fr") == (10000, 150000)
+    assert ai_format.price_band(95, "fr") == (20000, 300000) and ai_format.price_band(80, "fr") == (5000, 30000)
+    # Un palier de tolérance de chaque côté ; plus de « sans plafond » à 90, seulement pour les noms très courts.
+    assert ai_format.price_limits(90, "fr", "velo") == (8000, 300000)
+    assert ai_format.price_limits(80, "fr", "velo") == (3000, 80000)
+    assert ai_format.price_limits(95, "fr", "ev") == (10000, 1000000)
+    assert ai_format.price_limits(95, "com", "abc") == (15000, 1000000) and ai_format.price_limits(95, "fr", "abc")[1] == 300000
+    assert ai_format.price_limits(0, "fr", "zzzzz") == (0, 300)
+    velo = {"name": "velo.fr", **GRIDS["velo"], "quick_low": 3000, "quick_high": 8000, "final_low": 15000, "final_high": 50000,
+            "comment": "Mot que tout le monde tape. Acheteur type : enseigne vélo."}
+    assert ai_format.check_v5(velo, lambda n: True) is None
+    assert ai_format.check_v5({**velo, "final_high": 300000, "quick_high": 100000}, lambda n: True) is None
+    assert ai_format.check_v5({**velo, "final_high": 500000, "quick_high": 100000}, lambda n: True).startswith("prix utilisateur final hors palier")
+    assert ai_format.check_v5({**velo, "name": "ev.fr", "final_high": 500000, "quick_high": 100000}, lambda n: True) is None
+    # La consigne dit la même grille que le code.
+    for floor, low, high in ai_format.PRICE_TIERS[:-1]:
+        euros = lambda n: f"{n:,}".replace(",", " ")  # noqa: E731
+        assert f"{floor}{' et plus' if floor == ai_format.PRICE_TIERS[0][0] else ''}, {euros(low)} à {euros(high)}" in ai.GUIDE

@@ -51,10 +51,10 @@ Prix en euros, uniquement ces valeurs : 0, 50, 100, 150, 200, 300, 500, 800, 100
 - final_low, final_high : prix pour un utilisateur final, avec de la patience (mois ou années).
 - quick_low, quick_high : revente rapide à un investisseur, 40 % du prix final au plus ; 0 et 0 si personne ne l'achèterait vite.
 - Bas inférieur ou égal au haut.
-- Grille : le prix final suit la note de revente calculée (elle tient compte du marché et des acheteurs). Pour un .fr : 90 et plus, 10 000 à 100 000 ; 80, 5 000 à 30 000 ; 70, 3 000 à 15 000 ; 60, 1 500 à 8 000 ; 50, 1 000 à 5 000 ; 40, 500 à 2 000 ; 30, 200 à 1 000 ; 20, 100 à 800 ; 10, 50 à 300 ; en dessous, 0 à 100.
+- Grille : le prix final suit la note de revente calculée (elle tient compte du marché et des acheteurs). Pour un .fr : 95 et plus, 20 000 à 300 000 ; 90, 10 000 à 150 000 ; 85, 8 000 à 80 000 ; 80, 5 000 à 30 000 ; 70, 3 000 à 15 000 ; 60, 1 500 à 8 000 ; 50, 1 000 à 5 000 ; 40, 500 à 2 000 ; 30, 200 à 1 000 ; 20, 100 à 800 ; 10, 50 à 300 ; en dessous, 0 à 100.
 - Autres extensions, mêmes paliers multipliés par : .com 1,5 ; .io et .ai 0,8 ; .co 0,6 ; .org, .app et .dev 0,5 ; .net 0,4 ; .info, .biz et .xyz 0,25 ; autres 0,4.
 - Un palier de tolérance au-dessus ou au-dessous est accepté. Dans le palier, monte si marche et acheteurs sont forts, descends sinon.
-- Exceptions sans plafond de palier : noms de 1 ou 2 caractères (jusqu'à 3 en .com, marché porté par la rareté), et noms dont la note de revente atteint 90 (mots génériques majeurs). Appuie-toi alors sur les repères publics ci-dessous.
+- Exception sans plafond de palier : noms de 1 ou 2 caractères (jusqu'à 3 en .com, marché porté par la rareté). Appuie-toi alors sur les repères publics ci-dessous. Les meilleurs mots du marché restent dans les paliers de 90 et 95 : les ventes au-delà sont l'exception.
 - Repères publics, ventes exceptionnelles et non la norme : credit.fr 587 500 euros (2010), auto.fr 100 000 euros (2008), ev.fr 120 000 euros (2022). Prix médian des ventes sur Sedo en 2012, toutes extensions : 461 euros.
 
 Raison (comment) : exactement deux phrases sur ce gabarit : « Raison. Acheteur type : qui. »
@@ -120,11 +120,32 @@ def token_ok(store, header: str | None) -> bool:
     return hmac.compare_digest(hash_token(header[7:].strip()), expected)
 
 
+# Pourquoi « À laisser » ou « À surveiller », en mots simples depuis la grille : le point faible qui pèse le plus.
+WEAK_LABELS = {"sens": "sens faible", "marque": "peu de potentiel de marque", "marche": "marché étroit",
+               "acheteurs": "peu d'acheteurs"}
+RISK_STRONG = 8  # même seuil que derive : risque de 8 et plus = « À laisser »
+
+
+def why(verdict: str, grid: dict | None) -> str:
+    """Cause principale d'un verdict réservé : risque fort, sinon la sous-note la plus faible parmi
+    sens, marque, marché, acheteurs. Vide pour « À prendre » et pour un avis sans grille (v4)."""
+    if not grid or verdict not in ("À laisser", "À surveiller"):
+        return ""
+    if verdict == "À laisser" and grid.get("risque", 0) >= RISK_STRONG:
+        return "risque fort (marque connue, sens négatif ou gênant)"
+    weakest = min(WEAK_LABELS, key=lambda k: grid.get(k, 10))
+    return WEAK_LABELS[weakest]
+
+
 def public(row) -> dict:
     found = {k: row[k] for k in ("exploit", "resale", "quick_low", "quick_high", "final_low", "final_high",
                                  "comment", "rated_at")}
-    grid = row["grid"] if "grid" in row.keys() else None
+    keys = row.keys()
+    grid = row["grid"] if "grid" in keys else None
     found["grid"] = json.loads(grid) if grid else None
+    found["version"] = row["version"] if "version" in keys else None
+    found["reviewed_at"] = row["reviewed_at"] if "reviewed_at" in keys else None
+    found["why"] = why((found["comment"] or "").split(".")[0], found["grid"])
     return found
 
 

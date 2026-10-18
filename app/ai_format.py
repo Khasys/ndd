@@ -94,17 +94,20 @@ TAKE_MIN = 60     # « À prendre » : meilleure note d'au moins 60, risque de 4
 TAKE_BUYERS = 4
 LEAVE_MAX = 40    # « À laisser » : meilleure note de 40 au plus, ou risque de 8 et plus
 
-# Prix utilisateur final selon la meilleure des deux notes, pour un .fr (repères indicatifs, pas une
-# cote : à recaler sur les ventes réelles du portefeuille). Autres extensions : coefficient.
-PRICE_TIERS = ((90, 10000, 100000), (80, 5000, 30000), (70, 3000, 15000), (60, 1500, 8000), (50, 1000, 5000),
-               (40, 500, 2000), (30, 200, 1000), (20, 100, 800), (10, 50, 300), (0, 0, 100))
+# Prix utilisateur final selon la note de revente, pour un .fr (repères indicatifs, pas une cote : à
+# recaler sur les ventes réelles du portefeuille). Autres extensions : coefficient. Paliers de 5 points
+# à partir de 85 : sans eux, le prix sautait de 30 000 à 100 000 entre 89 et 90, et rien n'encadrait
+# plus un 90 ; les meilleurs mots du marché restent plafonnés, à 300 000 (credit.fr, 587 500 en 2010,
+# reste l'exception).
+PRICE_TIERS = ((95, 20000, 300000), (90, 10000, 150000), (85, 8000, 80000), (80, 5000, 30000), (70, 3000, 15000),
+               (60, 1500, 8000), (50, 1000, 5000), (40, 500, 2000), (30, 200, 1000), (20, 100, 800), (10, 50, 300),
+               (0, 0, 100))
 EXT_FACTOR = {"com": 1.5, "fr": 1.0, "io": 0.8, "ai": 0.8, "co": 0.6, "org": 0.5, "app": 0.5, "dev": 0.5,
               "net": 0.4, "info": 0.25, "biz": 0.25, "xyz": 0.25}
 OTHER_EXT_FACTOR = 0.4
 QUICK_SHARE = 0.4  # revente rapide : 40 % du prix utilisateur final au plus
 SHORT_UNCAPPED = 2  # noms de 1 ou 2 caractères : pas de plafond de palier
 SHORT_UNCAPPED_BY_TLD = {"com": 3}  # en .com, jusqu'à 3 caractères (marché porté par la rareté)
-UNCAPPED_FROM = 90  # ni pour une note de revente de 90 et plus
 
 
 def _round5(x: float) -> int:
@@ -135,13 +138,34 @@ def _step_up(x: float) -> int:
     return min([p for p in PRICE_STEPS if p >= x] or [PRICE_STEPS[-1]])
 
 
+def _tier(best: int) -> int:
+    """Rang du palier d'une note (0 : le plus haut)."""
+    for n, (floor, _, _) in enumerate(PRICE_TIERS):
+        if best >= floor:
+            return n
+    return len(PRICE_TIERS) - 1
+
+
+def _band_at(tier: int, tld: str) -> tuple[int, int]:
+    factor = EXT_FACTOR.get(tld, OTHER_EXT_FACTOR)
+    _, low, high = PRICE_TIERS[max(0, min(len(PRICE_TIERS) - 1, tier))]
+    return _step_down(low * factor), _step_up(high * factor)
+
+
 def price_band(best: int, tld: str) -> tuple[int, int]:
     """Fourchette de prix utilisateur final attendue pour une note (0 à 100) et une extension."""
-    factor = EXT_FACTOR.get(tld, OTHER_EXT_FACTOR)
-    for floor, low, high in PRICE_TIERS:
-        if best >= floor:
-            return _step_down(low * factor), _step_up(high * factor)
-    return 0, _step_up(100 * factor)
+    return _band_at(_tier(best), tld)
+
+
+def price_limits(resale: int, tld: str, label: str = "") -> tuple[int, int]:
+    """Bornes acceptées du prix utilisateur final : le palier de la note, plus un palier de tolérance
+    de chaque côté (le prix suit la note sans être une formule). Noms de 1 ou 2 caractères (3 en .com) :
+    rares, ils se vendent au-dessus des paliers (ev.fr, 120 000 euros en 2022) ; pas de plafond."""
+    tier = _tier(resale)
+    floor = _band_at(tier + 1, tld)[0]
+    uncapped = 0 < len(label) <= SHORT_UNCAPPED_BY_TLD.get(tld, SHORT_UNCAPPED)
+    ceiling = PRICE_STEPS[-1] if uncapped else _band_at(tier - 1, tld)[1]
+    return floor, ceiling
 
 
 def check_v5(item, known) -> str | None:
@@ -172,12 +196,7 @@ def check_v5(item, known) -> str | None:
     # Le prix suit la note de revente : elle tient compte du marché et des acheteurs, l'exploitation non.
     resale = derive(item)["resale"]
     label, _, tld = name.rpartition(".")
-    # Un palier de tolérance de chaque côté : le prix suit la note sans être une formule. Noms de 1 ou
-    # 2 caractères : rares, ils se vendent au-dessus des paliers (ev.fr, 120 000 euros en 2022) ; pas de plafond.
-    floor = price_band(max(0, resale - 10), tld)[0]
-    # Meilleurs mots du marché (note de revente de 90 et plus) : pas de plafond non plus.
-    uncapped = len(label) <= SHORT_UNCAPPED_BY_TLD.get(tld, SHORT_UNCAPPED) or resale >= UNCAPPED_FROM
-    ceiling = PRICE_STEPS[-1] if uncapped else price_band(min(100, resale + 10), tld)[1]
+    floor, ceiling = price_limits(resale, tld, label)
     if final_low < floor or final_high > ceiling:
         return f"prix utilisateur final hors palier pour une note de revente de {resale} en .{tld} : entre {floor} et {ceiling} euros"
     comment = item["comment"]

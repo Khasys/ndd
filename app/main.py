@@ -1487,8 +1487,18 @@ async def _notify_ai_done(request: Request, name: str) -> None:
 
 @app.get("/api/portfolio")
 async def get_portfolio(request: Request):
+    now = utcnow()
+    found = portfolio.items(request.app.state.conn, now)
+    return {"items": found, "totals": portfolio.totals(found), "years": portfolio.years(found, now),
+            "statuses": portfolio.STATUSES}
+
+
+@app.get("/api/portfolio/export")
+async def export_portfolio(request: Request):
+    """Le portefeuille en CSV (BOM, point-virgule), pour un tableur."""
     found = portfolio.items(request.app.state.conn, utcnow())
-    return {"items": found, "totals": portfolio.totals(found), "statuses": portfolio.STATUSES}
+    return Response(portfolio.export_csv(found), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": 'attachment; filename="portefeuille.csv"'})
 
 
 @app.post("/api/portfolio")

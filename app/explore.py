@@ -23,7 +23,7 @@ from array import array
 from dataclasses import dataclass
 from datetime import date
 
-from . import ai, drops, frdns, precompute, rdapinfo, states, value, wordlists
+from . import ai, drops, frdns, precompute, quality, rdapinfo, states, value, wordlists
 from .checker import iso, utcnow
 
 # États, un octet par nom.
@@ -133,8 +133,22 @@ def _words() -> list[str]:
 
 # Filtre sur l'avis IA : verdicts et bornes (basse, haute) de chaque note et de chaque prix.
 AI_VERDICTS = {"take": "À prendre", "watch": "À surveiller", "skip": "À laisser"}
+# Fiche : comparables (noms notés de la même famille, longueur à ±1 près) et repères du portefeuille.
+COMPARABLES = 3
+COMPARABLE_LENGTH = 1
+# Ligne de temps : états de la Veille datés par state_since.
+TIMELINE_DROP_STATES = {states.EXPIRED: "Expiré", states.REDEMPTION: "Entré en rédemption",
+                        states.PENDING_DELETE: "En suppression", drops.TAKEN: "Repris"}
 AI_FIELDS = {"exploit": "Exploitation", "resale": "Revente", "quick_low": "Revente rapide bas",
              "quick_high": "Revente rapide haut", "final_low": "Prix final bas", "final_high": "Prix final haut"}
+
+
+def ai_summary(opinion: dict | None) -> dict | None:
+    """Verdict, note de revente et prix final d'un avis : ce qu'une autre extension montre de lui."""
+    if not opinion:
+        return None
+    return {"verdict": (opinion.get("comment") or "").split(".")[0], "resale": opinion.get("resale"),
+            "final_low": opinion.get("final_low"), "final_high": opinion.get("final_high")}
 
 
 def ai_filter(verdicts: list[str], ranges: dict[str, tuple[int | None, int | None]]) -> str:
@@ -864,9 +878,11 @@ class Explorer:
         return self._memo(("opinions", tld), lambda: self._load_opinions(tld))
 
     def _load_opinions(self, tld: str) -> dict[str, dict]:
-        return {r[0]: {"resale": r[1], "exploit": r[2], "verdict": (r[3] or "").split(".")[0]}
-                for r in self.conn.execute("SELECT name, resale, exploit, comment FROM domain_ai WHERE name LIKE ?",
-                                           (f"%.{tld}",))}
+        # Prix final et version : pour les comparables de la fiche, sans relire la table.
+        return {r[0]: {"resale": r[1], "exploit": r[2], "verdict": (r[3] or "").split(".")[0],
+                       "final_low": r[4], "final_high": r[5], "version": r[6]}
+                for r in self.conn.execute("SELECT name, resale, exploit, comment, final_low, final_high, version "
+                                           "FROM domain_ai WHERE name LIKE ?", (f"%.{tld}",))}
 
     @staticmethod
     def _level_ok(score: int, opinion: dict | None, level: str) -> bool:
@@ -1469,10 +1485,16 @@ class Explorer:
                 "expires_at": domain["expires_at"], "nameservers": json.loads(domain["nameservers"] or "[]"),
             }
         seo = self.conn.execute("SELECT * FROM domain_seo WHERE name = ?", (name,)).fetchone()
+        others = [i for t, i in items.items() if t != tld]
+        for other in others:
+            other["ai_summary"] = ai_summary(other.get("ai"))
         return {
             "name": name, "label": label, "tld": tld, "known": card["known"],
             "item": main,
-            "others": [i for t, i in items.items() if t != tld],
+            "others": others,
+            "comparables": self.comparables(name) if card["known"] else [],
+            "references": self.references(name),
+            "timeline": self.timeline(name, domain),
             "categories": card.get("categories", []),
             "natures": sorted(wordlists.natures().get(label, ())),
             "rank": self.best_rank(label),
@@ -1483,6 +1505,97 @@ class Explorer:
             "domain_id": domain["id"] if domain is not None else None,
             "rdap_next": self._rdap_next(name, tld, domain),
         }
+
+    def _status_label(self, tld: str, code: int) -> str:
+        return (ABSENT_FR if tld == "fr" else ABSENT_ZONE) if code == ABSENT else LABELS.get(code, "")
+
+    def _family(self, i: int, label: str) -> str:
+        """Liste principale d'un nom (la première de ses listes) ; pour un nom court hors des listes, sa
+        forme et sa longueur (L3g : 3 lettres prononçables, D3 : 3 chiffres…)."""
+        listed = wordlists.categories(label)
+        return listed[0] if listed else self.universe.shape_class(i)
+
+    def comparables(self, name: str) -> list[dict]:
+        """Jusqu'à COMPARABLES noms déjà notés avec la grille (v5) sur la même extension, de la même liste
+        principale (pour un nom court : même forme et même longueur) et de longueur proche, les plus
+        proches par note de revente. Part des avis de l'extension déjà en mémoire : pas de parcours de l'univers."""
+        label, _, tld = name.partition(".")
+        u = self.universe
+        i = u.index(label)
+        if i is None:
+            return []
+        family = self._family(i, label)
+        opinions = self._opinions(tld)
+        own = opinions.get(name)
+        # Sans avis sur ce nom : l'estimation du score tient lieu de note de revente.
+        target = own["resale"] if own and own.get("version", 0) >= ai.VERSION else round(quality.predict(label, tld)[0])
+        data = self.status_bytes(tld)
+        found = []
+        for other, o in opinions.items():
+            if other == name or o.get("version", 0) < ai.VERSION:
+                continue
+            olabel = other.rpartition(".")[0]
+            if abs(len(olabel) - len(label)) > COMPARABLE_LENGTH:
+                continue
+            j = u.index(olabel)
+            if j is None or self._family(j, olabel) != family:
+                continue
+            found.append((abs(o["resale"] - target), other, o, data[j]))
+        found.sort(key=lambda x: (x[0], x[1]))
+        return [{"name": other, "verdict": o["verdict"], "resale": o["resale"], "exploit": o["exploit"],
+                 "final_low": o["final_low"], "final_high": o["final_high"], "status_label": self._status_label(tld, code)}
+                for _, other, o, code in found[:COMPARABLES]]
+
+    def references(self, name: str) -> list[dict]:
+        """Ventes et offres reçues du portefeuille, les plus proches en longueur : des prix réels à côté de l'avis."""
+        label = name.partition(".")[0]
+        rows = self.conn.execute("SELECT name, status, sold_price, best_offer, sold_on FROM portfolio "
+                                 "WHERE name != ? AND ((status = 'sold' AND sold_price IS NOT NULL) OR best_offer IS NOT NULL)",
+                                 (name,)).fetchall()
+        rows = sorted(rows, key=lambda r: (abs(len(r["name"].partition(".")[0]) - len(label)), r["name"]))
+        return [{"name": r["name"], "kind": "vendu" if r["status"] == "sold" and r["sold_price"] is not None else "offre reçue",
+                 "sold_price": r["sold_price"] if r["status"] == "sold" else None, "best_offer": r["best_offer"],
+                 "sold_on": r["sold_on"]} for r in rows[:COMPARABLES]]
+
+    def timeline(self, name: str, domain=None) -> list[dict]:
+        """Ce que la base sait du nom, daté : Afnic, zones et Veille, avis IA, surveillance, portefeuille."""
+        label, _, tld = name.partition(".")
+        found: list[tuple[str, str, str]] = []
+
+        def add(at, kind: str, text: str) -> None:
+            if at:
+                found.append((str(at), kind, text))
+
+        if tld == "fr":
+            fr = self.conn.execute("SELECT created_on, removed_on FROM fr_names WHERE label = ?", (label,)).fetchone()
+            if fr is not None:
+                add(fr["created_on"], "created", "Créé (Afnic)")
+                add(fr["removed_on"], "removed", "Supprimé (Afnic)")
+        drop = self.conn.execute("SELECT * FROM drops WHERE name = ?", (name,)).fetchone()
+        if drop is not None:
+            if tld != "fr":
+                add(drop["removed_on"], "zone_out", "Sorti de la zone")
+            if drop["state"] in TIMELINE_DROP_STATES:
+                add(drop["state_since"], "drop_" + drop["state"], TIMELINE_DROP_STATES[drop["state"]])
+            add(drop["available_since"], "available", "Libération constatée")
+        rated = self.conn.execute("SELECT rated_at, reviewed_at FROM domain_ai WHERE name = ?", (name,)).fetchone()
+        if rated is not None:
+            add(rated["rated_at"], "rated", "Noté par l'IA" if not rated["reviewed_at"] else "Renoté par l'IA (second passage)")
+        if domain is not None:
+            add(domain["added_at"], "watched", "Surveillé")
+            for h in self.conn.execute("SELECT at, field, old_value, new_value FROM history WHERE domain_id = ? "
+                                       "AND field IN ('state', 'registrar') ORDER BY at", (domain["id"],)):
+                if h["field"] == "state":
+                    add(h["at"], "state", states.LABELS.get(h["new_value"], h["new_value"] or "inconnu"))
+                else:
+                    add(h["at"], "registrar", f"Registrar : {h['new_value'] or 'inconnu'}")
+        owned = self.conn.execute("SELECT bought_on, sold_on, status, sold_price FROM portfolio WHERE name = ?", (name,)).fetchone()
+        if owned is not None:
+            add(owned["bought_on"], "bought", "Acheté")
+            if owned["status"] == "sold":
+                add(owned["sold_on"], "sold", "Vendu" + (f" ({owned['sold_price']} €)" if owned["sold_price"] is not None else ""))
+        found.sort(key=lambda x: x[0])  # stable : au même instant, l'ordre d'enregistrement
+        return [{"at": at, "kind": kind, "label": text} for at, kind, text in found]
 
     def _rdap_next(self, name: str, tld: str, domain) -> dict:
         """Prochaine lecture RDAP prévue pour ce nom, et pourquoi ; sinon, pourquoi aucune."""

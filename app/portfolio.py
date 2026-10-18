@@ -8,6 +8,7 @@ réels à la notation IA : c'est la seule calibration sur le marché dont on dis
 import json
 import math
 from datetime import datetime, timezone
+from urllib.parse import quote
 
 from . import ai, states
 from .checker import iso, parse_iso
@@ -18,6 +19,17 @@ KEPT = ("owned", "in_use", "not_for_sale", "for_sale")  # encore à toi : renouv
 REMIND_DAYS = (30, 7)
 FIELDS = ("status", "bought_on", "buy_price", "renew_price", "expires_at", "asking_price", "best_offer",
           "sold_on", "sold_price", "notes")
+# Places de marché, sans API : la page du nom (Dan, Afternic) ou la recherche (Sedo), le nom dans l'adresse.
+# Formats relevés sur les sites ; Dan.com rejoint Afternic (GoDaddy) : son lien peut y renvoyer.
+SALE_SITES = {"sedo": "https://sedo.com/search/?keyword={name}", "dan": "https://dan.com/buy-domain/{name}",
+              "afternic": "https://www.afternic.com/domain/{name}"}
+EXPORT_COLUMNS = ("nom", "statut", "achete_le", "prix_achat", "renouvellement", "echeance", "source_echeance",
+                  "prix_demande", "meilleure_offre", "vendu_le", "prix_vente", "benefice", "verdict_ia",
+                  "note_revente", "prix_final_bas", "prix_final_haut", "notes")
+
+
+def sale_links(name: str) -> dict[str, str]:
+    return {site: url.format(name=quote(name, safe="")) for site, url in SALE_SITES.items()}
 
 
 def _expiry(row, domain, now: datetime) -> datetime | None:
@@ -45,9 +57,47 @@ def items(conn, now: datetime) -> list[dict]:
             domain_id=domain["id"] if domain is not None else None,
             ai=opinions.get(r["name"]),
             profit=(r["sold_price"] - (r["buy_price"] or 0)) if r["status"] == "sold" and r["sold_price"] is not None else None,
+            sale_links=sale_links(r["name"]),
         )
         out.append(item)
     return out
+
+
+def years(found: list[dict], now: datetime) -> list[dict]:
+    """Par année : achats (investi), renouvellements, ventes et bénéfice. Un renouvellement par an après
+    l'année d'achat, jusqu'à l'année de vente ou l'année en cours ; un nom abandonné ne compte que son achat
+    (date d'abandon inconnue) ; sans date d'achat, pas de renouvellement attribué."""
+    by_year: dict[int, dict] = {}
+
+    def at(year: int) -> dict:
+        return by_year.setdefault(year, {"year": year, "invested": 0, "renewals": 0, "sold": 0, "profit": 0})
+
+    for item in found:
+        bought = int(item["bought_on"][:4]) if item["bought_on"] else None
+        if bought is not None:
+            at(bought)["invested"] += item["buy_price"] or 0
+        sold = int(item["sold_on"][:4]) if item["status"] == "sold" and item["sold_on"] else None
+        if item["status"] == "sold":
+            at(sold or now.year)["sold"] += item["sold_price"] or 0
+            at(sold or now.year)["profit"] += item["profit"] or 0
+        if bought is not None and item["renew_price"] and item["status"] != "dropped":
+            for year in range(bought + 1, (sold or now.year) + 1):
+                at(year)["renewals"] += item["renew_price"]
+    return [by_year[y] for y in sorted(by_year)]
+
+
+def export_csv(found: list[dict]) -> str:
+    """Le portefeuille en CSV (point-virgule, BOM pour Excel) : une ligne par nom, les colonnes utiles."""
+    lines = [";".join(EXPORT_COLUMNS)]
+    for i in found:
+        opinion = i.get("ai") or {}
+        cells = [i["name"], i["status_label"], i["bought_on"], i["buy_price"], i["renew_price"], i["expiry"],
+                 i["expiry_source"], i["asking_price"], i["best_offer"], i["sold_on"], i["sold_price"], i["profit"],
+                 (opinion.get("comment") or "").split(".")[0], opinion.get("resale"), opinion.get("final_low"),
+                 opinion.get("final_high"), i["notes"]]
+        # Les notes libres ne cassent pas le fichier : point-virgule et retours à la ligne remplacés.
+        lines.append(";".join("" if c is None else " ".join(str(c).replace(";", ",").split()) for c in cells))
+    return "\ufeff" + "\n".join(lines) + "\n"
 
 
 def totals(found: list[dict]) -> dict:

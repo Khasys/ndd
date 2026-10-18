@@ -238,7 +238,14 @@ investi, renouvellements par an, ventes, bénéfice. « J'ai acheté » dans la 
 avec la date du jour. Un nom ajouté est aussi surveillé : l'échéance réelle vient du RDAP (sinon la
 date saisie), rappel Telegram 30 puis 7 jours avant. Les ventes et les offres reçues sont ajoutées à
 la consigne de notation IA comme repères de prix réels, et l'estimation IA s'affiche à côté du prix
-obtenu.
+obtenu. Bilan par année (`years` de `GET /api/portfolio`) : investi (achats), renouvellements (un par an
+après l'année d'achat, jusqu'à la vente ou l'année en cours ; rien pour un nom abandonné, sa date
+d'abandon étant inconnue), ventes, bénéfice. Chaque nom porte des liens de mise en vente sans API
+(`sale_links`) : recherche Sedo, page du nom chez Dan et chez Afternic, le nom dans l'adresse (formats
+relevés sur les sites ; Dan.com rejoint Afternic, son lien peut y renvoyer). `GET /api/portfolio/export` :
+le portefeuille en CSV (point-virgule, BOM pour Excel), colonnes nom, statut, dates et prix, échéance et
+sa source, bénéfice, avis IA (verdict, note de revente, prix final), notes. Réservé à la session : le
+jeton en lecture seule n'y accède pas.
 
 #### Explorer
 
@@ -265,8 +272,17 @@ requête : zones ICANN lues chaque jour, open data de l'Afnic, données de la Ve
   courts, les plus courants, ou score seul. Une carte ouvre la fiche du nom.
 - **Fiche** : la même dans Domaines, Veille et Explorer. État, score détaillé, raisons,
   catégories, nature, fréquence, historique .fr, SEO, dernière réponse RDAP ou WHOIS (registrar,
-  dates, statuts, DNS), autres extensions, et les actions (Vérifier, Réserver chez Gandi,
-  Surveiller ou Voir dans Domaines, SEO, Réservé).
+  dates, statuts, DNS), autres extensions (avec le résumé de leur avis IA : verdict, note de
+  revente, prix final), et les actions (Vérifier, Réserver chez Gandi, Surveiller ou Voir dans
+  Domaines, SEO, Réservé). **Comparables** : jusqu'à trois noms déjà notés avec la grille sur la
+  même extension, de la même liste principale (pour un nom court hors des listes : même forme et
+  même longueur) et de longueur proche (un caractère d'écart au plus), les plus proches par note
+  de revente (sans avis sur le nom, par l'estimation du score) ; avec, pour chacun, verdict, notes,
+  prix final et état. **Repères** : trois ventes ou offres reçues du portefeuille, les plus proches
+  en longueur. **Ligne de temps** : tout ce que la base sait du nom, daté et trié : création et
+  suppression (Afnic), sortie de zone, entrée en rédemption ou en suppression, libération
+  constatée, reprise, avis IA (noté, renoté), surveillance et changements d'état ou de registrar,
+  achat et vente.
 - **Avancé** (panneau du bas sur téléphone) : catégorie, nature des mots (verbes, noms communs,
   adjectifs, adverbes, mots outils), longueur, fréquence (top 100 à top 5 000), pris sur une
   autre extension, SEO (analysé, PageRank 1, 3 ou 5 et plus, archivé 5 ans et plus), score
@@ -326,8 +342,16 @@ acheteurs possibles, risque), deux fourchettes de prix (revente rapide à un inv
 utilisateur final, avec de la patience) et une raison avec le type d'acheteur. Les notes
 d'exploitation et de revente sur 100 et le verdict sont calculés par le NAS depuis la grille
 (`app/ai_format.py`, `derive`) : ils ne peuvent plus se contredire. Le prix utilisateur final doit
-tomber dans le palier de la note pour son extension (repères indicatifs, un palier de tolérance ;
-pas de plafond pour les noms de 1 ou 2 caractères ni pour une note de revente de 90 et plus). Validation de
+tomber dans le palier de la note de revente pour son extension (repères indicatifs, un palier de
+tolérance de chaque côté). Paliers pour un .fr : 95 et plus, 20 000 à 300 000 ; 90, 10 000 à
+150 000 ; 85, 8 000 à 80 000 ; 80, 5 000 à 30 000 ; 70, 3 000 à 15 000 ; 60, 1 500 à 8 000 ; 50,
+1 000 à 5 000 ; 40, 500 à 2 000 ; 30, 200 à 1 000 ; 20, 100 à 800 ; 10, 50 à 300 ; en dessous,
+0 à 100 ; les autres extensions multiplient ces paliers (.com 1,5 ; .io et .ai 0,8 ; .co 0,6 ;
+.org, .app et .dev 0,5 ; .net 0,4 ; .info, .biz et .xyz 0,25 ; autres 0,4). Pas de plafond pour
+les noms de 1 ou 2 caractères (3 en .com). Pour un verdict « À laisser » ou « À surveiller »,
+l'avis dit pourquoi en mots simples (`why`) : risque fort (marque connue, sens négatif ou gênant),
+sinon la sous-note la plus faible parmi sens, marque, marché et acheteurs ; un avis à l'ancienne
+grille (`version` 4) n'en a pas et sera renoté. Validation de
 la grille : 50 noms témoins notés par plusieurs agents indépendants, écart-type moyen de 3 points,
 même verdict dans 94 % des cas.
 

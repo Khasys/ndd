@@ -856,3 +856,43 @@ def test_jobs_tolerate_a_busy_loop(client_factory):
     with client_factory(AUTH_USERNAME="moi", AUTH_PASSWORD_HASH="x") as client:
         jobs = client.app.state.scheduler.get_jobs()
         assert jobs and all(job.misfire_grace_time == 300 and job.coalesce for job in jobs)
+
+
+def test_portfolio_gives_yearly_figures_sale_links_and_a_csv_export(logged):
+    from app import portfolio
+
+    client = logged()
+    client.app.state.checker.add = lambda name: __import__("asyncio").sleep(0)
+    year = datetime.now(timezone.utc).year
+    client.post("/api/portfolio", json={"name": "velo.fr", "buy_price": 100, "renew_price": 10, "bought_on": f"{year - 2}-03-01",
+                                        "status": "sold", "sold_on": f"{year - 1}-06-01", "sold_price": 900, "notes": "vendu; vite\nbien"})
+    client.post("/api/portfolio", json={"name": "moto.fr", "buy_price": 50, "renew_price": 12, "bought_on": f"{year - 1}-01-15",
+                                        "best_offer": 250, "status": "for_sale"})
+    client.post("/api/portfolio", json={"name": "perdu.fr", "buy_price": 20, "renew_price": 12, "bought_on": f"{year - 3}-01-15",
+                                        "status": "dropped"})
+    client.post("/api/portfolio", json={"name": "sansdate.fr", "renew_price": 12})
+    data = client.get("/api/portfolio").json()
+    years = {y["year"]: y for y in data["years"]}
+    assert sorted(years) == [year - 3, year - 2, year - 1, year]
+    assert years[year - 2] == {"year": year - 2, "invested": 100, "renewals": 0, "sold": 0, "profit": 0}
+    # Renouvellement de velo.fr l'année de sa vente, pas après ; moto.fr renouvelé cette année ; perdu.fr jamais.
+    assert years[year - 1] == {"year": year - 1, "invested": 50, "renewals": 10, "sold": 900, "profit": 800}
+    assert years[year] == {"year": year, "invested": 0, "renewals": 12, "sold": 0, "profit": 0}
+    assert years[year - 3]["invested"] == 20 and years[year - 3]["renewals"] == 0
+    item = next(i for i in data["items"] if i["name"] == "moto.fr")
+    assert item["sale_links"] == {"sedo": "https://sedo.com/search/?keyword=moto.fr", "dan": "https://dan.com/buy-domain/moto.fr",
+                                  "afternic": "https://www.afternic.com/domain/moto.fr"}
+    assert portfolio.sale_links("a b.fr")["sedo"].endswith("keyword=a%20b.fr")
+    # Export CSV : BOM, point-virgule, une ligne par nom, notes sur une ligne sans point-virgule.
+    res = client.get("/api/portfolio/export")
+    assert res.status_code == 200 and res.headers["content-type"].startswith("text/csv")
+    assert res.headers["content-disposition"] == 'attachment; filename="portefeuille.csv"'
+    lines = res.text.splitlines()
+    assert lines[0] == "﻿" + ";".join(portfolio.EXPORT_COLUMNS)
+    assert len(lines) == 5
+    velo = next(line for line in lines if line.startswith("velo.fr;"))
+    assert velo == f"velo.fr;Vendu;{year - 2}-03-01;100;10;;;;;{year - 1}-06-01;900;800;;;;;vendu, vite bien"
+    token = client.post("/api/settings/ai-token").json()["token"]
+    client.cookies.clear()  # le jeton en lecture seule n'ouvre pas le portefeuille
+    assert client.get("/api/portfolio/export", headers={"Authorization": f"Bearer {token}"}).status_code == 401
+    client.__exit__(None, None, None)
