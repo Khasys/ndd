@@ -159,7 +159,7 @@ avec sa date (« probablement libre », « libre, vérifié il y a 3 h », « En
 ~09/11 », « pris », « réservé », « premium probable ») ; les actions Réserver (nom libre ou
 probablement libre), Vérifier (nom probablement libre), Surveiller ; une case de sélection ; les badges
 « Surveillé » et « Portefeuille » (`watched` et `in_portfolio` des éléments de `/api/drops`, `/api/today`,
-`/api/explore/rank` et de la fiche, calculés par le serveur ; « J'ai acheté » pose le badge aussitôt). Un bouton
+`/api/explore/rank` et de la fiche, calculés par le serveur). Un bouton
 « ? » à côté de l'usage ouvre l'Aide sur les deux échelles (score et note IA).
 Dans la Veille, **Nouveaux depuis ma dernière visite** (bouton et étiquette « Nouveau », même règle)
 ne garde que les noms libérés ou entrés en rédemption depuis l'ouverture précédente de l'écran
@@ -168,7 +168,7 @@ ne garde que les noms libérés ou entrés en rédemption depuis l'ouverture pr�
 un seul bilan à la fin (« 3 vérifiés, 1 échec ») ; chaque carte a aussi son bouton « Ignorer ». Un nom
 ignoré quitte la Veille mais reste dans l'Explorer ; le message propose « Annuler » (`POST /api/drops/unhide`
 avec les noms), et Paramètres, « Tout réafficher », les remet tous. La décision est gardée (`decisions`),
-comme « J'ai acheté » : si un nom ignoré est ensuite enregistré par quelqu'un d'autre, la liste des
+comme l'ajout d'un nom au portefeuille : si un nom ignoré est ensuite enregistré par quelqu'un d'autre, la liste des
 décisions le dit (« repris », avec la date quand elle est connue) et compte ces regrets. Cette liste est
 en bas du Portefeuille, section « Décisions » (nom, décision, date, état du jour, bouton « Retirer »).
 L'état des lectures (zones, .fr, DNS, historique) est dans Paramètres, carte « Sources et lectures » ; une
@@ -185,9 +185,14 @@ panneau propre à Domaines). Pour un nom surveillé, elle ajoute la section **Su
 erreur de check avec le dernier état conservé, expiration et jours restants, libération estimée, création,
 mise à jour, registrar, serveurs DNS, statuts EPP expliqués au survol, tags à ajouter ou retirer, signaux
 d'abandon avec « Analyser », source, dernier et prochain check) et l'**Historique des changements** (table
-`history`) ; Vérifier y lance le check de Domaines, et « Supprimer de la surveillance » retire le nom après
-confirmation, la fiche restant ouverte. Badges « Surveillé » et « Portefeuille » sous le nom ; une fois le
-nom acheté, « J'ai acheté » devient « Voir dans Portefeuille ».
+`history`) ; Vérifier y lance le check de Domaines. Badges « Surveillé » et « Portefeuille » sous le nom.
+
+Actions de la fiche : une rangée de pictos, comme la barre du bas, dont l'allure suit l'état du nom.
+Réserver (en couleur pleine si le nom est libre ou probablement libre) ; Suivre, ou « Suivi » (teinte
+verte) pour un nom surveillé, qu'un appui propose d'arrêter après confirmation ; Analyser, « En cours »
+(sablier) quand une analyse IA est demandée, « Analysé » (coche) quand un avis existe, qu'un appui
+relance après confirmation ; Vérifier, qui tourne pendant la vérification ; Portefeuille, seulement pour
+un nom qui y est déjà. L'ajout au portefeuille se fait à la main, dans l'écran Portefeuille.
 
 En .fr, un mot seulement anglais (should) ou une forme conjuguée (vais) perd une vingtaine de
 points de forme et de sens par rapport au même mot bien placé : ils se lisent mal en .fr. La raison
@@ -367,8 +372,8 @@ Quand les listes suivies changent (formes fléchies ajoutées, par exemple), le 
 
 Les noms que tu possèdes : prix et date d'achat, renouvellement par an, échéance, prix demandé,
 meilleure offre, statut (possédé, en exploitation, pas à vendre, en vente, vendu, abandonné), prix et date de vente, notes. Totaux :
-investi, renouvellements par an, ventes, bénéfice. « J'ai acheté » dans la fiche d'un nom l'ajoute
-avec la date du jour. Un nom ajouté est aussi surveillé : la vérification RDAP part en arrière-plan, la
+investi, renouvellements par an, ventes, bénéfice. Un nom s'ajoute à la main, avec le formulaire
+de l'écran. Un nom ajouté est aussi surveillé : la vérification RDAP part en arrière-plan, la
 réponse n'attend pas (`checking`), et l'échéance réelle remplace la date saisie dès qu'elle est lue ;
 rappel Telegram 30 puis 7 jours avant. Les ventes et les offres reçues sont ajoutées à
 la consigne de notation IA comme repères de prix réels, et l'estimation IA s'affiche à côté du prix
@@ -426,7 +431,7 @@ requête : zones ICANN lues chaque jour, open data de l'Afnic, données de la Ve
   catégories et nature en français, fréquence (rang dans chaque liste, « 442e mot anglais le plus courant »), historique .fr, SEO, dernière réponse RDAP ou WHOIS (registrar,
   dates, statuts, DNS ; pour un nom surveillé, la section Suivi la remplace), autres extensions (avec le
   résumé de leur avis IA : verdict, note de revente, prix final), et les actions (Vérifier, Réserver chez
-  Gandi, Surveiller ou Supprimer de la surveillance, J'ai acheté, SEO, Réservé). **Comparables** : jusqu'à trois noms déjà notés avec la grille sur la
+  Gandi, Suivre ou arrêter le suivi, Analyser, SEO, Réservé). **Comparables** : jusqu'à trois noms déjà notés avec la grille sur la
   même extension, de la même liste principale (pour un nom court hors des listes : même forme et
   même longueur) et de longueur proche (un caractère d'écart au plus), les plus proches par note
   de revente (sans avis sur le nom, par l'estimation du score) ; avec, pour chacun, verdict, notes,

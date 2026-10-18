@@ -713,15 +713,6 @@ document.addEventListener("alpine:init", () => {
       }
     },
 
-    async ficheBought() {
-      const name = this.fiche.name;
-      const today = new Date().toISOString().slice(0, 10);
-      const res = await this.pfAdd(name, { bought_on: today }, true);
-      if (!res) return;
-      this.say(`${name} ajouté au portefeuille.`, "info", { label: "Voir dans Portefeuille", run: () => { this.fiche = null; this.openSheet("portfolio"); } });
-      this.ficheReload();
-    },
-
     euros(n) { return n === null || n === undefined || n === "" ? "" : `${this.fmt(n)} €`; },
 
     // En-tête de fiche : de quoi décider d'un coup d'œil (état, libération, avis IA, prix).
@@ -745,6 +736,21 @@ document.addEventListener("alpine:init", () => {
       if (s === 4 && !f.domain_id) return "watch";
       if (!(f.ai || (f.item && f.item.ai))) return "ai";
       return "";
+    },
+
+    // État de l'avis IA d'une fiche : aucun, demandé (en cours), fait.
+    ficheAiState(f) {
+      const r = f.ai_request;
+      if (r && !r.done_at) return "pending";
+      return f.ai || (f.item && f.item.ai) ? "done" : "none";
+    },
+
+    // Picto IA : analyser, ou relancer un avis déjà là (après confirmation, l'avis du jour suffit souvent).
+    ficheAi() {
+      const state = this.ficheAiState(this.fiche);
+      if (state === "pending") return;
+      if (state === "done" && !confirm(`Relancer l'analyse IA de ${this.fiche.name} ? L'avis actuel sera remplacé.`)) return;
+      return this.ficheAskAi();
     },
 
     aiAskLabel(f) {
@@ -795,7 +801,7 @@ document.addEventListener("alpine:init", () => {
     // Un nom passe sous surveillance (ou en sort) : les listes déjà affichées le montrent.
     markWatched(name, on = true) { this.markItems(name, { watched: on }); },
 
-    // « J'ai acheté » : badge « Portefeuille » aussitôt, sur toutes les cartes affichées.
+    // Nom ajouté au portefeuille (ou retiré) : badge « Portefeuille » aussitôt, sur toutes les cartes affichées.
     markOwned(name, on = true) { this.markItems(name, { in_portfolio: on }); },
 
     markItems(name, patch) {
