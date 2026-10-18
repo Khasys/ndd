@@ -2,6 +2,7 @@ from datetime import datetime
 
 from . import states
 from .checker import Checker, DuplicateDomain, parse_iso, utcnow
+from .digest import local_zone
 from .rdap import InvalidDomain, clean_domain
 
 HELP = """Commandes :
@@ -23,7 +24,7 @@ def _line(checker: Checker, row, now: datetime) -> str:
         parts.append(f"{(expiry - now).days} j")
     release = checker.release_estimate(row, now)
     if release:
-        parts.append(f"libération ~{release.strftime('%d/%m/%Y')}")
+        parts.append(f"libération ~{release.astimezone(local_zone()).strftime('%d/%m/%Y')}")
     return " · ".join(parts)
 
 

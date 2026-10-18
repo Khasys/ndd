@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 import httpx
 import pytest
 
-from app import bot, calendar_ics, db, digest, signals, states
+from app import alerts, bot, calendar_ics, db, digest, signals, states
 from app.store import Store
 from app.telegram import Telegram
 from tests.test_checker import FIXTURES, Registry, add, make_settings, rdap_json, row, run
@@ -195,3 +195,10 @@ def test_resolver_outage_is_not_an_abandon_signal(env, monkeypatch):
     r = row(conn, domain_id)
     assert run(signals.update_one(conn, r, httpx.AsyncClient())) is None
     assert json.loads(row(conn, domain_id)["signals"]) == {"signals": []}
+
+
+def test_telegram_dates_follow_the_container_time_zone(monkeypatch):
+    monkeypatch.setenv("TZ", "Europe/Paris")
+    release = datetime(2026, 10, 30, 23, 30, tzinfo=timezone.utc)  # 00:30 le 31 à Paris
+    text = alerts.format_change("velo.fr", states.REDEMPTION, states.PENDING_DELETE, None, None, release, "")
+    assert "Libération estimée : ~31/10/2026" in text

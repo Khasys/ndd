@@ -7,7 +7,6 @@ from . import states
 from .checker import Checker, parse_iso
 from .store import Store
 
-DAYS = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
 FIELDS = {"state": "État", "registrar": "Registrar", "nameservers": "DNS", "expires_at": "Expiration"}
 
 
@@ -18,13 +17,18 @@ def local_zone() -> ZoneInfo:
         return ZoneInfo("UTC")
 
 
+def _day(value: datetime) -> str:
+    """Date en heure locale (TZ du conteneur) : une échéance à 23 h UTC tombe le lendemain à Paris."""
+    return value.astimezone(local_zone()).strftime("%d/%m/%Y")
+
+
 def _value(field: str, value: str | None) -> str:
     if value in (None, "", "[]"):
         return "aucun"
     if field == "state":
         return states.LABELS.get(value, value)
     if field == "expires_at":
-        return parse_iso(value).strftime("%d/%m/%Y")
+        return _day(parse_iso(value))
     if field == "nameservers":
         return ", ".join(json.loads(value))
     return value
@@ -60,10 +64,10 @@ def build(checker: Checker, now: datetime, app_url: str = "") -> str:
         ]
     if expiring:
         lines.append("\nExpirent dans les 30 jours :")
-        lines += [f"{name} : {d.strftime('%d/%m/%Y')}" for d, name in sorted(expiring)]
+        lines += [f"{name} : {_day(d)}" for d, name in sorted(expiring)]
     if releases:
         lines.append("\nLibérations estimées dans les 30 jours :")
-        lines += [f"{name} : ~{d.strftime('%d/%m/%Y')}" for d, name in sorted(releases)]
+        lines += [f"{name} : ~{_day(d)}" for d, name in sorted(releases)]
     if errors:
         lines.append(f"\nEn erreur de check : {', '.join(errors)}")
     if len(lines) == 1:

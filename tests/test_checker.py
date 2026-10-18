@@ -1,6 +1,7 @@
 import asyncio
 import json
-from datetime import datetime, timedelta
+import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
@@ -266,3 +267,59 @@ def test_unreadable_whois_is_an_error(env):
     r = row(conn, domain_id)
     assert r["state"] is None
     assert r["check_error"] == "Réponse WHOIS non reconnue"
+
+
+def test_long_retry_after_does_not_block_the_next_lookup(env):
+    registry, conn, checker, _ = env
+    registry.responses["lent-test.com"] = [httpx.Response(429, headers={"Retry-After": "3600"})]
+    run(checker.check(add(conn, "lent-test.com")))
+    # Même registre, autre domaine : erreur tout de suite, sans dormir une heure dans run_due.
+    other = add(conn, "autre-test.com")
+    started = time.monotonic()
+    run(checker.check(other))
+    assert time.monotonic() - started < 2
+    assert "reprise dans" in row(conn, other)["check_error"]
+    assert "autre-test.com" not in registry.calls
+
+
+def test_truncated_bootstrap_cache_is_replaced(env):
+    registry, conn, checker, _ = env
+    cache = checker.rdap.cache_path
+    cache.write_text('{"services": [[["com"], ["https://rdap.verisign.com/com/v1/"')  # écriture coupée
+    domain_id = add(conn, "libre-test.com")
+    run(checker.check(domain_id))
+    assert row(conn, domain_id)["state"] == states.AVAILABLE
+    assert json.loads(cache.read_text())["services"]
+
+
+def test_stale_change_date_does_not_put_release_in_the_past(env):
+    registry, conn, checker, _ = env
+    data = json.loads((FIXTURES / "com_redemption.json").read_text())
+    for event in data["events"]:
+        if event["eventAction"] == "last changed":
+            event["eventDate"] = "2024-01-05T12:00:00Z"  # modification ancienne, sans rapport
+    registry.responses["vieux-test.com"] = [httpx.Response(200, json=data)]
+    domain_id = add(conn, "vieux-test.com")
+    run(checker.check(domain_id))
+    r = row(conn, domain_id)
+    assert r["state"] == states.REDEMPTION
+    assert r["state_since"] == r["last_checked_at"]
+    assert checker.release_estimate(r) > datetime.now(timezone.utc)
+
+
+def test_iana_rate_limit_is_not_remembered_as_no_whois(tmp_path):
+    answers = iter([
+        "% Too many queries, try again later\n",  # l'IANA limite une fois
+        (FIXTURES / "whois_iana_co.txt").read_text(),
+        (FIXTURES / "whois_co_free.txt").read_text(),
+    ])
+
+    async def whois(server, name, timeout):
+        return next(answers)
+
+    rdap = RdapClient(tmp_path / "b.json", 0, 5, 0, 0, 60, transport=httpx.MockTransport(Registry().handler),
+                      whois_min_delay=0, whois_query=whois)
+    first = run(rdap.lookup("libre-test.co"))
+    assert "Limite" in first.error
+    second = run(rdap.lookup("libre-test.co"))
+    assert second.available and second.source == "whois"

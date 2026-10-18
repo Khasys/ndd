@@ -399,3 +399,36 @@ def test_stale_change_date_does_not_put_release_in_the_past(watcher):
     asyncio.run(watcher.check_due())
     row = watcher.conn.execute("SELECT * FROM drops WHERE name = 'jhgh.com'").fetchone()
     assert datetime.fromisoformat(row["release_at"]) > now + timedelta(days=30)
+
+
+def test_unreadable_zone_list_is_reported_not_raised(watcher):
+    icann = FakeIcann({"com": zone([])})
+    use(watcher, icann)
+
+    def handler(request):
+        if request.url.path == "/czds/downloads/links":
+            return httpx.Response(200, text="<html>Maintenance</html>")  # portail en maintenance
+        return icann.handler(request)
+
+    watcher._http_factory = lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    assert asyncio.run(watcher.run()) == []
+    assert "illisible" in watcher.store.get("czds_error")
+
+
+def test_refused_credentials_wait_an_hour_before_a_new_try(watcher):
+    icann = FakeIcann({"com": zone([])})
+    use(watcher, icann, password="faux")
+    now = datetime(2026, 10, 17, 7, 0)
+    assert watcher.due(now)
+    asyncio.run(watcher.run())
+    assert "refusé" in watcher.store.get("czds_error") and icann.auth_calls == 1
+    # Plus d'essai toutes les 15 minutes (96 tentatives par jour chez ICANN) : une heure d'attente.
+    assert not watcher.due(now)
+    watcher.store.set("czds_retry_at", "2020-01-01T00:00:00+00:00")
+    assert watcher.due(now)
+    asyncio.run(watcher.run())
+    assert not watcher.due(now)
+    # Nouveau mot de passe accepté : l'attente tombe.
+    use(watcher, icann)
+    asyncio.run(watcher.refresh_approved())
+    assert watcher.store.get("czds_retry_at") == "" and watcher.due(now)

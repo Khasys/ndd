@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.whois import WhoisError, parse_date, parse_whois, referral
+from app.whois import WhoisError, parse_date, parse_whois, rate_limited, referral
 
 
 def test_parse_centralnic_co(fixture_text):
@@ -132,3 +132,9 @@ def test_aligned_status_available():
 def test_short_rate_limit_line_raises():
     with pytest.raises(WhoisError, match="Limite"):
         parse_whois("%% Too many requests, try again later\n")
+
+
+def test_rate_limit_is_detected_in_a_bare_answer():
+    # Réponse de l'IANA sans champ « whois » : une limite, pas une extension sans serveur.
+    assert rate_limited("% Too many queries, try again later\n")
+    assert not rate_limited("whois:        whois.nic.so\n")

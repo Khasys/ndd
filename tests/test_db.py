@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 from app import db
 
 
@@ -73,3 +75,20 @@ def test_migration_comments_may_contain_semicolons(tmp_path, monkeypatch):
     db.migrate(conn, tmp_path / "backups")
     assert conn.execute("PRAGMA user_version").fetchone()[0] == 998
     assert conn.execute("SELECT COUNT(*) FROM t2").fetchone()[0] == 0
+
+def test_migration_024_resets_stale_redemption_dates(tmp_path):
+    """Début de rédemption pris sur une vieille modification RDAP : libération estimée déjà passée.
+    Ces domaines repassent en première vérification, les autres ne bougent pas."""
+    conn = db.connect(tmp_path / "t.db")
+    db.migrate(conn, tmp_path / "backups")
+    conn.execute(
+        "INSERT INTO domains (name, added_at, state, state_since, last_checked_at, next_check_at) VALUES "
+        "('vieux.com', 'x', 'redemption', '2024-01-05T12:00:00+00:00', '2026-10-12T08:00:00+00:00', '2026-10-12T09:00:00+00:00'), "
+        "('recent.com', 'x', 'redemption', ?, '2026-10-12T08:00:00+00:00', '2026-10-12T09:00:00+00:00')",
+        ((datetime.now(timezone.utc) - timedelta(days=3)).isoformat(),),
+    )
+    conn.execute("PRAGMA user_version = 23")
+    db.migrate(conn, tmp_path / "backups")
+    rows = {r["name"]: r for r in conn.execute("SELECT * FROM domains")}
+    assert rows["vieux.com"]["state"] is None and rows["vieux.com"]["next_check_at"] == "2026-10-12T08:00:00+00:00"
+    assert rows["recent.com"]["state"] == "redemption"

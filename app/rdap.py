@@ -194,7 +194,7 @@ class RdapClient:
         self._bootstrap_lock = asyncio.Lock()
         self._host_locks: dict[str, asyncio.Lock] = {}
         self._host_next: dict[str, float] = {}
-        self._whois_servers: dict[str, str | None] = {}
+        self._whois_servers: dict[str, str] = {}
         self._whois_query = whois_query
 
     async def close(self) -> None:
@@ -217,15 +217,21 @@ class RdapClient:
                 return self._bootstrap
             cached_at = self.cache_path.stat().st_mtime if self.cache_path.exists() else 0.0
             if time.time() - cached_at < BOOTSTRAP_TTL:
-                self._bootstrap = self._index(json.loads(self.cache_path.read_text()))
-                self._bootstrap_at = cached_at
-                return self._bootstrap
+                try:
+                    self._bootstrap = self._index(json.loads(self.cache_path.read_text()))
+                    self._bootstrap_at = cached_at
+                    return self._bootstrap
+                except ValueError:
+                    # Cache tronqué (écriture coupée par un arrêt du NAS) : jeté, puis retéléchargé.
+                    self.cache_path.unlink(missing_ok=True)
             try:
                 response = await self.http.get(BOOTSTRAP_URL)
                 response.raise_for_status()
                 data = response.json()
                 self.cache_path.parent.mkdir(parents=True, exist_ok=True)
-                self.cache_path.write_text(json.dumps(data))
+                tmp = self.cache_path.with_suffix(".tmp")
+                tmp.write_text(json.dumps(data))
+                tmp.replace(self.cache_path)
                 self._bootstrap = self._index(data)
                 self._bootstrap_at = time.time()
             except (httpx.HTTPError, ValueError) as exc:
@@ -266,6 +272,11 @@ class RdapClient:
         async with lock:
             last_error = "Erreur inconnue"
             for attempt in range(self.retries + 1):
+                # Longue pause demandée par le registre (429 avec Retry-After) : on ne dort pas dessus,
+                # l'appelant replanifie ; sinon la file des vérifications resterait bloquée des heures.
+                pause = self._host_next.get(host, 0.0) - time.monotonic()
+                if pause > self.max_retry_after:
+                    return LookupResult(error=f"Limite de requêtes du registre atteinte, reprise dans {int(pause)} s")
                 await self._wait_turn(host)
                 wait = self.backoff * (2**attempt)
                 try:
@@ -325,7 +336,13 @@ class RdapClient:
         from . import whois
 
         if tld not in self._whois_servers:
-            self._whois_servers[tld] = whois.referral(await self._whois(whois.IANA_WHOIS, tld))
+            answer = await self._whois(whois.IANA_WHOIS, tld)
+            if whois.rate_limited(answer):
+                raise whois.WhoisError("Limite de requêtes WHOIS de l'IANA atteinte")
+            server = whois.referral(answer)
+            if server is None:
+                return None  # pas mémorisé : une réponse à côté ne condamne pas l'extension jusqu'au redémarrage
+            self._whois_servers[tld] = server
         return self._whois_servers[tld]
 
     async def _lookup_whois(self, domain: str) -> LookupResult:

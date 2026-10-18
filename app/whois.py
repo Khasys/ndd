@@ -112,6 +112,15 @@ def _date(fields: dict[str, list[str]], keys: list[str]) -> datetime | None:
     return None
 
 
+def _short_lines(text: str) -> list[str]:
+    return [" ".join(line.split()).lower() for line in text.splitlines() if len(line) <= 160]
+
+
+def rate_limited(text: str) -> bool:
+    """Formule de limite de requêtes dans une ligne courte (voir parse_whois)."""
+    return any(p in line for line in _short_lines(text) for p in RATE_LIMITED)
+
+
 def parse_whois(text: str) -> DomainInfo | None:
     """DomainInfo si le domaine est enregistré, None s'il est explicitement libre.
 
@@ -120,7 +129,7 @@ def parse_whois(text: str) -> DomainInfo | None:
     """
     # Formules cherchées ligne par ligne, espaces normalisés, et seulement dans les lignes courtes :
     # les conditions d'utilisation, en longs paragraphes, citent « too many queries » ou « not found ».
-    short_lines = [" ".join(line.split()).lower() for line in text.splitlines() if len(line) <= 160]
+    short_lines = _short_lines(text)
     fields = _fields(text)
     info = DomainInfo()
     info.expires_at = _date(fields, EXPIRY_KEYS)
@@ -150,7 +159,7 @@ def parse_whois(text: str) -> DomainInfo | None:
         return info
     if any(p in line for line in short_lines for p in NOT_FOUND):
         return None
-    if any(p in line for line in short_lines for p in RATE_LIMITED):
+    if rate_limited(text):
         raise WhoisError("Limite de requêtes WHOIS du registre atteinte")
     raise WhoisError("Réponse WHOIS non reconnue")
 

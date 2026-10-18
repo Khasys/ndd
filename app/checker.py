@@ -145,8 +145,11 @@ class Checker:
         if state_changed:
             since = now
             # Au premier check d'un domaine déjà en fin de vie, le dernier changement
-            # côté registre date au mieux l'entrée dans cette phase.
-            if first_check and info and info.last_changed_at and new_state in (states.REDEMPTION, states.PENDING_DELETE):
+            # côté registre date au mieux l'entrée dans cette phase. Sauf s'il précède l'échéance
+            # (modification ancienne, sans rapport) : on garde le moment où on voit l'état, comme
+            # drops.apply, sinon la libération estimée serait déjà passée.
+            if first_check and info and info.last_changed_at and new_state in (states.REDEMPTION, states.PENDING_DELETE) and (
+                    info.expires_at is None or info.last_changed_at >= info.expires_at):
                 since = min(info.last_changed_at, now)
             state_since = iso(since)
 

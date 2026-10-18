@@ -401,3 +401,35 @@ def test_new_lists_force_a_reimport_without_flooding_checks(fr):
     assert fr.conn.execute("SELECT COUNT(*) FROM fr_names WHERE label = 'maisons'").fetchone()[0] == 1
     # Supprimé il y a plus d'un an, nouveau dans les listes : pas de vérification.
     assert fr.conn.execute("SELECT COUNT(*) FROM drops").fetchone()[0] == 0
+
+
+def test_apply_runs_in_a_worker_thread_with_its_own_connection(fr, monkeypatch):
+    """L'import écrit des centaines de milliers de lignes : hors de la boucle (to_thread), avec la
+    transaction et drops.record depuis ce fil ; le résultat est visible depuis la boucle."""
+    import threading
+
+    threads = []
+    original = fr._apply
+
+    def spy(kept, now):
+        threads.append(threading.current_thread() is threading.main_thread())
+        original(kept, now)
+
+    monkeypatch.setattr(fr, "_apply", spy)
+    recent = (datetime.now(timezone.utc) - timedelta(days=10)).strftime("%d-%m-%Y")
+    serve(fr, make_zip(csv_text([
+        "navarro.fr;FR;;;;;PP;FR;;01-02-2010;",
+        f"velo.fr;FR;;;;;PP;FR;;01-02-2010;{recent}",
+    ])))
+    asyncio.run(fr.import_file())
+    assert threads == [False]
+    assert fr.conn.execute("SELECT COUNT(*) FROM fr_names").fetchone()[0] == 2
+    assert [r[0] for r in fr.conn.execute("SELECT name FROM drops")] == ["velo.fr"]
+
+
+def test_yesterdays_anniversary_is_read_today(fr):
+    # Import le 17 au matin : l'anniversaire du 16 se lit le 17 à midi, celui du 17 se lit le 18.
+    now = datetime(2026, 10, 17, 6, tzinfo=timezone.utc)
+    fr._apply({"velo": (date(2025, 10, 16), None), "auto": (date(2025, 10, 17), None)}, now)
+    rows = dict(fr.conn.execute("SELECT label, next_check_at FROM fr_names").fetchall())
+    assert rows == {"velo": "2026-10-17T12:00:00+00:00", "auto": "2026-10-18T12:00:00+00:00"}

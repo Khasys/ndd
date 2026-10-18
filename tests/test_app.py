@@ -848,3 +848,9 @@ def test_refused_token_never_revives_the_environment_token(client_factory):
             lambda r: _httpx.Response(401, json={"ok": False, "description": "Unauthorized"})))
         assert client.put("/api/settings/telegram", json={"token": "222:" + "f" * 30}).status_code == 422
         assert st.telegram.token == "" and client.get("/api/settings").json()["telegram"]["token_set"] is False
+
+def test_jobs_tolerate_a_busy_loop(client_factory):
+    """Boucle bloquée quelques secondes (import .fr) : l'exécution en retard est rattrapée, pas sautée."""
+    with client_factory(AUTH_USERNAME="moi", AUTH_PASSWORD_HASH="x") as client:
+        jobs = client.app.state.scheduler.get_jobs()
+        assert jobs and all(job.misfire_grace_time == 300 and job.coalesce for job in jobs)

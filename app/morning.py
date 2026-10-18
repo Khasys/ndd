@@ -11,7 +11,7 @@ import json
 from datetime import datetime, timedelta
 from urllib.parse import urlencode
 
-from . import ai, drops, states
+from . import ai, digest, drops, states
 from .checker import iso, parse_iso
 
 MAX_LINES = 10            # noms par rubrique
@@ -63,7 +63,7 @@ def build(conn, explorer, cc_status: dict, base: str, now: datetime, min_score: 
         lines.append(f"\nEntrés en rédemption ou en suppression ({len(best_coming)} sur {len(coming)}) :")
         for n in best_coming[:MAX_LINES]:
             release = parse_iso(coming[n]["release_at"])
-            lines.append(_line(n, values[n], base, f"libre ~{release.strftime('%d/%m')}" if release else ""))
+            lines.append(_line(n, values[n], base, f"libre ~{release.astimezone(digest.local_zone()).strftime('%d/%m')}" if release else ""))
     if lost:
         lines.append(f"\nSortis du DNS (.co, .ai, .io), à vérifier : {', '.join(lost[:20])}"
                      + (f" et {len(lost) - 20} autres" if len(lost) > 20 else ""))

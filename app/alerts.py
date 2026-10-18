@@ -23,7 +23,9 @@ def format_change(
     if old_registrar != new_registrar:
         lines.append(f"Registrar : {old_registrar or 'aucun'} → {new_registrar or 'aucun'}")
     if release is not None:
-        lines.append(f"Libération estimée : ~{release.strftime('%d/%m/%Y')}")
+        from .digest import local_zone  # import local : digest importe checker, qui importe alerts
+
+        lines.append(f"Libération estimée : ~{release.astimezone(local_zone()).strftime('%d/%m/%Y')}")
     if app_url:
         lines.append(app_url)
     return "\n".join(lines)

@@ -126,7 +126,9 @@ async def lifespan(app: FastAPI):
     checker.link_base = lambda: settings.app_url or store.get("public_url") or ""
     telegram.handler = bot.build_handler(checker, VERSION)
 
-    scheduler = AsyncIOScheduler(timezone="UTC")
+    # La boucle est parfois occupée quelques secondes (import .fr, listes réservées) : une exécution
+    # en retard est rattrapée au lieu d'être sautée (tolérance par défaut d'APScheduler : 1 s).
+    scheduler = AsyncIOScheduler(timezone="UTC", job_defaults={"misfire_grace_time": 300, "coalesce": True})
     scheduler.add_job(checker.run_due, "interval", seconds=30, max_instances=1, coalesce=True)
 
     app.state.latest_version = None

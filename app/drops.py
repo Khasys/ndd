@@ -66,6 +66,10 @@ class CzdsError(Exception):
     pass
 
 
+class CzdsAuthError(CzdsError):
+    """Identifiants refusés : réessayer dans la foulée n'y changera rien."""
+
+
 # --- Noms et carte de bits -------------------------------------------------------------
 
 
@@ -282,7 +286,7 @@ class Czds:
         except httpx.HTTPError as exc:
             raise CzdsError(f"ICANN injoignable ({exc.__class__.__name__})") from None
         if response.status_code == 401:
-            raise CzdsError("Identifiant ou mot de passe ICANN refusé.")
+            raise CzdsAuthError("Identifiant ou mot de passe ICANN refusé.")
         if response.status_code != 200:
             raise CzdsError(f"Connexion ICANN refusée (HTTP {response.status_code}).")
         try:
@@ -311,8 +315,14 @@ class Czds:
         response = await self._get(LINKS_URL)
         if response.status_code != 200:
             raise CzdsError(f"Liste des zones CZDS indisponible (HTTP {response.status_code}).")
+        try:
+            urls = response.json()
+        except ValueError:
+            urls = None
+        if not isinstance(urls, list):
+            raise CzdsError("Liste des zones CZDS illisible.")
         found = {}
-        for url in response.json():
+        for url in urls:
             name = str(url).rstrip("/").rsplit("/", 1)[-1]
             if name.endswith(".zone"):
                 found[name[: -len(".zone")].lower()] = url
@@ -405,6 +415,7 @@ class DropWatcher:
         async with self._http_factory() as http:
             links = await self._client(http).links()
         self.store.set("czds_approved", json.dumps(list(links)))
+        self.store.set("czds_retry_at", "")
         return list(links)
 
     # Lecture des zones
@@ -449,8 +460,6 @@ class DropWatcher:
         """Noms des listes cherchés à la dernière lecture de la zone ; None pour une lecture plus ancienne."""
         path = self._path(tld, "searched")
         return set(path.read_text().split()) if path.exists() else None
-        # Carte de la v0.5.0 (4 caractères seulement), devenue inutile.
-        self._path(tld, "bits").unlink(missing_ok=True)
 
     async def scan_zone(self, czds: Czds, tld: str, url: str) -> ScanResult:
         result = ScanResult(tld)
@@ -603,6 +612,10 @@ class DropWatcher:
                     links = await czds.links()
                 except CzdsError as exc:
                     self.store.set("czds_error", str(exc))
+                    if isinstance(exc, CzdsAuthError):
+                        # Pas de nouvel essai avant une heure (ICANN peut bloquer le compte), ou tout
+                        # de suite après un nouveau mot de passe (refresh_approved).
+                        self.store.set("czds_retry_at", iso(utcnow() + timedelta(hours=1)))
                     return []
                 self.store.set("czds_error", "")
                 self.store.set("czds_approved", json.dumps(list(links)))
@@ -622,6 +635,9 @@ class DropWatcher:
 
     def due(self, now_local: datetime) -> bool:
         hour = int(self.store.get("czds_hour", "6"))
+        retry_at = parse_iso(self.store.get("czds_retry_at"))
+        if retry_at and retry_at > utcnow():
+            return False
         return self.configured and now_local.hour >= hour and self.last_run() != now_local.date().isoformat()
 
     # Vérification RDAP des noms sortis

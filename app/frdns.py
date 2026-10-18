@@ -167,7 +167,10 @@ class FrDns:
 
     async def _query(self, label: str) -> bool | Failure:
         """True : délégué ; False : inconnu ; Failure : pas de réponse exploitable (on réessaiera)."""
-        servers = await self._servers()
+        try:
+            servers = await self._servers()
+        except (dns.exception.DNSException, OSError, RuntimeError) as exc:
+            return Failure(NETWORK, "", f"{type(exc).__name__}: {exc}"[:200])
         server = random.choice(servers)
         message = dns.message.make_query(f"{label}.{self.tld}.", dns.rdatatype.NS)
         message.flags &= ~dns.flags.RD  # question directe au serveur du .fr, pas de récursion
@@ -219,6 +222,8 @@ class FrDns:
             # Parcours de l'univers hors de la boucle : l'appli reste réactive.
             labels = await asyncio.get_running_loop().run_in_executor(None, self.pending, limit)
             stats["queued"] = len(labels)
+            if labels:
+                await self._servers()  # introuvables (résolveur du NAS muet) : erreur de passe, voir plus bas
             before = self.load(labels)
             rate = RATE if cap >= MAX_RATE else min(RATE, cap)
             streak = 0
@@ -294,7 +299,9 @@ class FrDns:
                 log.warning("DNS .%s : %d échec(s) sur la passe : %s", self.tld, stats["skipped"],
                             ", ".join(f"{n} {r}" for r, n in stats["failures"].items()))
             self.store.set(f"{self.key}_status", json.dumps(stats))
-            self.store.set(f"{self.key}_last", datetime.now(self.local_zone).date().isoformat())
+            # Rien vérifié et passe en erreur : le jour n'est pas marqué, le tick suivant réessaie.
+            if stats["checked"] or "error" not in stats:
+                self.store.set(f"{self.key}_last", datetime.now(self.local_zone).date().isoformat())
         if halted:
             log.warning("DNS .%s : passe arrêtée, %s ; plafond ramené à %s requêtes par seconde", self.tld, halted, new_cap)
             await self._alert(f"DNS .{self.tld} : passe arrêtée ({halted}). Plafond ramené à {new_cap} requêtes par seconde. "

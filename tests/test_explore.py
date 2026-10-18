@@ -351,6 +351,7 @@ def test_fr_dns_marks_delegated_names_as_taken(env, monkeypatch):
     add_fr(env, "velo", removed="2025-01-01")
     add_fr(env, "navarro")
     checker = frdns.FrDns(env.conn, env.fr.store, env, timezone.utc)
+    checker.servers = ["192.0.2.1"]  # pas de résolution DNS dans les tests
     asked = []
 
     async def query(label):
@@ -435,6 +436,7 @@ def test_fr_dns_slows_down_then_recovers(env, monkeypatch):
     monkeypatch.setattr(frdns, "RATE", 1_000_000.0)
     monkeypatch.setattr(frdns, "MIN_RATE", 1000.0)
     checker = frdns.FrDns(env.conn, env.fr.store, env, timezone.utc)
+    checker.servers = ["192.0.2.1"]  # pas de résolution DNS dans les tests
     labels = [f"nom{i}" for i in range(200)]
     checker.pending = lambda limit, now=None: labels
     calls = []
@@ -459,6 +461,7 @@ def test_fr_dns_stops_on_refusal_and_lowers_the_cap(env, monkeypatch):
         alerts.append(text)
 
     checker = frdns.FrDns(env.conn, env.fr.store, env, timezone.utc, notify=notify)
+    checker.servers = ["192.0.2.1"]  # pas de résolution DNS dans les tests
     checker.pending = lambda limit, now=None: [f"nom{i}" for i in range(50)]
 
     async def query(label):
@@ -495,6 +498,7 @@ def test_cc_dns_flags_names_that_leave_the_dns(env, monkeypatch):
         alerts.append(text)
 
     checker = ccdns.CcDns("io", env.conn, env.fr.store, env, timezone.utc, notify=notify)
+    checker.servers = ["192.0.2.1"]  # pas de résolution DNS dans les tests
     labels = checker.pending(200)
     assert labels and all(len(x) > 2 for x in labels)
     checker.pending = lambda limit, now=None: ["insurance", "maison", "cloud"]

@@ -391,7 +391,8 @@ class FrWatcher:
                     raise FrDataError(f"Téléchargement Afnic interrompu ({exc.__class__.__name__}).") from None
                 tmp.replace(target)
             kept, stats = await asyncio.to_thread(read_zip, target)
-            self._apply(kept, utcnow())
+            # Des centaines de milliers d'écritures : hors de la boucle, l'appli reste réactive.
+            await asyncio.to_thread(self._apply, kept, utcnow())
             self.store.set("fr_status", json.dumps({
                 "at": iso(utcnow()), "file_date": modified, "rows": stats["rows"], "kept": stats["kept"],
                 "columns": stats["columns"], "dated": stats["dated"], "reader": READER_VERSION, "lists": lists_version(), "error": None,
@@ -409,6 +410,8 @@ class FrWatcher:
         return self.status()
 
     def _apply(self, kept: dict, now: datetime) -> None:
+        """Met fr_names à jour et passe les nouvelles suppressions à l'écran Suppressions.
+        Appelée dans un fil (to_thread) : la connexion, la transaction et drops.record y restent."""
         today = now.date()
         before = dict(self.conn.execute("SELECT label, removed_on FROM fr_names").fetchall())
         # Premier import (ou import d'avant ce suivi) : pas de fichier précédent pour comparer.
@@ -416,36 +419,42 @@ class FrWatcher:
         since = (now - timedelta(days=BACKFILL_DAYS)).date()
         followed = {r[0] for r in self.conn.execute(
             "SELECT label FROM drops WHERE tld = 'fr' AND state IS NOT NULL AND state != ?", (drops.TAKEN,))}
+        rows = []
+        removals: dict[date, list[str]] = {}
+        for label, (created, removed) in kept.items():
+            # Enregistré : vérification le lendemain du prochain anniversaire de création.
+            # Sans date de création, le nom n'est pas suivi : on ne sait pas quand regarder.
+            following = None
+            if not removed and created:
+                # L'anniversaire d'hier compte encore : sa lecture est prévue aujourd'hui à midi.
+                following = iso(_check_time(next_anniversary(created, today - timedelta(days=2))))
+            rows.append((label, created and created.isoformat(), removed and removed.isoformat(), following))
+            if not removed or label in followed:
+                continue
+            # Nouvelle suppression depuis le fichier précédent, quelle que soit sa date :
+            # le fichier arrive avec plusieurs semaines de retard.
+            # Un nom tout juste ajouté aux listes n'a pas d'état précédent : seule une suppression
+            # récente compte, sinon des milliers de vieilles suppressions partiraient en vérification.
+            known = label in before
+            new = removed >= since if first or not known else before[label] != removed.isoformat()
+            if new:
+                removals.setdefault(removed, []).append(label)
         self.conn.execute("BEGIN")
         try:
-            for label, (created, removed) in kept.items():
-                # Enregistré : vérification le lendemain du prochain anniversaire de création.
-                # Sans date de création, le nom n'est pas suivi : on ne sait pas quand regarder.
-                following = None
-                if not removed and created:
-                    following = iso(_check_time(next_anniversary(created, today - timedelta(days=1))))
-                self.conn.execute(
-                    """INSERT INTO fr_names (label, created_on, removed_on, next_check_at)
-                       VALUES (?, ?, ?, ?)
-                       ON CONFLICT(label) DO UPDATE SET created_on = excluded.created_on,
-                         removed_on = excluded.removed_on,
-                         next_check_at = CASE
-                           WHEN excluded.removed_on IS NOT NULL THEN NULL
-                           WHEN fr_names.created_on IS NOT excluded.created_on
-                             OR fr_names.next_check_at IS NULL THEN excluded.next_check_at
-                           ELSE fr_names.next_check_at END""",
-                    (label, created and created.isoformat(), removed and removed.isoformat(), following),
-                )
-                if not removed or label in followed:
-                    continue
-                # Nouvelle suppression depuis le fichier précédent, quelle que soit sa date :
-                # le fichier arrive avec plusieurs semaines de retard.
-                # Un nom tout juste ajouté aux listes n'a pas d'état précédent : seule une suppression
-                # récente compte, sinon des milliers de vieilles suppressions partiraient en vérification.
-                known = label in before
-                new = removed >= since if first or not known else before[label] != removed.isoformat()
-                if new:
-                    self.drops.record("fr", [label], [], now, removed_on=removed)
+            self.conn.executemany(
+                """INSERT INTO fr_names (label, created_on, removed_on, next_check_at)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(label) DO UPDATE SET created_on = excluded.created_on,
+                     removed_on = excluded.removed_on,
+                     next_check_at = CASE
+                       WHEN excluded.removed_on IS NOT NULL THEN NULL
+                       WHEN fr_names.created_on IS NOT excluded.created_on
+                         OR fr_names.next_check_at IS NULL THEN excluded.next_check_at
+                       ELSE fr_names.next_check_at END""",
+                rows,
+            )
+            for removed, labels in removals.items():
+                self.drops.record("fr", labels, [], now, removed_on=removed)
             self.conn.execute("COMMIT")
         except Exception:
             self.conn.execute("ROLLBACK")
@@ -511,9 +520,6 @@ class FrWatcher:
                 break
         return done
 
-    # Conservée pour les appels existants : une passe de la file.
-    sweep = tick
-
     async def lookup(self, name: str, source: str):
         """Requête RDAP vers l'Afnic, journalisée. Renvoie None si l'Afnic limite (pause posée)."""
         self.current = name
@@ -553,8 +559,8 @@ class FrWatcher:
         result = await self.lookup(row["name"], "suppression")
         if result is None:
             return False
-        state = self.drops.apply(row, result, utcnow())
-        self._sync_name(row["label"], result, state)
+        # Un nom repris revient dans les dates anniversaire par on_fr_taken (drops.apply).
+        self.drops.apply(row, result, utcnow())
         return True
 
     def _sync_name(self, label: str, result, state: str | None) -> None:
