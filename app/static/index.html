@@ -90,14 +90,23 @@
   <section class="today-page sheet" x-show="todayOpen" x-transition.opacity.duration.150ms x-cloak aria-label="Aujourd'hui">
     <div class="sheet-head"><h2>Aujourd'hui</h2><div x-tpl="'settings-btn'"></div></div>
     <p class="sheet-sub">Les meilleurs noms à prendre maintenant</p>
+    <!-- Période des chiffres et des noms : libérés depuis, libération dans, nouveaux « À prendre » depuis. -->
+    <div class="period-row today-period">
+      <span class="period-label" id="today-period-label">Période</span>
+      <div class="segmented" role="radiogroup" aria-labelledby="today-period-label">
+        <template x-for="p in PERIODS" :key="p.k">
+          <button type="button" class="btn-ghost sm" :class="{ on: todayPeriod === p.k }" role="radio" :aria-checked="todayPeriod === p.k" :title="periodLong(p.k) + ' passés et à venir'" @click="setTodayPeriod(p.k)" x-text="p.label"></button>
+        </template>
+      </div>
+    </div>
     <p class="muted" x-show="!today">Chargement…</p>
     <template x-if="today">
       <div>
-        <!-- Le jour en chiffres : chaque compteur ouvre l'écran qui le détaille. -->
+        <!-- Les chiffres de la période : chaque compteur ouvre l'écran qui le détaille. -->
         <div class="today-counts">
-          <button type="button" class="today-count" @click="openVeille('free', 'freed_24h')"><strong class="num" x-text="fmt(today.counts.freed_24h)"></strong> <span x-text="plural(today.counts.freed_24h, 'libéré', 'libérés') + ' depuis 24 h'"></span></button>
-          <button type="button" class="today-count" @click="openVeille('coming', 'coming_48h')"><strong class="num" x-text="fmt(today.counts.coming_48h)"></strong> <span>sous 48 h</span></button>
-          <button type="button" class="today-count" @click="openVeille('free', 'new_take')"><strong class="num" x-text="fmt(today.counts.new_take)"></strong> <span x-text="plural(today.counts.new_take, 'nouveau', 'nouveaux') + ' À prendre'"></span></button>
+          <button type="button" class="today-count" @click="openVeille('free', 'freed')"><strong class="num" x-text="fmt(today.counts.freed)"></strong> <span x-text="plural(today.counts.freed, 'libéré', 'libérés') + ' depuis ' + periodLong(todayPeriod)"></span></button>
+          <button type="button" class="today-count" @click="openVeille('coming', 'coming')"><strong class="num" x-text="fmt(today.counts.coming)"></strong> <span x-text="plural(today.counts.coming, 'libération', 'libérations') + ' sous ' + periodLong(todayPeriod)"></span></button>
+          <button type="button" class="today-count" @click="openVeille('free', 'new_take')"><strong class="num" x-text="fmt(today.counts.new_take)"></strong> <span x-text="plural(today.counts.new_take, 'nouveau', 'nouveaux') + ' À prendre depuis ' + periodLong(todayPeriod)"></span></button>
           <button type="button" class="today-count" :class="{ warn: today.counts.regrets }" @click="openRegrets()"><strong class="num" x-text="fmt(today.counts.regrets)"></strong> <span x-text="plural(today.counts.regrets, 'regret', 'regrets')"></span></button>
         </div>
         <div x-show="setupIncomplete" x-tpl="'setup-steps'"></div>
@@ -109,7 +118,7 @@
           </div>
           <button type="button" class="help-btn" aria-label="Aide : score et note IA, deux échelles" title="Score et note IA : deux échelles, voir l'Aide" @click="helpAt('help-find')">?</button>
         </div>
-        <p class="muted today-empty" x-show="!today.items.length">Rien à prendre aujourd'hui. Les prochaines libérations sont dans la Veille.</p>
+        <p class="muted today-empty" x-show="!today.items.length" x-text="todayPeriod === '24h' ? 'Rien à prendre aujourd\'hui. Les prochaines libérations sont dans la Veille.' : 'Rien à prendre sur ' + periodLong(todayPeriod) + '. Les autres libérations sont dans la Veille.'"></p>
         <ol class="ex-list today-list" x-show="today.items.length">
           <template x-for="d in today.items" :key="d.name">
             <li class="ex-row" x-tpl="['name-card', { c: nameCard(d, 'today') }]"></li>
@@ -134,9 +143,9 @@
     </nav>
     <h3 id="help-screens">Par écran</h3>
     <dl class="help-dl">
-      <dt>Aujourd'hui</dt><dd>L'accueil : les 20 meilleurs noms libres ou libérés sous 48 h, avec les chiffres du jour (libérés depuis 24 h, sous 48 h, nouveaux « À prendre », regrets) ; chaque chiffre ouvre exactement ses noms, puce de filtre effaçable ; Réserver ce qui vaut le coup.</dd>
+      <dt>Aujourd'hui</dt><dd>L'accueil, sur la période choisie en tête (24 h, 7 j ou 30 j, 24 h par défaut, choix gardé) : les chiffres (libérés depuis la période, libération sous la période, nouveaux « À prendre », regrets) et les 20 meilleurs noms libérés depuis ou libérés dans la période ; chaque chiffre ouvre exactement ses noms, même période, puce de filtre effaçable ; Réserver ce qui vaut le coup.</dd>
       <dt>Domaines</dt><dd>Les noms surveillés, revérifiés au registre selon leur état ; saisir un nom pour le suivre, un clic sur un nom ouvre sa fiche.</dd>
-      <dt>Veille</dt><dd>Les noms sortis des zones (et, pour .co, .ai, .io, du DNS) : Libérés (réservables) et Bientôt libres (date estimée) ; trier par usage, puis Réserver, Surveiller ou Ignorer.</dd>
+      <dt>Veille</dt><dd>Les noms sortis des zones (et, pour .co, .ai, .io, du DNS) : Libérés (réservables) et Bientôt libres (date estimée) ; Période « Tout » par défaut, ou 24 h, 7 j, 30 j (libres depuis, libération dans) ; trier par usage, puis Réserver, Surveiller ou Ignorer.</dd>
       <dt>Explorer</dt><dd>Tous les noms suivis, pris ou non, extension par extension ; taper un mot pour voir son état partout et le vérifier.</dd>
       <dt>Portefeuille</dt><dd>Les noms possédés : achat, renouvellement, mise en vente, bilan, et les décisions gardées ; un nom s'y ajoute à la main.</dd>
       <dt>Paramètres</dt><dd>Sources, Telegram, alertes et avis IA d'abord ; le reste sous « Afficher les réglages avancés », la version en bas.</dd>
@@ -186,6 +195,7 @@
       <dt>Pour revendre</dt><dd>D'abord les noms que l'IA conseille, par sa note de revente ; puis les noms sans avis, par score ; à la fin, ceux qu'elle déconseille.</dd>
       <dt>Pour exploiter</dt><dd>Même ordre, avec la note d'exploitation : un nom pour un vrai site ou une marque.</dd>
       <dt>Masquer les noms faibles</dt><dd>Sans avis IA : score sous 30. Avec un avis : « À laisser », même à bon score.</dd>
+      <dt>Types et catégories</dt><dd>Puces à cocher, plusieurs à la fois (Prénoms et Noms de famille : un nom de l'une ou l'autre liste) ; « Toutes » les efface. La longueur reste un filtre à part.</dd>
       <dt>Extensions</dt><dd>Puces à cocher, plusieurs à la fois, ou « Toutes ». Depuis « Toutes », une puce choisit cette extension seule ; les suivantes s'ajoutent ou se retirent. Choix mémorisé ; dans l'Explorer, il suit les vues enregistrées et l'export CSV.</dd>
       <dt>Sur une carte</dt><dd>L'état en toutes lettres (probablement libre, libre vérifié, libération estimée, pris, réservé, premium probable), le verdict IA en pastille (À prendre vert, À surveiller ambre, À laisser gris) et le prix utilisateur final, puis Réserver, Vérifier (nom probablement libre) et Surveiller.</dd>
       <dt>Tris</dt><dd>Les meilleurs d'abord, les plus récents (Veille), libération la plus proche (Bientôt libres seulement), les plus courts et score seul (Explorer), les plus fréquents : prénoms et noms de famille du plus donné au moins donné (Insee), mots du plus courant au moins courant ; la carte dit le rang, « 12e prénom le plus donné ». Un tri ne retire aucun filtre. Domaines sur téléphone : menu de tri au-dessus de la liste, flèche pour inverser.</dd>
@@ -272,7 +282,7 @@
         <div class="ex-sticky drops-sticky">
           <!-- Chiffre d'Aujourd'hui : exactement ses noms ; la puce efface ce filtre et rend la Veille complète. -->
           <div class="drops-focus" x-show="dropFocus">
-            <button type="button" class="ex-pill" @click="dropClearFocus()" title="Retirer ce filtre"><span x-text="DROP_FOCUS[dropFocus]"></span> ×</button>
+            <button type="button" class="ex-pill" @click="dropClearFocus()" title="Retirer ce filtre"><span x-text="dropFocusLabel()"></span> ×</button>
             <span class="muted small" x-text="fmt(dropList.length) + ' ' + plural(dropList.length, 'nom', 'noms') + ', filtres de la Veille mis de côté'"></span>
           </div>
           <div class="ex-searchbar" x-show="!dropFocus">
@@ -300,15 +310,16 @@
           <h4 class="ex-group-title">Le nom</h4>
           <div class="ex-field"><span>Forme</span>
             <div class="ex-options">
+              <button type="button" class="tag" :class="{ on: !dropKinds.length }" :aria-pressed="!dropKinds.length" @click="dropKinds = []">Toutes</button>
               <template x-for="(label, k) in kindGroup(dropsData.kinds, true)" :key="k">
-                <button type="button" class="tag" :class="{ on: dropKinds.includes(k) }" @click="toggleDropKind(k)" x-text="label"></button>
+                <button type="button" class="tag tag-check" :class="{ on: dropKinds.includes(k) }" :aria-pressed="dropKinds.includes(k)" @click="toggleDropKind(k)" x-text="label"></button>
               </template>
             </div>
           </div>
           <div class="ex-field"><span>Liste</span>
             <div class="ex-options">
               <template x-for="(label, k) in kindGroup(dropsData.kinds, false)" :key="k">
-                <button type="button" class="tag" :class="{ on: dropKinds.includes(k) }" @click="toggleDropKind(k)" x-text="label"></button>
+                <button type="button" class="tag tag-check" :class="{ on: dropKinds.includes(k) }" :aria-pressed="dropKinds.includes(k)" @click="toggleDropKind(k)" x-text="label"></button>
               </template>
             </div>
           </div>
@@ -592,16 +603,16 @@
           <h4 class="ex-group-title">Le nom</h4>
           <div class="ex-field"><span>Forme</span>
             <div class="ex-options">
-              <button type="button" class="tag" :class="{ on: !ex.cat }" @click="exSet({ cat: '' })">Tout</button>
+              <button type="button" class="tag" :class="{ on: !ex.cat }" :aria-pressed="!ex.cat" @click="exSet({ cat: '' })">Toutes</button>
               <template x-for="(label, k) in kindGroup(exData.kinds, true)" :key="k">
-                <button type="button" class="tag" :class="{ on: ex.cat === k }" @click="exSet({ cat: ex.cat === k ? '' : k })" x-text="label"></button>
+                <button type="button" class="tag tag-check" :class="{ on: exCats().includes(k) }" :aria-pressed="exCats().includes(k)" @click="exToggleCat(k)" x-text="label"></button>
               </template>
             </div>
           </div>
           <div class="ex-field"><span>Liste</span>
             <div class="ex-options">
               <template x-for="(label, k) in kindGroup(exData.kinds, false)" :key="k">
-                <button type="button" class="tag" :class="{ on: ex.cat === k }" @click="exSet({ cat: ex.cat === k ? '' : k })" x-text="label"></button>
+                <button type="button" class="tag tag-check" :class="{ on: exCats().includes(k) }" :aria-pressed="exCats().includes(k)" @click="exToggleCat(k)" x-text="label"></button>
               </template>
             </div>
           </div>
@@ -1822,6 +1833,17 @@
   <template id="veille-simple">
     <div class="simple-block">
       <div x-tpl="['lens-row', { screen: 'veille' }]"></div>
+      <!-- Période : Libérés depuis, Bientôt libres dans ; « Tout » montre tout ce que la Veille garde. -->
+      <div class="period-row">
+        <span class="period-label">Période</span>
+        <div class="segmented" role="radiogroup" aria-label="Période">
+          <button type="button" class="btn-ghost sm" :class="{ on: !df.period }" role="radio" :aria-checked="!df.period" @click="df.period = ''; dropShow = 40">Tout</button>
+          <template x-for="p in PERIODS" :key="p.k">
+            <button type="button" class="btn-ghost sm" :class="{ on: df.period === p.k }" role="radio" :aria-checked="df.period === p.k"
+                    :title="(dropTab === 'coming' ? 'Libération dans les ' : 'Libérés depuis ') + periodLong(p.k)" @click="df.period = p.k; dropShow = 40" x-text="p.label"></button>
+          </template>
+        </div>
+      </div>
       <div class="ex-chips" aria-label="Nouveautés et extensions">
         <button type="button" class="tag" :class="{ on: dropNewOnly }" :aria-pressed="dropNewOnly" @click="dropNewOnly = !dropNewOnly; dropShow = 100"
                 x-text="'Nouveaux depuis ma dernière visite (' + fmt(dropNewCount()) + ')'"></button>
@@ -1838,8 +1860,9 @@
     <div class="simple-block">
       <div x-tpl="['lens-row', { screen: 'explore' }]"></div>
       <div class="ex-chips ex-types" aria-label="Type de nom">
+        <!-- Types à cocher, plusieurs à la fois (union) ; « Toutes » les efface, « Courts » est une longueur. -->
         <template x-for="ty in EX_TYPES" :key="ty.k">
-          <button type="button" class="tag" :class="{ on: exTypeOn(ty) }" @click="exSetType(ty)" x-text="ty.label"></button>
+          <button type="button" class="tag" :class="{ on: exTypeOn(ty), 'tag-check': ty.k && ty.k !== 'short' }" :aria-pressed="exTypeOn(ty)" @click="exSetType(ty)" x-text="ty.label"></button>
         </template>
       </div>
       <div class="ex-chips" aria-label="Extensions">

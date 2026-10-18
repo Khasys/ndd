@@ -1281,12 +1281,14 @@ async def list_drops(request: Request):
     watcher = state.drops
     conn = state.conn
     rows = _drop_rows(state)
-    # Chiffre d'Aujourd'hui cliqué : seulement ses noms, calculés comme le compteur.
+    # Chiffre d'Aujourd'hui cliqué : seulement ses noms, calculés comme le compteur, pour la même période.
     focus = request.query_params.get("focus", "")
+    focus = TODAY_FOCUS_ALIASES.get(focus, focus)
     if focus and focus not in TODAY_FOCUS:
-        raise HTTPException(422, "Liste inconnue : freed_24h, coming_48h ou new_take.")
+        raise HTTPException(422, "Liste inconnue : freed, coming ou new_take.")
+    period = _today_period(request)
     if focus:
-        rows = (await _off(_today_sets, state, rows, utcnow()))["near" if focus == "coming_48h" else focus]
+        rows = (await _off(_today_sets, state, rows, utcnow(), TODAY_PERIODS[period]))[focus]
     pending = conn.execute("SELECT COUNT(*) FROM drops WHERE state IS NULL").fetchone()[0]
     suspended = dict(conn.execute("SELECT tld, COUNT(*) FROM drops WHERE state = ? GROUP BY tld", (drops.SUSPENDED,)).fetchall())
     hidden = conn.execute("SELECT COUNT(*) FROM drop_hidden").fetchone()[0]
@@ -1316,6 +1318,7 @@ async def list_drops(request: Request):
         "kinds": drops.KINDS,
         "natures": explore.NATURES,
         "focus": focus or None,
+        "period": period if focus else None,
         "items": _drop_items(state, rows, values) if with_items else None,
     }
 
@@ -1342,35 +1345,46 @@ def _verdict(opinion: dict | None) -> str:
     return (opinion.get("comment") or "").split(".")[0] if opinion else ""
 
 
-# Chiffres d'Aujourd'hui qui ouvrent la Veille sur exactement leurs noms (/api/drops?focus=…).
-TODAY_FOCUS = ("freed_24h", "coming_48h", "new_take")
+# Chiffres d'Aujourd'hui qui ouvrent la Veille sur exactement leurs noms (/api/drops?focus=…&period=…).
+TODAY_FOCUS = ("freed", "coming", "new_take")
+# Anciens noms des chiffres (avant le choix de la période) : encore acceptés.
+TODAY_FOCUS_ALIASES = {"freed_24h": "freed", "coming_48h": "coming"}
+# Période d'Aujourd'hui, en heures : libérés depuis, libération dans, nouveaux « À prendre » depuis.
+TODAY_PERIODS = {"24h": 24, "7d": 7 * 24, "30d": 30 * 24}
 
 
-def _today_sets(state, rows, now: datetime) -> dict:
-    """Les noms derrière chaque chiffre d'Aujourd'hui : même calcul pour le compteur et pour la liste."""
-    day_ago, soon = iso(now - timedelta(hours=24)), iso(now + timedelta(hours=48))
+def _today_period(request: Request) -> str:
+    period = request.query_params.get("period") or "24h"
+    if period not in TODAY_PERIODS:
+        raise HTTPException(422, "Période inconnue : 24h, 7d ou 30d.")
+    return period
+
+
+def _today_sets(state, rows, now: datetime, hours: int = 24) -> dict:
+    """Les noms derrière chaque chiffre d'Aujourd'hui pour la période (en heures, passée et à venir) :
+    même calcul pour le compteur et pour la liste."""
+    since, soon = iso(now - timedelta(hours=hours)), iso(now + timedelta(hours=hours))
     free = [r for r in rows if r["state"] == states.AVAILABLE]
-    coming = [r for r in rows if r["state"] in drops.TRACKED]
-    # Avis « À prendre » reçus depuis 24 h (premier avis ou second passage) sur un nom libre ou bientôt libre.
-    opinions = ai.load(state.conn, [r["name"] for r in free + coming])
+    tracked = [r for r in rows if r["state"] in drops.TRACKED]
+    # Avis « À prendre » reçus sur la période (premier avis ou second passage) sur un nom libre ou bientôt libre.
+    opinions = ai.load(state.conn, [r["name"] for r in free + tracked])
 
     def new_take(r) -> bool:
         o = opinions.get(r["name"])
-        return bool(o) and _verdict(o) == "À prendre" and max(o["rated_at"] or "", o["reviewed_at"] or "") >= day_ago
+        return bool(o) and _verdict(o) == "À prendre" and max(o["rated_at"] or "", o["reviewed_at"] or "") >= since
 
     return {
-        "free": free,
-        "near": [r for r in coming if r["release_at"] and r["release_at"] <= soon],
-        "freed_24h": [r for r in free if (r["available_since"] or "") >= day_ago],
-        "new_take": [r for r in free + coming if new_take(r)],
+        "freed": [r for r in free if (r["available_since"] or "") >= since],
+        "coming": [r for r in tracked if r["release_at"] and r["release_at"] <= soon],
+        "new_take": [r for r in free + tracked if new_take(r)],
     }
 
 
-def _today(state, sort: str, now: datetime) -> dict:
-    """Écran d'accueil : compteurs du jour et les meilleurs noms libres ou libérés sous 48 h."""
-    sets = _today_sets(state, _drop_rows(state), now)
-    free, near = sets["free"], sets["near"]
-    candidates = free + near
+def _today(state, sort: str, now: datetime, period: str = "24h") -> dict:
+    """Écran d'accueil : compteurs de la période et les meilleurs noms libérés depuis ou libérés dans la période."""
+    sets = _today_sets(state, _drop_rows(state), now, TODAY_PERIODS[period])
+    freed, near = sets["freed"], sets["coming"]
+    candidates = freed + near
     values = state.explorer.value_of([r["name"] for r in candidates])
 
     def strong(v: dict) -> bool:
@@ -1388,12 +1402,13 @@ def _today(state, sort: str, now: datetime) -> dict:
     best = sorted((r for r in candidates if strong(values[r["name"]])), key=rank)[:TODAY_ITEMS]
     return {
         "counts": {
-            "freed_24h": len(sets["freed_24h"]),
-            "coming_48h": len(near),
+            "freed": len(freed),
+            "coming": len(near),
             "new_take": len(sets["new_take"]),
             "regrets": decisions.listing(state.conn, state.explorer)["regrets"],
         },
         "sort": sort,
+        "period": period,
         "items": _drop_items(state, best, values),
         "setup": _setup_steps(state),
     }
@@ -1405,7 +1420,7 @@ async def today_screen(request: Request):
     sort = request.query_params.get("sort", "resale")
     if sort not in TODAY_SORTS:
         raise HTTPException(422, "Tri inconnu : resale ou exploit.")
-    return await _off(_today, request.app.state, sort, utcnow())
+    return await _off(_today, request.app.state, sort, utcnow(), _today_period(request))
 
 
 class NameCheck(BaseModel):
@@ -1453,7 +1468,9 @@ def _explore_params_of(p, explorer) -> dict:
         min_score = int(p["min"]) if p.get("min") else None
     except ValueError:
         raise HTTPException(422, "Paramètre numérique invalide.") from None
-    if p.get("cat") and p["cat"] not in explore.KINDS:
+    # Une ou plusieurs catégories (cat=firstname,surname) : un nom de l'une ou de l'autre.
+    cats = explore.split_cats(p.get("cat"))
+    if any(c not in explore.KINDS for c in cats):
         raise HTTPException(422, "Catégorie inconnue.")
     if p.get("nat") and p["nat"] not in explore.NATURES:
         raise HTTPException(422, "Nature inconnue.")
@@ -1469,11 +1486,12 @@ def _explore_params_of(p, explorer) -> dict:
     if p.get("level") and p["level"] not in ("good", "gem"):
         raise HTTPException(422, "Niveau inconnu.")
     return {"tld": tld, "tlds": chosen, "q": p.get("q", ""), "mode": mode, "status": p.get("status", ""),
-            "category": p.get("cat", ""), "length": length, "cursor": cursor, "nature": p.get("nat", ""),
+            "category": ",".join(cats), "length": length, "cursor": cursor, "nature": p.get("nat", ""),
             "max_rank": max_rank, "min_score": min_score, "taken": taken, "junk": p.get("junk") == "1",
             "seo": p.get("seo", "") if p.get("seo", "") in explore.SEO_FILTERS else "",
             "ai": _ai_param(p),
-            "lang": p.get("lang", "") if p.get("lang", "") in wordlists.LANGS and p.get("cat", "") not in wordlists.NO_LANG else "",
+            # Prénoms et noms de famille n'ont pas de langue : avec l'une de ces listes cochée, la langue ne filtre pas.
+            "lang": p.get("lang", "") if p.get("lang", "") in wordlists.LANGS and not set(cats) & set(wordlists.NO_LANG) else "",
             "premium": p.get("premium") == "1",
             "level": p.get("level", "") if p.get("level", "") in ("good", "gem") else ""}
 
@@ -2005,8 +2023,8 @@ async def set_views(request: Request, payload: Views):
         if len(filters) > 40:
             raise HTTPException(422, f"Vue « {name} » : {len(filters)} filtres, 40 au plus.")
         keep = [v for v in keep if v["name"] != name]  # même nom : la dernière l'emporte
-        # La liste des extensions peut être longue (« Toutes ») : pas de coupure pour elle.
-        clean = {str(k)[:20]: ("" if v is None else str(v))[:400 if k == "tld" else 40]
+        # Les listes d'extensions et de catégories peuvent être longues : pas de coupure pour elles.
+        clean = {str(k)[:20]: ("" if v is None else str(v))[:400 if k in ("tld", "cat") else 40]
                  for k, v in filters.items() if v is None or isinstance(v, (str, int, float, bool))}
         # alert : les nouveaux noms libres qui répondent aux filtres partent sur Telegram (notify).
         keep.append({"name": name, "filters": clean, "alert": bool(view.get("alert"))})

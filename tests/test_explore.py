@@ -1381,3 +1381,35 @@ def test_whois_only_free_names_are_not_freed_in_alerts_and_morning(env):
     assert notify.changed(env.conn, now - timedelta(hours=1)) == []
     text = morning.build(env.conn, env, {}, "", now, min_score=0)
     assert "Libérés" not in text and "Libres selon le WHOIS, à confirmer chez un registrar (1 sur 1)" in text and "menu.co" in text
+
+
+def test_several_categories_are_a_union(env):
+    """Plusieurs catégories à la fois (cat=firstname,surname) : un nom de l'une ou de l'autre liste, dans les
+    compteurs, la liste, le tri par fréquence et le filtre de rang ; une seule catégorie ne change pas."""
+    from app import wordlists
+
+    u = env.universe
+    assert explore.Filters(category="surname, firstname,surname").category == "firstname,surname"
+    union = set(u.by_list["firstname"]) | set(u.by_list["surname"])
+    both = env.facets("fr", category="surname,firstname", junk=True)["available"]
+    assert both == len(union) and both > max(env.facets("fr", category=c, junk=True)["available"] for c in ("firstname", "surname"))
+    # Ordre des puces indifférent : même clé, même compte.
+    assert env.facets("fr", category="firstname,surname", junk=True)["available"] == both
+    items = env.rank("fr", category="firstname,surname", limit=200, sort="score")["items"]
+    cats = [set(i["categories"]) & {"firstname", "surname"} for i in items]
+    assert all(cats) and any("firstname" in c for c in cats) and any("surname" in c for c in cats)
+    # Forme et liste mêlées : 2 caractères en chiffres ou en mots, deux ensembles disjoints.
+    mixed = env.facets("fr", category="digits,word", length=2, junk=True)["available"]
+    assert mixed == env.facets("fr", category="digits", length=2, junk=True)["available"] + env.facets("fr", category="word", length=2, junk=True)["available"]
+    # Les plus fréquents : les deux listes mêlées par rang relatif, rang lu dans la liste où le nom est le mieux placé.
+    freq = env.rank("fr", category="firstname,surname", sort="freq", limit=60)["items"]
+    assert {i["freq_list"] for i in freq} == {"firstname", "surname"}
+    order = u.frequency("firstname,surname")
+    places = [u.position("firstname,surname", u.index(i["label"])) for i in freq]
+    assert places == sorted(places) and len(order) == len(union)
+    assert {i["freq_list"] for i in env.rank("fr", category="firstname", sort="freq", limit=10)["items"]} == {"firstname"}
+    # Rang : dans les 10 premiers de l'une ou de l'autre liste.
+    ranks = wordlists.ranks()
+    top = {w for k in ("firstname", "surname") for w, n in ranks[k].items() if n <= 10}
+    assert env.facets("fr", category="firstname,surname", max_rank=10, junk=True)["available"] == len(top)
+    assert env.best_rank("martin", "firstname,surname") == min(r["martin"] for k, r in ranks.items() if k in ("firstname", "surname") and "martin" in r)

@@ -357,6 +357,34 @@ def test_explorer_and_drops_settings(logged):
     client.__exit__(None, None, None)
 
 
+def test_explorer_several_categories(logged):
+    """Explorer : plusieurs catégories à la fois (cat=firstname,surname), union des listes, partout où passe le filtre."""
+    client = logged()
+    conn = client.app.state.conn
+    conn.execute("INSERT INTO fr_names (label, created_on) VALUES ('navarro', '2010-02-01')")
+    count = lambda cat: client.get("/api/explore/rank", params={"cat": cat, "junk": "1", "limit": 1}).json()["counts"]["available"]
+    first, last, both = count("firstname"), count("surname"), count("firstname,surname")
+    assert max(first, last) < both <= first + last and count("surname,firstname") == both
+    items = client.get("/api/explore/rank", params={"cat": "firstname,surname", "sort": "freq", "limit": 40}).json()["items"]
+    assert {i["freq_list"] for i in items} == {"firstname", "surname"}
+    assert all({"firstname", "surname"} & set(i["categories"]) for i in items)
+    assert client.get("/api/explore/rank", params={"cat": "firstname,zzz"}).status_code == 422
+    # Forme et liste ensemble ; la longueur reste un filtre à part.
+    assert client.get("/api/explore/rank", params={"cat": "letters,word", "len": "2", "limit": 5}).json()["items"]
+    csv = client.get("/api/explore/export", params={"status": "registered", "cat": "word,surname"}).text
+    assert "navarro.fr;Enregistré" in csv
+    # Prénoms et noms de famille n'ont pas de langue : cochés avec une autre liste, la langue ne filtre plus.
+    from app.main import _view_params
+    params = _view_params(client.app.state.explorer, {"cat": "surname,word", "lang": "fr"})
+    assert params["category"] == "surname,word" and params["lang"] == ""
+    assert _view_params(client.app.state.explorer, {"cat": "word", "lang": "fr"})["lang"] == "fr"
+    # Vue enregistrée : une longue liste de catégories n'est pas coupée.
+    many = "english,firstname,sector,startup,surname,word"
+    views = client.put("/api/explore/views", json={"views": [{"name": "Noms", "filters": {"cat": many}}]}).json()
+    assert views[0]["filters"]["cat"] == many
+    client.__exit__(None, None, None)
+
+
 def test_views_weights_order_url(logged):
     client = logged()
     views = client.put("/api/explore/views", json={"views": [{"name": "Prénoms top", "filters": {"cat": "firstname", "rank": 500}}, {"name": ""}]}).json()
@@ -1159,7 +1187,8 @@ def test_interface_wires_the_wave_one_routes():
 
 
 def test_today_counts_best_names_and_setup(logged):
-    """Aujourd'hui : compteurs du jour, 20 meilleurs noms libres ou libérés sous 48 h, étapes de configuration."""
+    """Aujourd'hui : compteurs de la période (24 h par défaut), 20 meilleurs noms libérés depuis ou libérés dans la
+    période, étapes de configuration."""
     client = logged()
     st = client.app.state
 
@@ -1170,26 +1199,36 @@ def test_today_counts_best_names_and_setup(logged):
     now = datetime.now(timezone.utc)
     st.conn.execute("INSERT INTO fr_names (label, created_on) VALUES ('mot', '2010-01-01')")  # le .fr a des données
     st.drops.record("fr", ["velo", "mai", "ciel", "lune", "chat", "terre"], [], now)
-    soon, later = (now + timedelta(hours=24)).isoformat(), (now + timedelta(days=10)).isoformat()
+    soon, later = (now + timedelta(hours=20)).isoformat(), (now + timedelta(days=10)).isoformat()
     st.conn.execute("UPDATE drops SET state = 'available', available_since = ? WHERE name IN ('velo.fr', 'chat.fr', 'terre.fr')", (now.isoformat(),))
     st.conn.execute("UPDATE drops SET state = 'available', available_since = ? WHERE name = 'mai.fr'", ((now - timedelta(days=3)).isoformat(),))
     st.conn.execute("UPDATE drops SET state = 'redemption', release_at = ? WHERE name = 'ciel.fr'", (soon,))
     st.conn.execute("UPDATE drops SET state = 'redemption', release_at = ? WHERE name = 'lune.fr'", (later,))
     _opinion(st.conn, "velo.fr", "À prendre", 90, exploit=60)
     _opinion(st.conn, "mai.fr", "À prendre", 60, exploit=95)
-    _opinion(st.conn, "lune.fr", "À prendre", 80)  # bientôt libre, mais pas sous 48 h
+    _opinion(st.conn, "lune.fr", "À prendre", 80)  # bientôt libre, mais pas sous 24 h
     _opinion(st.conn, "chat.fr", "À laisser", 20)  # nom faible : jamais en tête d'Aujourd'hui
     st.conn.execute("UPDATE domain_ai SET rated_at = ? WHERE name IN ('velo.fr', 'lune.fr', 'chat.fr')", (now.isoformat(),))
+    st.conn.execute("UPDATE domain_ai SET rated_at = ? WHERE name = 'mai.fr'", ((now - timedelta(days=60)).isoformat(),))
     assert client.post("/api/drops/hide", json={"names": ["terre.fr"]}).json() == {"hidden": 1}
     for name in ("velo.fr", "mai.fr", "ciel.fr", "lune.fr", "chat.fr", "terre.fr"):
         st.explorer.touch(name)
     assert client.get("/api/today", params={"sort": "prix"}).status_code == 422
     data = client.get("/api/today").json()
-    # Libérés depuis 24 h : velo et chat (terre est ignoré, mai libéré il y a 3 jours) ; sous 48 h : ciel.
+    # Libérés depuis 24 h : velo et chat (terre est ignoré, mai libéré il y a 3 jours) ; sous 24 h : ciel.
     # Nouveaux « À prendre » : velo (libre) et lune (bientôt libre), avis reçus depuis 24 h.
-    assert data["counts"] == {"freed_24h": 2, "coming_48h": 1, "new_take": 2, "regrets": 0}
+    assert data["period"] == "24h"
+    assert data["counts"] == {"freed": 2, "coming": 1, "new_take": 2, "regrets": 0}
     names = [i["name"] for i in data["items"]]
-    assert names[:2] == ["velo.fr", "mai.fr"] and not {"chat.fr", "terre.fr", "lune.fr"} & set(names)
+    assert names[0] == "velo.fr" and not {"mai.fr", "chat.fr", "terre.fr", "lune.fr"} & set(names)
+    # Sur 7 jours, mai (libéré il y a 3 jours) entre ; sur 30 jours, lune (libération dans 10 jours) aussi.
+    week = client.get("/api/today", params={"period": "7d"}).json()
+    assert week["period"] == "7d" and week["counts"] == {"freed": 3, "coming": 1, "new_take": 2, "regrets": 0}
+    names = [i["name"] for i in week["items"]]
+    assert names[:2] == ["velo.fr", "mai.fr"] and "lune.fr" not in names
+    month = client.get("/api/today", params={"period": "30d"}).json()
+    assert month["counts"]["coming"] == 2 and "lune.fr" in [i["name"] for i in month["items"]]
+    assert client.get("/api/today", params={"period": "1y"}).status_code == 422
     score = {i["name"]: i["score"] for i in client.get("/api/drops").json()["items"]}
     assert ("ciel.fr" in names) == (score["ciel.fr"] >= 30)
     # Format des cartes de la Veille : état, avis, score, surveillance, portefeuille.
@@ -1197,7 +1236,7 @@ def test_today_counts_best_names_and_setup(logged):
     assert first["state"] == "available" and first["ai"]["resale"] == 90 and "score" in first
     assert first["watched"] is False and first["in_portfolio"] is False
     # Pour exploiter : la note d'exploitation passe mai.fr devant.
-    assert [i["name"] for i in client.get("/api/today", params={"sort": "exploit"}).json()["items"]][:2] == ["mai.fr", "velo.fr"]
+    assert [i["name"] for i in client.get("/api/today", params={"sort": "exploit", "period": "7d"}).json()["items"]][:2] == ["mai.fr", "velo.fr"]
     # Démarrer en 3 étapes : rien de branché sauf le .fr, absent ici.
     assert [(s["key"], s["done"]) for s in data["setup"]] == [("sources", False), ("telegram", False), ("ai", False)]
     assert client.get("/api/meta").json()["steps"] == data["setup"]
@@ -1219,7 +1258,7 @@ def test_today_counts_open_exactly_their_names(logged):
     now = datetime.now(timezone.utc)
     st.conn.execute("INSERT INTO fr_names (label, created_on) VALUES ('mot', '2010-01-01')")
     st.drops.record("fr", ["velo", "mai", "ciel", "lune", "chat", "terre", "zqx"], [], now)
-    soon, later = (now + timedelta(hours=24)).isoformat(), (now + timedelta(days=10)).isoformat()
+    soon, later = (now + timedelta(hours=20)).isoformat(), (now + timedelta(days=10)).isoformat()
     # Libérés depuis 24 h : velo, chat (« À laisser », nom faible), zqx (imprononçable) ; terre ignoré ; mai trop ancien.
     st.conn.execute("UPDATE drops SET state = 'available', available_since = ? WHERE name IN ('velo.fr', 'chat.fr', 'terre.fr', 'zqx.fr')", (now.isoformat(),))
     st.conn.execute("UPDATE drops SET state = 'available', available_since = ? WHERE name = 'mai.fr'", ((now - timedelta(days=3)).isoformat(),))
@@ -1234,17 +1273,57 @@ def test_today_counts_open_exactly_their_names(logged):
     for name in ("velo.fr", "mai.fr", "ciel.fr", "lune.fr", "chat.fr", "terre.fr", "zqx.fr"):
         st.explorer.touch(name)
     counts = client.get("/api/today").json()["counts"]
-    expected = {"freed_24h": {"velo.fr", "chat.fr", "zqx.fr"}, "coming_48h": {"ciel.fr"}, "new_take": {"velo.fr", "lune.fr"}}
+    expected = {"freed": {"velo.fr", "chat.fr", "zqx.fr"}, "coming": {"ciel.fr"}, "new_take": {"velo.fr", "lune.fr"}}
     for focus, names in expected.items():
         data = client.get("/api/drops", params={"focus": focus}).json()
-        assert data["focus"] == focus
+        assert data["focus"] == focus and data["period"] == "24h"
         assert {i["name"] for i in data["items"]} == names and len(data["items"]) == counts[focus], focus
+    # Même période des deux côtés : chaque chiffre de 7 et 30 jours ouvre exactement ses noms.
+    wider = {"7d": {"freed": {"velo.fr", "chat.fr", "zqx.fr", "mai.fr"}, "coming": {"ciel.fr"}},
+             "30d": {"freed": {"velo.fr", "chat.fr", "zqx.fr", "mai.fr"}, "coming": {"ciel.fr", "lune.fr"}}}
+    for period, sets in wider.items():
+        counts = client.get("/api/today", params={"period": period}).json()["counts"]
+        for focus in ("freed", "coming", "new_take"):
+            data = client.get("/api/drops", params={"focus": focus, "period": period}).json()
+            assert data["period"] == period and len(data["items"]) == counts[focus], (period, focus)
+            if focus in sets:
+                assert {i["name"] for i in data["items"]} == sets[focus], (period, focus)
+    # Anciens noms des chiffres encore acceptés ; période inconnue refusée.
+    assert client.get("/api/drops", params={"focus": "freed_24h"}).json()["focus"] == "freed"
+    assert client.get("/api/drops", params={"focus": "coming", "period": "2d"}).status_code == 422
     # Sans focus : toute la Veille ; focus inconnu : refusé ; l'état seul (items=0) reste léger.
     full = client.get("/api/drops").json()
     assert full["focus"] is None and len(full["items"]) == 6
     assert client.get("/api/drops", params={"focus": "regrets"}).status_code == 422
-    assert client.get("/api/drops", params={"focus": "freed_24h", "items": "0"}).json()["items"] is None
+    assert client.get("/api/drops", params={"focus": "freed", "items": "0"}).json()["items"] is None
     client.__exit__(None, None, None)
+
+
+def test_interface_periods_and_several_categories():
+    """Période sur Aujourd'hui (24 h par défaut, mémorisée) et dans la Veille (« Tout » par défaut, puce effaçable) ;
+    plusieurs catégories à cocher dans l'Explorer, « Toutes » pour effacer."""
+    from pathlib import Path
+
+    static = Path(__file__).resolve().parent.parent / "app" / "static"
+    js = (static / "app.js").read_text(encoding="utf-8")
+    html = (static / "index.html").read_text(encoding="utf-8")
+    # Aujourd'hui : sélecteur en tête, période dans l'adresse (ETag par adresse), choix gardé par le navigateur.
+    head = html.split('class="today-page sheet"')[1].split('class="today-counts"')[0]
+    assert 'class="period-row today-period"' in head and "setTodayPeriod(p.k)" in head and 'role="radiogroup"' in head
+    assert "&period=${period}" in js and 'localStorage.setItem("today.period", k)' in js
+    assert 'localStorage.getItem("today.period")' in js.split("todayPeriod:")[1].split("\n")[0]
+    # Libellés : la période en toutes lettres ; le clic garde la période d'Aujourd'hui.
+    assert "' depuis ' + periodLong(todayPeriod)" in html and "' sous ' + periodLong(todayPeriod)" in html
+    assert "this.dropFocusPeriod = this.todayPeriod" in js and "dropFocusLabel()" in html
+    # Veille : « Tout » par défaut, 24 h / 7 j / 30 j, filtre côté client, puce effaçable comme les autres filtres.
+    simple = html.split('id="veille-simple"')[1].split("</template>\n")[0]
+    assert ">Tout</button>" in simple and "df.period = p.k" in simple
+    assert 'period: "" };' in js and "this.dropPeriodOk(d)" in js and 'key: "period"' in js
+    # Explorer : types et listes à cocher, plusieurs à la fois ; « Toutes » efface.
+    assert "exToggleCat(k)" in html and 'exCats().includes(k)' in html and "'tag-check': ty.k && ty.k !== 'short'" in html
+    assert '{ k: "", label: "Toutes" }' in js and 'next.sort().join(",")' in js
+    # Veille : catégories déjà à choix multiple, mêmes puces à cocher.
+    assert html.count("toggleDropKind(k)") == 2 and '@click="dropKinds = []">Toutes' in html
 
 
 def test_interface_today_counts_tld_chips_tables_and_fiche_outside():
@@ -1258,14 +1337,14 @@ def test_interface_today_counts_tld_chips_tables_and_fiche_outside():
     css = (static / "style.css").read_text(encoding="utf-8")
     # Aujourd'hui : chaque chiffre a sa liste ; la Veille charge /api/drops?focus=… et montre la puce du filtre.
     today = html.split('class="today-counts"')[1].split("</div>")[0]
-    for call in ("openVeille('free', 'freed_24h')", "openVeille('coming', 'coming_48h')", "openVeille('free', 'new_take')", "openRegrets()"):
+    for call in ("openVeille('free', 'freed')", "openVeille('coming', 'coming')", "openVeille('free', 'new_take')", "openRegrets()"):
         assert call in today, call
-    assert "/api/drops?focus=${focus}" in js and "dropClearFocus()" in html and 'class="drops-focus"' in html
+    assert "/api/drops?focus=${focus}&period=${period}" in js and "dropClearFocus()" in html and 'class="drops-focus"' in html
     assert "this.dropFocus ? [...this.dropsData.items]" in js
     assert 'x-show="!dropFocus"' in html and "Repris seulement" in html and 'd.outcome === "repris"' in js
     assert 'x-for="d in decisionItems"' in html
     # Extensions : puces à cocher, plusieurs à la fois, « Toutes » ; la Veille garde une liste d'extensions.
-    assert html.count('class="tag tag-check"') == 2 and "toggleDropTld(t)" in html and "exToggleTld(t)" in html
+    assert html.count('class="tag tag-check"') >= 2 and "toggleDropTld(t)" in html and "exToggleTld(t)" in html
     assert "dropTld: []," in js and "this.dropTld.includes(d.tld)" in js and "saved.tld ? [saved.tld] : []" in js
     assert "const next = all ? [t]" in js
     # Domaines : cellules sur une ligne, nom tronqué avec le nom entier au survol, colonnes secondaires masquées.
@@ -1611,7 +1690,7 @@ def test_whois_only_free_cc_name_and_reserved_flag(logged):
     veille = client.get("/api/drops").json()["items"]
     assert [(i["name"], i["state"]) for i in veille] == [("menu.co", "unconfirmed")]
     today = client.get("/api/today").json()
-    assert today["counts"]["freed_24h"] == 0 and all(i["name"] != "menu.co" for i in today["items"])
+    assert today["counts"]["freed"] == 0 and all(i["name"] != "menu.co" for i in today["items"])
     found = client.get("/api/explore/rank", params={"tld": "co", "status": "bookable", "q": "menu", "mode": "exact"}).json()
     assert [i["name"] for i in found["items"]] == ["menu.co"]
     # Réservé par registre : hors de la Veille et des noms à réserver, « Réservé » sur la fiche.

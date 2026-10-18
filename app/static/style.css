@@ -1126,6 +1126,11 @@ button:disabled { cursor: default; opacity: .55; }
 .today-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 10px; }
 .today-bar .segmented { margin: 0; }
 .today-empty { padding: 18px 0; }
+/* Période (Aujourd'hui, Veille) : 24 h, 7 j, 30 j en puces segmentées, libellé discret devant. */
+.period-row { display: flex; align-items: center; gap: 8px; }
+.period-row .segmented { margin: 0; }
+.period-label { color: var(--muted); font-size: 13px; }
+.today-period { margin: 0 0 12px; }
 .today-more { margin: 12px 0 0; }
 @media (max-width: 899px) {
   /* Compteurs en tuiles, deux par ligne ; cartes pleine largeur. */
@@ -1134,6 +1139,8 @@ button:disabled { cursor: default; opacity: .55; }
   .today-count + .today-count::before { content: none; }
   .today-count strong { font-size: 19px; }
   .today-more { width: 100%; }
+  .period-row .segmented { flex: 1; }
+  .period-row .segmented .btn-ghost { flex: 1; padding: 0 8px; }
 }
 
 /* Cartes et fiche : badges « Surveillé » et « Portefeuille ». */

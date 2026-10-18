@@ -121,26 +121,32 @@ tout reste dans la fiche. Sur téléphone, chaque domaine est une carte.
 
 #### Aujourd'hui
 
-L'écran d'accueil. En tête, les chiffres du jour : noms libérés depuis 24 h, libération estimée sous 48 h,
-nouveaux avis « À prendre » reçus depuis 24 h sur un nom libre ou bientôt libre, regrets (noms ignorés
-repris depuis par quelqu'un d'autre). Chaque chiffre ouvre exactement ses noms, même compte : les trois
-premiers ouvrent la Veille sur cette liste seule (puce « Libérés depuis 24 h », « Libération sous 48 h » ou
-« Nouveaux « À prendre » depuis 24 h », sans onglets ni filtres de la Veille, noms faibles compris ; la puce
-efface le filtre et rend la Veille complète), les regrets ouvrent les Décisions du Portefeuille filtrées sur
-« Repris seulement » (puce effaçable, aussi disponible à la main). Puis le bloc
+L'écran d'accueil. En tête, la **période** : 24 h, 7 j ou 30 j en puces (24 h par défaut, choix gardé par le
+navigateur). Puis les chiffres de la période : noms libérés depuis la période, libération estimée dans la période
+à venir, nouveaux avis « À prendre » reçus depuis la période sur un nom libre ou bientôt libre, regrets (noms
+ignorés repris depuis par quelqu'un d'autre) ; les libellés disent la période (« libérés depuis 7 jours »,
+« libérations sous 7 jours »). Avec 24 h, la libération à venir est sous 24 h (48 h auparavant) : même fenêtre
+dans les deux sens. Chaque chiffre ouvre exactement ses noms, même compte : les trois
+premiers ouvrent la Veille sur cette liste seule, pour la même période (puce « Libérés depuis 7 jours »,
+« Libération sous 7 jours » ou « Nouveaux « À prendre » depuis 7 jours », sans onglets ni filtres de la Veille,
+noms faibles compris ; la puce efface le filtre et rend la Veille complète), les regrets ouvrent les Décisions du
+Portefeuille filtrées sur « Repris seulement » (puce effaçable, aussi disponible à la main). Puis le bloc
 **Démarrer en 3 étapes** (sources, Telegram, avis IA, avec « Configurer »), tant qu'une étape manque.
-Enfin les 20 meilleurs noms libres ou libérés sous 48 h, non ignorés, sur la carte de la Veille, dans
+Enfin les 20 meilleurs noms libérés depuis la période ou libérés dans la période, non ignorés, sur la carte de la Veille, dans
 l'ordre de la Veille pour l'usage choisi (Pour revendre / Pour exploiter, réglage commun) et avec ses
 réglages par défaut (noms faibles et suites imprononçables masqués), et le bouton « Voir toute la Veille ».
-Rien à prendre : « Rien à prendre aujourd'hui. Les prochaines libérations sont dans la Veille. ».
+Rien à prendre : « Rien à prendre aujourd'hui. Les prochaines libérations sont dans la Veille. » (sur 7 ou
+30 jours : « Rien à prendre sur 7 jours. Les autres libérations sont dans la Veille. »).
 
-`GET /api/today?sort=resale|exploit` (défaut `resale`, calcul hors de la boucle) : `counts` (`freed_24h`,
-`coming_48h`, `new_take`, `regrets`), `items` (format des éléments de `/api/drops`), `setup` (les trois
+`GET /api/today?sort=resale|exploit&period=24h|7d|30d` (défauts `resale` et `24h`, autre période : 422, calcul
+hors de la boucle) : `period`, `counts` (`freed`, `coming`, `new_take`, `regrets`), `items` (format des éléments de
+`/api/drops`), `setup` (les trois
 étapes : `key` `sources`, `telegram` ou `ai`, `title`, `text`, `done`). `/api/meta` donne les mêmes étapes
 dans `steps`. Lisible avec le jeton en lecture seule, comme les autres écrans.
 
-`GET /api/drops?focus=freed_24h|coming_48h|new_take` : la réponse de `/api/drops` réduite aux noms du chiffre
-d'Aujourd'hui (même calcul que `counts`), avec `focus` rappelé ; une autre valeur : 422.
+`GET /api/drops?focus=freed|coming|new_take&period=24h|7d|30d` : la réponse de `/api/drops` réduite aux noms du
+chiffre d'Aujourd'hui (même calcul que `counts`, même période, `24h` par défaut), avec `focus` et `period` rappelés ;
+une autre valeur : 422. Les anciens noms `freed_24h` et `coming_48h` restent acceptés.
 
 ### Veille et Explorer : deux écrans, mêmes réglages
 
@@ -157,6 +163,15 @@ Réglages communs, gardés d'un écran à l'autre :
   fin, ceux qu'elle déconseille (« À laisser »).
 - **Masquer les noms faibles** (case cochée par défaut) : sans avis IA, score sous 30 ; avec un avis,
   « À laisser », même à bon score.
+- **Types et catégories** : un, plusieurs ou tous, en puces à cocher (« Toutes » les efface). Plusieurs : union, un
+  nom de l'une ou de l'autre liste (Prénoms et Noms de famille). Dans l'Explorer, `cat=firstname,surname` (une seule
+  valeur reste acceptée, formes `letters`, `digits`, `mixed`, `hyphen` comprises) suit compteurs, tri, export CSV,
+  vues enregistrées et mémoire du navigateur ; la longueur reste un filtre à part, la carte garde une case par
+  catégorie. Les plus fréquents avec plusieurs listes : par meilleur rang relatif, `freq_list` dit la liste du rang.
+  Prénoms ou Noms de famille cochés avec une autre liste : la langue ne filtre plus (ces listes n'en ont pas).
+- **Période** (Veille) : « Tout » par défaut (tout ce que la Veille garde), ou 24 h, 7 j, 30 j : Libérés depuis la
+  période, Bientôt libres dont la libération estimée tombe dans la période (sans date estimée : masqués). Filtre
+  du navigateur, puce effaçable (« Libérés depuis 7 jours »), gardé avec les autres filtres.
 - **Extensions** : une, plusieurs ou toutes, en puces à cocher. Depuis « Toutes », une puce choisit cette
   extension seule ; les suivantes s'ajoutent ou se retirent. Le choix est mémorisé (Veille comme Explorer) et
   suit dans l'Explorer les vues enregistrées et l'export CSV (`tld=fr,com`).

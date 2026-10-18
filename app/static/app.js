@@ -26,12 +26,18 @@ const FREQ_PHRASES = {
   startup: "mot tech et startups", job: "métier le plus demandé", sport: "mot du sport", animal: "animal", food: "mot de cuisine",
 };
 const VERDICT_CLASSES = { "À prendre": "take", "À surveiller": "watch", "À laisser": "skip" };
-// min : score minimum des filtres avancés ; 0 = tout voir.
-const DROP_FILTER_DEFAULTS = { q: "", nat: "", lang: "", len: "", rank: "", min: 0, junk: false, ai: [], quick: "" };
+// min : score minimum des filtres avancés ; 0 = tout voir. period : libérés depuis / libération dans (clé de
+// PERIODS), "" = tout ce que la Veille garde.
+const DROP_FILTER_DEFAULTS = { q: "", nat: "", lang: "", len: "", rank: "", min: 0, junk: false, ai: [], quick: "", period: "" };
 // Tris de la Veille ; « release » ne vaut que pour Bientôt libres.
 const DROP_SORTS = ["best", "recent", "release", "freq"];
-// Chiffres d'Aujourd'hui : la Veille s'ouvre sur exactement leurs noms (/api/drops?focus=…), filtres mis de côté.
-const DROP_FOCUS = { freed_24h: "Libérés depuis 24 h", coming_48h: "Libération sous 48 h", new_take: "Nouveaux « À prendre » depuis 24 h" };
+// Périodes d'Aujourd'hui et de la Veille (paramètre period de /api/today et /api/drops?focus=…) : libérés depuis,
+// libération dans, nouveaux « À prendre » depuis. long : la période en toutes lettres dans les libellés (espace
+// insécable : « 7 jours » ne se coupe pas dans les tuiles du téléphone).
+const PERIODS = [{ k: "24h", label: "24 h", long: "24\u00a0h", hours: 24 }, { k: "7d", label: "7 j", long: "7\u00a0jours", hours: 168 },
+  { k: "30d", label: "30 j", long: "30\u00a0jours", hours: 720 }];
+// Chiffres d'Aujourd'hui : la Veille s'ouvre sur exactement leurs noms (/api/drops?focus=…&period=…), filtres mis de côté.
+const DROP_FOCUS = { freed: "Libérés depuis", coming: "Libération sous", new_take: "Nouveaux « À prendre » depuis" };
 // Filtres vierges de l'Explorer ; l'extension choisie reste.
 const EX_BLANK = { cat: "", nat: "", lang: "", len: "", rank: "", taken: "", min: "", junk: "", seo: "", premium: "", status: "bookable", sort: "best", level: "good", ...AI_FILTER_DEFAULTS };
 // Tris de la liste ; « best » suit l'usage (revendre / exploiter) ; « recent » : prénoms de la dernière année Insee.
@@ -39,7 +45,7 @@ const EX_SORTS = ["best", "release", "length", "freq", "recent", "score"];
 // Explorer et Veille : trois réglages simples, les mêmes partout.
 const EX_STATES = [{ k: "bookable", label: "Libres" }, { k: "coming", label: "Bientôt libres" }, { k: "all", label: "Tous, même pris" }];
 const EX_TYPES = [
-  { k: "", label: "Tout" }, { k: "word", label: "Mots courants" }, { k: "english", label: "Anglais" },
+  { k: "", label: "Toutes" }, { k: "word", label: "Mots courants" }, { k: "english", label: "Anglais" },
   { k: "firstname", label: "Prénoms" }, { k: "surname", label: "Noms de famille" }, { k: "startup", label: "Tech et startups" },
   { k: "media", label: "Médias et marques" }, { k: "sector", label: "Secteurs" }, { k: "job", label: "Métiers" },
   { k: "sport", label: "Sport" }, { k: "animal", label: "Animaux" }, { k: "food", label: "Cuisine" }, { k: "trend", label: "Tendances" },
@@ -184,6 +190,9 @@ document.addEventListener("alpine:init", () => {
     // Écran d'accueil : les meilleurs noms du jour (GET /api/today) ; l'appli s'ouvre toujours dessus.
     todayOpen: true,
     today: null,
+    // Période d'Aujourd'hui (clé de PERIODS), mémorisée par le navigateur ; 24 h par défaut.
+    todayPeriod: (() => { try { const p = localStorage.getItem("today.period"); return PERIODS.some((x) => x.k === p) ? p : "24h"; } catch (_) { return "24h"; } })(),
+    PERIODS,
     // Démarrer en 3 étapes (sources, Telegram, avis IA) : /api/meta et /api/today, même calcul serveur.
     setup: [],
     legendOpen: false,
@@ -237,6 +246,8 @@ document.addEventListener("alpine:init", () => {
     dropTab: "free",
     // Chiffre d'Aujourd'hui ouvert dans la Veille (clé de DROP_FOCUS), "" sinon.
     dropFocus: "",
+    // Période du chiffre ouvert : celle d'Aujourd'hui au moment du clic.
+    dropFocusPeriod: "24h",
     DROP_FOCUS,
     // Décisions du Portefeuille : seulement les regrets (noms ignorés repris), depuis Aujourd'hui.
     decisionsRegrets: false,
@@ -501,7 +512,10 @@ document.addEventListener("alpine:init", () => {
     async loadToday() {
       this.loadOrderUrl();
       try {
-        const [data, changed] = await this.apiFresh(`/api/today?sort=${this.lens === "exploit" ? "exploit" : "resale"}`);
+        const period = this.todayPeriod;
+        const [data, changed] = await this.apiFresh(`/api/today?sort=${this.lens === "exploit" ? "exploit" : "resale"}&period=${period}`);
+        // Période changée pendant le chargement : la réponse ne vaut plus.
+        if (period !== this.todayPeriod) return;
         if (!changed && data === this._todayRaw) return;
         this._todayRaw = data;
         this.today = data;
@@ -511,8 +525,22 @@ document.addEventListener("alpine:init", () => {
       }
     },
 
-    // focus : chiffre d'Aujourd'hui (freed_24h, coming_48h, new_take), la liste montre exactement ses noms.
+    setTodayPeriod(k) {
+      if (k === this.todayPeriod) return;
+      this.todayPeriod = k;
+      try { localStorage.setItem("today.period", k); } catch (_) {}
+      return this.loadToday();
+    },
+
+    periodLong(k) { return (PERIODS.find((p) => p.k === k) || PERIODS[0]).long; },
+
+    // Puce du chiffre ouvert dans la Veille : « Libérés depuis 7 jours ».
+    dropFocusLabel() { return this.dropFocus ? `${DROP_FOCUS[this.dropFocus]} ${this.periodLong(this.dropFocusPeriod)}` : ""; },
+
+    // focus : chiffre d'Aujourd'hui (freed, coming, new_take), la liste montre exactement ses noms, pour la
+    // période choisie sur Aujourd'hui.
     async openVeille(tab, focus = "") {
+      this.dropFocusPeriod = this.todayPeriod;
       this.dropSetTab(tab);
       if (this.dropsOpen) { this.dropFocus = focus; await this.loadDrops(); return; }
       // Lu par openSheet à l'ouverture de la Veille, puis effacé.
@@ -593,7 +621,7 @@ document.addEventListener("alpine:init", () => {
       const verdict = this.aiVerdict(ai);
       // Tri « les plus fréquents » : le rang du nom dans sa liste (« 12e prénom le plus donné »).
       const byFreq = (list === "explore" && this.ex.sort === "freq") || (list === "veille" && this.dropSort === "freq");
-      const freq = byFreq ? this.freqText(i, list === "explore" ? this.ex.cat : this.dropFreqList()) : "";
+      const freq = byFreq ? this.freqText(i, list === "explore" ? this.exFreqList() : this.dropFreqList()) : "";
       return {
         name: i.name, list, item: i,
         primary: scoreFirst ? score : note,
@@ -1301,7 +1329,7 @@ document.addEventListener("alpine:init", () => {
       // « Libération la plus proche » ne vaut que pour Bientôt libres : ailleurs, retour aux meilleurs.
       if (this.ex.status !== "coming" && this.ex.sort === "release") this.ex.sort = "best";
       // Mélanges et tirets ne sont jamais « prononçables » : sans les suites incluses, la liste serait vide.
-      if (patch.cat === "mixed") this.ex.junk = "1";
+      if ("cat" in patch && this.exCats().some((c) => c === "mixed" || c === "hyphen")) this.ex.junk = "1";
       // « Les plus donnés en … » n'existe qu'avec le type Prénoms.
       if ("cat" in patch && patch.cat !== "firstname" && this.ex.sort === "recent") this.ex.sort = "best";
       this.exSelected = [];
@@ -1327,6 +1355,8 @@ document.addEventListener("alpine:init", () => {
       if (f.sort && !EX_SORTS.includes(f.sort)) f.sort = "best";
       if (f.sort === "release" && f.status && f.status !== "coming") f.sort = "best";
       if (f.level && f.level !== "good") f.level = "good";
+      // Plusieurs catégories : dans l'ordre du serveur (triées), pour reconnaître la vue active.
+      if (f.cat) f.cat = String(f.cat).split(",").filter(Boolean).sort().join(",");
       return f;
     },
 
@@ -1334,7 +1364,7 @@ document.addEventListener("alpine:init", () => {
       if (!this.exData) return [];
       const e = this.ex;
       const out = [];
-      if (e.cat && !EX_TYPES.some((t) => t.k === e.cat)) out.push({ key: "cat", label: this.exData.kinds[e.cat] });
+      for (const c of this.exCats()) if (!EX_TYPES.some((t) => t.k === c)) out.push({ key: "cat:" + c, label: this.exData.kinds[c] || c });
       if (e.nat) out.push({ key: "nat", label: this.exData.natures[e.nat] });
       if (e.lang) out.push({ key: "lang", label: this.exData.langs[e.lang] });
       if (e.len && e.len !== "-4") out.push({ key: "len", label: this.exLengths.find((o) => o.v === e.len)?.label + " car." });
@@ -1354,17 +1384,48 @@ document.addEventListener("alpine:init", () => {
       return out;
     },
 
-    exClear(key) { return this.exSet(Object.fromEntries([].concat(key).map((k) => [k, ""]))); },
+    exClear(key) {
+      if (typeof key === "string" && key.startsWith("cat:")) return this.exSet({ cat: this.exCats().filter((c) => c !== key.slice(4)).join(",") });
+      return this.exSet(Object.fromEntries([].concat(key).map((k) => [k, ""])));
+    },
 
     // Filtres du panneau Avancé seulement : l'état, le tri, le niveau et l'usage restent.
     exReset() { return this.exSet({ cat: "", len: "", nat: "", lang: "", rank: "", taken: "", min: "", junk: "", seo: "", premium: "", ...AI_FILTER_DEFAULTS }); },
 
     exSortParam() { return this.ex.sort === "best" ? this.lens : this.ex.sort; },
 
-    exTypeOn(t) { return t.k === "short" ? this.ex.len === "-4" && !this.ex.cat : this.ex.cat === t.k && this.ex.len !== "-4"; },
+    // Catégories cochées, plusieurs à la fois (union) : cat=firstname,surname.
+    exCats() { return (this.ex.cat || "").split(",").filter(Boolean); },
+
+    // Rang affiché avec le tri « Les plus fréquents » : une seule liste cochée, son rang ; sinon freq_list du serveur.
+    exFreqList() {
+      const lists = this.exCats().filter((k) => !SHAPE_KINDS.includes(k));
+      return lists.length === 1 ? lists[0] : "";
+    },
+
+    // Puce de catégorie cochée ou non ; elle s'ajoute aux autres ou se retire.
+    exToggleCat(k) {
+      const on = this.exCats();
+      const next = on.includes(k) ? on.filter((x) => x !== k) : [...on, k];
+      return this.exSet({ cat: next.sort().join(",") });
+    },
+
+    exTypeOn(t) {
+      if (t.k === "short") return this.ex.len === "-4" && !this.ex.cat;
+      if (!t.k) return !this.ex.cat && this.ex.len !== "-4";
+      return this.exCats().includes(t.k) && this.ex.len !== "-4";
+    },
 
     // Un type ne touche pas à la longueur choisie dans Avancé ; seul « Courts (1 à 4) » est une longueur.
-    exSetType(t) { return this.exSet(t.k === "short" ? { cat: "", len: "-4" } : { cat: t.k, len: this.ex.len === "-4" ? "" : this.ex.len }); },
+    // « Toutes » efface les types ; les autres se cochent à plusieurs.
+    exSetType(t) {
+      if (t.k === "short") return this.exSet({ cat: "", len: "-4" });
+      const len = this.ex.len === "-4" ? "" : this.ex.len;
+      if (!t.k) return this.exSet({ cat: "", len });
+      const on = this.ex.len === "-4" ? [] : this.exCats();
+      const next = on.includes(t.k) ? on.filter((x) => x !== t.k) : [...on, t.k];
+      return this.exSet({ cat: next.sort().join(","), len });
+    },
 
     setLens(k) {
       this.lens = k;
@@ -1939,10 +2000,10 @@ document.addEventListener("alpine:init", () => {
           else this.dropsData = { ...status, items: [] };
           return;
         }
-        const focus = this.dropFocus;
-        const [data, changed] = await this.apiFresh(focus ? `/api/drops?focus=${focus}` : "/api/drops");
+        const focus = this.dropFocus, period = this.dropFocusPeriod;
+        const [data, changed] = await this.apiFresh(focus ? `/api/drops?focus=${focus}&period=${period}` : "/api/drops");
         // Focus changé pendant le chargement : la réponse ne vaut plus.
-        if (focus !== this.dropFocus) return;
+        if (focus !== this.dropFocus || (focus && period !== this.dropFocusPeriod)) return;
         // Même réponse que celle affichée (retour sur l'écran) : rien à redessiner.
         if (!changed && data === this._dropsRaw) return;
         this._dropsRaw = data;
@@ -1978,7 +2039,21 @@ document.addEventListener("alpine:init", () => {
         && (!len || (len < 0 ? label.length <= -len : len >= 5 ? label.length >= 5 : label.length === len))
         && (!f.rank || (d.rank && d.rank <= Number(f.rank)))
         && (!this.dropMin || d.score >= this.dropMin)
-        && (f.junk || d.good !== false);
+        && (f.junk || d.good !== false)
+        && this.dropPeriodOk(d);
+    },
+
+    // Période de la Veille : Libérés, libres depuis N ; Bientôt libres, libération estimée dans les N prochaines.
+    dropPeriodOk(d) {
+      const p = PERIODS.find((x) => x.k === this.df.period);
+      if (!p) return true;
+      const span = p.hours * 3600 * 1000;
+      if (["available", "unconfirmed"].includes(d.state)) {
+        const at = Date.parse(d.available_since || d.state_since || "");
+        return at >= this.now - span;
+      }
+      const at = Date.parse(d.release_at || "");
+      return at <= this.now + span;
     },
 
     // Score minimum explicite (filtres avancés) ; les niveaux font le tri courant.
@@ -2146,6 +2221,7 @@ document.addEventListener("alpine:init", () => {
       if (f.junk) out.push({ key: "junk", label: "Suites et mélanges inclus" });
       if (f.ai.length) out.push({ key: "ai", label: "IA : " + f.ai.map((v) => AI_VERDICTS[v]).join(", ") });
       if (f.quick) out.push({ key: "quick", label: `Revente rapide ≥ ${f.quick} €` });
+      if (f.period) out.push({ key: "period", label: `${this.dropTab === "coming" ? "Libération sous" : "Libérés depuis"} ${this.periodLong(f.period)}` });
       return out;
     },
 
@@ -2178,6 +2254,7 @@ document.addEventListener("alpine:init", () => {
         this.dropKinds = Array.isArray(saved.kinds) ? saved.kinds : [];
         if (typeof saved.level === "string") this.dropLevel = saved.level;
         if (DROP_SORTS.includes(saved.sort)) this.dropSortMode = saved.sort;
+        if (!PERIODS.some((p) => p.k === this.df.period)) this.df.period = "";
       } catch (_) {}
     },
 

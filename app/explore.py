@@ -202,12 +202,22 @@ def ai_condition(spec: str) -> tuple[str, list]:
     return " AND ".join(where) or "1", args
 
 
+def split_cats(category: str | None) -> list[str]:
+    """Catégories d'un filtre : une ou plusieurs, séparées par des virgules (cat=firstname,surname), triées."""
+    return sorted({c.strip() for c in (category or "").split(",") if c.strip()})
+
+
+def freq_key(category: str | None) -> str:
+    """Ordre « les plus fréquents » : les listes du filtre de catégorie (une ou plusieurs), sinon toutes ("")."""
+    return ",".join(c for c in split_cats(category) if c in wordlists.LABELS)
+
+
 @dataclass
 class Filters:
     q: str = ""
     mode: str = "prefix"
     status: str = ""
-    category: str = ""
+    category: str = ""  # une ou plusieurs (union), séparées par des virgules
     length: int | None = None  # > 0 exactement, 5 : 5 et plus, < 0 : au plus
     nature: str = ""  # verb, noun, adj, adv, other
     max_rank: int | None = None  # dans les N plus fréquents de sa liste
@@ -219,6 +229,14 @@ class Filters:
     lang: str = ""  # fr ou en (wordlists.LANGS)
     premium: bool = False  # True : les premiums probables se mêlent aux noms à saisir
     level: str = ""  # gem : pépites ; good : bons (score ou avis IA favorable) ; vide : tout
+
+    def __post_init__(self):
+        # Forme canonique (triée, sans doublon) : même clé de mémoire quel que soit l'ordre des puces.
+        self.category = ",".join(split_cats(self.category))
+
+    @property
+    def cats(self) -> list[str]:
+        return self.category.split(",") if self.category else []
 
     @classmethod
     def of(cls, *args, **kwargs) -> "Filters":
@@ -269,6 +287,8 @@ class Universe:
                 if i is not None:
                     best[i] = min(best.get(i, 1.0), n / len(r))
         self.by_frequency[""] = array("i", sorted(best, key=best.get))
+        # Unions de listes (plusieurs catégories cochées), faites à la demande.
+        self._unions: dict[str, array] = {}
         # Noms de 5 caractères et plus, du plus court au plus long puis par ordre alphabétique.
         self.by_length = array("i", sorted(range(drops.CELLS, self.size),
                                            key=lambda i: (len(self.words[i - drops.CELLS]), self.words[i - drops.CELLS])))
@@ -331,11 +351,36 @@ class Universe:
             return f"L{n}{'g' if self.good is not None and self.good[i] else 'b'}"
         return f"{'D' if kind == 'digits' else 'M'}{n}"
 
+    def frequency(self, key: str) -> array:
+        """Noms du plus fréquent au moins fréquent : une liste, toutes (""), ou plusieurs (« firstname,surname »,
+        par le meilleur rang relatif, comme pour toutes)."""
+        found = self.by_frequency.get(key)
+        if found is None:
+            ranks = wordlists.ranks()
+            best: dict[int, float] = {}
+            for k in key.split(","):
+                r = ranks[k]
+                for w, n in r.items():
+                    i = self.index(w)
+                    if i is not None:
+                        best[i] = min(best.get(i, 1.0), n / len(r))
+            found = self.by_frequency[key] = array("i", sorted(best, key=lambda i: (best[i], i)))
+        return found
+
+    def in_lists(self, key: str) -> array:
+        """Noms d'une ou plusieurs listes (union), dans l'ordre de l'univers."""
+        if "," not in key:
+            return self.by_list[key]
+        found = self._unions.get(key)
+        if found is None:
+            found = self._unions[key] = array("i", sorted({i for k in key.split(",") for i in self.by_list[k]}))
+        return found
+
     def position(self, order_key: str, i: int) -> int:
         """Place d'un nom dans un ordre de la liste (fréquence, longueur), pour fusionner des listes."""
         found = self._positions.get(order_key)
         if found is None:
-            order = self.by_length if order_key == "length" else self.by_frequency[order_key]
+            order = self.by_length if order_key == "length" else self.frequency(order_key)
             found = self._positions[order_key] = {x: n for n, x in enumerate(order)}
         return found.get(i, len(found))
 
@@ -666,26 +711,30 @@ class Explorer:
         return 0, self.universe.size
 
     def best_rank(self, label: str, category: str = "") -> int | None:
+        """Meilleur rang du nom dans les listes du filtre de catégorie (une ou plusieurs), sinon dans toutes."""
         ranks = wordlists.ranks()
         if category in ranks:
             return ranks[category].get(label)
-        found = [r[label] for r in ranks.values() if label in r]
+        keys = ([c for c in category.split(",") if c in ranks] if "," in category else []) or ranks
+        found = [ranks[k][label] for k in keys if label in ranks[k]]
         return min(found) if found else None
+
+    @staticmethod
+    def _in_category(label: str, category: str) -> bool:
+        if category in wordlists.LABELS:
+            return label in wordlists.lists()[category]
+        if len(label) > drops.MAX_SHORT:
+            return False
+        kind = drops.kind_of(label)
+        # Dans l'Explorer, « mélangés » regroupe lettres et chiffres mêlés et noms à tiret.
+        return kind == category or (category == "mixed" and kind == "hyphen")
 
     def _keep(self, label: str, f: Filters) -> bool:
         if not self._length_ok(label, f.length):
             return False
-        if f.category:
-            if f.category in wordlists.LABELS:
-                if label not in wordlists.lists()[f.category]:
-                    return False
-            elif len(label) > drops.MAX_SHORT:
-                return False
-            else:
-                kind = drops.kind_of(label)
-                # Dans l'Explorer, « mélangés » regroupe lettres et chiffres mêlés et noms à tiret.
-                if not (kind == f.category or (f.category == "mixed" and kind == "hyphen")):
-                    return False
+        # Plusieurs catégories : le nom passe s'il est dans l'une d'elles.
+        if f.category and not any(self._in_category(label, c) for c in f.cats):
+            return False
         if f.nature and f.nature not in wordlists.natures().get(label, ()):
             return False
         if f.lang and label not in wordlists.languages().get(f.lang, ()):
@@ -767,8 +816,8 @@ class Explorer:
             return self._short_matching(q, f.mode) + self._word_matching(q, f.mode)
         if f.nature:
             return u.by_nature.get(f.nature, [])
-        if f.category in wordlists.LABELS:
-            return u.by_list[f.category]
+        if f.category and all(c in wordlists.LABELS for c in f.cats):
+            return u.in_lists(f.category)
         if f.lang:
             return u.by_lang.get(f.lang, [])
         if f.max_rank:
@@ -1225,10 +1274,10 @@ class Explorer:
         if sort == "length":
             return lambda item: (where(item) if where(item) < drops.CELLS else drops.CELLS + u.position("length", where(item)), item["tld"])
         if sort == "freq":
-            key = category if category in wordlists.LABELS else ""
+            key = freq_key(category)
             return lambda item: (u.position(key, where(item)), item["tld"])
         if sort == "recent":
-            key = category if category in wordlists.LABELS else ""
+            key = freq_key(category)
             ranked = (self.recent_order() or {}).get("position", {})
             return lambda item: (ranked.get(where(item), len(ranked) + u.position(key, where(item))), item["tld"])
         if sort == "seo":
@@ -1328,8 +1377,8 @@ class Explorer:
         others = self._others(tld, f)
         u = self.universe
         ctx = self._bonus_context(tld)
-        key = f.category if f.category in wordlists.LABELS else ""
-        order = u.by_frequency[key]
+        key = freq_key(f.category)
+        order = u.frequency(key)
         q = self.normalize(f.q, tld)
         allowed = self._restrict(tld, f)
         items = []
@@ -1347,10 +1396,13 @@ class Explorer:
             if len(items) >= limit:
                 break
         items = items[:limit]
-        # Liste qui donne le rang : celle du filtre, sinon celle où le nom est le mieux placé (même calcul que l'ordre).
+        # Liste qui donne le rang : celle du filtre ; plusieurs (ou aucune), celle où le nom est le mieux placé
+        # parmi elles (même calcul que l'ordre).
         sizes = {k: len(r) for k, r in wordlists.ranks().items()}
+        keys = key.split(",") if key else None
         for item in items:
-            item["freq_list"] = key or min(item["ranks"], key=lambda k: item["ranks"][k] / sizes[k], default=None)
+            ranks = {k: n for k, n in item["ranks"].items() if keys is None or k in keys}
+            item["freq_list"] = min(ranks, key=lambda k: ranks[k] / sizes[k], default=None)
         return {"items": items}
 
     # --- Compteurs -------------------------------------------------------------------
@@ -1375,26 +1427,12 @@ class Explorer:
                     if len(w) < f.length:
                         mask[drops.CELLS + n] = 0
             parts.append(int.from_bytes(mask, "big"))
-        if f.category in wordlists.LABELS:
-            parts.append(from_indices(u.by_list[f.category]))
-        elif f.category in ("letters", "digits"):
-            arrays = u.letters if f.category == "letters" else u.digits
-            parts.append(from_indices(i for n in arrays for i in arrays[n]))
-        elif f.category == "mixed":
-            mask = bytearray(u.size)
-            mask[:drops.CELLS] = b"\x01" * drops.CELLS
-            for arrays in (u.letters, u.digits):
-                for n in arrays:
-                    for i in arrays[n]:
-                        mask[i] = 0
-            parts.append(int.from_bytes(mask, "big"))
-        elif f.category == "hyphen":
-            # Un tiret demande 3 caractères au moins (a-b) ; les compteurs sont gardés en mémoire.
-            mask = bytearray(u.size)
-            for i in range(drops.OFFSETS[2], drops.CELLS):
-                if "-" in u.label(i):
-                    mask[i] = 1
-            parts.append(int.from_bytes(mask, "big"))
+        if f.category:
+            # Plusieurs catégories : union de leurs masques.
+            union = 0
+            for c in f.cats:
+                union |= self._category_mask(c, from_indices)
+            parts.append(union)
         if f.nature:
             parts.append(from_indices(u.by_nature.get(f.nature, [])))
         if f.lang:
@@ -1420,6 +1458,27 @@ class Explorer:
         for part in parts[1:]:
             mask &= part
         return mask
+
+    def _category_mask(self, category: str, from_indices) -> int:
+        u = self.universe
+        if category in wordlists.LABELS:
+            return from_indices(u.by_list[category])
+        if category in ("letters", "digits"):
+            arrays = u.letters if category == "letters" else u.digits
+            return from_indices(i for n in arrays for i in arrays[n])
+        mask = bytearray(u.size)
+        if category == "mixed":
+            mask[:drops.CELLS] = b"\x01" * drops.CELLS
+            for arrays in (u.letters, u.digits):
+                for n in arrays:
+                    for i in arrays[n]:
+                        mask[i] = 0
+        elif category == "hyphen":
+            # Un tiret demande 3 caractères au moins (a-b) ; les compteurs sont gardés en mémoire.
+            for i in range(drops.OFFSETS[2], drops.CELLS):
+                if "-" in u.label(i):
+                    mask[i] = 1
+        return int.from_bytes(mask, "big")
 
     def facets(self, tld: str, *args, **kwargs) -> dict:
         """Nombre de noms par état, pour les filtres choisis (recherche exclue)."""
