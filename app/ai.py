@@ -14,7 +14,7 @@ import secrets
 import threading
 from datetime import timedelta
 
-from . import rdapinfo, value, wordlists
+from . import gandi, rdapinfo, value, wordlists
 from .checker import iso, utcnow
 
 # Version de la consigne : la monter fait renoter tous les noms, petit à petit.
@@ -69,6 +69,7 @@ Second passage : un nom qui porte « review » a déjà un avis de ta part, trè
 Crédibilité avant tout :
 - La plupart des noms valent peu. Des 9 et des 10 partout sont réservés aux meilleurs mots du marché.
 - Le statut du nom (libre, libération à venir, jamais enregistré, supprimé, enregistré) ne change pas sa valeur : juge le nom comme s'il était libre.
+- Un nom qui porte « gandi » a été vérifié chez un registrar (kind, price : prix d'achat en euros). Un premium coûte cher à l'achat : la revente doit couvrir ce prix, sinon descends marche et acheteurs. Un nom indisponible (unavailable, reserved, restricted) ne vaut rien à l'achat.
 - N'invente rien : un nom sans sens connu a sens 0, même s'il sonne bien.
 
 Format : une liste JSON d'objets avec exactement ces clés : name, oral, radio, memo, sens, marque, marche, ext, acheteurs, risque, quick_low, quick_high, final_low, final_high, comment ; name est le nom complet reçu, tel quel ; un objet par nom, dans l'ordre reçu, sans texte autour.
@@ -290,7 +291,8 @@ def _queue(explorer, limit: int):
     soon = []
     for tld in tlds:
         ctx = explorer._bonus_context(tld)
-        for i in _positions(data[tld], FREE_SOON):
+        # Premium d'après Gandi : il s'achète (cher), noté avec les libres ; un premium probable non vérifié non.
+        for i in _positions(data[tld], FREE_SOON) + explorer.gandi_premiums(tld):
             if u.good[i]:
                 label = u.label(i)
                 weight = TLD_WEIGHT.get(tld, OTHER_TLD_WEIGHT)
@@ -347,6 +349,13 @@ def _describe(explorer, picked, data) -> list[dict]:
     natures = wordlists.natures()
     names = [f"{label}.{tld}" for _, label, tld in picked]
     seo = explorer._seo_rows(names) if names else {}
+    # Réponse de Gandi (premium et son prix, libre, indisponible) : la notation en tient compte (consigne).
+    checks = gandi.load(explorer.conn, names)
+    since = {}
+    for chunk in range(0, len(names), 900):
+        part = names[chunk:chunk + 900]
+        since.update(explorer.conn.execute(
+            f"SELECT name, state_since FROM drops WHERE name IN ({','.join('?' * len(part))})", part).fetchall())
     fr = {}
     labels = sorted({label for _, label, tld in picked if tld == "fr"})
     for chunk in range(0, len(labels), 900):
@@ -371,6 +380,9 @@ def _describe(explorer, picked, data) -> list[dict]:
         s = seo.get(name)
         if s is not None:
             item["seo"] = {"pagerank": s["pr"], "archived_since": s["wb_first"], "archived_years": s["wb_years"]}
+        found = gandi.summary(checks.get(name), since.get(name))
+        if found is not None:
+            item["gandi"] = found
         out.append(item)
     return out
 
@@ -566,6 +578,9 @@ def requested(explorer) -> list[dict]:
             # Hors des listes ou extension sans zone : on dit ce qu'on sait, sans inventer.
             item = {"name": name, "status": "hors des listes suivies", "categories": [], "natures": [], "ranks": {},
                     "taken_elsewhere": [t for t in data if i is not None and data[t][i] in TAKEN], "base": value.base(label)}
+            found = gandi.summary(gandi.load(explorer.conn, [name]).get(name))
+            if found is not None:
+                item["gandi"] = found
         r = rdap.get(name)
         if r is not None:
             item["rdap"] = {k: r[k] for k in ("at", "available", "statuses", "registered_at", "expires_at")}

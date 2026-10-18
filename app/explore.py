@@ -24,7 +24,7 @@ from array import array
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
-from . import ai, ccdns, drops, frdns, precompute, prenoms, quality, rdapinfo, states, value, wordlists
+from . import ai, ccdns, drops, frdns, gandi, precompute, prenoms, quality, rdapinfo, states, value, wordlists
 from .checker import iso, utcnow
 
 # États, un octet par nom.
@@ -59,6 +59,25 @@ ABSENT_FR = "Jamais enregistré"
 # (enregistré sans serveurs, réservé ou premium du registre) ; jamais interrogé : rien n'est connu.
 ABSENT_DNS = "Absent du DNS, à vérifier"
 NOT_ASKED = "Pas interrogé"
+# Gandi (gandi.py) : sa réponse précise l'état d'un nom non pris, jamais celui d'un nom enregistré ou en
+# rédemption. Libre au prix standard : libre ; premium : premium, au prix réel ; indisponible, réservé ou
+# restreint : réservé (un nom qu'on croyait libre n'est plus jamais affiché libre). Un terme réservé d'une
+# liste (Afnic, communes) ou marqué à la main le reste. Une réponse en erreur ne change rien.
+GANDI_OPEN = (GONE, ABSENT, UNCONFIRMED, FREE, PREMIUM, RESERVED)
+FREE_GANDI = "Libre (Gandi)"
+
+
+def gandi_code(code: int, kind: str, listed: bool = False) -> int:
+    """État d'un nom une fois prise en compte une réponse de Gandi valable (gandi.applies)."""
+    if code not in GANDI_OPEN or (code == RESERVED and listed):
+        return code
+    if kind == "available":
+        return FREE
+    if kind == "premium":
+        return PREMIUM
+    if kind in gandi.BLOCKED:
+        return RESERVED
+    return code
 
 
 def absent_label(tld: str) -> str:
@@ -228,7 +247,8 @@ class Filters:
     seo: str = ""  # any : analysé avec signal ; pr1, pr3, pr5 : PageRank minimum ; wb5 : archivé 5 ans et plus
     ai: str = ""  # avis IA, forme canonique de ai_filter() : « v=take,watch;exploit=40-;quick_high=-500 »
     lang: str = ""  # fr ou en (wordlists.LANGS)
-    premium: bool = False  # True : les premiums probables se mêlent aux noms à saisir
+    premium: bool = False  # True : les premiums (probables ou vus chez Gandi) se mêlent aux noms à saisir
+    gprice: int | None = None  # prix d'achat Gandi au plus, en euros : seulement les noms vérifiés chez Gandi
     level: str = ""  # gem : pépites ; good : bons (score ou avis IA favorable) ; vide : tout
 
     def __post_init__(self):
@@ -439,6 +459,8 @@ class Explorer:
         self._dns_known: dict[str, tuple] = {}
         # Prénoms récents de l'Insee (prenoms.RecentNames), posés par main.py : Top, tri « recent », raison.
         self.recent = None
+        # Client Gandi (gandi.Gandi), posé par main.py : le bouton Vérifier l'interroge aussi pour un nom non pris.
+        self.gandi = None
         self._recent_cache: tuple[int, dict] | None = None
         # Score de chaque nom déjà noté par value_of (Veille, Aujourd'hui), avec la version des données
         # du calcul : 3 600 noms à noter à chaque ouverture coûtaient plusieurs secondes sur le NAS.
@@ -631,7 +653,35 @@ class Explorer:
             for i in range(drops.OFFSETS[2], drops.OFFSETS[PREMIUM_LENGTH]):
                 if status[i] in (ABSENT, UNCONFIRMED, FREE) and f"{u.label(i)}.{tld}" not in unflagged:
                     status[i] = PREMIUM
+        # Gandi en dernier : ce qu'il dit l'emporte sur les estimations (premium probable, court réservé).
+        listed = self.reserved.names() if self.reserved is not None else frozenset()
+        cut = len(tld) + 1
+        for name, kind, at, since in self._gandi_rows(tld):
+            i = u.index(name[:-cut])
+            if i is not None and not (since and since > at):
+                status[i] = gandi_code(status[i], kind, name in listed)
         return status
+
+    def _gandi_rows(self, tld: str, where: str = "", args: tuple = ()) -> list:
+        """Réponses de Gandi de l'extension (hors erreurs), avec l'entrée du nom dans son état actuel (Veille)."""
+        return self.conn.execute(
+            f"""SELECT g.name, g.kind, g.checked_at, d.state_since FROM gandi_checks g LEFT JOIN drops d ON d.name = g.name
+                WHERE g.name LIKE ? AND g.kind != 'error' {where}""", (f"%.{tld}", *args)).fetchall()
+
+    def _gandi_indices(self, tld: str, gprice: int) -> list[int]:
+        """Noms de l'extension vérifiés chez Gandi, achetables au plus à ce prix (TTC), dans l'ordre de l'univers."""
+        cut = len(tld) + 1
+        found = (self.universe.index(name[:-cut]) for name, _, at, since in self._gandi_rows(
+            tld, "AND g.kind IN ('available', 'premium') AND g.price IS NOT NULL AND g.price <= ?", (gprice,))
+            if not (since and since > at))
+        return sorted(i for i in found if i is not None)
+
+    def gandi_premiums(self, tld: str) -> list[int]:
+        """Noms de l'extension premium d'après Gandi (file de notation IA : un premium s'achète)."""
+        data = self.status_bytes(tld)
+        cut = len(tld) + 1
+        found = (self.universe.index(name[:-cut]) for name, *_ in self._gandi_rows(tld, "AND g.kind = 'premium'"))
+        return [i for i in found if i is not None and data[i] == PREMIUM]
 
     def codes(self, status: str, default: str = "", premium: bool = False) -> tuple[int, ...]:
         key = status if status in STATUS_FILTERS else default
@@ -792,7 +842,7 @@ class Explorer:
 
     def _restrict(self, tld: str, f: Filters) -> set[int] | None:
         """Noms admis par les filtres SEO et avis IA (les tris qui suivent leur propre ordre s'en servent)."""
-        if not (f.seo or f.ai):
+        if not (f.seo or f.ai or f.gprice is not None):
             return None
         allowed = None
         if f.seo:
@@ -800,18 +850,24 @@ class Explorer:
         if f.ai:
             rated = set(self._ai_indices(tld, f.ai))
             allowed = rated if allowed is None else allowed & rated
+        if f.gprice is not None:
+            priced = set(self._gandi_indices(tld, f.gprice))
+            allowed = priced if allowed is None else allowed & priced
         return allowed
 
     def _candidates(self, f: Filters, q: str, tld: str = ""):
         """Positions à examiner, dans l'ordre, ou None pour tout l'univers."""
         u = self.universe
-        if (f.seo or f.ai) and tld:
+        if (f.seo or f.ai or f.gprice is not None) and tld:
             found = None
             if f.seo:
                 found = self._seo_indices(tld, f.seo)
             if f.ai:
                 rated = self._ai_indices(tld, f.ai)
                 found = rated if found is None else sorted(set(found) & set(rated))
+            if f.gprice is not None:
+                priced = self._gandi_indices(tld, f.gprice)
+                found = priced if found is None else sorted(set(found) & set(priced))
             return [i for i in found if self._matches(u.label(i), f, q)] if q else found
         if q:
             return self._short_matching(q, f.mode) + self._word_matching(q, f.mode)
@@ -1453,6 +1509,8 @@ class Explorer:
             parts.append(from_indices(self._seo_indices(tld, f.seo)))
         if f.ai:
             parts.append(from_indices(self._ai_indices(tld, f.ai)))
+        if f.gprice is not None:
+            parts.append(from_indices(self._gandi_indices(tld, f.gprice)))
         if not parts:
             return None
         mask = parts[0]
@@ -1486,7 +1544,7 @@ class Explorer:
         f = Filters.of(*args, **kwargs)
         if self._hopeless(tld, f):
             return dict.fromkeys(STATUS_FILTERS, 0)
-        key = ("facets", tld, f.category, f.length, f.nature, f.max_rank, f.taken, f.junk, f.seo, f.ai, f.lang)
+        key = ("facets", tld, f.category, f.length, f.nature, f.max_rank, f.taken, f.junk, f.seo, f.ai, f.lang, f.gprice)
         raw = self._memo(key, lambda: self._facets(tld, f))
         by_code = raw["by_code"]
         # Les états réservés suivent le réglage du moment : conversion à chaque appel, sans recompter.
@@ -1522,7 +1580,7 @@ class Explorer:
             seen = self.conn.execute("SELECT present FROM name_dns WHERE label = ?", (label,)).fetchone()
             if seen and seen["present"]:
                 code = REGISTERED
-        drop = self.conn.execute("SELECT state FROM drops WHERE name = ?", (f"{label}.{tld}",)).fetchone()
+        drop = self.conn.execute("SELECT state, state_since FROM drops WHERE name = ?", (f"{label}.{tld}",)).fetchone()
         state = drop["state"] if drop else None
         if state in drops.TRACKED:
             code = COMING
@@ -1542,6 +1600,10 @@ class Explorer:
               and drops.OFFSETS[2] <= i < drops.OFFSETS[PREMIUM_LENGTH]
               and (self.reserved is None or f"{label}.{tld}" not in self.reserved.unflagged())):
             code = PREMIUM
+        found = self.conn.execute("SELECT kind, checked_at FROM gandi_checks WHERE name = ?", (f"{label}.{tld}",)).fetchone()
+        if found is not None and gandi.applies(dict(found), drop["state_since"] if drop else None):
+            listed = self.reserved is not None and f"{label}.{tld}" in self.reserved.names()
+            code = gandi_code(code, found["kind"], listed)
         return base, code
 
     def touch(self, name: str) -> None:
@@ -1583,8 +1645,8 @@ class Explorer:
                     seo = self.conn.execute("SELECT * FROM domain_seo WHERE name = ?", (name,)).fetchone()
                     if seo is not None:
                         value["seo"][name] = seo
-            # Le SEO du nom a pu changer : les compteurs filtrés sur le SEO sont recomptés.
-            for key in [k for k in self._memos if k[0][0] == "facets" and k[0][1] == tld and k[0][8]]:
+            # Le SEO ou le prix Gandi du nom ont pu changer : les compteurs filtrés dessus sont recomptés.
+            for key in [k for k in self._memos if k[0][0] == "facets" and k[0][1] == tld and (k[0][8] or k[0][11] is not None)]:
                 self._memos.pop(key, None)
             if changed:
                 self._map_dirty = True
@@ -1659,14 +1721,14 @@ class Explorer:
         """Carte extension x catégorie : noms à saisir par case (noms qui ont un sens seulement)."""
         tlds = self.tlds()
         filters = {"short": ("", -3), "l4": ("letters", 4), **{k: (k, None) for k in wordlists.LABELS}}
-        # Mêmes compteurs que la puce « Libres » de la liste (réservables, libération à venir exclue) :
+        # Mêmes compteurs que la puce « Libres » de la liste par défaut (réservables, premiums compris, libération à venir exclue) :
         # une case et le filtre qu'elle ouvre donnent le même nombre. Le masque d'une ligne ne dépend pas
         # de l'extension : fait une fois. Seuls les états réservables sont comptés, en un passage par case.
         masks = {key: self._mask(tlds[0], Filters.of(category=c, length=n)) for key, (c, n) in filters.items()} if tlds else {}
         cells = {}
         for tld in tlds:
             data = self.status_bytes(tld)
-            wanted = set(self.codes("bookable", premium=False))
+            wanted = set(self.codes("bookable", premium=True))
             hit = int.from_bytes(data.translate(bytes(1 if c in wanted else 0 for c in range(256))), "big")
             cells[tld] = {key: (hit & mask).bit_count() if mask is not None else bin(hit).count("1")
                           for key, mask in masks.items()}
@@ -1699,11 +1761,16 @@ class Explorer:
         owned = {r[0] for r in self.conn.execute("SELECT name FROM portfolio")}
         details = rdapinfo.load(self.conn, names)
         opinions = ai.load(self.conn, names)
+        checks = gandi.load(self.conn, names)
+        listed = self.reserved.names() if self.reserved is not None else frozenset()
         items = []
         for i, label, name in zip(indices, labels, names):
             code = data[i]
             fr = extra.get(label)
             drop = dropped.get(name)
+            check = checks.get(name)
+            since = drop["state_since"] if drop else None
+            seen = self._gandi_seen(code, check, since, name in listed)
             items.append({
                 "label": label,
                 "name": name,
@@ -1713,6 +1780,8 @@ class Explorer:
                 "status": code,
                 "status_label": (absent_label(tld) if code == ABSENT
                                  else DROP_LABELS.get(drop["state"], LABELS[code]) if code == COMING and drop
+                                 else FREE_GANDI if seen and code == FREE and not (drop and drop["state"] == states.AVAILABLE)
+                                 else gandi.KIND_LABELS["premium"] if seen and code == PREMIUM
                                  else self._status_label(tld, code)),
                 "created_on": fr["created_on"] if fr else None,
                 # Une sortie de zone repérée puis démentie (nom repris) n'est pas une suppression.
@@ -1728,11 +1797,30 @@ class Explorer:
                 "watched": name in watched,
                 "in_portfolio": name in owned,
                 "rdap": details.get(name),
-                "reserved": self.reserved.why(name) if self.reserved is not None and code == RESERVED else [],
+                "reserved": self._reserved_why(name, code, check if seen else None),
                 "ai": opinions.get(name),
-                "premium_price": self._premium_price(tld, label, code),
+                "premium_price": (round(check["price"]) if seen and code == PREMIUM and check["price"] is not None
+                                  else None if seen else self._premium_price(tld, label, code)),
+                "gandi": gandi.public(check, since),
             })
         return items
+
+    @staticmethod
+    def _gandi_seen(code: int, check: dict | None, since: str | None, listed: bool) -> bool:
+        """La réponse de Gandi fait l'état affiché du nom (et pas une liste de réservés ni un nom enregistré)."""
+        if not gandi.applies(check, since):
+            return False
+        expected = {"available": FREE, "premium": PREMIUM}.get(check["kind"], RESERVED if check["kind"] in gandi.BLOCKED else None)
+        return code == expected and not (code == RESERVED and listed)
+
+    def _reserved_why(self, name: str, code: int, check: dict | None) -> list[str]:
+        """Raisons d'un nom réservé : listes et marquages, puis la réponse de Gandi."""
+        if code != RESERVED:
+            return []
+        found = self.reserved.why(name) if self.reserved is not None else []
+        if check is not None and check["kind"] in gandi.BLOCKED:
+            found = found + [gandi.KIND_LABELS[check["kind"]]]
+        return found
 
     def _premium_price(self, tld: str, label: str, code: int) -> int | None:
         """Prix premium saisi pour cette extension et cette longueur (2 ou 3 caractères), s'il y en a un."""
@@ -1822,9 +1910,15 @@ class Explorer:
             "rdap": rdap,
             "ai": ai.load(self.conn, [name]).get(name),
             "dns": frdns.load(self.conn, [label]).get(label) if tld == "fr" else None,
+            # Dernière réponse de Gandi (prix, statut, date), aussi pour un nom hors des listes.
+            "gandi": (main or {}).get("gandi") or gandi.public(gandi.load(self.conn, [name]).get(name), self._drop_since(name)),
             "domain_id": domain["id"] if domain is not None else None,
             "rdap_next": self._rdap_next(name, tld, domain),
         }
+
+    def _drop_since(self, name: str) -> str | None:
+        row = self.conn.execute("SELECT state_since FROM drops WHERE name = ?", (name,)).fetchone()
+        return row["state_since"] if row else None
 
     def _status_label(self, tld: str, code: int) -> str:
         if code == INVALID and tld in ccdns.TLDS:
@@ -1920,6 +2014,9 @@ class Explorer:
                 release = drop["release_at"] or release
         if release:
             add(release, "release", "Libération estimée")
+        check = gandi.load(self.conn, [name]).get(name)
+        if check is not None:
+            add(check["checked_at"], "gandi", "Vérifié chez Gandi" + _gandi_detail(check))
         rated = self.conn.execute("SELECT rated_at, reviewed_at FROM domain_ai WHERE name = ?", (name,)).fetchone()
         if rated is not None:
             add(rated["rated_at"], "rated", "Noté par l'IA" if not rated["reviewed_at"] else "Renoté par l'IA (second passage)")
@@ -2023,11 +2120,20 @@ class Explorer:
                 self.fr._sync_name(label, result, drops.TAKEN)
             elif not registered:
                 self.conn.execute("UPDATE fr_names SET checked_at = ?, next_check_at = NULL WHERE label = ?", (iso(now), label))
+        # Nom non pris (libre, à confirmer, bientôt libre) : Gandi dit aussi s'il est premium, à quel prix, ou
+        # indisponible. Une panne de Gandi n'empêche pas la vérification : elle est dite à côté.
+        gandi_note = None
+        if not registered and self.gandi is not None and self.gandi.key:
+            try:
+                await self.gandi.refresh(name)
+            except gandi.GandiError as exc:
+                gandi_note = str(exc)
         self.touch(name)
         i = self.universe.index(label)
         item = self.describe(tld, [i])[0] if i is not None else self._describe_unknown(name, now)
         # Repli sur le WHOIS (RDAP en panne) : dit à l'interface, avec le serveur et le type d'erreur.
         item["note"] = getattr(result, "note", None)
+        item["gandi_note"] = gandi_note
         return item
 
     @staticmethod
@@ -2055,15 +2161,25 @@ class Explorer:
             code = COMING
         else:
             code = SUSPENDED if state == drops.SUSPENDED else REGISTERED
+        check = gandi.load(self.conn, [name]).get(name)
+        since = drop["state_since"] if drop else None
+        if gandi.applies(check, since):
+            code = gandi_code(code, check["kind"])
+        seen = self._gandi_seen(code, check, since, False)
         watched = self.conn.execute("SELECT 1 FROM domains WHERE name = ?", (name,)).fetchone() is not None
         owned = self.conn.execute("SELECT 1 FROM portfolio WHERE name = ?", (name,)).fetchone() is not None
         return {
             "label": label, "name": name, "tld": tld, "length": len(label), "categories": [], "known": False,
-            "status": code, "status_label": DROP_LABELS.get(state, LABELS[code]) if code == COMING else LABELS[code],
+            "status": code, "status_label": (DROP_LABELS.get(state, LABELS[code]) if code == COMING
+                                             else FREE_GANDI if seen and code == FREE and state != states.AVAILABLE
+                                             else gandi.KIND_LABELS["premium"] if seen and code == PREMIUM else LABELS[code]),
             "drop_state": state, "release_at": drop["release_at"] if drop else None,
             "available_since": drop["available_since"] if drop else None,
-            "checked_at": iso(now), "watched": watched, "in_portfolio": owned, "rdap": rdap, "reserved": [],
-            "ai": ai.load(self.conn, [name]).get(name), "premium_price": None,
+            "checked_at": iso(now), "watched": watched, "in_portfolio": owned, "rdap": rdap,
+            "reserved": self._reserved_why(name, code, check if seen else None),
+            "ai": ai.load(self.conn, [name]).get(name),
+            "premium_price": round(check["price"]) if seen and code == PREMIUM and check["price"] is not None else None,
+            "gandi": gandi.public(check, since),
             "score": 0, "reasons": [], "parts": {},
         }
 
@@ -2075,3 +2191,12 @@ def _day(value: str | None) -> date | None:
 
 class VerifyError(Exception):
     pass
+
+
+def _gandi_detail(check: dict) -> str:
+    """« : premium, 878 € », « : libre, 13 € », « : indisponible » pour la ligne de temps."""
+    kind = check["kind"]
+    word = {"available": "libre", "premium": "premium", "unavailable": "indisponible", "reserved": "réservé",
+            "restricted": "restreint", "error": "sans réponse exploitable"}.get(kind, kind)
+    price = f", {round(check['price'])} €" if check["price"] is not None and kind in ("available", "premium") else ""
+    return f" : {word}{price}"

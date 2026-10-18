@@ -791,6 +791,16 @@ button:disabled { cursor: default; opacity: .55; }
 .badge.x-0 { background: none; color: var(--muted); border: 1px dashed var(--line-strong); }
 .badge.x-7 { background: none; color: var(--danger); border: 1px solid var(--danger); }
 .badge.x-8 { background: none; color: var(--muted); border: 1px dashed var(--muted); }
+/* Premium vu chez Gandi : confirmé, trait plein ambre (la pastille de prix dit combien). */
+.badge.x-8.gandi { color: var(--s-expiring-fg); border: 1px solid var(--s-expiring-dot); }
+/* Prix d'achat chez Gandi (indicatif) : discret au prix standard, ambre pour un premium. */
+.gpill {
+  display: inline-block; padding: 0 7px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg);
+  font-size: 11.5px; line-height: 17px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; cursor: help;
+}
+.gpill.gandi-premium { border-color: var(--s-expiring-dot); background: var(--s-expiring-bg); color: var(--s-expiring-fg); font-weight: 600; }
+.gpill.gandi-blocked { border-color: var(--danger); background: none; color: var(--danger); }
+.dom-gandi { display: block; margin-top: 4px; }
 /* Libre selon le seul WHOIS : vert du libre, en pointillés comme les « probablement libres ». */
 .badge.x-9 { background: none; color: var(--s-available-fg); border: 1px dashed var(--s-available-fg); }
 .ex-bulk { position: sticky; bottom: 8px; z-index: 6; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0 0; padding: 10px 12px; background: var(--surface); border: 1px solid var(--accent); border-radius: 12px; box-shadow: 0 4px 18px rgba(0, 0, 0, .12); }
@@ -1421,3 +1431,9 @@ button:disabled { cursor: default; opacity: .55; }
 @media (min-width: 1440px) {
   .pf-totals { grid-template-columns: repeat(8, minmax(0, 1fr)); }
 }
+
+/* Paramètres, Gandi : passe de nuit (activation, rythme, plafond, délai), état, lancement à la main. */
+.gandi-pass { display: grid; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.gandi-pass-fields { display: flex; flex-wrap: wrap; gap: 8px 14px; }
+.gandi-pass-fields label { display: inline-flex; align-items: center; gap: 6px; }
+.gandi-pass .btn-ghost { justify-self: start; }

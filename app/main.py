@@ -264,6 +264,26 @@ async def lifespan(app: FastAPI):
             start_pass(app.state.cc_dns[tld])
         return check
 
+    async def check_gandi() -> None:
+        """Passe Gandi : de 3 h 30 à 4 h 45, après les lectures et les passes DNS, avant la notation IA de 5 h."""
+        night = app.state.gandi_pass
+        if not night.running and night.due(datetime.now(digest.local_zone())):
+            start_gandi()
+
+    def start_gandi(manual: bool = False) -> bool:
+        night = app.state.gandi_pass
+        if night.running:
+            return False
+        task = asyncio.create_task(night.run(manual=manual))
+        passes.add(task)
+
+        def done(t: asyncio.Task) -> None:
+            passes.discard(t)
+            if not t.cancelled() and t.exception() is not None:
+                log.error("Passe Gandi interrompue", exc_info=t.exception())
+        task.add_done_callback(done)
+        return True
+
     async def refresh_prenoms() -> None:
         # Une fois par mois : l'Insee publie une édition par an, la date exacte varie.
         if app.state.prenoms.due():
@@ -300,6 +320,9 @@ async def lifespan(app: FastAPI):
     for n, tld in enumerate(ccdns.TLDS):
         scheduler.add_job(cc_job(tld), "interval", minutes=10, next_run_time=now + timedelta(minutes=9 + n),
                           max_instances=1, id=f"check_{tld}_dns", name=f"check_{tld}_dns")
+    # Gandi : une passe par nuit, dans sa fenêtre ; la tâche rend la main tout de suite (passe à part).
+    scheduler.add_job(check_gandi, "interval", minutes=5, next_run_time=now + timedelta(minutes=13), max_instances=1,
+                      id="check_gandi", name="check_gandi")
     scheduler.start()
     telegram.start()
 
@@ -326,7 +349,29 @@ async def lifespan(app: FastAPI):
         if cc.resume_lost():
             app.state.explorer.invalidate(cc.tld)
     app.state.seo = seo.Seo(conn, store)
-    app.state.gandi = gandi.Gandi(store)
+    app.state.gandi = gandi.Gandi(store, conn=conn)
+    # Une réponse de Gandi change l'état d'un nom (premium, libre, indisponible) : l'Explorer le corrige en place.
+    app.state.gandi.on_change = app.state.explorer.touch
+    app.state.explorer.gandi = app.state.gandi
+    app.state.gandi_pass = gandi.NightPass(app.state.gandi, conn, store, app.state.explorer, digest.local_zone(),
+                                           notify=telegram.send)
+    app.state.start_gandi = start_gandi
+
+    async def gandi_domain(name: str, forced: bool) -> None:
+        """Domaine suivi non pris, vérifié : Gandi aussi, une fois par jour au plus sauf à la main ou à un changement d'état."""
+        client = app.state.gandi
+        if not client.key:
+            return
+        if not forced:
+            last = gandi.load(conn, [name]).get(name)
+            if last and last["checked_at"] > iso(utcnow() - timedelta(hours=20)):
+                return
+        try:
+            await client.refresh(name)
+        except gandi.GandiError as exc:
+            log.info("%s : Gandi : %s", name, exc)
+
+    checker.gandi = gandi_domain
     # Explorer : univers et classement préparés hors requête (thread), puis états et carte en mémoire.
     async def warm_explorer() -> None:
         await asyncio.get_running_loop().run_in_executor(None, lambda: explore.shared_universe().buckets())
@@ -798,10 +843,16 @@ async def list_domains(request: Request):
     items = [_serialize(row, checker) for row in rows]
     # Score et avis IA, mêmes calculs que l'Explorer : filtres et tri communs à tous les écrans.
     values = await _off(request.app.state.explorer.value_of, [d["name"] for d in items])
+    # Gandi : prix et premium d'un domaine non pris (libre, en rédemption, en suppression).
+    checks = gandi.load(request.app.state.conn, [d["name"] for d in items])
     for d in items:
         v = values.get(d["name"]) or {}
-        d.update(score=v.get("score", 0), reasons=v.get("reasons", []), parts=v.get("parts", {}), ai=v.get("ai"))
+        d.update(score=v.get("score", 0), reasons=v.get("reasons", []), parts=v.get("parts", {}), ai=v.get("ai"),
+                 gandi=gandi.public(checks.get(d["name"])) if d["state"] in GANDI_DOMAIN_STATES else None)
     return items
+
+
+GANDI_DOMAIN_STATES = (states.AVAILABLE, states.REDEMPTION, states.PENDING_DELETE)
 
 
 class NewDomain(BaseModel):
@@ -844,8 +895,10 @@ async def delete_domain(request: Request, domain_id: int):
 async def check_domain(request: Request, domain_id: int):
     _get_row(request, domain_id)
     checker = request.app.state.checker
-    await checker.check(domain_id)
-    return _serialize(_get_row(request, domain_id), checker)
+    await checker.check(domain_id, manual=True)
+    found = _serialize(_get_row(request, domain_id), checker)
+    found["gandi"] = gandi.public(gandi.load(request.app.state.conn, [found["name"]]).get(found["name"]))
+    return found
 
 
 @app.get("/api/domains/{domain_id}/history")
@@ -977,7 +1030,7 @@ async def get_settings(request: Request):
                     "off": sorted(state.explorer.premium_tlds_off()),
                     "tlds": [t for t in state.explorer.tlds() if t != "fr"]},
         "seo": {"key_set": bool(state.seo.key)},
-        "gandi": state.gandi.status(),
+        "gandi": {**state.gandi.status(), "pass": state.gandi_pass.status()},
         "reserved": state.reserved.status(),
         "prenoms": state.prenoms.status(),
         "weights": {"values": value.weights_from(store.get("score_weights")), "labels": value.CRITERIA},
@@ -1236,8 +1289,43 @@ def _drop_rows(state) -> list:
     reserved_names = held.names()
     hide_reserved = held.mode == "hide"
     hidden = {r[0] for r in conn.execute("SELECT name FROM drop_hidden")}
-    return [r for r in rows if r["name"] not in hidden
+    rows = [r for r in rows if r["name"] not in hidden
             and not (hide_reserved and (r["name"] in reserved_names or held.short_reserved(r["name"])))]
+    if hide_reserved:
+        # Indisponible chez Gandi : réservé comme les autres, retiré des noms à prendre.
+        found = _drop_gandi(state, rows)
+        rows = [r for r in rows if not found[r["name"]]["blocked"]]
+    return rows
+
+
+OPEN_DROP_STATES = (states.AVAILABLE, drops.UNCONFIRMED)
+
+
+def _drop_gandi(state, rows) -> dict[str, dict]:
+    """Réponse de Gandi pour chaque nom de la Veille, et ce qu'elle change : état (« available » fait d'un nom à
+    confirmer un nom libre, « premium », un indisponible ne s'affiche plus libre), premium (Gandi, sinon l'estimation
+    des 3 caractères hors .fr) et son prix (Gandi, sinon celui des réglages)."""
+    explorer = state.explorer
+    checks = gandi.load(state.conn, [r["name"] for r in rows])
+    prices = explorer.premium_prices()
+    premium_off = explorer.premium_tlds_off()
+    found = {}
+    for r in rows:
+        check, since = checks.get(r["name"]), r["state_since"]
+        kind = check["kind"] if gandi.applies(check, since) else None
+        # Un nom en rédemption est forcément indisponible chez Gandi : seul un premium dit quelque chose de lui.
+        if kind and r["state"] not in OPEN_DROP_STATES and kind != "premium":
+            kind = None
+        length = str(len(r["name"]) - len(r["tld"]) - 1)
+        # 3 caractères libres hors .fr : souvent premium chez le registre (voir explore.PREMIUM), tant que Gandi n'a rien dit.
+        guess = (kind is None and r["tld"] != "fr" and r["tld"] not in premium_off and length == str(explore.PREMIUM_LENGTH))
+        price = round(check["price"]) if kind == "premium" and check["price"] is not None else None
+        found[r["name"]] = {
+            "check": check, "since": since, "kind": kind, "premium": kind == "premium" or guess,
+            "premium_price": price if kind == "premium" else prices.get(r["tld"], {}).get(length) if guess else None,
+            "blocked": kind in gandi.BLOCKED, "free": kind == "available" and r["state"] in OPEN_DROP_STATES,
+        }
+    return found
 
 
 def _drop_items(state, rows, values: dict) -> list[dict]:
@@ -1246,8 +1334,7 @@ def _drop_items(state, rows, values: dict) -> list[dict]:
     watched = {r[0] for r in conn.execute("SELECT name FROM domains")}
     owned = {r[0] for r in conn.execute("SELECT name FROM portfolio")}
     reserved_names = state.reserved.names()
-    prices = state.explorer.premium_prices()
-    premium_off = state.explorer.premium_tlds_off()
+    found = _drop_gandi(state, rows)
     return [
         {
             "name": r["name"],
@@ -1262,12 +1349,14 @@ def _drop_items(state, rows, values: dict) -> list[dict]:
             "next_check_at": r["next_check_at"],
             "watched": r["name"] in watched,
             "in_portfolio": r["name"] in owned,
-            "reserved": r["name"] in reserved_names,
+            "reserved": r["name"] in reserved_names or found[r["name"]]["blocked"],
             "state_since": r["state_since"],
-            # 3 caractères libres hors .fr : souvent premium chez le registre (voir explore.PREMIUM).
-            "premium": (r["tld"] != "fr" and r["tld"] not in premium_off
-                        and len(r["name"]) - len(r["tld"]) - 1 == explore.PREMIUM_LENGTH),
-            "premium_price": prices.get(r["tld"], {}).get(str(len(r["name"]) - len(r["tld"]) - 1)),
+            "premium": found[r["name"]]["premium"],
+            "premium_price": found[r["name"]]["premium_price"],
+            # Gandi : la réponse gardée (prix, date) et ce qu'elle dit de l'état affiché (gandi_state : available,
+            # premium, unavailable, reserved, restricted ; vide si elle ne change rien ou date d'avant l'état actuel).
+            "gandi": gandi.public(found[r["name"]]["check"], found[r["name"]]["since"]),
+            "gandi_state": found[r["name"]]["kind"],
             **values[r["name"]],
         }
         for r in rows
@@ -1288,7 +1377,8 @@ async def list_drops(request: Request):
         raise HTTPException(422, "Liste inconnue : freed, coming ou new_take.")
     period = _today_period(request)
     if focus:
-        rows = (await _off(_today_sets, state, rows, utcnow(), TODAY_PERIODS[period]))[focus]
+        rows = (await _off(_today_sets, state, rows, utcnow(), TODAY_PERIODS[period],
+                           request.query_params.get("nopremium") == "1"))[focus]
     pending = conn.execute("SELECT COUNT(*) FROM drops WHERE state IS NULL").fetchone()[0]
     suspended = dict(conn.execute("SELECT tld, COUNT(*) FROM drops WHERE state = ? GROUP BY tld", (drops.SUSPENDED,)).fetchall())
     hidden = conn.execute("SELECT COUNT(*) FROM drop_hidden").fetchone()[0]
@@ -1309,6 +1399,7 @@ async def list_drops(request: Request):
         "fr": {"enabled": state.fr.enabled, "running": state.fr.running, **state.fr.status(),
                "dns": state.fr_dns.status()},
         "cc_dns": {tld: c.status() for tld, c in state.cc_dns.items()},
+        "gandi": _gandi_line(state.gandi_pass.status()),
         "workers": watcher.workers,
         "pending_checks": pending,
         "suspended": suspended,
@@ -1321,6 +1412,12 @@ async def list_drops(request: Request):
         "period": period if focus else None,
         "items": _drop_items(state, rows, values) if with_items else None,
     }
+
+
+def _gandi_line(status: dict) -> dict:
+    """Ligne des sources de la Veille : dernière passe Gandi, en bref."""
+    keys = ("enabled", "running", "started_at", "finished_at", "queued", "checked", "changed", "stopped", "error", "totals", "window")
+    return {k: status.get(k) for k in keys}
 
 
 # --- Aujourd'hui ------------------------------------------------------------------------
@@ -1360,11 +1457,20 @@ def _today_period(request: Request) -> str:
     return period
 
 
-def _today_sets(state, rows, now: datetime, hours: int = 24) -> dict:
+def _freed_at(r, found: dict) -> str:
+    """Libre depuis : libération constatée, ou, pour un nom à confirmer que Gandi dit libre, depuis son constat."""
+    return r["available_since"] or (r["state_since"] if found[r["name"]]["free"] else "") or ""
+
+
+def _today_sets(state, rows, now: datetime, hours: int = 24, nopremium: bool = False) -> dict:
     """Les noms derrière chaque chiffre d'Aujourd'hui pour la période (en heures, passée et à venir) :
-    même calcul pour le compteur et pour la liste."""
+    même calcul pour le compteur et pour la liste. Libre selon le WHOIS et libre chez Gandi : libéré ;
+    indisponible chez Gandi : jamais libre ; nopremium : sans les premiums (Gandi ou probables)."""
     since, soon = iso(now - timedelta(hours=hours)), iso(now + timedelta(hours=hours))
-    free = [r for r in rows if r["state"] == states.AVAILABLE]
+    found = _drop_gandi(state, rows)
+    if nopremium:
+        rows = [r for r in rows if not found[r["name"]]["premium"]]
+    free = [r for r in rows if (r["state"] == states.AVAILABLE or found[r["name"]]["free"]) and not found[r["name"]]["blocked"]]
     tracked = [r for r in rows if r["state"] in drops.TRACKED]
     # Avis « À prendre » reçus sur la période (premier avis ou second passage) sur un nom libre ou bientôt libre.
     opinions = ai.load(state.conn, [r["name"] for r in free + tracked])
@@ -1374,15 +1480,15 @@ def _today_sets(state, rows, now: datetime, hours: int = 24) -> dict:
         return bool(o) and _verdict(o) == "À prendre" and max(o["rated_at"] or "", o["reviewed_at"] or "") >= since
 
     return {
-        "freed": [r for r in free if (r["available_since"] or "") >= since],
+        "freed": [r for r in free if _freed_at(r, found) >= since],
         "coming": [r for r in tracked if r["release_at"] and r["release_at"] <= soon],
         "new_take": [r for r in free + tracked if new_take(r)],
     }
 
 
-def _today(state, sort: str, now: datetime, period: str = "24h") -> dict:
+def _today(state, sort: str, now: datetime, period: str = "24h", nopremium: bool = False) -> dict:
     """Écran d'accueil : compteurs de la période et les meilleurs noms libérés depuis ou libérés dans la période."""
-    sets = _today_sets(state, _drop_rows(state), now, TODAY_PERIODS[period])
+    sets = _today_sets(state, _drop_rows(state), now, TODAY_PERIODS[period], nopremium)
     freed, near = sets["freed"], sets["coming"]
     candidates = freed + near
     values = state.explorer.value_of([r["name"] for r in candidates])
@@ -1409,6 +1515,7 @@ def _today(state, sort: str, now: datetime, period: str = "24h") -> dict:
         },
         "sort": sort,
         "period": period,
+        "nopremium": nopremium,
         "items": _drop_items(state, best, values),
         "setup": _setup_steps(state),
     }
@@ -1420,7 +1527,8 @@ async def today_screen(request: Request):
     sort = request.query_params.get("sort", "resale")
     if sort not in TODAY_SORTS:
         raise HTTPException(422, "Tri inconnu : resale ou exploit.")
-    return await _off(_today, request.app.state, sort, utcnow(), _today_period(request))
+    return await _off(_today, request.app.state, sort, utcnow(), _today_period(request),
+                      request.query_params.get("nopremium") == "1")
 
 
 class NameCheck(BaseModel):
@@ -1466,8 +1574,11 @@ def _explore_params_of(p, explorer) -> dict:
         cursor = int(p.get("cursor", "-1"))
         max_rank = int(p["rank"]) if p.get("rank") else None
         min_score = int(p["min"]) if p.get("min") else None
+        gprice = int(float(p["gprice"])) if p.get("gprice") else None
     except ValueError:
         raise HTTPException(422, "Paramètre numérique invalide.") from None
+    if gprice is not None and not 0 <= gprice <= 100_000_000:
+        raise HTTPException(422, "Paramètre numérique hors limites.")
     # Une ou plusieurs catégories (cat=firstname,surname) : un nom de l'une ou de l'autre.
     cats = explore.split_cats(p.get("cat"))
     if any(c not in explore.KINDS for c in cats):
@@ -1492,7 +1603,10 @@ def _explore_params_of(p, explorer) -> dict:
             "ai": _ai_param(p),
             # Prénoms et noms de famille n'ont pas de langue : avec l'une de ces listes cochée, la langue ne filtre pas.
             "lang": p.get("lang", "") if p.get("lang", "") in wordlists.LANGS and not set(cats) & set(wordlists.NO_LANG) else "",
-            "premium": p.get("premium") == "1",
+            # Premiums (vus chez Gandi ou probables) affichés par défaut ; nopremium=1 les retire (« Masquer les premiums »).
+            "premium": p.get("nopremium") != "1",
+            # Prix d'achat Gandi au plus (euros TTC, création un an) : seulement les noms vérifiés chez Gandi.
+            "gprice": gprice,
             "level": p.get("level", "") if p.get("level", "") in ("good", "gem") else ""}
 
 
@@ -1995,6 +2109,8 @@ async def diag(request: Request):
         "telegram_outbox": state.telegram.pending(),
         # Réponses brutes de Gandi aux noms témoins (bouton Tester) : aucun secret, ni le jeton ni sa présence.
         "gandi_samples": state.gandi.samples(),
+        # Passe de nuit Gandi : dernier passage, réglages de rythme, totaux par sorte ; ni le jeton ni sa présence.
+        "gandi_pass": state.gandi_pass.status(),
         "recent_errors": list(RECENT.records),
     }
 
@@ -2118,6 +2234,41 @@ async def set_gandi_key(request: Request, payload: GandiKey):
     return request.app.state.gandi.status()
 
 
+class GandiPassSettings(BaseModel):
+    enabled: bool | None = None
+    rate: float | None = None
+    nightly: int | None = None
+    days: int | None = None
+
+
+@app.put("/api/settings/gandi/pass")
+async def set_gandi_pass(request: Request, payload: GandiPassSettings):
+    """Passe de nuit Gandi : activation, rythme (requêtes par seconde), plafond par nuit, délai avant de revoir un nom."""
+    night, store = request.app.state.gandi_pass, request.app.state.store
+    if payload.rate is not None and not gandi.MIN_RATE <= payload.rate <= gandi.MAX_RATE:
+        raise HTTPException(422, f"Rythme entre {gandi.MIN_RATE} et {gandi.MAX_RATE:g} requêtes par seconde.")
+    if payload.nightly is not None and not 1 <= payload.nightly <= 50_000:
+        raise HTTPException(422, "Plafond entre 1 et 50 000 noms par nuit.")
+    if payload.days is not None and not 1 <= payload.days <= 90:
+        raise HTTPException(422, "Délai entre 1 et 90 jours.")
+    if payload.enabled is not None:
+        store.set(f"{night.key}_enabled", "1" if payload.enabled else "0")
+    for field in ("rate", "nightly", "days"):
+        value = getattr(payload, field)
+        if value is not None:
+            store.set(f"{night.key}_{field}", str(value))
+    return night.status()
+
+
+@app.post("/api/settings/gandi/run", status_code=202)
+async def run_gandi_pass(request: Request):
+    """« Lancer maintenant » : la passe de nuit tout de suite, hors de sa fenêtre, jusqu'au plafond."""
+    state = request.app.state
+    if not state.gandi.key:
+        raise HTTPException(409, "Jeton Gandi non configuré.")
+    return {"started": state.start_gandi(manual=True), **state.gandi_pass.status()}
+
+
 @app.post("/api/settings/gandi/test")
 async def test_gandi(request: Request):
     """Quelques noms témoins interrogés chez Gandi : résumé pour l'écran, réponses brutes gardées pour le diagnostic."""
@@ -2140,14 +2291,16 @@ async def explore_export(request: Request):
     explorer = request.app.state.explorer
     items = await _off(_export_items, explorer, params, chosen, sort)
     lines = ["nom;etat;score;verdict;note_revente;note_exploitation;prix_final_bas;prix_final_haut;categories;"
-             "cree_le;supprime_le;echeance;verifie_le"]
+             "cree_le;supprime_le;echeance;verifie_le;gandi_kind;gandi_price"]
     for item in items[:explore.EXPORT_LIMIT]:
         opinion = item.get("ai") or {}
+        check = item.get("gandi") or {}
         lines.append(";".join([
             item["name"], item["status_label"], _cell(item.get("score")),
             (opinion.get("comment") or "").split(".")[0], _cell(opinion.get("resale")), _cell(opinion.get("exploit")),
             _cell(opinion.get("final_low")), _cell(opinion.get("final_high")), ",".join(item["categories"]),
             item["created_on"] or "", item["removed_on"] or "", item["expires_at"] or "", item["checked_at"] or "",
+            check.get("kind") or "", _cell(check.get("price")),
         ]))
     filename = f"explorer-{'-'.join(chosen)}.csv"
     # BOM : Excel lit alors les accents correctement.

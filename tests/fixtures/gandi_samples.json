@@ -1,0 +1,174 @@
+{
+ "at": "2026-10-18T22:48:47+00:00",
+ "samples": {
+  "menu.co": {
+   "grid": "A",
+   "currency": "EUR",
+   "taxes": [
+    {
+     "name": "vat",
+     "type": "service",
+     "rate": 0
+    }
+   ],
+   "products": [
+    {
+     "name": "menu.co",
+     "status": "unavailable",
+     "process": "create",
+     "taxes": [
+      {
+       "name": "vat",
+       "type": "service",
+       "rate": 0
+      }
+     ]
+    }
+   ]
+  },
+  "voyage.fr": {
+   "grid": "A",
+   "currency": "EUR",
+   "taxes": [
+    {
+     "name": "vat",
+     "type": "service",
+     "rate": 0
+    }
+   ],
+   "products": [
+    {
+     "name": "voyage.fr",
+     "status": "unavailable",
+     "process": "create",
+     "taxes": [
+      {
+       "name": "vat",
+       "type": "service",
+       "rate": 0
+      }
+     ]
+    }
+   ]
+  },
+  "maison.com": {
+   "grid": "A",
+   "currency": "EUR",
+   "taxes": [
+    {
+     "name": "vat",
+     "type": "service",
+     "rate": 0
+    }
+   ],
+   "products": [
+    {
+     "name": "maison.com",
+     "status": "unavailable",
+     "process": "create",
+     "taxes": [
+      {
+       "name": "vat",
+       "type": "service",
+       "rate": 0
+      }
+     ]
+    }
+   ]
+  },
+  "ai.io": {
+   "grid": "A",
+   "currency": "EUR",
+   "taxes": [
+    {
+     "name": "vat",
+     "type": "service",
+     "rate": 0
+    }
+   ],
+   "products": [
+    {
+     "name": "ai.io",
+     "status": "unavailable",
+     "process": "create",
+     "taxes": [
+      {
+       "name": "vat",
+       "type": "service",
+       "rate": 0
+      }
+     ],
+     "periods": [
+      {
+       "name": "golive",
+       "starts_at": "2000-01-01T23:00:00Z"
+      }
+     ]
+    }
+   ]
+  },
+  "chat.ai": {
+   "grid": "A",
+   "currency": "EUR",
+   "taxes": [
+    {
+     "name": "vat",
+     "type": "service",
+     "rate": 0
+    }
+   ],
+   "products": [
+    {
+     "name": "chat.ai",
+     "status": "unavailable",
+     "process": "create",
+     "taxes": [
+      {
+       "name": "vat",
+       "type": "service",
+       "rate": 0
+      }
+     ]
+    }
+   ]
+  },
+  "qzkwyxv.com": {
+   "grid": "A",
+   "currency": "EUR",
+   "taxes": [
+    {
+     "name": "vat",
+     "type": "service",
+     "rate": 20
+    }
+   ],
+   "products": [
+    {
+     "name": "qzkwyxv.com",
+     "status": "available",
+     "process": "create",
+     "taxes": [
+      {
+       "name": "vat",
+       "type": "service",
+       "rate": 20
+      }
+     ],
+     "prices": [
+      {
+       "duration_unit": "y",
+       "min_duration": 1,
+       "max_duration": 10,
+       "price_before_taxes": 11,
+       "price_after_taxes": 13.2,
+       "discount": false,
+       "options": {
+        "period": "golive"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ }
+}

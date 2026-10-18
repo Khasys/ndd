@@ -78,6 +78,7 @@ Messages envoyés :
 | Analyse IA demandée prête, lien vers la fiche | dans l'heure qui suit la demande |
 | Panne : zone en erreur ou pas lue depuis 36 h (ou aucune zone lue avec succès depuis 36 h), fichier .fr en erreur, pause .fr de plus d'une heure, notation IA muette depuis 36 h, passe DNS (.fr, .co, .ai, .io) en erreur ou finie sans aucun nom vérifié, plus de 3 exécutions manquées du planificateur en 24 h | à l'apparition, puis « Réglé » à la disparition |
 | Passe DNS arrêtée (refus ou silence du registre) | à l'arrêt |
+| Passe Gandi arrêtée (jeton refusé, trop de requêtes, réseau) | à l'arrêt, une fois par jour au plus |
 
 Les liens utilisent `APP_URL`, sinon l'adresse vue par le navigateur à la dernière ouverture de l'appli.
 
@@ -490,9 +491,10 @@ DNS change de version à la fin de chaque passe : l'Explorer se recalcule alors.
   proche), Tous, même pris. Compteur sur chaque état avec le niveau « Tout » et sans score minimum ;
   avec un niveau, il est masqué : le compte exact demanderait de noter chaque nom à chaque clic.
 - **Premiums probables** : noms de 3 caractères libres hors .fr, souvent vendus au prix premium
-  par le registre (rien ne le confirme sans accès registrar). Masqués par défaut ; bouton « Premiums
-  probables » pour les afficher. Paramètres : case pour diviser leur score par deux, et prix relevés
-  à la main par extension pour 2 et 3 caractères, affichés sur ces noms.
+  par le registre ; Gandi confirme ou dément (voir Gandi plus bas). Visibles par défaut, comme les premiums vus
+  chez Gandi ; case « Masquer les premiums » pour les retirer (la carte compte les premiums, comme la puce
+  « Libres »). Paramètres : case pour diviser leur score par deux, et prix relevés à la main par extension pour 2
+  et 3 caractères, affichés sur ces noms tant que Gandi n'a pas donné le sien.
 - **Carte** : extension × catégorie (1 à 3 caractères, 4 lettres, mots, formes fléchies, noms,
   prénoms), nombre de noms réservables par case, le même compte que la puce « Libres » de la liste
   (libération à venir exclue). Une case ouvre la liste filtrée et referme la carte.
@@ -588,8 +590,59 @@ d'accès personnel créé dans le compte Gandi (Paramètres du compte, « Create
 des domaines ; gardé sur le NAS, jamais renvoyé (`PUT /api/settings/gandi`). « Tester »
 (`POST /api/settings/gandi/test`) interroge quelques noms témoins (`app/gandi.py`, `SAMPLES`) et affiche leur
 état et leur prix de création ; les réponses brutes, sans aucun secret, sont lisibles dans `/api/diag`
-(`gandi_samples`). Première étape : la lecture des états et prix dans les listes viendra ensuite, calée sur
-ces réponses.
+(`gandi_samples`).
+
+Ce que Gandi apporte : pour un nom non pris, premium ou non, son prix, ou son indisponibilité. Prix affiché
+« prix Gandi, indicatif » (création pour un an, TTC, en euros) : l'achat se fait où l'on veut, le prix d'un premium
+vaut partout en ordre de grandeur. Lecture d'une réponse (`gandi.read`, calée sur les réponses réelles et la
+documentation) : premium si une ligne de prix est de type « premium » ou si le statut est `unavailable_premium` ;
+réservé pour `available_reserved` ou `reserved_corporate` ; restreint pour `unavailable_restricted` ; indisponible
+pour `unavailable` ; libre pour `available` (et `available_preorder`) ; erreur pour `pending`, `error_*` ou un statut
+inconnu. Prix : la première ligne d'une durée minimale d'un an (la TVA n'apparaît que pour un nom disponible).
+Résultats dans la table `gandi_checks` (migration 030 : statut brut, sorte, prix TTC et HT, date, erreur). Une réponse
+en erreur ne remplace pas un résultat connu : elle est notée à côté.
+
+- **Passe de nuit** (`gandi.NightPass`), de 3 h 30 à 4 h 45 (heure `TZ`), après les lectures et les passes DNS,
+  avant la notation IA de 5 h. File : les noms non pris de toutes les extensions lues (.fr, zones ICANN, .co, .ai,
+  .io), dans l'ordre de la file IA : libres et bientôt libres d'abord (score complet), puis probablement libres,
+  libres selon le WHOIS, premiums et noms déjà dits indisponibles par Gandi, par score de base décroissant ; noms qui
+  ont un sens seulement. Sautés : vérifiés depuis moins de 7 jours (réglable), 1 jour pour un nom qui a changé d'état
+  depuis ou une réponse en erreur. 3 requêtes par seconde au plus et 8 000 noms par nuit au plus (réglables). Jeton
+  refusé (401, 403) : arrêt, erreur dans Paramètres, alerte Telegram une fois par jour au plus. Trop de requêtes
+  (429) : attente demandée par Gandi (60 s par défaut), puis reprise au même nom ; au troisième refus d'affilée,
+  arrêt. 20 échecs réseau d'affilée : arrêt. Une extension qui répond 5 fois de suite « invalide » est écartée 30 jours
+  (Gandi ne la vend pas). Sans jeton ou case décochée : rien. « Lancer maintenant » (`POST /api/settings/gandi/run`,
+  202, 409 sans jeton) lance la passe tout de suite, hors fenêtre, jusqu'au plafond. Réglages :
+  `PUT /api/settings/gandi/pass` (`enabled`, `rate` de 0,2 à 10, `nightly` de 1 à 50 000, `days` de 1 à 90). État :
+  `gandi.pass` de `GET /api/settings`, `gandi_pass` de `/api/diag` (sans le jeton ni sa présence), `gandi` de
+  `/api/drops` (ligne des sources de la Veille et carte « Sources et lectures »).
+- **À la demande** : Vérifier d'une fiche (après le RDAP, pour un nom libre, à confirmer ou en rédemption ; une panne
+  de Gandi est dite dans `gandi_note` sans faire échouer la vérification) et la vérification d'un domaine suivi
+  libre, en rédemption ou en suppression (une fois par jour au plus, toujours à la main ou à un changement d'état).
+- **Effet sur l'état** (Explorer, Veille, Aujourd'hui, fiche) : premium, état « Premium (Gandi) » avec le vrai prix
+  (`premium_price`) au lieu du prix des réglages ; libre au prix standard, un nom probablement libre, à confirmer ou
+  premium probable devient « Libre (Gandi) » (libre), le prix en petit ; indisponible, réservé ou restreint, un nom
+  qu'on croyait libre devient « Réservé » avec la raison « Indisponible chez Gandi » (« Réservé (Gandi) »,
+  « Restreint (Gandi) ») : retiré de la Veille comme les autres réservés, jamais compté libre. Un nom enregistré, en
+  rédemption ou d'une liste de réservés ne change jamais ; une réponse antérieure au dernier changement d'état du nom
+  (Veille) ne compte plus jusqu'à la vérification suivante (`stale`). Erreur : aucun changement, l'erreur est dans la
+  fiche. Aujourd'hui compte comme libéré un nom à confirmer que Gandi dit libre.
+- **Données** : `gandi` dans les éléments de l'Explorer, de la fiche (et `fiche.gandi`), de `/api/drops`,
+  `/api/today` et `/api/domains` (`kind`, `status`, `label`, `price`, `price_ht`, `currency`, `checked_at`, `error`
+  en clair, `stale`) ; `gandi_state` dans la Veille (la sorte qui vaut pour l'état affiché). File IA
+  (`/api/ai/pending`) : `"gandi": {"kind": "premium", "price": 878}` pour un nom connu de Gandi, et une phrase de la
+  consigne (un premium doit être couvert par la revente, un nom indisponible ne vaut rien à l'achat) ; un premium vu
+  chez Gandi entre dans la file avec les libres (un premium probable non vérifié n'y entre pas).
+- **Filtres** : « Masquer les premiums » (case décochée par défaut : les premiums, vus chez Gandi ou probables, restent
+  visibles) dans l'Explorer (`nopremium=1`, vues enregistrées, mémoire du navigateur, export CSV, compteurs), la
+  Veille et Aujourd'hui (`/api/today?nopremium=1`, chiffres compris ; `/api/drops?focus=…&nopremium=1`). « Prix
+  d'achat au plus » dans le panneau Avancé de l'Explorer (`gprice=20`, seulement les noms vérifiés chez Gandi,
+  compteurs compris) et de la Veille. Export CSV : colonnes `gandi_kind` et `gandi_price`.
+- **Affichage** : sur la carte de nom, pastille discrète « 13 € » ou ambre « Premium 878 € » (dans l'Explorer, l'état
+  d'un premium vu chez Gandi est lui-même « Premium 878 € ») ; Domaines, sous la valeur, « 8 € chez Gandi »,
+  « Premium 878 € » ou « Indisponible chez Gandi » ; fiche : badge et prix dans la ligne d'état, « achat Gandi » à
+  côté des prix de revente dans la carte décision, ligne « Gandi » de Registre et SEO (statut, prix TTC et HT, date,
+  erreur), « Vérifié chez Gandi » dans Dates clés.
 
 Tri : score, fréquence (mot, nom ou prénom du plus courant au moins courant), prénoms de l'année la plus récente (Insee), longueur, SEO, avis IA. Un tri ne filtre pas : avec SEO ou avis IA, les noms analysés viennent d'abord, puis les autres par score. Chaque tri applique tous les filtres (recherche, SEO et avis IA compris pour la libération la plus proche). Les éléments de `/api/explore/rank`, `/api/drops`, `/api/today` et de la fiche portent `ranks` (rang du nom dans chaque liste, `{"firstname": 12, "word": 4881}`) ; avec `sort=freq`, `freq_list` dit la liste qui donne l'ordre (celle du filtre de catégorie, sinon celle où le nom est le mieux placé).
 

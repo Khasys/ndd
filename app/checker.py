@@ -50,6 +50,9 @@ class Checker:
         # FrWatcher, posé par main : les .fr passent par sa file (plafond par minute, pause Afnic),
         # un seul chemin vers l'Afnic. Absent ou désactivé : requête RDAP directe.
         self.fr = None
+        # Gandi, posé par main : async (nom, forcé) appelé après un check réussi d'un nom non pris (libre,
+        # en rédemption ou en suppression) ; forcé pour un check à la main ou un changement d'état.
+        self.gandi = None
 
     async def _notify_from_env(self, text: str) -> str | None:
         return await alerts.send_telegram(self.http, self.settings.telegram_token, self.settings.telegram_chat_id, text)
@@ -93,16 +96,16 @@ class Checker:
             (domain_id, iso(now), field, old, new),
         )
 
-    async def check(self, domain_id: int) -> None:
+    async def check(self, domain_id: int, manual: bool = False) -> None:
         if domain_id in self._running:
             return
         self._running.add(domain_id)
         try:
-            await self._check(domain_id)
+            await self._check(domain_id, manual)
         finally:
             self._running.discard(domain_id)
 
-    async def _check(self, domain_id: int) -> None:
+    async def _check(self, domain_id: int, manual: bool = False) -> None:
         row = self.conn.execute("SELECT * FROM domains WHERE id = ?", (domain_id,)).fetchone()
         if row is None:
             return
@@ -220,6 +223,12 @@ class Checker:
                 unconfirmed=result.unconfirmed,
             )
             await self.notify(text)
+
+        if self.gandi is not None and new_state in (states.AVAILABLE, states.REDEMPTION, states.PENDING_DELETE):
+            try:
+                await self.gandi(row["name"], manual or state_changed)
+            except Exception as exc:  # noqa: BLE001  Gandi ne doit jamais faire échouer le suivi
+                log.info("%s : Gandi non interrogé (%s)", row["name"], exc)
 
     async def run_due(self) -> None:
         now = iso(utcnow())
