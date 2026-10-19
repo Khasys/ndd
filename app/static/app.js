@@ -265,6 +265,7 @@ document.addEventListener("alpine:init", () => {
     gandiResults: [],
     gandiStarting: false,
     aiReq: { pending: [], done: [] },
+    aiPanel: false,
     dropTab: "free",
     // Chiffre d'Aujourd'hui ouvert dans la Veille (clé de DROP_FOCUS), "" sinon.
     dropFocus: "",
@@ -858,6 +859,25 @@ document.addEventListener("alpine:init", () => {
       try {
         this.aiReq = await this.api("GET", "/api/ai/requests");
       } catch (_) {}
+    },
+
+    async aiSeenAll() {
+      const names = this.aiReq.done.map((r) => r.name);
+      this.aiReq.done = [];
+      this.aiPanel = false;
+      for (const name of names) {
+        try { this.aiReq = await this.api("POST", "/api/ai/requests/seen", { name }); } catch (_) {}
+      }
+    },
+
+    // Verdict d'un avis IA, tiré de son commentaire (« À prendre. … ») : pour la cloche.
+    aiVerdictOf(comment) {
+      const first = (comment || "").split(".")[0].trim();
+      return ["À prendre", "À surveiller", "À laisser"].includes(first) ? first : "";
+    },
+
+    aiVerdictClass(comment) {
+      return this.verdictClass(this.aiVerdictOf(comment));
     },
 
     async aiSeen(name) {

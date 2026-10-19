@@ -65,12 +65,28 @@
     </nav>
   </header>
 
-  <div class="ai-ready" x-show="aiReq.done.length" x-cloak role="status">
-    <template x-for="r in aiReq.done" :key="r.name">
-      <button type="button" class="ai-ready-item" @click="openFiche(r.name, true)">
-        <span>Analyse IA prête</span> <span class="mono" x-text="r.name"></span>
-      </button>
-    </template>
+  <!-- Analyses IA demandées : une cloche discrète, sur tous les écrans, qui ne bloque rien. Le chiffre : les prêtes
+       pas encore ouvertes ; le panneau s'ouvre au clic, liste les prêtes (avec le verdict) puis celles en cours. -->
+  <div class="ai-bell" x-show="aiReq.done.length || aiReq.pending.length" x-cloak @click.outside="aiPanel = false">
+    <button type="button" class="ai-bell-btn" :class="{ ready: aiReq.done.length }" @click="aiPanel = !aiPanel" :aria-expanded="aiPanel"
+            :aria-label="aiReq.done.length ? aiReq.done.length + ' analyse(s) IA prête(s)' : 'Analyses IA en cours'">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15L6 16zM10 20a2 2 0 0 0 4 0"/></svg>
+      <span class="ai-bell-count" x-show="aiReq.done.length" x-text="aiReq.done.length"></span>
+    </button>
+    <div class="ai-bell-panel" x-show="aiPanel" x-transition.opacity role="dialog" aria-label="Analyses IA">
+      <div class="ai-bell-head">
+        <strong>Analyses IA</strong>
+        <button type="button" class="btn-text" x-show="aiReq.done.length > 1" @click="aiSeenAll()">Tout marquer lu</button>
+      </div>
+      <template x-for="r in aiReq.done" :key="r.name">
+        <button type="button" class="ai-bell-item" @click="aiPanel = false; openFiche(r.name, true)">
+          <span class="mono" x-text="r.name"></span>
+          <span class="verdict" :class="aiVerdictClass(r.comment)" x-show="aiVerdictOf(r.comment)" x-text="aiVerdictOf(r.comment)"></span>
+        </button>
+      </template>
+      <p class="muted small ai-bell-pending" x-show="aiReq.pending.length"
+         x-text="fmt(aiReq.pending.length) + ' en cours : ' + aiReq.pending.slice(0, 3).map((r) => r.name).join(', ') + (aiReq.pending.length > 3 ? '…' : '')"></p>
+    </div>
   </div>
 
   <div class="sheet-head list-view"><h2>Domaines</h2><div x-tpl="'settings-btn'"></div></div>
