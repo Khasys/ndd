@@ -665,7 +665,8 @@ class Explorer:
     def _gandi_rows(self, tld: str, where: str = "", args: tuple = ()) -> list:
         """Réponses de Gandi de l'extension (hors erreurs), avec l'entrée du nom dans son état actuel (Veille)."""
         return self.conn.execute(
-            f"""SELECT g.name, g.kind, g.checked_at, d.state_since, d.checked_at FROM gandi_checks g LEFT JOIN drops d ON d.name = g.name
+            f"""SELECT g.name, g.kind, g.checked_at, d.state_since,
+                   CASE WHEN d.name IS NULL THEN NULL ELSE COALESCE(d.checked_at, '') END FROM gandi_checks g LEFT JOIN drops d ON d.name = g.name
                 WHERE g.name LIKE ? AND g.kind != 'error' {where}""", (f"%.{tld}", *args)).fetchall()
 
     def _gandi_indices(self, tld: str, gprice: int) -> list[int]:
@@ -1601,10 +1602,26 @@ class Explorer:
               and (self.reserved is None or f"{label}.{tld}" not in self.reserved.unflagged())):
             code = PREMIUM
         found = self.conn.execute("SELECT kind, checked_at FROM gandi_checks WHERE name = ?", (f"{label}.{tld}",)).fetchone()
-        if found is not None and gandi.applies(dict(found), drop["state_since"] if drop else None, drop["checked_at"] if drop else None):
+        if found is not None and gandi.applies(dict(found), drop["state_since"] if drop else None, gandi.registry_checked(drop)):
             listed = self.reserved is not None and f"{label}.{tld}" in self.reserved.names()
             code = gandi_code(code, found["kind"], listed)
         return base, code
+
+    def recheck(self, name: str, now: datetime) -> None:
+        """Indisponible chez Gandi pour un nom qu'on croit libre : sans doute enregistré depuis la dernière lecture
+        (zone, open data, vérification). Le registre tranche tout de suite : pris, ou réservé s'il le dit libre.
+        Gandi.on_blocked. Ni un réservé de liste, ni un domaine suivi (vérifié par l'écran Domaines)."""
+        if self.reserved is not None and name in self.reserved.names():
+            return
+        if self.conn.execute("SELECT 1 FROM domains WHERE name = ?", (name,)).fetchone():
+            return
+        row = self.drops.row(name)
+        if row is None:
+            row = self.drops.ensure(name, now)  # sans sortie constatée, comme Vérifier depuis l'Explorer
+        elif row["state"] not in (states.AVAILABLE, drops.UNCONFIRMED, None):
+            return  # pris, en rédemption : Gandi a raison, rien à revoir
+        self.conn.execute("UPDATE drops SET next_check_at = ?, state_since = COALESCE(state_since, ?) WHERE name = ?",
+                          (iso(now), iso(now), name))
 
     def touch(self, name: str) -> None:
         """Un nom a changé (vérification, marquage, SEO) : on corrige ce nom seulement, en place.
@@ -1770,7 +1787,7 @@ class Explorer:
             drop = dropped.get(name)
             check = checks.get(name)
             since = drop["state_since"] if drop else None
-            checked = drop["checked_at"] if drop else None
+            checked = gandi.registry_checked(drop)
             seen = self._gandi_seen(code, check, since, name in listed, checked)
             items.append({
                 "label": label,
@@ -1920,7 +1937,7 @@ class Explorer:
     def _drop_since(self, name: str) -> tuple[str | None, str | None]:
         """Entrée du nom dans son état actuel et dernière vérification au registre (Veille)."""
         row = self.conn.execute("SELECT state_since, checked_at FROM drops WHERE name = ?", (name,)).fetchone()
-        return (row["state_since"], row["checked_at"]) if row else (None, None)
+        return (row["state_since"], gandi.registry_checked(row)) if row else (None, None)
 
     def _status_label(self, tld: str, code: int) -> str:
         if code == INVALID and tld in ccdns.TLDS:
@@ -2165,7 +2182,7 @@ class Explorer:
             code = SUSPENDED if state == drops.SUSPENDED else REGISTERED
         check = gandi.load(self.conn, [name]).get(name)
         since = drop["state_since"] if drop else None
-        checked = drop["checked_at"] if drop else None
+        checked = gandi.registry_checked(drop)
         if gandi.applies(check, since, checked):
             code = gandi_code(code, check["kind"])
         seen = self._gandi_seen(code, check, since, False, checked)

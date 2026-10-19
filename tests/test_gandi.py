@@ -33,6 +33,7 @@ def client_for(ex, handler=None):
     client = gandi.Gandi(ex.fr.store, http_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler)), conn=ex.conn)
     client.store.set("gandi_pat", "pat_test")
     client.on_change = ex.touch
+    client.on_blocked = ex.recheck
     return client
 
 
@@ -90,6 +91,13 @@ def test_gandi_answers_set_the_state_of_names_thought_free(env):
     client.record("jardin.com", gandi.read(answer("unavailable")), now)
     client.record("maison.com", gandi.read(answer("available", [STANDARD])), now)
     client.record("velo.com", gandi.read(answer("error_timeout")), now)
+    # jardin.com, absent de la zone, indisponible : sans doute enregistré depuis la zone d'hier. Le registre est
+    # revu tout de suite (ligne de Veille sans sortie constatée) ; d'ici là, pas « Réservé ».
+    row = env.drops.row("jardin.com")
+    assert row["next_check_at"] == iso(now) and row["removed_on"] == "" and row["state"] is None
+    assert env.status_bytes("com")[u.index("jardin")] == explore.ABSENT
+    # Le registre le dit libre : l'indisponibilité de Gandi compte, réservé.
+    assert env.drops.apply(row, LookupResult(available=True), now + timedelta(minutes=1)) == states.AVAILABLE
     data = env.status_bytes("com")
     assert data[u.index("abd")] == explore.FREE and data[u.index("abe")] == explore.PREMIUM
     assert data[u.index("jardin")] == explore.RESERVED and data[u.index("maison")] == explore.REGISTERED
@@ -156,6 +164,15 @@ def test_unavailable_on_a_free_drop_rechecks_the_registry_first(env):
     found = one()
     assert found["status"] == explore.RESERVED and found["reserved"] == ["Indisponible chez Gandi"]
     assert found["gandi"]["pending"] is False
+    # prunes.com : absent de la zone d'hier, acheté depuis. Gandi indisponible, le registre revu le dit pris.
+    client.record("prunes.com", gandi.read(answer("unavailable")), now)
+    row = env.drops.row("prunes.com")
+    assert row["next_check_at"] == iso(now)
+    taken = LookupResult(found=True, info=DomainInfo(statuses=["active"], expires_at=now + timedelta(days=365)))
+    assert env.drops.apply(row, taken, now + timedelta(minutes=1)) == "taken"
+    i = env.universe.index("prunes")
+    item = env.describe("com", [i])[0] if i is not None else env._describe_unknown("prunes.com", now)
+    assert item["status"] == explore.REGISTERED and not item["reserved"]
     # Un nom pris ne bouge pas : la requête ne concerne que les libres de la Veille.
     env.conn.execute("UPDATE drops SET state = 'taken', next_check_at = NULL WHERE name = 'jardin.com'")
     client.record("jardin.com", gandi.read(answer("unavailable")), now + timedelta(minutes=3))
@@ -352,8 +369,8 @@ def test_gandi_in_veille_today_explorer_export_ai_and_domains(logged):
     now = datetime.now(timezone.utc)
     _com_zone(st, words=["maison"])
     st.drops.record("com", ["velo", "chat", "lune", "abd", "ciel"], [], now)
-    conn.execute("UPDATE drops SET state = 'available', available_since = ?, state_since = ? "
-                 "WHERE name IN ('velo.com', 'lune.com', 'abd.com')", (iso(now - timedelta(hours=2)),) * 2)
+    conn.execute("UPDATE drops SET state = 'available', available_since = ?, state_since = ?, checked_at = ? "
+                 "WHERE name IN ('velo.com', 'lune.com', 'abd.com')", (iso(now - timedelta(hours=2)),) * 2 + (iso(now),))
     conn.execute("UPDATE drops SET state = 'unconfirmed', state_since = ? WHERE name = 'chat.com'", (iso(now - timedelta(hours=3)),))
     conn.execute("UPDATE drops SET state = 'redemption', state_since = ? WHERE name = 'ciel.com'", (iso(now - timedelta(hours=3)),))
     at = iso(now - timedelta(hours=1))

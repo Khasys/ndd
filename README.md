@@ -625,8 +625,9 @@ en erreur ne remplace pas un résultat connu : elle est notée à côté.
   qu'on croyait libre devient « Réservé » avec la raison « Indisponible chez Gandi » (« Réservé (Gandi) »,
   « Restreint (Gandi) ») : retiré de la Veille comme les autres réservés, jamais compté libre. Un nom enregistré, en
   rédemption ou d'une liste de réservés ne change jamais ; une réponse antérieure au dernier changement d'état du nom
-  (Veille) ne compte plus jusqu'à la vérification suivante (`stale`). Indisponible sur un nom libre de la Veille :
-  sans doute enregistré depuis la dernière vérification ; le registre est revu tout de suite, et la réponse ne compte
+  (Veille) ne compte plus jusqu'à la vérification suivante (`stale`). Indisponible sur un nom qu'on croit libre (Veille, ou
+  absent de la zone ou de l'open data) : sans doute enregistré depuis la dernière lecture ; le registre est revu tout
+  de suite (ligne de Veille créée au besoin, sans sortie constatée), et la réponse ne compte
   qu'une fois le registre revu après elle (`pending` d'ici là) : pris, le nom passe « Pris » ; toujours libre au
   registre, il devient « Réservé ». Erreur : aucun changement, l'erreur est dans la fiche. Aujourd'hui compte comme libéré un nom à confirmer que Gandi dit libre.
 - **Données** : `gandi` dans les éléments de l'Explorer, de la fiche (et `fiche.gandi`), de `/api/drops`,

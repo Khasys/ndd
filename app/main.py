@@ -352,6 +352,7 @@ async def lifespan(app: FastAPI):
     app.state.gandi = gandi.Gandi(store, conn=conn)
     # Une réponse de Gandi change l'état d'un nom (premium, libre, indisponible) : l'Explorer le corrige en place.
     app.state.gandi.on_change = app.state.explorer.touch
+    app.state.gandi.on_blocked = app.state.explorer.recheck
     app.state.explorer.gandi = app.state.gandi
     app.state.gandi_pass = gandi.NightPass(app.state.gandi, conn, store, app.state.explorer, digest.local_zone(),
                                            notify=telegram.send)
@@ -1312,7 +1313,7 @@ def _drop_gandi(state, rows) -> dict[str, dict]:
     found = {}
     for r in rows:
         check, since = checks.get(r["name"]), r["state_since"]
-        kind = check["kind"] if gandi.applies(check, since, r["checked_at"]) else None
+        kind = check["kind"] if gandi.applies(check, since, gandi.registry_checked(r)) else None
         # Un nom en rédemption est forcément indisponible chez Gandi : seul un premium dit quelque chose de lui.
         if kind and r["state"] not in OPEN_DROP_STATES and kind != "premium":
             kind = None
@@ -1321,7 +1322,7 @@ def _drop_gandi(state, rows) -> dict[str, dict]:
         guess = (kind is None and r["tld"] != "fr" and r["tld"] not in premium_off and length == str(explore.PREMIUM_LENGTH))
         price = round(check["price"]) if kind == "premium" and check["price"] is not None else None
         found[r["name"]] = {
-            "check": check, "since": since, "checked": r["checked_at"], "kind": kind, "premium": kind == "premium" or guess,
+            "check": check, "since": since, "checked": gandi.registry_checked(r), "kind": kind, "premium": kind == "premium" or guess,
             "premium_price": price if kind == "premium" else prices.get(r["tld"], {}).get(length) if guess else None,
             "blocked": kind in gandi.BLOCKED, "free": kind == "available" and r["state"] in OPEN_DROP_STATES,
         }

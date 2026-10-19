@@ -20,7 +20,6 @@ from datetime import datetime, timedelta
 
 import httpx
 
-from . import drops, states
 from .checker import iso, utcnow
 
 log = logging.getLogger(__name__)
@@ -144,8 +143,13 @@ def applies(row: dict | None, since: str | None = None, checked: str | None = No
 
 
 def pending(row: dict | None, checked: str | None) -> bool:
-    """Indisponible chez Gandi, registre pas encore revu depuis : la revérification décide (pris ou réservé)."""
+    """Indisponible chez Gandi, registre pas encore revu depuis (ou jamais) : la revérification décide (pris ou réservé)."""
     return bool(row) and row["kind"] in BLOCKED and checked is not None and checked < row["checked_at"]
+
+
+def registry_checked(drop) -> str | None:
+    """checked de applies et pending : None sans ligne de Veille, "" pour une ligne pas encore vérifiée."""
+    return None if drop is None else drop["checked_at"] or ""
 
 
 def public(row: dict | None, since: str | None = None, checked: str | None = None) -> dict | None:
@@ -202,6 +206,8 @@ class Gandi:
         self._http_factory = http_factory or (lambda: httpx.AsyncClient(timeout=20, headers={"User-Agent": "domain-watch"}))
         # Un résultat qui change l'état ou le prix d'un nom : l'Explorer le corrige en place (touch).
         self.on_change = None
+        # Indisponible pour un nom qu'on croit libre : le registre est revu tout de suite (Explorer.recheck).
+        self.on_blocked = None
 
     @property
     def key(self) -> str:
@@ -244,11 +250,8 @@ class Gandi:
         les cas : une vérification plus récente qu'un changement d'état peut seule rendre le résultat valable."""
         now = now or utcnow()
         before, after = save(self.conn, name, found, now)
-        if after["kind"] in BLOCKED:
-            # Indisponible alors que la Veille le croit libre : sans doute enregistré depuis la dernière
-            # vérification. Le registre tranche tout de suite, pas à la date prévue.
-            self.conn.execute("UPDATE drops SET next_check_at = ? WHERE name = ? AND state IN (?, ?)",
-                              (iso(now), name, states.AVAILABLE, drops.UNCONFIRMED))
+        if after["kind"] in BLOCKED and self.on_blocked:
+            self.on_blocked(name, now)
         if self.on_change:
             self.on_change(name)
         return before is None or (before["kind"], before["price"]) != (after["kind"], after["price"])

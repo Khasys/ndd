@@ -754,7 +754,9 @@ class DropWatcher:
                 held = any("hold" in s.replace(" ", "").lower() for s in info.statuses)
                 state = SUSPENDED if held else TAKEN
         since = parse_iso(row["state_since"])
-        if state != row["state"]:
+        # Première vérification d'une ligne posée par Explorer.recheck (indisponible chez Gandi) : l'état date
+        # de la lecture de Gandi, qui reste valable (pris : rien ne change ; libre au registre : réservé).
+        if state != row["state"] and not (row["state"] is None and since and state not in TRACKED):
             since = now
             changed = None if result.available else result.info.last_changed_at
             # Date de dernière modification RDAP : début de la rédemption, sauf si elle précède l'échéance
