@@ -1578,6 +1578,9 @@ document.addEventListener("alpine:init", () => {
         const text = lo !== "" && hi !== "" ? `${lo} à ${hi}` : lo !== "" ? `≥ ${lo}` : `≤ ${hi}`;
         out.push({ key: [`ai_${f}_min`, `ai_${f}_max`], label: `IA ${name.toLowerCase()} ${text}` });
       }
+      // Réglages simples (en-tête sur ordinateur, panneau Avancé sur téléphone) : ils cachent aussi des noms.
+      if (this.ex.level === "good") out.push({ key: "level", label: "Noms faibles masqués" });
+      if (this.ex.nopremium === "1") out.push({ key: "nopremium", label: "Premiums masqués" });
       return out;
     },
 
@@ -2540,11 +2543,26 @@ document.addEventListener("alpine:init", () => {
       if (f.quick) out.push({ key: "quick", label: `Revente rapide ≥ ${f.quick} €` });
       if (f.gprice !== "" && f.gprice !== null && f.gprice !== undefined) out.push({ key: "gprice", label: `Achat ≤ ${this.fmt(Number(f.gprice))} €` });
       if (f.period) out.push({ key: "period", label: `${this.dropTab === "coming" ? "Libération sous" : "Libérés depuis"} ${this.periodLong(f.period)}` });
+      // Réglages simples (en-tête sur ordinateur, panneau Avancé sur téléphone) : ils cachent aussi des noms, on les voit.
+      if (this.dropTld.length) out.push({ key: "tld", label: "Extension : " + this.dropTld.map((t) => "." + t).join(", ") });
+      if (this.dropNewOnly) out.push({ key: "new", label: "Nouveaux seulement" });
+      if (this.dropLevel) out.push({ key: "level", label: "Noms faibles masqués" });
+      if (f.nopremium) out.push({ key: "nopremium", label: "Premiums masqués" });
       return out;
+    },
+
+    // Noms de l'onglet que les filtres cachent : « 12 masqués par les filtres ».
+    dropHiddenCount() {
+      if (!this.dropsData || this.dropFocus) return 0;
+      const all = this.dropsMemo("all:" + this.dropTab, () => this.dropsData.items.filter((d) => this.dropInTab(d, this.dropTab)).length);
+      return Math.max(0, all - this.dropTabCount(this.dropTab));
     },
 
     dropClear(key) {
       if (key.startsWith("kind:")) { this.dropKinds = this.dropKinds.filter((k) => k !== key.slice(5)); return; }
+      if (key === "tld") { this.dropTld = []; return; }
+      if (key === "new") { this.dropNewOnly = false; return; }
+      if (key === "level") { this.dropLevel = ""; return; }
       this.df[key] = Array.isArray(DROP_FILTER_DEFAULTS[key]) ? [] : DROP_FILTER_DEFAULTS[key];
     },
 
@@ -3198,9 +3216,15 @@ document.addEventListener("alpine:init", () => {
       return "";
     },
 
+    // Compteurs d'état : calculés avec les autres filtres (extension, nom, IA, tag…), pas avec l'état lui-même,
+    // pour voir combien chaque état garde de noms dans la sélection.
+    get counterBase() {
+      return this.domains.filter((d) => this.domMatches(d, true));
+    },
+
     get counters() {
       const counts = {};
-      for (const d of this.domains) {
+      for (const d of this.counterBase) {
         const key = this.displayState(d);
         counts[key] = (counts[key] || 0) + 1;
       }
@@ -3313,15 +3337,18 @@ document.addEventListener("alpine:init", () => {
       return [...new Set(this.domains.flatMap((d) => d.tags))].sort();
     },
 
-    get rows() {
+    domMatches(d, anyState = false) {
       const q = this.query.trim().toLowerCase();
-      const list = this.domains.filter((d) =>
-        (!this.filter || this.displayState(d) === this.filter) &&
+      return (anyState || !this.filter || this.displayState(d) === this.filter) &&
         (!this.tagFilter || d.tags.includes(this.tagFilter)) &&
         (!this.abandonedOnly || d.abandoned) &&
         (!this.tldFilter || d.name.endsWith("." + this.tldFilter)) &&
         (!this.aiFilter.length || this.aiFilter.includes(this.aiClass(d.ai))) &&
-        (!q || d.name.includes(q) || d.unicode_name.toLowerCase().includes(q)));
+        (!q || d.name.includes(q) || d.unicode_name.toLowerCase().includes(q));
+    },
+
+    get rows() {
+      const list = this.domains.filter((d) => this.domMatches(d));
       const key = this.sortKey;
       const dir = this.sortDir;
       return list.sort((a, b) => {

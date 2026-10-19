@@ -356,6 +356,8 @@
             <template x-for="a in dropActive()" :key="a.key">
               <button type="button" class="ex-pill" @click="dropClear(a.key)"><span x-text="a.label"></span> ×</button>
             </template>
+            <span class="muted small ex-hidden" x-show="dropHiddenCount()" x-text="fmt(dropHiddenCount()) + ' ' + plural(dropHiddenCount(), 'nom masqué', 'noms masqués') + ' par les filtres'"></span>
+            <button type="button" class="btn-text" x-show="dropActive().length > 1" @click="dropActive().forEach((a) => dropClear(a.key))">Tout afficher</button>
           </div>
         </div>
 
@@ -1469,7 +1471,7 @@
   <div class="list-toolbar list-view" x-show="domains.length" x-cloak>
     <div class="counters">
       <button type="button" class="counter" :class="{ on: filter === null }" @click="filter = null">
-        Tous <span class="num" x-text="domains.length"></span>
+        Tous <span class="num" x-text="counterBase.length"></span>
       </button>
       <template x-for="c in counters" :key="c.key">
         <button type="button" class="counter" :class="{ on: filter === c.key }" @click="filter = filter === c.key ? null : c.key">
@@ -1520,6 +1522,7 @@
         <span x-text="f.label"></span><span aria-hidden="true">×</span>
       </button>
     </template>
+    <span class="muted small" x-text="rows.length + ' sur ' + domains.length + ' ' + plural(domains.length, 'domaine affiché', 'domaines affichés')"></span>
     <button type="button" class="btn-ghost" x-show="activeFilters.length > 1" @click="clearFilters()">Tout effacer</button>
   </div>
 

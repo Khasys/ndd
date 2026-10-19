@@ -737,7 +737,7 @@ button:disabled { cursor: default; opacity: .55; }
 .ex-view-name { padding: 0 4px 0 12px; min-height: 30px; }
 .ex-x { color: var(--muted); padding: 0 12px 0 8px; min-height: 30px; min-width: 32px; }
 .ex-x:hover { color: var(--danger); }
-.ex-active { display: flex; flex-wrap: wrap; gap: 6px; }
+.ex-active { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .ex-pill { border: 1px solid var(--accent); color: var(--accent); background: none; border-radius: 12px; padding: 2px 10px; font: inherit; font-size: 12.5px; cursor: pointer; }
 
 .ex-panel { margin: 0 0 12px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; display: grid; gap: 12px; }
@@ -1024,7 +1024,8 @@ button:disabled { cursor: default; opacity: .55; }
 .simple-block { display: flex; flex-direction: column; gap: 8px; }
 .nc-line { margin: 3px 0 0; font-size: 14px; }
 .nc-freq { margin: 2px 0 0; color: var(--muted); }
-.nc-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 3px 0 0; color: var(--muted); }
+/* Centré : sans cela la pastille de prix s'étirait à la hauteur de l'état (« libre ») avec le texte en haut. */
+.nc-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 3px 0 0; color: var(--muted); }
 .nc-meta:empty { display: none; }
 .warn-text { color: var(--danger); }
 
