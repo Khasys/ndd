@@ -1043,7 +1043,7 @@ def test_fiche_of_a_watched_name_shows_the_last_check_state(env):
                         VALUES ('velo.fr', '2026-10-01', ?, '2026-10-17T00:00:00Z', '2026-10-17T00:00:00Z', 'Gandi', '[]')""",
                      (states.ACTIVE,))
     item = env.fiche("velo.fr")["item"]
-    assert item["status"] == explore.REGISTERED and item["status_label"] == states.LABELS[states.ACTIVE]
+    assert item["status"] == explore.REGISTERED and item["status_label"] == "Enregistré"  # pris : un seul libellé
 
 
 def set_recent(ex, tmp_path, ranked, year=2024):

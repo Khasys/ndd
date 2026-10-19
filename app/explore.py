@@ -158,8 +158,9 @@ STATUS_NAMES = {
 }
 # États qu'un terme réservé (liste ou marquage) remplace : tout ce qui n'est pas enregistré.
 RESERVABLE = (GONE, ABSENT, UNCONFIRMED, FREE, COMING, UNCHECKED)
-# Réservés mêlés aux noms à saisir si on le demande dans Paramètres.
-WITH_RESERVED = {"available", "bookable", "maybe_free", "free", "coming", "all"}
+# Réservés (si on le demande dans Paramètres) et premiums mêlés aux noms à saisir maintenant. Pas « Bientôt libres » :
+# un premium s'achète tout de suite, un réservé ne se libère pas.
+WITH_RESERVED = {"available", "bookable", "maybe_free", "free", "all"}
 # Pris sur une autre extension : signe de demande pour le nom.
 TAKEN_CODES = (REGISTERED, SUSPENDED, COMING, TAKEN_GANDI)
 
@@ -2180,7 +2181,9 @@ class Explorer:
             # Nom surveillé : l'état connu du suivi (même si le dernier check a échoué) l'emporte sur celui de
             # l'Explorer (zone, open data qui datent) ; sinon la fiche dirait « Enregistré » d'un nom en rédemption.
             code = COMING if domain["state"] in (states.EXPIRED, states.REDEMPTION, states.PENDING_DELETE) else REGISTERED
-            main = {**main, "status": code, "status_label": states.LABELS.get(domain["state"], main["status_label"])}
+            # Pris : le libellé commun (« Enregistré »), pas « Actif » de l'écran Domaines ; à venir : l'état précis.
+            label = states.LABELS.get(domain["state"], main["status_label"]) if code == COMING else LABELS[REGISTERED]
+            main = {**main, "status": code, "status_label": label}
         seo = self.conn.execute("SELECT * FROM domain_seo WHERE name = ?", (name,)).fetchone()
         others = [i for t, i in items.items() if t != tld]
         for other in others:

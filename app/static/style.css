@@ -815,6 +815,8 @@ button:disabled { cursor: default; opacity: .55; }
 .explore-more { display: flex; align-items: center; gap: 12px; margin: 12px 0 0; }
 .link-like { background: none; border: 0; padding: 0; color: inherit; font: inherit; cursor: pointer; text-align: left; text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
 .num-input, .inline-form .num-input { width: 90px !important; flex: none; }
+/* Portefeuille : « Renouv. €/an » en entier (coupé à 90 px sur téléphone). */
+.pf-add .num-input { width: 132px !important; }
 .inline-form { flex-wrap: wrap; }
 
 @media (max-width: 899px) {
@@ -1054,7 +1056,8 @@ button:disabled { cursor: default; opacity: .55; }
   .ex-search, .ex-filter-btn { height: 40px; min-height: 40px; }
   /* Ligne des sources : une ligne, pour garder la première carte haut dans l'écran. */
   .drops-sources { flex-wrap: nowrap; margin: 0 0 4px; }
-  .drops-sources > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Deux lignes au plus : une erreur coupée à la première ligne ne disait plus rien d'utile. */
+  .drops-sources > span { min-width: 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
   .drops-sources .link-like { flex: none; }
   .ex-list .name-card { flex-wrap: wrap; }
   .ex-list .nc-actions { width: 100%; padding-left: 30px; }

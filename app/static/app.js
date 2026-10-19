@@ -636,7 +636,9 @@ document.addEventListener("alpine:init", () => {
     // Bouton « ? » d'un écran : l'Aide, ouverte à la section voulue.
     async helpAt(id) {
       await this.openSheet("legend");
-      this.$nextTick(() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" }));
+      // Après le fondu de l'écran qui s'en va (150 ms) : avant, le contenu remontait ensuite et l'Aide s'ouvrait
+      // plus bas que la section voulue (ordinateur).
+      setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" }), 200);
     },
 
     // « Masquer les noms faibles » : même case dans la Veille et l'Explorer, réglage propre à chaque écran.
@@ -723,7 +725,8 @@ document.addEventListener("alpine:init", () => {
         isNew: list === "veille" && this.dropNew(i),
         // Prix d'achat chez Gandi en pastille ; premium probable (sans réponse de Gandi) en texte, comme avant.
         // Explorer : l'état d'un premium vu chez Gandi est déjà « Premium 878 € » (badge) ; pas de pastille en double.
-        price: i.status === 8 && !veilleLike ? null : this.gandiPill(i, list),
+        price: (i.status === 8 && !veilleLike) || (veilleLike && this.gandiKind(i, list) === "premium" && ["available", "unconfirmed"].includes(i.state))
+          ? null : this.gandiPill(i, list),
         premium: this.gandiKind(i, list) === "premium" ? ""
           : veilleLike && i.premium ? (i.premium_price ? `premium probable ~${this.fmt(i.premium_price)} €` : "premium probable")
           : i.status === 8 && i.premium_price ? `~${this.fmt(i.premium_price)} €` : "",
@@ -748,6 +751,11 @@ document.addEventListener("alpine:init", () => {
         // Indisponible chez Gandi : plus jamais « libre » (Veille avec les réservés affichés, Paramètres).
         if (GANDI_BLOCKED.includes(kind)) {
           return { badge: { text: g.label.toLowerCase(), cls: "x-7" }, when: BLOCKED_WHY, canReserve: false, canCheck: false };
+        }
+        // Premium vu chez Gandi sur un nom libre : même badge que dans l'Explorer et la fiche (« Premium 878 € »).
+        if (["available", "unconfirmed"].includes(i.state) && kind === "premium") {
+          return { badge: { text: g.price ? `Premium ${this.gandiEuros(g.price)}` : "premium", cls: "x-8 gandi" },
+                   when: `prix vérifié ${this.relative(g.checked_at)}`, canReserve: true, canCheck: false };
         }
         if (i.state === "unconfirmed" && kind === "available") {
           return { badge: { text: "libre", cls: "x-5" }, when: `prix vérifié ${this.relative(g.checked_at)}`, canReserve: true, canCheck: false };
@@ -1301,7 +1309,7 @@ document.addEventListener("alpine:init", () => {
       const money = (v) => Number(v).toLocaleString("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + "\u00a0€";
       const price = g.price !== null && g.price !== undefined
         ? `, ${money(g.price)} TTC` + (g.price_ht !== null && g.price_ht !== undefined ? ` (${money(g.price_ht)} HT)` : "") + " pour un an, indicatif" : "";
-      const parts = [`${kinds[g.kind] || g.kind}${g.status ? ` (${g.status})` : ""}${price}`, `vérifié ${this.relative(g.checked_at)}`];
+      const parts = [`${kinds[g.kind] || g.kind}${price}`, `vérifié ${this.relative(g.checked_at)}`];
       if (g.error && g.kind !== "error") parts.push(`dernière vérification en erreur : ${g.error}`);
       else if (g.error) parts.push(g.error);
       if (g.stale) parts.push("avant le dernier changement d'état, revu à la prochaine passe");
@@ -2149,8 +2157,11 @@ document.addEventListener("alpine:init", () => {
       try {
         const r = await this.api("POST", "/api/drops/hide", { names });
         if (this.dropsData) {
-          this.dropsData.items = (this.dropsData.items || []).filter((d) => !names.includes(d.name));
-          this.dropsData.hidden = r.hidden;
+          // Nouvel objet : modifier sur place abîmait la réponse gardée en cache (apiFresh), et « Annuler »
+          // (304, même réponse) ne réaffichait pas le nom.
+          this.dropsData = { ...this.dropsData, items: (this.dropsData.items || []).filter((d) => !names.includes(d.name)), hidden: r.hidden };
+          this._dropsRaw = null;
+          this._dropsVer = (this._dropsVer || 0) + 1;
         }
         if (this.today) {
           this.today.items = this.today.items.filter((d) => !names.includes(d.name));

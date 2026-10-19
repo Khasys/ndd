@@ -59,6 +59,7 @@ def listing(conn, explorer) -> dict:
         outcome = "repris" if r["decision"] == "ignored" and taken else None
         regrets += outcome is not None
         items.append({"name": r["name"], "decision": r["decision"], "at": r["at"], "note": r["note"],
-                      "state": code, "state_label": explore.LABELS.get(code) if code is not None else None,
+                      "state": code, "state_label": (explore.absent_label(tld) if code == explore.ABSENT else explore.LABELS.get(code))
+                      if code is not None else None,
                       "outcome": outcome, "taken_at": taken_dates.get(r["name"]) if outcome else None})
     return {"items": items, "regrets": regrets}
