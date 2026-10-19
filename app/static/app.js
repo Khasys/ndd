@@ -657,7 +657,7 @@ document.addEventListener("alpine:init", () => {
       const kind = this.gandiKind(i, list);
       const g = this.gandiOf(i);
       if (!kind || !g) return null;
-      const title = `Prix Gandi, indicatif : création pour un an, TTC. Vérifié ${this.relative(g.checked_at)}.`;
+      const title = `Prix d'achat indicatif : création pour un an, TTC. Vérifié ${this.relative(g.checked_at)}.`;
       if (kind === "premium" && short) return g.price ? { text: this.gandiEuros(g.price), cls: "gandi-premium", title } : null;
       if (kind === "premium") return { text: g.price ? `Premium ${this.gandiEuros(g.price)}` : "Premium", cls: "gandi-premium", title };
       if (kind === "available" && g.price) return { text: this.gandiEuros(g.price), cls: "gandi-price", title };
@@ -716,7 +716,7 @@ document.addEventListener("alpine:init", () => {
     // État explicite d'une carte : badge (texte et couleur), date ou détail, actions possibles.
     cardState(i, list) {
       const g = this.gandiOf(i);
-      const checked = i.checked_at ? `vérifié ${this.relative(i.checked_at)}` : g ? `vérifié chez Gandi ${this.relative(g.checked_at)}` : "";
+      const checked = i.checked_at ? `vérifié ${this.relative(i.checked_at)}` : g ? `prix vérifié ${this.relative(g.checked_at)}` : "";
       const kind = this.gandiKind(i, list);
       if (list === "veille" || list === "today") {
         // Indisponible chez Gandi : plus jamais « libre » (Veille avec les réservés affichés, Paramètres).
@@ -724,7 +724,7 @@ document.addEventListener("alpine:init", () => {
           return { badge: { text: "réservé", cls: "x-7" }, when: g.label, canReserve: false, canCheck: false };
         }
         if (i.state === "unconfirmed" && kind === "available") {
-          return { badge: { text: "libre (Gandi)", cls: "x-5" }, when: `vérifié chez Gandi ${this.relative(g.checked_at)}`, canReserve: true, canCheck: false };
+          return { badge: { text: "libre", cls: "x-5" }, when: `prix vérifié ${this.relative(g.checked_at)}`, canReserve: true, canCheck: false };
         }
         if (i.state === "available") {
           return { badge: { text: "libre", cls: "x-5" }, when: checked || `libéré ${this.relative(i.available_since)}`, canReserve: true, canCheck: false };
@@ -740,7 +740,7 @@ document.addEventListener("alpine:init", () => {
       switch (i.status) {
         case 2: case 3: return { badge: { text: i.status === 3 && DNS_TLDS.includes(i.tld) ? "probablement libre (absent du DNS)" : "probablement libre", cls: "x-3" },
                                  when: checked, canReserve: true, canCheck: true };
-        case 5: return { badge: { text: kind === "available" && i.status_label === "Libre (Gandi)" ? "libre (Gandi)" : "libre", cls: "x-5" }, when: checked, canReserve: true, canCheck: false };
+        case 5: return { badge: { text: "libre", cls: "x-5" }, when: checked, canReserve: true, canCheck: false };
         // WHOIS seul (.co, .io, .ai) : « inconnu » ne connaît pas les noms réservés ou premium du registre.
         case 9: return { badge: { text: "libre selon le WHOIS, à confirmer", cls: "x-9" }, when: checked, canReserve: true, canCheck: true };
         case 4: return { badge: { text: i.status_label || "Libération à venir", cls: this.badgeClass(i) },
@@ -750,7 +750,7 @@ document.addEventListener("alpine:init", () => {
         case 7: return { badge: { text: "réservé", cls: "x-7" }, when: (i.reserved || []).join(", "), canReserve: false, canCheck: false };
         // Premium vu chez Gandi : il s'achète, au prix de la pastille ; premium probable : rien n'est confirmé.
         case 8: return kind === "premium"
-          ? { badge: { text: g.price ? `Premium ${this.gandiEuros(g.price)}` : "premium (Gandi)", cls: "x-8 gandi" }, when: `vérifié chez Gandi ${this.relative(g.checked_at)}`, canReserve: true, canCheck: false }
+          ? { badge: { text: g.price ? `Premium ${this.gandiEuros(g.price)}` : "premium", cls: "x-8 gandi" }, when: `prix vérifié ${this.relative(g.checked_at)}`, canReserve: true, canCheck: false }
           : { badge: { text: "premium probable", cls: "x-8" }, when: "", canReserve: false, canCheck: false };
         default: return { badge: { text: DNS_TLDS.includes(i.tld) ? "pas interrogé" : "pas encore vérifié", cls: "x-0" }, when: "", canReserve: false, canCheck: true };
       }
@@ -956,7 +956,7 @@ document.addEventListener("alpine:init", () => {
       // Prix d'achat chez Gandi à côté des prix de revente : un premium doit être couvert par la revente.
       const kind = this.gandiKind(item, "explore");
       const g = this.gandiOf(item);
-      if (g && g.price && (kind === "premium" || kind === "available")) k.prices.push(["achat Gandi", this.gandiEuros(g.price)]);
+      if (g && g.price && (kind === "premium" || kind === "available")) k.prices.push(["achat", this.gandiEuros(g.price)]);
       if (kind === "premium") {
         k.premium = "Premium : prix d'achat fixé par le registre, bien au-dessus du prix courant. La revente doit le couvrir.";
       } else if (GANDI_BLOCKED.includes(kind)) {
@@ -1201,7 +1201,7 @@ document.addEventListener("alpine:init", () => {
         const lost = !c.present && c.lost_at ? `, sorti du DNS ${this.relative(c.lost_at)} : à vérifier` : "";
         past.push([`DNS .${f.tld}, dernière`, esc((c.present ? "délégué : nom pris" : "aucun serveur") + lost + `, ${this.relative(c.at)}`)]);
       } else if (DNS_TLDS.includes(f.tld)) past.push([`DNS .${f.tld}`, "pas dans les noms suivis chaque nuit"]);
-      if (f.gandi) past.push(["Gandi", esc(this.gandiFicheText(f.gandi))]);
+      if (f.gandi) past.push(["Prix d'achat", esc(this.gandiFicheText(f.gandi))]);
       if (f.seo) {
         const parts = [];
         if (f.seo.pr) parts.push(`PageRank ${String(f.seo.pr).replace(".", ",")}`);
@@ -1484,7 +1484,7 @@ document.addEventListener("alpine:init", () => {
       if (e.min && e.min !== "0") out.push({ key: "min", label: "Score ≥ " + e.min });
       if (e.junk) out.push({ key: "junk", label: "Suites et mélanges inclus" });
       if (e.seo) out.push({ key: "seo", label: this.exData.seo_filters[e.seo] });
-      if (String(e.gprice ?? "").trim() !== "") out.push({ key: "gprice", label: `Achat Gandi ≤ ${this.fmt(Number(e.gprice))} €` });
+      if (String(e.gprice ?? "").trim() !== "") out.push({ key: "gprice", label: `Achat ≤ ${this.fmt(Number(e.gprice))} €` });
       if (e.ai_v) out.push({ key: "ai_v", label: "IA : " + this.exAiVerdicts().map((v) => this.exData.ai_verdicts[v]).join(", ") });
       for (const f of Object.keys(this.exData.ai_fields || {})) {
         const lo = String(e[`ai_${f}_min`] ?? "").trim(), hi = String(e[`ai_${f}_max`] ?? "").trim();
@@ -1919,10 +1919,10 @@ document.addEventListener("alpine:init", () => {
     domGandi(d) {
       const g = this.gandiOf(d);
       if (!g) return null;
-      const title = `Prix Gandi, indicatif : création pour un an, TTC. Vérifié ${this.relative(g.checked_at)}.`;
+      const title = `Prix d'achat indicatif : création pour un an, TTC. Vérifié ${this.relative(g.checked_at)}.`;
       if (g.kind === "premium") return { text: g.price ? `Premium ${this.gandiEuros(g.price)}` : "Premium", cls: "gandi-premium", title };
       if (d.state !== "available") return null;
-      if (g.kind === "available" && g.price) return { text: `${this.gandiEuros(g.price)} chez Gandi`, cls: "gandi-price", title };
+      if (g.kind === "available" && g.price) return { text: `achat ${this.gandiEuros(g.price)}`, cls: "gandi-price", title };
       if (GANDI_BLOCKED.includes(g.kind)) return { text: g.label, cls: "gandi-blocked", title: `Vérifié ${this.relative(g.checked_at)}.` };
       return null;
     },
@@ -1951,7 +1951,7 @@ document.addEventListener("alpine:init", () => {
         const item = await this.api("POST", "/api/explore/check", { name });
         // Repli sur le WHOIS (RDAP en panne) : dit dans le message, avec le détail.
         const g = this.gandiOf(item);
-        const gandi = item.gandi_note ? " Gandi n'a pas répondu." : g && g.price && ["available", "premium"].includes(g.kind) ? ` ${this.gandiEuros(g.price)} chez Gandi.` : "";
+        const gandi = item.gandi_note ? " Prix d'achat non vérifié." : g && g.price && ["available", "premium"].includes(g.kind) ? ` Achat ${this.gandiEuros(g.price)}.` : "";
         if (!quiet) this.say(`${name} : ${item.status_label || "vérifié"}.` + (item.note ? " Lu dans le WHOIS, RDAP indisponible." : "") + gandi,
           "info", null, [item.note, item.gandi_note].filter(Boolean).join(" ; "));
         return item;
@@ -2357,7 +2357,7 @@ document.addEventListener("alpine:init", () => {
       const parts = [];
       if (last) parts.push(`zones lues ${this.relative(last)}`);
       if (d.fr && d.fr.enabled && d.fr.at) parts.push(`.fr importé ${this.relative(d.fr.at)}`);
-      if (d.gandi && d.gandi.finished_at) parts.push(`Gandi ${this.relative(d.gandi.finished_at)}`);
+      if (d.gandi && d.gandi.finished_at) parts.push(`prix ${this.relative(d.gandi.finished_at)}`);
       return parts.length ? "Lectures à jour : " + parts.join(", ") + "." : "Lectures à jour.";
     },
 
@@ -2414,7 +2414,7 @@ document.addEventListener("alpine:init", () => {
       if (f.junk) out.push({ key: "junk", label: "Suites et mélanges inclus" });
       if (f.ai.length) out.push({ key: "ai", label: "IA : " + f.ai.map((v) => AI_VERDICTS[v]).join(", ") });
       if (f.quick) out.push({ key: "quick", label: `Revente rapide ≥ ${f.quick} €` });
-      if (f.gprice !== "" && f.gprice !== null && f.gprice !== undefined) out.push({ key: "gprice", label: `Achat Gandi ≤ ${this.fmt(Number(f.gprice))} €` });
+      if (f.gprice !== "" && f.gprice !== null && f.gprice !== undefined) out.push({ key: "gprice", label: `Achat ≤ ${this.fmt(Number(f.gprice))} €` });
       if (f.period) out.push({ key: "period", label: `${this.dropTab === "coming" ? "Libération sous" : "Libérés depuis"} ${this.periodLong(f.period)}` });
       return out;
     },

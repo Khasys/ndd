@@ -140,7 +140,7 @@
       <a href="#help-states">États d'un domaine</a>
       <a href="#help-explore">États dans l'Explorer</a>
       <a href="#help-find">Trouver les meilleurs</a>
-      <a href="#help-gandi">Gandi</a>
+      <a href="#help-gandi">Prix d'achat</a>
       <a href="#help-score">Score</a>
       <a href="#help-ai">Avis IA</a>
       <a href="#help-lists">Listes de noms</a>
@@ -190,10 +190,10 @@
       <dt>Libération à venir</dt><dd>Expiré, en rédemption ou en suppression imminente.</dd>
       <dt>Libre (vérifié)</dt><dd>Libre à la dernière vérification auprès du registre (RDAP).</dd>
       <dt>Libre selon le WHOIS, à confirmer</dt><dd>Extension sans RDAP (.co) ou RDAP en panne : le WHOIS ne connaît pas le nom. Il ignore souvent les noms réservés ou premium du registre (.co, .io, .ai) : à confirmer chez un registrar. Réserver reste possible ; pas compté dans les libérés d'Aujourd'hui, pas d'alerte « libre » ; le résumé du matin les liste à part. Refusé par le registrar : « Plus », Réservé par registre.</dd>
-      <dt>Réservé</dt><dd>Bloqué par le registre (termes soumis à examen, communes), ou indisponible chez Gandi alors que le registre le dit libre (raison « Indisponible chez Gandi », « Réservé (Gandi) »). Un nom qu'on croit libre et que Gandi dit indisponible est d'abord revérifié au registre : souvent, il vient d'être enregistré. Enregistrable sous conditions, ou pas du tout.</dd>
-      <dt>Libre (Gandi)</dt><dd>Gandi le vend au prix standard : un nom probablement libre ou à confirmer devient libre. Le prix (« 13 € », création un an, TTC) est indicatif.</dd>
+      <dt>Réservé</dt><dd>Bloqué par le registre (termes soumis à examen, communes), ou indisponible à l'achat alors que le registre le dit libre (raison « Indisponible à l'achat »). Un nom qu'on croit libre et indisponible à l'achat est d'abord revérifié au registre : souvent, il vient d'être enregistré. Enregistrable sous conditions, ou pas du tout.</dd>
+      <dt>Libre (vérifié), avec un prix</dt><dd>Vendu au prix standard : un nom probablement libre ou à confirmer devient libre. Le prix (« 13 € », création un an, TTC) est indicatif.</dd>
       <dt>Premium probable</dt><dd>3 caractères libres hors .fr, .com et .net : souvent vendus au prix premium par le registre, sans confirmation.</dd>
-      <dt>Premium (Gandi)</dt><dd>Gandi le vend, au prix premium du registre (« Premium 878 € ») : un ordre de grandeur, le même chez les autres registrars.</dd>
+      <dt>Premium, avec un prix</dt><dd>Vendu au prix premium du registre (« Premium 878 € ») : un ordre de grandeur, le même chez les autres registrars.</dd>
     </dl>
     <p class="small muted">Probablement libres : Supprimé non repris, Jamais enregistré, Absent de la zone, Absent du DNS. Vérifier interroge le registre. Un .co, .ai ou .io vu dans le DNS puis absent passe dans la Veille (« Sorti du DNS » dans ses dates) ; absent dès sa première interrogation, il reste dans l'Explorer, et une vérification à la main n'en fait pas un nom sorti du DNS.</p>
 
@@ -203,11 +203,11 @@
       <dt>Pour revendre</dt><dd>D'abord les noms que l'IA conseille, par sa note de revente ; puis les noms sans avis, par score ; à la fin, ceux qu'elle déconseille.</dd>
       <dt>Pour exploiter</dt><dd>Même ordre, avec la note d'exploitation : un nom pour un vrai site ou une marque.</dd>
       <dt>Masquer les noms faibles</dt><dd>Sans avis IA : score sous 30. Avec un avis : « À laisser », même à bon score.</dd>
-      <dt>Masquer les premiums</dt><dd>Décoché par défaut : les premiums (vus chez Gandi ou probables) restent visibles. Coché, ils sortent de la liste et des compteurs ; Veille, Explorer et Aujourd'hui ont chacun leur case, gardée par le navigateur (Explorer : vues enregistrées et export CSV compris).</dd>
-      <dt>Prix d'achat au plus</dt><dd>Panneau Avancé de la Veille et de l'Explorer : seulement les noms vérifiés chez Gandi dont le prix (standard ou premium) ne dépasse pas ce montant.</dd>
+      <dt>Masquer les premiums</dt><dd>Décoché par défaut : les premiums (confirmés ou probables) restent visibles. Coché, ils sortent de la liste et des compteurs ; Veille, Explorer et Aujourd'hui ont chacun leur case, gardée par le navigateur (Explorer : vues enregistrées et export CSV compris).</dd>
+      <dt>Prix d'achat au plus</dt><dd>Panneau Avancé de la Veille et de l'Explorer : seulement les noms au prix vérifié dont le prix (standard ou premium) ne dépasse pas ce montant.</dd>
       <dt>Types et catégories</dt><dd>Puces à cocher, plusieurs à la fois (Prénoms et Noms de famille : un nom de l'une ou l'autre liste) ; « Toutes » les efface. La longueur reste un filtre à part.</dd>
       <dt>Extensions</dt><dd>Puces à cocher, plusieurs à la fois, ou « Toutes ». Depuis « Toutes », une puce choisit cette extension seule ; les suivantes s'ajoutent ou se retirent. Choix mémorisé ; dans l'Explorer, il suit les vues enregistrées et l'export CSV.</dd>
-      <dt>Sur une carte</dt><dd>L'état en toutes lettres (probablement libre, libre vérifié, libre (Gandi), libération estimée, pris, réservé, premium probable, premium (Gandi)), le prix d'achat chez Gandi en pastille (« 13 € » discret, « Premium 878 € » ambre), le verdict IA en pastille (À prendre vert, À surveiller ambre, À laisser gris) et le prix utilisateur final, puis Réserver, Vérifier (nom probablement libre) et Surveiller.</dd>
+      <dt>Sur une carte</dt><dd>L'état en toutes lettres (probablement libre, libre vérifié, libération estimée, pris, réservé, premium probable, premium), le prix d'achat en pastille (« 13 € » discret, « Premium 878 € » ambre), le verdict IA en pastille (À prendre vert, À surveiller ambre, À laisser gris) et le prix utilisateur final, puis Réserver, Vérifier (nom probablement libre) et Surveiller.</dd>
       <dt>Tris</dt><dd>Les meilleurs d'abord, les plus récents (Veille), libération la plus proche (Bientôt libres seulement), les plus courts et score seul (Explorer), les plus fréquents : prénoms et noms de famille du plus donné au moins donné (Insee), mots du plus courant au moins courant ; la carte dit le rang, « 12e prénom le plus donné ». Un tri ne retire aucun filtre. Domaines sur téléphone : menu de tri au-dessus de la liste, flèche pour inverser.</dd>
       <dt>Nom hors des listes</dt><dd>Un nom tapé dans l'Explorer qui n'est dans aucune liste s'affiche quand même, une ligne par extension suivie : Vérifier interroge le registre, puis Réserver ou Surveiller.</dd>
       <dt>Ignorer</dt><dd>Dans la Veille, un nom ou une sélection : il quitte l'écran (il reste dans l'Explorer) et la décision est gardée. Le message propose « Annuler » ; Paramètres, « Tout réafficher », les remet tous. Portefeuille, « Décisions » : chaque nom ignoré ou acheté, son état du jour, « repris » si quelqu'un d'autre l'a enregistré depuis (regrets).</dd>
@@ -216,13 +216,13 @@
     </dl>
     <p class="small muted">Fiche d'un nom : en tête l'état et la date qui compte, puis la carte décision, qui porte tout l'avis IA : notes de revente et d'exploitation (celle de l'usage choisi en premier), verdict, prix de revente rapide et utilisateur final, pourquoi, commentaire, et « Détail IA » pour la grille des sous-notes ; sans avis, le score et la date de notation prévue. Dessous, une rangée de pictos : Réserver, Suivre (un appui sur « Suivi » arrête le suivi, après confirmation), Analyser (fait noter le nom dans l'heure), Vérifier, et « Plus » (Analyse SEO, Réservé par registre pour un nom refusé par le registre, Voir dans Portefeuille). Le détail suit en sections repliables, avec un résumé à droite de chaque titre.</p>
 
-    <h3 id="help-gandi">Gandi (prix et premiums)</h3>
-    <p>Source d'information seulement : rien n'est acheté. Avec un jeton Gandi (Paramètres, réglages avancés), l'appli demande à Gandi si un nom non pris est premium, libre au prix standard, ou indisponible, et à quel prix (création pour un an, TTC). Prix indicatif : l'achat se fait où l'on veut, mais le prix d'un premium vaut partout en ordre de grandeur.</p>
+    <h3 id="help-gandi">Prix d'achat et premiums</h3>
+    <p>Source d'information seulement : rien n'est acheté. Avec un jeton Gandi (Paramètres, réglages avancés), l'appli demande à ce registrar si un nom non pris est premium, libre au prix standard, ou indisponible, et à quel prix (création pour un an, TTC). Prix indicatif : l'achat se fait où l'on veut, mais le prix d'un premium vaut partout en ordre de grandeur.</p>
     <dl class="help-dl">
       <dt>Ce qui est vérifié</dt><dd>Les noms non pris de toutes les extensions lues (.fr, zones ICANN, .co, .ai, .io) : libres et bientôt libres d'abord, puis probablement libres et libres selon le WHOIS, du meilleur score au moins bon. Un nom vérifié depuis moins de 7 jours est sauté (1 jour s'il a changé d'état depuis).</dd>
       <dt>Quand</dt><dd>Chaque nuit de 3 h 30 à 4 h 45, après les lectures et les passes DNS, avant la notation IA de 5 h : l'IA tient compte du prix. 3 requêtes par seconde au plus, 8 000 noms par nuit au plus (réglables) ; « Lancer maintenant » à côté de Tester. Aussi à chaque Vérifier d'une fiche et à chaque vérification d'un domaine suivi libre, en rédemption ou en suppression (une fois par jour au plus).</dd>
-      <dt>Effet sur l'état</dt><dd>Premium : « Premium (Gandi) » et son prix. Libre au prix standard : « Libre (Gandi) », le prix en petit. Indisponible, réservé ou restreint : « Réservé », jamais affiché libre (sauf une vérification plus récente, après un changement d'état). Erreur de Gandi : aucun changement, l'erreur est dans la fiche (Registre et SEO).</dd>
-      <dt>Arrêts</dt><dd>Jeton refusé : la passe s'arrête, l'erreur s'affiche dans Paramètres, une alerte Telegram part (une par jour au plus). Trop de requêtes : attente demandée par Gandi, puis reprise ; au troisième refus d'affilée, arrêt.</dd>
+      <dt>Effet sur l'état</dt><dd>Premium : « Premium » et son prix. Libre au prix standard : « Libre (vérifié) », le prix en petit (« achat 10 € » dans Domaines). Indisponible, réservé ou restreint : d'abord une revérification au registre (souvent, le nom vient d'être enregistré), puis « Réservé » si le registre le dit toujours libre, jamais affiché libre (sauf une vérification plus récente, après un changement d'état). Erreur : aucun changement, l'erreur est dans la fiche (Registre et SEO, ligne « Prix d'achat »).</dd>
+      <dt>Arrêts</dt><dd>Jeton refusé : la passe s'arrête, l'erreur s'affiche dans Paramètres, une alerte Telegram part (une par jour au plus). Trop de requêtes : attente demandée, puis reprise ; au troisième refus d'affilée, arrêt.</dd>
     </dl>
 
     <h3 id="help-score">Score (0 à 100)</h3>
@@ -374,8 +374,8 @@
           </div>
           <label class="check ex-junk"><input type="checkbox" x-model="df.junk"><span>Inclure les suites imprononçables, les mélanges lettres-chiffres et les tirets</span></label>
           <h4 class="ex-group-title">Achat</h4>
-          <div class="ex-field"><span>Prix d'achat au plus (€, noms vérifiés chez Gandi)</span>
-            <input type="number" inputmode="numeric" min="0" step="10" class="filter-input num-input" x-model.number="df.gprice" aria-label="Prix d'achat Gandi au plus">
+          <div class="ex-field"><span>Prix d'achat au plus (€, prix vérifiés)</span>
+            <input type="number" inputmode="numeric" min="0" step="10" class="filter-input num-input" x-model.number="df.gprice" aria-label="Prix d'achat au plus">
           </div>
           <h4 class="ex-group-title">Score</h4>
           <div class="ex-field"><span>Score minimum <strong class="num" x-text="dropMin"></strong></span>
@@ -682,8 +682,8 @@
             <input type="checkbox" :checked="ex.junk === '1'" @change="exSet({ junk: $event.target.checked ? '1' : '' })">
             <span>Inclure les suites imprononçables, les mélanges lettres-chiffres et les tirets</span>
           </label>
-          <div class="ex-field"><span>Prix d'achat au plus (€, noms vérifiés chez Gandi)</span>
-            <input type="number" inputmode="numeric" min="0" step="10" class="filter-input num-input" :value="ex.gprice" @change="exSet({ gprice: $event.target.value })" aria-label="Prix d'achat Gandi au plus">
+          <div class="ex-field"><span>Prix d'achat au plus (€, prix vérifiés)</span>
+            <input type="number" inputmode="numeric" min="0" step="10" class="filter-input num-input" :value="ex.gprice" @change="exSet({ gprice: $event.target.value })" aria-label="Prix d'achat au plus">
           </div>
           <div class="ex-field"><span>SEO (noms analysés)</span>
             <div class="ex-options">
@@ -1540,10 +1540,10 @@
               <span class="dom-ai" x-show="d.ai" :title="d.ai ? d.ai.comment : ''">
                 <span class="verdict" :class="aiClass(d.ai)" x-text="aiVerdict(d.ai)"></span>
                 <span class="dom-ai-price" :title="d.ai ? 'Prix utilisateur final estimé par l\'IA : ' + priceRange(d.ai.final_low, d.ai.final_high) : ''" x-text="d.ai ? priceRange(d.ai.final_low, d.ai.final_high) : ''"></span>
+                <span class="dom-buy" x-show="domGandi(d)" :class="domGandi(d) ? domGandi(d).cls : ''" :title="domGandi(d) ? domGandi(d).title : ''" x-text="domGandi(d) ? domGandi(d).text : ''"></span>
               </span>
-              <template x-if="domGandi(d)">
-                <span class="dom-gandi"><span class="gpill" :class="domGandi(d).cls" :title="domGandi(d).title" x-text="domGandi(d).text"></span></span>
-              </template>
+              <!-- Prix d'achat sans avis IA : seul sur la ligne, même style. -->
+              <span class="dom-ai" x-show="!d.ai && domGandi(d)"><span class="dom-buy" :class="domGandi(d) ? domGandi(d).cls : ''" :title="domGandi(d) ? domGandi(d).title : ''" x-text="domGandi(d) ? domGandi(d).text : ''"></span></span>
             </td>
             <td class="num col-days" data-label="Jours restants" :class="{ blank: daysLeft(d) === null }">
               <span x-show="daysLeft(d) !== null" :title="d.effective_expires_at ? 'Expiration le ' + exact(d.effective_expires_at) : ''" x-text="daysCell(d)"></span>
@@ -1883,7 +1883,7 @@
       </label>
       <label class="weak-toggle">
         <input type="checkbox" :checked="premiumHidden(screen)" @change="setPremiumHidden(screen, $event.target.checked)">
-        <span>Masquer les premiums <span class="weak-help muted">prix fixé par le registre : vus chez Gandi, ou probables (3 caractères)</span></span>
+        <span>Masquer les premiums <span class="weak-help muted">prix fixé par le registre : confirmés, ou probables (3 caractères)</span></span>
       </label>
     </div>
   </template>

@@ -44,8 +44,9 @@ ERROR_LABELS = {
     "error_unknown": "erreur inconnue chez le registre",
     "error_eoi": "extension en phase de manifestation d'intérêt",
 }
-KIND_LABELS = {"available": "Libre (Gandi)", "premium": "Premium (Gandi)", "unavailable": "Indisponible chez Gandi",
-               "reserved": "Réservé (Gandi)", "restricted": "Restreint (Gandi)", "error": "Erreur Gandi"}
+# Libellés montrés : sans le nom du fournisseur (source d'information, l'achat se fait ailleurs).
+KIND_LABELS = {"available": "Libre (vérifié)", "premium": "Premium", "unavailable": "Indisponible à l'achat",
+               "reserved": "Réservé par le registre", "restricted": "Restreint", "error": "Prix non vérifié"}
 
 # Passe de nuit : après les lectures et les passes DNS, avant la notation IA de 5 h (heure locale, TZ).
 START = (3, 30)

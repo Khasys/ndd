@@ -64,7 +64,7 @@ NOT_ASKED = "Pas interrogé"
 # restreint : réservé (un nom qu'on croyait libre n'est plus jamais affiché libre). Un terme réservé d'une
 # liste (Afnic, communes) ou marqué à la main le reste. Une réponse en erreur ne change rien.
 GANDI_OPEN = (GONE, ABSENT, UNCONFIRMED, FREE, PREMIUM, RESERVED)
-FREE_GANDI = "Libre (Gandi)"
+FREE_GANDI = LABELS[FREE]
 
 
 def gandi_code(code: int, kind: str, listed: bool = False) -> int:
@@ -2034,7 +2034,7 @@ class Explorer:
             add(release, "release", "Libération estimée")
         check = gandi.load(self.conn, [name]).get(name)
         if check is not None:
-            add(check["checked_at"], "gandi", "Vérifié chez Gandi" + _gandi_detail(check))
+            add(check["checked_at"], "gandi", "Prix vérifié" + _gandi_detail(check))
         rated = self.conn.execute("SELECT rated_at, reviewed_at FROM domain_ai WHERE name = ?", (name,)).fetchone()
         if rated is not None:
             add(rated["rated_at"], "rated", "Noté par l'IA" if not rated["reviewed_at"] else "Renoté par l'IA (second passage)")
