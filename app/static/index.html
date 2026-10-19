@@ -219,10 +219,11 @@
     <h3 id="help-gandi">Prix d'achat et premiums</h3>
     <p>Source d'information seulement : rien n'est acheté. Avec un jeton Gandi (Paramètres, réglages avancés), l'appli demande à ce registrar si un nom non pris est premium, libre au prix standard, ou indisponible, et à quel prix (création pour un an, TTC). Prix indicatif : l'achat se fait où l'on veut, mais le prix d'un premium vaut partout en ordre de grandeur.</p>
     <dl class="help-dl">
-      <dt>Ce qui est vérifié</dt><dd>Les noms non pris de toutes les extensions lues (.fr, zones ICANN, .co, .ai, .io) : libres et bientôt libres d'abord, puis probablement libres et libres selon le WHOIS, du meilleur score au moins bon. Un nom vérifié depuis moins de 7 jours est sauté (1 jour s'il a changé d'état depuis).</dd>
+      <dt>Ce qui est vérifié</dt><dd>La nuit, les noms non pris de toutes les extensions lues (.fr, zones ICANN, .co, .ai, .io) : libres et bientôt libres d'abord, puis probablement libres et libres selon le WHOIS, du meilleur score au moins bon. Un nom vérifié depuis moins de 7 jours est sauté (1 jour s'il a changé d'état depuis).</dd>
       <dt>Quand</dt><dd>Chaque nuit de 3 h 30 à 4 h 45, après les lectures et les passes DNS, avant la notation IA de 5 h : l'IA tient compte du prix. 3 requêtes par seconde au plus, 8 000 noms par nuit au plus (réglables) ; « Lancer maintenant » à côté de Tester. Aussi à chaque Vérifier d'une fiche et à chaque vérification d'un domaine suivi libre, en rédemption ou en suppression (une fois par jour au plus).</dd>
       <dt>Effet sur l'état</dt><dd>Premium : « Premium » et son prix. Libre au prix standard : « Libre (vérifié) », le prix en petit (« achat 10 € » dans Domaines). Indisponible, réservé ou restreint : d'abord une revérification au registre (souvent, le nom vient d'être enregistré), puis « Réservé » si le registre le dit toujours libre, jamais affiché libre (sauf une vérification plus récente, après un changement d'état). Erreur : aucun changement, l'erreur est dans la fiche (Registre et SEO, ligne « Prix d'achat »).</dd>
       <dt>Arrêts</dt><dd>Jeton refusé : la passe s'arrête, l'erreur s'affiche dans Paramètres, une alerte Telegram part (une par jour au plus). Trop de requêtes : attente demandée, puis reprise ; au troisième refus d'affilée, arrêt.</dd>
+      <dt>Sans zone .com</dt><dd>Sans accès CZDS au .com (ou tant que sa zone n'a pas été lue), le .com est quand même dans l'Explorer, vérifié par Gandi seul : chaque nom est « pas encore vérifié », puis « libre (vérifié) », « premium » ou « pris (d'après Gandi) » selon sa réponse. Pris d'après Gandi : presque toujours enregistré, sans requête au registre ; « Vérifier » interroge le registre, et un nom noté « À prendre » par l'IA y est revu automatiquement (50 par jour au plus). Une passe continue, jour et nuit (5 requêtes par seconde par défaut, réglable, case pour l'arrêter dans Paramètres), demande chaque nom qui a un sens, les listes fournies d'abord ; libres revus chaque jour, les autres après 7 jours. Toutes les requêtes vers Gandi restent sous 900 par minute, sous la limite de Gandi. Dès que la zone .com est lue, le fonctionnement normal reprend tout seul.</dd>
     </dl>
 
     <h3 id="help-score">Score (0 à 100)</h3>
@@ -235,7 +236,7 @@
     <p class="small muted">Poids réglables dans Paramètres, carte « Score de l'Explorer ». « Courant pour cette forme » : signal présent, mais banal.</p>
 
     <h3 id="help-ai">Avis IA</h3>
-    <p>1 000 noms notés par nuit, en .fr, .com et .org, par score décroissant. Chaque nuit, les 50 avis les plus éloignés du score sont revus une fois.</p>
+    <p>1 000 noms notés par nuit, en .fr, .com et .org. Ordre : les noms libres et bientôt libres, par score ; puis les noms probablement libres ou libres des listes fournies (termes premium, mots-clés et marques mêlés par rang, puis métier + ville) ; puis les autres, par score décroissant. Un .com sans zone entre dans la file dès que Gandi le dit libre. Chaque nuit, les 50 avis les plus éloignés du score sont revus une fois.</p>
     <dl class="help-dl">
       <dt>Grille</dt><dd>Neuf sous-notes sur 10 : prononciation, test radio, mémorisation, sens, marque, marché, extension, acheteurs, risque.</dd>
       <dt>Exploitation, revente</dt><dd>Notes sur 100, calculées depuis la grille : elles ne peuvent pas contredire le verdict.</dd>
@@ -1325,6 +1326,19 @@
                 <p class="small" :class="{ 'error-text': cfg.gandi.pass.error && !cfg.gandi.pass.running }" x-text="'Passe : ' + gandiPassLine(cfg.gandi.pass)"></p>
                 <button type="button" class="btn-ghost" x-show="cfg.gandi.key_set" @click="runGandi()" :disabled="gandiStarting || cfg.gandi.pass.running"
                         x-text="cfg.gandi.pass.running ? 'Passe en cours' : 'Lancer maintenant'"></button>
+              </div>
+            </template>
+            <template x-if="cfg.gandi.live">
+              <div class="gandi-pass">
+                <label class="check"><input type="checkbox" :checked="cfg.gandi.live.enabled" @change="saveGandiLive({ enabled: $event.target.checked })">
+                  <span>Passe continue, jour et nuit, des extensions sans zone lisible (.com sans accès CZDS) : chaque nom demandé à Gandi, les listes fournies d'abord</span></label>
+                <div class="gandi-pass-fields">
+                  <label class="small">Requêtes par seconde
+                    <input type="number" min="0.2" :max="cfg.gandi.live.max_rate" step="0.5" class="filter-input num-input" :value="cfg.gandi.live.rate" @change="saveGandiLive({ rate: Number($event.target.value) })"></label>
+                  <label class="small">Revoir après (jours)
+                    <input type="number" min="1" max="90" step="1" class="filter-input num-input" :value="cfg.gandi.live.days" @change="saveGandiLive({ days: Number($event.target.value) })"></label>
+                </div>
+                <p class="small" :class="{ 'error-text': cfg.gandi.live.halted_at }" x-text="'Passe continue : ' + gandiLiveLine(cfg.gandi.live)"></p>
               </div>
             </template>
           </div>

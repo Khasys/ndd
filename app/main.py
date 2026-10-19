@@ -287,6 +287,25 @@ async def lifespan(app: FastAPI):
         task.add_done_callback(done)
         return True
 
+    async def check_gandi_live() -> None:
+        """Passe continue des extensions par Gandi seul (.com sans zone) : relancée si elle s'est arrêtée."""
+        if app.state.gandi_live.due():
+            start_gandi_live()
+
+    def start_gandi_live() -> bool:
+        live = app.state.gandi_live
+        if live.running:
+            return False
+        task = asyncio.create_task(live.run())
+        passes.add(task)
+
+        def done(t: asyncio.Task) -> None:
+            passes.discard(t)
+            if not t.cancelled() and t.exception() is not None:
+                log.error("Passe Gandi continue interrompue", exc_info=t.exception())
+        task.add_done_callback(done)
+        return True
+
     async def refresh_prenoms() -> None:
         # Une fois par mois : l'Insee publie une édition par an, la date exacte varie.
         if app.state.prenoms.due():
@@ -326,6 +345,9 @@ async def lifespan(app: FastAPI):
     # Gandi : une passe par nuit, dans sa fenêtre ; la tâche rend la main tout de suite (passe à part).
     scheduler.add_job(check_gandi, "interval", minutes=5, next_run_time=now + timedelta(minutes=13), max_instances=1,
                       id="check_gandi", name="check_gandi")
+    # Extensions par Gandi seul : passe continue, jour et nuit ; relancée toutes les 5 minutes si elle s'est arrêtée.
+    scheduler.add_job(check_gandi_live, "interval", minutes=5, next_run_time=now + timedelta(minutes=3), max_instances=1,
+                      id="check_gandi_live", name="check_gandi_live")
     scheduler.start()
     telegram.start()
 
@@ -360,6 +382,9 @@ async def lifespan(app: FastAPI):
     app.state.gandi_pass = gandi.NightPass(app.state.gandi, conn, store, app.state.explorer, digest.local_zone(),
                                            notify=telegram.send)
     app.state.start_gandi = start_gandi
+    app.state.gandi_live = gandi.LivePass(app.state.gandi, conn, store, app.state.explorer, digest.local_zone(),
+                                          notify=telegram.send)
+    app.state.start_gandi_live = start_gandi_live
 
     async def gandi_freed(name: str) -> None:
         """Nom tout juste libre : son prix (standard, premium, indisponible) sans attendre la passe de nuit. Une
@@ -1068,7 +1093,7 @@ async def get_settings(request: Request):
                     "off": sorted(state.explorer.premium_tlds_off()),
                     "tlds": [t for t in state.explorer.tlds() if t != "fr"]},
         "seo": {"key_set": bool(state.seo.key)},
-        "gandi": {**state.gandi.status(), "pass": state.gandi_pass.status()},
+        "gandi": {**state.gandi.status(), "pass": state.gandi_pass.status(), "live": state.gandi_live.status()},
         "reserved": state.reserved.status(),
         "prenoms": state.prenoms.status(),
         "weights": {"values": value.weights_from(store.get("score_weights")), "labels": value.CRITERIA},
@@ -1786,7 +1811,8 @@ TOP_SIZES = (10, 50, 100, 200, 500, 1000)
 # État du tableau Top, en toutes lettres : les mêmes mots que les cartes.
 TOP_STATES = {explore.REGISTERED: "pris", explore.SUSPENDED: "pris", explore.GONE: "probablement libre", explore.ABSENT: "probablement libre",
               explore.COMING: "à venir", explore.FREE: "libre", explore.RESERVED: "réservé", explore.INVALID: "pas lu",
-              explore.PREMIUM: "premium probable", explore.UNCONFIRMED: "libre à confirmer"}
+              explore.PREMIUM: "premium probable", explore.UNCONFIRMED: "libre à confirmer",
+              explore.UNCHECKED: "pas encore vérifié", explore.TAKEN_GANDI: "pris (d'après Gandi)"}
 
 
 def _top_state(tld: str, code: int) -> str:
@@ -2149,6 +2175,7 @@ async def diag(request: Request):
         "gandi_samples": state.gandi.samples(),
         # Passe de nuit Gandi : dernier passage, réglages de rythme, totaux par sorte ; ni le jeton ni sa présence.
         "gandi_pass": state.gandi_pass.status(),
+        "gandi_live": state.gandi_live.status(),
         "recent_errors": list(RECENT.records),
     }
 
@@ -2296,6 +2323,40 @@ async def set_gandi_pass(request: Request, payload: GandiPassSettings):
         if value is not None:
             store.set(f"{night.key}_{field}", str(value))
     return night.status()
+
+
+class GandiLiveSettings(BaseModel):
+    enabled: bool | None = None
+    rate: float | None = None
+    days: int | None = None
+    tlds: list[str] | None = None
+
+
+@app.put("/api/settings/gandi/live")
+async def set_gandi_live(request: Request, payload: GandiLiveSettings):
+    """Passe continue des extensions par Gandi seul : activation (décochée, elle s'arrête), rythme, délai avant de revoir
+    un nom, extensions concernées tant qu'aucune zone ne les lit."""
+    state = request.app.state
+    live, store = state.gandi_live, state.store
+    if payload.rate is not None and not gandi.MIN_RATE <= payload.rate <= gandi.LIVE_MAX_RATE:
+        raise HTTPException(422, f"Rythme entre {gandi.MIN_RATE} et {gandi.LIVE_MAX_RATE:g} requêtes par seconde.")
+    if payload.days is not None and not 1 <= payload.days <= 90:
+        raise HTTPException(422, "Délai entre 1 et 90 jours.")
+    if payload.tlds is not None:
+        tlds = [t.strip().lower().lstrip(".") for t in payload.tlds]
+        if any(not re.fullmatch(r"[a-z]{2,24}", t) or t == "fr" or t in ccdns.TLDS for t in tlds):
+            raise HTTPException(422, "Extensions génériques seulement (com, net…), ni .fr ni .co, .ai, .io.")
+        store.set("gandi_only_tlds", ",".join(sorted(set(tlds))))
+        state.explorer.invalidate()  # extensions de l'Explorer changées
+    if payload.enabled is not None:
+        store.set(f"{live.key}_enabled", "1" if payload.enabled else "0")
+    for field in ("rate", "days"):
+        value = getattr(payload, field)
+        if value is not None:
+            store.set(f"{live.key}_{field}", str(value))
+    if live.due():
+        state.start_gandi_live()
+    return live.status()
 
 
 @app.post("/api/settings/gandi/run", status_code=202)

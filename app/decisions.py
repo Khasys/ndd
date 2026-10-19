@@ -10,7 +10,7 @@ from . import drops, explore
 from .checker import iso
 
 KINDS = ("ignored", "bought")
-TAKEN_NOW = (explore.REGISTERED, explore.SUSPENDED)
+TAKEN_NOW = (explore.REGISTERED, explore.SUSPENDED, explore.TAKEN_GANDI)
 NOTE_MAX = 200
 
 

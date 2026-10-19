@@ -30,6 +30,8 @@ from .checker import iso, utcnow
 
 # États, un octet par nom.
 INVALID, REGISTERED, GONE, ABSENT, COMING, FREE, SUSPENDED, RESERVED, PREMIUM, UNCONFIRMED = range(10)
+# Extension « par Gandi seul » (.com sans zone lisible) : pas encore demandé à Gandi, ou indisponible d'après lui.
+UNCHECKED, TAKEN_GANDI = 10, 11
 
 LABELS = {
     REGISTERED: "Enregistré",
@@ -42,6 +44,9 @@ LABELS = {
     PREMIUM: "Premium probable",
     # WHOIS seul (.co, .io, .ai…) : « inconnu » ne dit rien des noms réservés ou premium du registre.
     UNCONFIRMED: "Libre selon le WHOIS, à confirmer",
+    UNCHECKED: "Pas encore vérifié",
+    # Indisponible chez Gandi, sans zone ni registre revu : enregistré dans l'immense majorité des cas en .com.
+    TAKEN_GANDI: "Pris (d'après Gandi)",
 }
 # 3 caractères libres sur une extension générique : souvent vendus au prix premium par le registre.
 # Rien ne le confirme sans accès registrar ; l'Explorer les masque sauf si on demande à les voir.
@@ -66,6 +71,11 @@ NOT_ASKED = "Pas interrogé"
 # liste (Afnic, communes) ou marqué à la main le reste. Une réponse en erreur ne change rien.
 GANDI_OPEN = (GONE, ABSENT, UNCONFIRMED, FREE, PREMIUM, RESERVED)
 FREE_GANDI = LABELS[FREE]
+# Extension par Gandi seul : rien d'autre à confronter, la dernière réponse de Gandi fait l'état (gandi_effect).
+GANDI_ONLY = (UNCHECKED, TAKEN_GANDI)
+GANDI_VERSION = "gandi"  # version des données d'une extension par Gandi seul (corrigées nom par nom, touch)
+# Par Gandi seul, noms « À prendre » dits indisponibles revus au registre (RDAP) chaque jour, au plus.
+RECHECK_DAILY = 50
 
 
 def gandi_effect(code: int, check: dict | None, since: str | None = None, checked: str | None = None,
@@ -73,7 +83,16 @@ def gandi_effect(code: int, check: dict | None, since: str | None = None, checke
     """La seule règle de l'effet d'une réponse de Gandi sur l'état d'un nom, pour tous les écrans (Explorer, fiche,
     Veille, Aujourd'hui, Domaines) : (état, sorte qui le fait, ou None). Sans effet : réponse en erreur, d'avant le
     dernier changement d'état (since), indisponible pas encore revu au registre (checked : gandi.applies) ; nom
-    enregistré, bientôt libre ou suspendu (hors GANDI_OPEN) ; terme d'une liste de réservés (listed)."""
+    enregistré, bientôt libre ou suspendu (hors GANDI_OPEN) ; terme d'une liste de réservés (listed).
+
+    Extension par Gandi seul (code UNCHECKED ou TAKEN_GANDI : ni zone, ni open data, ni registre lu pour ce nom) :
+    la dernière réponse fait l'état, sans attendre de revérification (rien à confronter) ; indisponible, réservé ou
+    restreint : pris d'après Gandi. Un nom lu au registre (Vérifier) suit la règle commune."""
+    if code in GANDI_ONLY:
+        if not check or check["kind"] == "error":
+            return code, None
+        kind = check["kind"]
+        return {"available": FREE, "premium": PREMIUM}.get(kind, TAKEN_GANDI), kind
     if not gandi.applies(check, since, checked) or code not in GANDI_OPEN or (code == RESERVED and listed):
         return code, None
     kind = check["kind"]
@@ -94,12 +113,17 @@ def drop_code(state: str | None) -> int | None:
             drops.TAKEN: REGISTERED, states.RENEWED: REGISTERED}.get(state)
 
 
-def drop_open_code(state: str | None, checked: str | None, delegated: str | None) -> int | None:
+def drop_open_code(state: str | None, checked: str | None, delegated: str | None, offered: str | None = None) -> int | None:
     """drop_code, la plus récente observation l'emportant : un nom libre au registre puis vu délégué dans le DNS
-    (delegated : date) a été enregistré depuis ; la revérification au registre suit (frdns.changed)."""
+    (delegated : date) a été enregistré depuis ; la revérification au registre suit (frdns.changed). Extension par
+    Gandi seul (sans zone pour voir la suppression) : un nom lu enregistré au registre puis dit achetable par Gandi
+    (offered : date de la réponse available ou premium) a été supprimé depuis ; None, l'état de base (pas encore
+    vérifié) et la réponse de Gandi font l'état (gandi_effect)."""
     code = drop_code(state)
     if code in (FREE, UNCONFIRMED) and delegated and delegated > (checked or ""):
         return REGISTERED
+    if code == REGISTERED and offered and offered > (checked or ""):
+        return None
     return code
 
 
@@ -113,11 +137,11 @@ STATUS_FILTERS = {
     "maybe_free": (GONE, ABSENT, UNCONFIRMED),
     "coming": (COMING,),
     "free": (FREE,),
-    "registered": (REGISTERED,),
+    "registered": (REGISTERED, TAKEN_GANDI),
     "suspended": (SUSPENDED,),
     "reserved": (RESERVED,),
     "premium": (PREMIUM,),
-    "all": (GONE, ABSENT, UNCONFIRMED, FREE, COMING, REGISTERED, SUSPENDED),
+    "all": (GONE, ABSENT, UNCONFIRMED, FREE, COMING, REGISTERED, SUSPENDED, TAKEN_GANDI, UNCHECKED),
 }
 STATUS_NAMES = {
     "available": "Tous non pris",
@@ -131,10 +155,12 @@ STATUS_NAMES = {
     "premium": "Premiums probables",
     "all": "Tous, même pris",
 }
+# États qu'un terme réservé (liste ou marquage) remplace : tout ce qui n'est pas enregistré.
+RESERVABLE = (GONE, ABSENT, UNCONFIRMED, FREE, COMING, UNCHECKED)
 # Réservés mêlés aux noms à saisir si on le demande dans Paramètres.
 WITH_RESERVED = {"available", "bookable", "maybe_free", "free", "coming", "all"}
 # Pris sur une autre extension : signe de demande pour le nom.
-TAKEN_CODES = (REGISTERED, SUSPENDED, COMING)
+TAKEN_CODES = (REGISTERED, SUSPENDED, COMING, TAKEN_GANDI)
 
 # Filtre SEO : seuls les noms déjà analysés (bouton SEO) ont ces données.
 SEO_FILTERS = {
@@ -670,6 +696,18 @@ class Explorer:
     # --- Extensions et octets d'état -------------------------------------------------
 
     def tlds(self) -> list[str]:
+        """Extensions de l'Explorer : .fr, zones ICANN, puis .co, .ai, .io ; les extensions par Gandi seul parmi
+        les zones, dans l'ordre alphabétique."""
+        readable = self._readable()
+        only = self.gandi_tlds(readable)
+        if not only:
+            return readable
+        fr = readable[:1] if readable[:1] == ["fr"] else []
+        cc = [t for t in readable if t in ccdns.TLDS]
+        return fr + sorted({*readable[len(fr):len(readable) - len(cc)], *only}) + cc
+
+    def _readable(self) -> list[str]:
+        """Extensions lues : open data .fr, zone ICANN déjà lue (accès CZDS accordé), DNS de .co, .ai, .io."""
         found = []
         if self.conn.execute("SELECT 1 FROM fr_names LIMIT 1").fetchone():
             found.append("fr")
@@ -677,6 +715,15 @@ class Explorer:
             if self.drops._path(tld, "short").exists():
                 found.append(tld)
         return found + [t for t in ccdns.TLDS if t not in found and self._dns_has(t)]
+
+    def gandi_tlds(self, readable: list[str] | None = None) -> list[str]:
+        """Extensions par Gandi seul (gandi.only_tlds, .com par défaut) tant qu'aucune autre source ne les lit : leurs
+        noms sont « pas encore vérifiés » jusqu'à la réponse de Gandi (passe continue, gandi.LivePass). Il faut un
+        jeton. Zone lue (accès CZDS accordé, lecture de nuit faite) : fonctionnement normal, sans rien à faire."""
+        if self.gandi is None or not self.gandi.key:
+            return []
+        readable = self._readable() if readable is None else readable
+        return [t for t in gandi.only_tlds(self.fr.store) if t not in readable and t != "fr" and t not in ccdns.TLDS]
 
     def _dns_has(self, tld: str) -> bool:
         """Des noms de cette extension ont été interrogés dans le DNS. Relu seulement quand une passe finit."""
@@ -694,14 +741,19 @@ class Explorer:
             # État de la dernière passe DNS, réécrit à la fin de chaque passe : nouvelle version des données.
             return self.fr.store.get(f"{tld}_dns_status")
         path = self.drops._path(tld, "short")
-        return path.stat().st_mtime if path.exists() else None
+        if path.exists() and tld in self.drops.approved():
+            return path.stat().st_mtime
+        # Par Gandi seul : une version fixe, chaque réponse corrige son nom en place (touch). La zone lue, la version
+        # change : tout ce qui tient à l'extension est refait depuis la zone.
+        return GANDI_VERSION if tld in self.gandi_tlds() else (path.stat().st_mtime if path.exists() else None)
 
     def _base(self, tld: str) -> bytearray:
         version = self._version(tld)
         cached = self._cache.get(tld)
         if cached and cached[1] == version and time.monotonic() - cached[0] < CACHE_SECONDS:
             return cached[2]
-        status = self._build_fr() if tld == "fr" else self._build_dns(tld) if tld in ccdns.TLDS else self._build_zone(tld)
+        status = (self._build_fr() if tld == "fr" else self._build_dns(tld) if tld in ccdns.TLDS
+                  else self._build_gandi() if version == GANDI_VERSION else self._build_zone(tld))
         self._cache[tld] = (time.monotonic(), version, status)
         return status
 
@@ -715,6 +767,12 @@ class Explorer:
             i = u.index(name[: -len(tld) - 1])
             if i is not None:
                 status[i] = REGISTERED if present else ABSENT
+        return status
+
+    def _build_gandi(self) -> bytearray:
+        """Extension par Gandi seul : tous les noms valides « pas encore vérifiés » ; Gandi fait l'état (_status_bytes)."""
+        status = bytearray([UNCHECKED]) * self.universe.size
+        self.universe.apply_valid(status)
         return status
 
     def _build_zone(self, tld: str) -> bytearray:
@@ -791,16 +849,17 @@ class Explorer:
                 if i is not None and (status[i] in (GONE, ABSENT) or i in unread):
                     status[i] = REGISTERED
         delegated = frdns.present_at(self.conn) if tld == "fr" else {}
+        offered = self._offered(tld)
         for label, state, checked in self.conn.execute(
                 "SELECT label, state, checked_at FROM drops WHERE tld = ? AND state IS NOT NULL", (tld,)):
             i = u.index(label)
-            code = drop_open_code(state, checked, delegated.get(label))
+            code = drop_open_code(state, checked, delegated.get(label), offered.get(label))
             if i is not None and code is not None:
                 status[i] = code
         if self.reserved is not None:
             # Réservé : seulement s'il n'est pas enregistré. Un nom pris reste « Enregistré ».
             for i in self.reserved.indices(tld, u):
-                if status[i] in (GONE, ABSENT, UNCONFIRMED, FREE, COMING):
+                if status[i] in RESERVABLE:
                     status[i] = RESERVED
             if tld != "fr":
                 # 1 ou 2 caractères absents de la zone : gardés par le registre (voir reserved.short_reserved).
@@ -823,11 +882,22 @@ class Explorer:
         return status
 
     def _gandi_rows(self, tld: str, where: str = "", args: tuple = ()) -> list:
-        """Réponses de Gandi de l'extension (hors erreurs), avec l'entrée du nom dans son état actuel (Veille)."""
+        """Réponses de Gandi de l'extension (hors erreurs), avec l'entrée du nom dans son état actuel (Veille).
+        Par l'index de l'extension (migration 033) : le .com par Gandi seul en compte des centaines de milliers."""
         return self.conn.execute(
             f"""SELECT g.name, g.kind, g.checked_at, d.state_since,
                    CASE WHEN d.name IS NULL THEN NULL ELSE COALESCE(d.checked_at, '') END FROM gandi_checks g LEFT JOIN drops d ON d.name = g.name
-                WHERE g.name LIKE ? AND g.kind != 'error' {where}""", (f"%.{tld}", *args)).fetchall()
+                WHERE g.tld = ? AND g.kind != 'error' {where}""", (tld, *args)).fetchall()
+
+    def _offered(self, tld: str) -> dict[str, str]:
+        """Extension par Gandi seul : date de la réponse achetable (libre ou premium) des noms de la Veille, par
+        libellé (drop_open_code : plus récente qu'une lecture « enregistré » du registre, elle l'emporte)."""
+        if tld not in self.gandi_tlds():
+            return {}
+        cut = len(tld) + 1
+        return {name[:-cut]: at for name, at in self.conn.execute(
+            """SELECT g.name, g.checked_at FROM gandi_checks g JOIN drops d ON d.name = g.name
+               WHERE d.tld = ? AND g.kind IN ('available', 'premium')""", (tld,))}
 
     def _gandi_indices(self, tld: str, gprice: int) -> list[int]:
         """Noms de l'extension vérifiés chez Gandi, achetables au plus à ce prix (TTC), dans l'ordre de l'univers."""
@@ -1158,7 +1228,8 @@ class Explorer:
         parmi ceux dans un des états among). Sert à ne compter que les signaux rares pour la forme."""
         u = self.universe
         hit = data.translate(bytes(1 if c in wanted else 0 for c in range(256)))
-        base = data.translate(bytes(1 if (c in among if among else c != INVALID) else 0 for c in range(256)))
+        # Pas encore vérifié (extension par Gandi seul) : rien n'est connu, hors de la base du taux.
+        base = data.translate(bytes(1 if (c in among if among else c not in (INVALID, UNCHECKED)) else 0 for c in range(256)))
 
         def count(table, idx) -> int:
             return sum(table[i] for i in idx) if len(idx) < 2 else sum(operator.itemgetter(*idx)(table))
@@ -1750,8 +1821,9 @@ class Explorer:
         drop = self.conn.execute("SELECT state, state_since, checked_at FROM drops WHERE name = ?", (f"{label}.{tld}",)).fetchone()
         if drop is not None:
             dns = frdns.load(self.conn, [label]).get(label) if tld == "fr" else None
-            code = drop_open_code(drop["state"], drop["checked_at"], dns["at"] if dns and dns["present"] else None) or code
-        if self.reserved is not None and f"{label}.{tld}" in self.reserved.names() and code in (GONE, ABSENT, UNCONFIRMED, FREE, COMING):
+            offered = self._offered_one(f"{label}.{tld}") if base == UNCHECKED else None
+            code = drop_open_code(drop["state"], drop["checked_at"], dns["at"] if dns and dns["present"] else None, offered) or code
+        if self.reserved is not None and f"{label}.{tld}" in self.reserved.names() and code in RESERVABLE:
             code = RESERVED
         elif self.reserved is not None and code in (ABSENT, UNCONFIRMED, FREE) and self.reserved.short_reserved(f"{label}.{tld}"):
             code = RESERVED
@@ -1764,6 +1836,12 @@ class Explorer:
             listed = self.reserved is not None and f"{label}.{tld}" in self.reserved.names()
             code = gandi_effect(code, dict(found), drop["state_since"] if drop else None, gandi.registry_checked(drop), listed)[0]
         return base, code
+
+    def _offered_one(self, name: str) -> str | None:
+        """_offered pour un seul nom."""
+        row = self.conn.execute("SELECT checked_at FROM gandi_checks WHERE name = ? AND kind IN ('available', 'premium')",
+                                (name,)).fetchone()
+        return row[0] if row else None
 
     def sync_registry(self, name: str, result, now: datetime | None = None) -> None:
         """Domaine suivi lu au registre (écran Domaines) : sa ligne de Veille, créée au besoin comme pour Vérifier,
@@ -1787,12 +1865,33 @@ class Explorer:
         row = self.drops.row(name)
         if row is None and not create:
             return
+        if row is None and name.partition(".")[2] in self.gandi_tlds() and not self._recheck_worth(name, now):
+            return  # par Gandi seul : « Pris (d'après Gandi) », sans requête au registre
         if row is None:
             row = self.drops.ensure(name, now, "gandi")  # sans sortie constatée, hors Veille et Aujourd'hui
         elif row["state"] not in (states.AVAILABLE, drops.UNCONFIRMED, None):
             return  # pris, en rédemption : Gandi a raison, rien à revoir
         self.conn.execute("UPDATE drops SET next_check_at = ?, state_since = COALESCE(state_since, ?) WHERE name = ?",
                           (iso(now), iso(now), name))
+
+    def _recheck_worth(self, name: str, now: datetime) -> bool:
+        """Extension par Gandi seul, indisponible chez Gandi, jamais lu au registre : enregistré presque toujours (en
+        .com). Revu au registre seulement s'il compte, avis IA « À prendre », et RECHECK_DAILY fois par jour au plus :
+        pas des dizaines de milliers de requêtes RDAP. Vérifier, à la main, n'a pas de plafond."""
+        row = self.conn.execute("SELECT comment FROM domain_ai WHERE name = ?", (name,)).fetchone()
+        if row is None or (row[0] or "").split(".")[0] != "À prendre":
+            return False
+        store = self.fr.store
+        day = now.date().isoformat()
+        try:
+            count = json.loads(store.get("gandi_recheck") or "{}")
+        except ValueError:
+            count = {}
+        done = count.get("count", 0) if count.get("day") == day else 0
+        if done >= RECHECK_DAILY:
+            return False
+        store.set("gandi_recheck", json.dumps({"day": day, "count": done + 1}))
+        return True
 
     def touch(self, name: str) -> None:
         """Un nom a changé (vérification, marquage, SEO) : on corrige ce nom seulement, en place.

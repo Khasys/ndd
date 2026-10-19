@@ -8,6 +8,7 @@ avec de la patience). Ce sont des avis, pas des cotes du marché.
 """
 
 import hashlib
+import heapq
 import hmac
 import json
 import secrets
@@ -26,7 +27,11 @@ MAX_RESULTS = 5000
 FREE_SOON = (5, 4)        # libre vérifié, libération à venir
 TAKEN_MIN_BASE = 40       # noms enregistrés notés seulement à partir de ce score de base
 MAYBE_FREE = (2, 3, 9)    # supprimé non repris, jamais vu, libre selon le seul WHOIS
-TAKEN = (1, 6, 4)         # enregistré, suspendu, libération à venir (pris ailleurs = demande)
+TAKEN = (1, 6, 4, 11)     # enregistré, suspendu, libération à venir, pris d'après Gandi (pris ailleurs = demande)
+UNCHECKED = 10            # extension par Gandi seul, pas encore demandé : rien n'est connu, pas noté
+# Nouvelles listes, en tête des noms probablement libres ou libres : termes premium, mots-clés et marques mêlés par
+# rang, puis métier + ville.
+FIRST_LISTS = (("premium", "keyword", "brand"), ("local",))
 
 from .ai_format import (COMMENT_MAX, CRITERIA_V5, FIELDS, FIELDS_V5, FORMAT_V5, PRICE_STEPS, check,  # noqa: F401  (réexportés)
                         check_any, derive, is_v5)
@@ -268,8 +273,10 @@ def _refresh_positions(explorer, locked: bool = False):
 
 def _queue(explorer, limit: int):
     """1. libres ou bientôt libres, du meilleur score au moins bon (extension pondérée) ;
-    2. probablement libres, puis 3. enregistrés, par score de base et extension.
-    Ni les noms réservés ni ceux encore masqués (liste pas encore cherchée dans la zone)."""
+    2. probablement libres ou libres des nouvelles listes (termes premium, mots-clés et marques mêlés par rang, puis
+    métier + ville), par palier d'extension ; 3. les autres probablement libres, puis 4. enregistrés, par score de
+    base et extension. Ni les noms réservés ni ceux encore masqués (liste pas encore cherchée dans la zone), ni ceux
+    d'une extension par Gandi seul pas encore demandés (un .com y entre dès que Gandi le dit libre)."""
     u = explorer.universe
     u.buckets()  # construit u.good
     done = {r[0] for r in explorer.conn.execute("SELECT name FROM domain_ai WHERE version >= ?", (VERSION,))}
@@ -287,18 +294,30 @@ def _queue(explorer, limit: int):
         picked.append((i, label, tld))
         return len(picked) >= limit
 
-    # 1. Peu nombreux : on les classe tous par score complet (demande, historique, SEO compris).
+    # 1. Classés par score complet (demande, historique, SEO compris), dans l'ordre d'un tri complet. Avec un .com
+    # par Gandi seul, ils sont des dizaines de milliers : la borne du score (Explorer._bound, vingt fois moins chère)
+    # range d'abord, et un nom n'est noté en entier que quand il peut sortir (aucune borne restante ne le dépasse).
     soon = []
     for tld in tlds:
         ctx = explorer._bonus_context(tld)
+        weight = TLD_WEIGHT.get(tld, OTHER_TLD_WEIGHT)
         # Premium d'après Gandi : il s'achète (cher), noté avec les libres ; un premium probable non vérifié non.
         for i in _positions(data[tld], FREE_SOON) + explorer.gandi_premiums(tld):
             if u.good[i]:
                 label = u.label(i)
-                weight = TLD_WEIGHT.get(tld, OTHER_TLD_WEIGHT)
-                soon.append((explorer._value(tld, i, label, ctx)["score"] * weight, i, label, tld))
-    for _, i, label, tld in sorted(soon, key=lambda x: (-x[0], x[2], x[3])):
-        if take(i, label, tld):
+                if f"{label}.{tld}" not in done:
+                    soon.append((explorer._bound(tld, i, label, ctx) * weight, i, label, tld, ctx, weight))
+    soon.sort(key=lambda x: -x[0])
+    ready: list[tuple[float, str, str, int]] = []
+    for bound, i, label, tld, ctx, weight in soon:
+        while ready and -ready[0][0] > bound:
+            _, lab, t, at = heapq.heappop(ready)
+            if take(at, lab, t):
+                return picked, data
+        heapq.heappush(ready, (-explorer._value(tld, i, label, ctx)["score"] * weight, label, tld, i))
+    while ready:
+        _, lab, t, at = heapq.heappop(ready)
+        if take(at, lab, t):
             return picked, data
     # 2 et 3. Trop nombreux pour tout classer : par paliers d'extension (.fr et .com, puis .org,
     # puis le reste), et dans chaque palier par score de base. Un nom de 1 ou 2 caractères jamais
@@ -308,6 +327,34 @@ def _queue(explorer, limit: int):
     tiers: dict[float, list[str]] = {}
     for tld in tlds:
         tiers.setdefault(TLD_WEIGHT.get(tld, OTHER_TLD_WEIGHT), []).append(tld)
+
+    def wanted(i: int, tld: str, codes) -> str | None:
+        """Libellé du nom s'il entre dans la file pour ces états, avec les filtres de toujours."""
+        code = data[tld][i]
+        if (codes is not None and code not in codes) or code in (INVALID, RESERVED, PREMIUM, UNCHECKED):
+            return None
+        label = u.label(i)
+        if code == ABSENT and len(label) <= 2:
+            return None
+        if tld == "fr" and english_only(u, label):
+            return None
+        return label
+
+    # 2. Nouvelles listes : leurs noms à saisir passent avant les autres probablement libres.
+    ranks = wordlists.ranks()
+    for keys in FIRST_LISTS:
+        keys = [k for k in keys if ranks.get(k)]
+        if not keys:
+            continue
+        order = u.frequency(",".join(keys))
+        for weight in sorted(tiers, reverse=True):
+            for i in order:
+                if not u.good[i]:
+                    continue
+                for tld in tiers[weight]:
+                    label = wanted(i, tld, (*MAYBE_FREE, FREE_SOON[0]))
+                    if label is not None and take(i, label, tld):
+                        return picked, data
     for group in (MAYBE_FREE, None):
         for weight in sorted(tiers, reverse=True):
             for score in range(70, -1, -1):
@@ -317,15 +364,8 @@ def _queue(explorer, limit: int):
                     if not u.good[i]:
                         continue
                     for tld in tiers[weight]:
-                        code = data[tld][i]
-                        if (group is not None and code not in group) or code in (INVALID, RESERVED, PREMIUM):
-                            continue
-                        label = u.label(i)
-                        if code == ABSENT and len(label) <= 2:
-                            continue
-                        if tld == "fr" and english_only(u, label):
-                            continue
-                        if take(i, label, tld):
+                        label = wanted(i, tld, group)
+                        if label is not None and take(i, label, tld):
                             return picked, data
     return picked, data
 
@@ -447,7 +487,7 @@ def status_lookup(explorer):
 
 OUTCOME_AGE = timedelta(days=30)
 FREE_CODES = (*MAYBE_FREE, FREE_SOON[0])   # supprimé non repris, jamais vu, libre vérifié
-TAKEN_NOW = (1, 6)                         # enregistré, suspendu
+TAKEN_NOW = (1, 6, 11)                     # enregistré, suspendu, pris d'après Gandi
 RESALE_BANDS = (("0-39", 0, 39), ("40-59", 40, 59), ("60-79", 60, 79), ("80-100", 80, 100))
 
 

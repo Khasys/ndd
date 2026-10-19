@@ -78,7 +78,7 @@ Messages envoyés :
 | Analyse IA demandée prête, lien vers la fiche | dans l'heure qui suit la demande |
 | Panne : zone en erreur ou pas lue depuis 36 h (ou aucune zone lue avec succès depuis 36 h), fichier .fr en erreur, pause .fr de plus d'une heure, notation IA muette depuis 36 h, passe DNS (.fr, .co, .ai, .io) en erreur ou finie sans aucun nom vérifié, plus de 3 exécutions manquées du planificateur en 24 h | à l'apparition, puis « Réglé » à la disparition |
 | Passe DNS arrêtée (refus ou silence du registre) | à l'arrêt |
-| Passe Gandi arrêtée (jeton refusé, trop de requêtes, réseau) | à l'arrêt, une fois par jour au plus |
+| Passe Gandi arrêtée : de nuit (jeton refusé, trop de requêtes, réseau) ou continue (jeton refusé) | à l'arrêt, une fois par jour au plus, toutes passes confondues |
 
 Les liens utilisent `APP_URL`, sinon l'adresse vue par le navigateur à la dernière ouverture de l'appli.
 
@@ -428,7 +428,9 @@ La carte « Sources et lectures » signale l'extension refusée, avec le nombre 
 le garde-fou revient ensuite.
 
 La zone .com pèse plusieurs Go compressés : compter un gros téléchargement par jour et plusieurs
-minutes de calcul sur le NAS. La recherche est répartie sur tous les cœurs sauf un (4 au plus) ;
+minutes de calcul sur le NAS. Sans accès CZDS au .com (ou tant que la zone n'a pas été lue), le .com est vérifié
+par Gandi seul, jour et nuit (voir Gandi, « Extension par Gandi seul ») ; la première lecture de la zone le fait
+passer au fonctionnement normal, sans rien à régler. La recherche est répartie sur tous les cœurs sauf un (4 au plus) ;
 la décompression reste sur un seul. Le mot de passe ICANN est stocké dans la base sur le NAS, puisque
 l'appli en a besoin chaque jour.
 
@@ -552,7 +554,8 @@ registre en cours » tant que l'écran n'a pas été rechargé.
 Tous les noms suivis, extension par extension : les 1 926 220 noms possibles de 1 à 4 caractères,
 puis les mots, noms de famille et prénoms. L'état vient des données déjà sur le NAS, sans aucune
 requête : zones ICANN lues chaque jour, open data de l'Afnic, DNS de .co, .ai et .io (les 50 000
-meilleurs noms de chacune, voir « Le .fr », point 5), données de la Veille par-dessus. Une extension
+meilleurs noms de chacune, voir « Le .fr », point 5), données de la Veille par-dessus. Sans zone lisible, le .com
+(avec un jeton Gandi) vient des réponses de Gandi : « Pas encore vérifié » tant qu'il n'a pas répondu (voir Gandi). Une extension
 DNS change de version à la fin de chaque passe : l'Explorer se recalcule alors.
 
 - **Top** : les 10, 50, 100, 200, 500 ou 1 000 premiers d'une catégorie (termes premium avec les secteurs
@@ -688,7 +691,7 @@ en erreur ne remplace pas un résultat connu : elle est notée à côté.
 
 - **Passe de nuit** (`gandi.NightPass`), de 3 h 30 à 4 h 45 (heure `TZ`), après les lectures et les passes DNS,
   avant la notation IA de 5 h. File : les noms non pris de toutes les extensions lues (.fr, zones ICANN, .co, .ai,
-  .io), dans l'ordre de la file IA : libres d'abord (score complet, revus chaque jour : un nom enregistré depuis passe
+  .io ; pas une extension par Gandi seul, voir plus bas), dans l'ordre de la file IA : libres d'abord (score complet, revus chaque jour : un nom enregistré depuis passe
   indisponible et revérifié au registre), puis probablement libres,
   libres selon le WHOIS, premiums et noms déjà dits indisponibles par Gandi, par score de base décroissant ; noms qui
   ont un sens seulement. Bientôt libres (rédemption, suppression) : pas demandés, Gandi les dit toujours
@@ -707,6 +710,38 @@ en erreur ne remplace pas un résultat connu : elle est notée à côté.
   libre, en rédemption ou en suppression (une fois par jour au plus, toujours à la main ou à un changement d'état).
   Nom tout juste vu libre au registre (Veille, domaine suivi) : son prix est demandé une minute après, sans attendre
   la nuit, sauf réponse de Gandi de moins de dix minutes (`drops.on_freed`).
+- **Extension par Gandi seul** (.com par défaut, réglage `gandi_only_tlds`) : une extension sans zone lisible (pas
+  d'accès CZDS, fichier trop gros, ou zone pas encore lue), avec un jeton, est dans l'Explorer quand même
+  (`Explorer.gandi_tlds`). État de base de chaque nom : « Pas encore vérifié » (code 10, dans « Tous, même pris »
+  seulement). Réponse de Gandi : libre, « Libre (vérifié) » et son prix ; premium, « Premium » et son prix ;
+  indisponible, réservé ou restreint, « Pris (d'après Gandi) » (code 11, compté pris : compteurs, demande « pris
+  ailleurs », filtre « pris sur une autre extension », mesure a posteriori des avis IA), libellé honnête : en .com,
+  presque toujours enregistré ; erreur, rien ne change. Pas de revérification au registre de chaque indisponible
+  (des dizaines de milliers de requêtes RDAP vers Verisign) : seulement « Vérifier » (sans plafond), un nom déjà lu
+  libre au registre que Gandi contredit (règle commune), et les noms à avis IA « À prendre », 50 par jour au plus
+  (`explore.RECHECK_DAILY`). Un nom lu au registre suit la règle commune ; lu enregistré puis dit achetable par
+  Gandi, il a été supprimé depuis : la réponse de Gandi l'emporte (`drop_open_code`, argument `offered`).
+- **Passe continue** (`gandi.LivePass`), jour et nuit, pour ces extensions seulement : chaque nom qui a un sens
+  (environ 207 000 en .com), d'abord les libres et premiums à revoir (chaque jour), puis les listes fournies (termes
+  premium, mots-clés et marques mêlés par rang, puis métier + ville), puis le reste par score de base ; les autres
+  revus après 7 jours (réglable), une réponse en erreur le lendemain. 5 requêtes par seconde par défaut (0,2 à 15) :
+  première passe complète en une douzaine d'heures, puis environ 30 000 requêtes par jour plus les libres. File refaite
+  toutes les 30 minutes de travail (moins d'une seconde) ; rien à revoir, tour suivant 15 minutes plus tard. Trop de
+  requêtes (429) : attente demandée (60 s sans indication), doublée à chaque refus d'affilée (une heure au plus), puis
+  reprise au même nom ; 20 échecs réseau d'affilée : pause de 15 minutes ; jeton refusé : arrêt, erreur dans
+  Paramètres, alerte Telegram (une par jour au plus, avec la passe de nuit), nouvel essai le lendemain ou dès qu'un
+  jeton est enregistré. Relancée toutes les 5 minutes si elle s'est arrêtée (tâche `check_gandi_live`). La passe de
+  nuit ne demande plus ces extensions. Plafond commun : toutes les requêtes vers Gandi (deux passes, Vérifier,
+  domaines suivis) passent par le même client, 900 par minute glissante au plus (`GLOBAL_PER_MINUTE`), sous la
+  limite de Gandi (1 000 par minute et par adresse IP). Zone lue (accès CZDS accordé et lecture de nuit faite) :
+  l'extension repasse au fonctionnement normal, la zone pour l'état et la passe de nuit pour Gandi ; une passe
+  continue en route s'arrête dans les 100 noms. Paramètres, carte Gandi : case (décochée, la passe s'arrête), rythme,
+  délai, et une ligne d'état (extensions concernées, noms vérifiés, restant à demander ou à revoir, rythme, prochain
+  tour, dernier arrêt). `PUT /api/settings/gandi/live` (`enabled`, `rate`, `days`, `tlds` : extensions génériques,
+  ni .fr ni .co, .ai, .io) ; état : `gandi.live` de `GET /api/settings` et `gandi_live` de `/api/diag` (`tlds`,
+  `configured`, `verified`, `remaining`, `total`, `due`, `rate`, `days`, `next_tour`, `running`, `halted_at`,
+  `stopped`, `per_minute_cap`), sans jeton ni sa présence. Réponses rangées avec l'extension (`gandi_checks.tld`,
+  colonne calculée, migration 033) : chaque extension lit les siennes par l'index.
 - **Effet sur l'état** : une seule règle pour tous les écrans (Explorer et fiche, Veille, Aujourd'hui, Domaines),
   `explore.gandi_effect`, détaillée et testée combinaison par combinaison dans `tests/test_state_rules.py`. Premium
   (statut available avec un prix premium) : « Premium » et son prix ; libre au prix standard : « Libre (vérifié) », le
@@ -784,8 +819,12 @@ prendre » et une note de revente au seuil réglé (70 par défaut, désactivabl
 part avec le verdict, les notes, le prix utilisateur final, la raison, le lien vers la fiche et le lien
 Réserver. Une alerte par nom et par état ; le résumé du matin reste, lui récapitule.
 
-Le NAS publie la liste à noter (`GET /api/ai/pending`) : noms libres ou bientôt libres d'abord, puis
-probablement libres, puis enregistrés, les plus prometteurs d'abord, avec la consigne et des exemples
+Le NAS publie la liste à noter (`GET /api/ai/pending`) : noms libres ou bientôt libres d'abord (score complet ; la
+borne du score range d'abord, un nom n'est noté en entier que s'il peut sortir), puis les noms probablement libres ou
+libres des listes fournies (termes premium, mots-clés et marques mêlés par rang, puis métier + ville ; .fr et .com,
+puis .org), puis les autres probablement libres, puis enregistrés, les plus prometteurs d'abord. Un .com par Gandi
+seul entre dans la file dès que Gandi le dit libre (pas encore vérifié : jamais) ; mêmes filtres partout (mot
+seulement anglais écarté en .fr, 1 ou 2 caractères jamais vus écartés, réservés et premiums probables exclus), avec la consigne et des exemples
 de référence pour garder des notes cohérentes. Il réimporte les avis (`POST /api/ai/results`) après
 contrôle du format, le même pour chaque avis : exactement quinze champs, sous-notes entières de 0
 à 10, prix sur une échelle fixe (0, 50, 100, 150, 200, 300, 500, 800, 1 000…), revente rapide à 40 %
@@ -833,7 +872,8 @@ publier les termes dont la seule mention heurterait le public.
 
 « Probablement libre » veut dire : pour le .fr, supprimé sans réenregistrement connu ou jamais
 enregistré d'après l'open data ; pour une zone ICANN, absent de la zone ; pour .co, .ai et .io, absent
-du DNS du registre (carte « probablement libre (absent du DNS) »). Un nom enregistré sans serveurs DNS
+du DNS du registre (carte « probablement libre (absent du DNS) »). Un .com par Gandi seul n'est jamais
+« probablement libre » : pas encore vérifié, ou ce que Gandi en dit. Un nom enregistré sans serveurs DNS
 est absent de la zone et du DNS lui aussi. Toujours vérifier avant de conclure.
 
 ### Appli sur le téléphone

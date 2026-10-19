@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 import httpx
 import pytest
 
-from app import explore, gandi, states
+from app import drops, explore, gandi, states
 from app.checker import iso, utcnow
 from app.rdap import DomainInfo, LookupResult
 from tests.conftest import FIXTURES
@@ -487,4 +487,268 @@ def test_a_name_just_freed_gets_its_price_without_waiting_for_the_night(logged, 
     # Libéré : prix demandé une fois ; revérification après un refus d'achat (ciel.com) : pas de nouvelle demande.
     assert asked == ["lune.com"]
     assert gandi.load(st.conn, ["lune.com"])["lune.com"]["kind"] == "available"
+    client.__exit__(None, None, None)
+
+
+# --- Extension par Gandi seul (.com sans zone) ---------------------------------------------------------
+
+def gandi_only(ex, handler=None):
+    """Explorer avec un jeton Gandi et la zone .com pas lue (accès CZDS sans lecture) : .com par Gandi seul."""
+    ex.gandi = client_for(ex, handler)
+    ex.invalidate()
+    return ex.gandi
+
+
+def _take(conn, name):
+    conn.execute("""INSERT INTO domain_ai (name, exploit, resale, quick_low, quick_high, final_low, final_high, comment,
+                    rated_at, version) VALUES (?, 70, 70, 0, 0, 0, 100, 'À prendre. Test. Acheteur type : test.', 'x', 5)""", (name,))
+
+
+def test_com_without_zone_is_known_through_gandi_alone(env, monkeypatch):
+    """Sans zone .com lisible : .com dans l'Explorer, chaque nom « pas encore vérifié » ; libre, premium ou pris d'après
+    Gandi selon sa réponse, sans revérification au registre sauf pour un nom « À prendre », sous un plafond par jour."""
+    assert env.tlds() == [] and env.gandi_tlds() == []  # sans jeton : rien
+    client = gandi_only(env)
+    assert env.tlds() == ["com"] and env.gandi_tlds() == ["com"]
+    u = env.universe
+    data = env.status_bytes("com")
+    assert data[u.index("jardin")] == explore.UNCHECKED and data[drops.encode("-ab")] == explore.INVALID
+    before = env.facets("com", premium=True)
+    assert before["bookable"] == 0 and before["registered"] == 0 and before["all"] > 100_000
+    now = utcnow()
+    client.record("jardin.com", gandi.read(answer("available", [STANDARD])), now)
+    client.record("abe.com", gandi.read(answer("available", [PREMIUM])), now)
+    client.record("maison.com", gandi.read(answer("unavailable")), now)
+    client.record("velo.com", gandi.read(answer("reserved_corporate")), now)
+    client.record("lune.com", gandi.read(answer("error_timeout")), now)
+    # Indisponible : pris d'après Gandi, aucune requête au registre (pas de ligne de Veille).
+    assert env.drops.row("maison.com") is None and env.drops.row("velo.com") is None
+
+    def one(label):
+        return env.search("com", q=label, mode="exact", status="all", premium=True)["items"][0]
+
+    jardin, abe, maison, velo, lune = (one(x) for x in ("jardin", "abe", "maison", "velo", "lune"))
+    assert jardin["status"] == explore.FREE and jardin["status_label"] == "Libre (vérifié)" and jardin["gandi_state"] == "available"
+    assert abe["status"] == explore.PREMIUM and abe["premium_price"] == 878
+    assert maison["status"] == explore.TAKEN_GANDI and maison["status_label"] == "Pris (d'après Gandi)"
+    assert maison["gandi_state"] == "unavailable" and maison["reserved"] == []
+    assert velo["status"] == explore.TAKEN_GANDI
+    assert lune["status"] == explore.UNCHECKED and lune["status_label"] == "Pas encore vérifié" and lune["gandi"]["error"]
+    counts = env.facets("com", premium=True)
+    assert counts["registered"] == 2 and counts["free"] == 2 and env.facets("com")["free"] == 1 and counts["all"] == before["all"]
+    # Corrigé en place, nom par nom : le même résultat qu'un calcul d'ensemble.
+    touched, counted = bytes(env.status_bytes("com")), env.facets("com", premium=True)
+    env.invalidate("com")
+    assert bytes(env.status_bytes("com")) == touched and env.facets("com", premium=True) == counted
+    # Pris d'après Gandi compte comme pris ailleurs (demande, filtre « pris sur une autre extension »).
+    assert explore.TAKEN_GANDI in explore.TAKEN_CODES
+    # Un nom « À prendre » dit indisponible : revu au registre, RECHECK_DAILY par jour au plus.
+    monkeypatch.setattr(explore, "RECHECK_DAILY", 1)
+    for name in ("soleil.com", "plage.com", "credit.com"):
+        _take(env.conn, name)
+    client.record("soleil.com", gandi.read(answer("unavailable")), now)
+    client.record("plage.com", gandi.read(answer("unavailable")), now)
+    client.record("credit.com", gandi.read(answer("available", [STANDARD])), now)
+    assert env.drops.row("soleil.com")["next_check_at"] == iso(now) and env.drops.row("plage.com") is None
+    assert one("soleil")["status"] == explore.TAKEN_GANDI  # en attendant le registre : pris d'après Gandi
+    # Le registre le dit pris : « Enregistré » ; toujours libre : indisponible à l'achat (règle commune).
+    taken = LookupResult(found=True, info=DomainInfo(statuses=["active"], expires_at=now + timedelta(days=365)))
+    env.drops.apply(env.drops.row("soleil.com"), taken, now + timedelta(minutes=1))
+    assert one("soleil")["status"] == explore.REGISTERED and one("soleil")["status_label"] == "Enregistré"
+    # Libre d'après Gandi plus tard (le nom a été supprimé depuis) : la dernière lecture l'emporte.
+    client.record("soleil.com", gandi.read(answer("available", [STANDARD])), now + timedelta(days=8))
+    assert one("soleil")["status"] == explore.FREE
+    # La carte, le Top et la fiche disent la même chose.
+    assert env.map()["cells"]["com"]
+    fiche = env.fiche("maison.com")
+    assert fiche["item"]["status"] == explore.TAKEN_GANDI and fiche["gandi"]["kind"] == "unavailable"
+
+
+def test_verify_a_com_without_zone_reads_the_registry(env):
+    """Vérifier interroge toujours le registre (RDAP), sans plafond : sa lecture fait l'état, Gandi précise le prix."""
+    gandi_only(env)
+    expires = datetime.now(timezone.utc) + timedelta(days=200)
+    env.drops.rdap = FakeRdap({"maison.com": LookupResult(found=True, info=DomainInfo(statuses=["active"], expires_at=expires)),
+                               "jardin.com": LookupResult(available=True)})
+    env.gandi.record("maison.com", gandi.read(answer("unavailable")), utcnow() - timedelta(hours=1))
+    assert asyncio.run(env.verify("maison.com"))["status"] == explore.REGISTERED
+    item = asyncio.run(env.verify("jardin.com"))
+    assert item["status"] == explore.FREE and item["gandi"]["kind"] == "available"
+
+
+def test_live_pass_order_lists_first_then_score_with_revisits(env):
+    client = gandi_only(env)
+    live = gandi.LivePass(client, env.conn, env.fr.store, env, timezone.utc)
+    u = env.universe
+    now = utcnow()
+    names, info = live.plan(10**7, now)
+    assert info["due"] == info["total"] == len(names) > 150_000
+    pkb = [f"{u.label(i)}.com" for i in u.frequency("premium,keyword,brand") if u.good[i]]
+    first = set(pkb)
+    local = [f"{u.label(i)}.com" for i in u.frequency("local") if u.good[i] and f"{u.label(i)}.com" not in first]
+    assert names[:len(pkb)] == pkb and names[len(pkb):len(pkb) + len(local)] == local
+    rest = names[len(pkb) + len(local):]
+    scores = [u.base_table[u.index(n[:-4])] & 127 for n in rest[:2000]]
+    assert scores == sorted(scores, reverse=True)
+    # Revus : libres et premiums chaque jour (en tête), les autres après 7 jours (réglable), les erreurs le lendemain.
+    at = lambda days: iso(now - timedelta(days=days))  # noqa: E731
+    for name, kind, days in (("jardin.com", "available", 2), ("abe.com", "premium", 2), ("maison.com", "unavailable", 2),
+                             ("velo.com", "unavailable", 8), ("lune.com", "error", 2), ("soleil.com", "available", 0.5)):
+        env.conn.execute("INSERT INTO gandi_checks (name, status, kind, checked_at) VALUES (?, ?, ?, ?)", (name, kind, kind, at(days)))
+        env.touch(name)
+    names, info = live.plan(10**7, now)
+    assert set(names[:2]) == {"jardin.com", "abe.com"}
+    assert "maison.com" not in names and "soleil.com" not in names and {"velo.com", "lune.com"} <= set(names)
+    assert info["due"] == len(names) == info["total"] - 2
+    assert live.plan(5, now)[0] == names[:5]
+    live.store.set("gandi_live_days", "1")
+    assert "maison.com" in live.plan(10**7, now)[0]
+
+
+def test_live_pass_paces_waits_and_stops_on_refused_token(env):
+    calls = []
+    limited = {"b.com": 2}
+
+    def handler(request):
+        name = request.url.params["name"]
+        calls.append(name)
+        if name == "stop.com":
+            return httpx.Response(401)
+        if limited.get(name):
+            limited[name] -= 1
+            return httpx.Response(429, headers={"Retry-After": "7"})
+        return httpx.Response(200, json=answer("unavailable" if name == "b.com" else "available", [STANDARD], name))
+
+    client = gandi_only(env, handler)
+    live = gandi.LivePass(client, env.conn, env.fr.store, env, timezone.utc)
+    waits = []
+
+    async def sleep(seconds):
+        waits.append(seconds)
+
+    live.sleep = sleep
+    sent = []
+
+    async def notify(text):
+        sent.append(text)
+
+    live.notify = notify
+    assert live.due() and live.status()["tlds"] == ["com"] and live.status()["rate"] == 5.0
+    live.plan = lambda limit, now=None: (["a.com", "b.com", "c.com"], {"total": 10, "due": 3, "planned_at": iso(utcnow())})
+    stats = asyncio.run(live.run(tours=1))
+    # 429 : attente demandée (7 s), doublée au refus suivant, puis reprise au même nom ; 5 requêtes par seconde au plus.
+    assert calls == ["a.com", "b.com", "b.com", "b.com", "c.com"] and stats["checked"] == 3 and stats["limited"] == 2
+    assert sum(w for w in waits if w > 1) == 7 + 14
+    assert all(w <= 0.2 + 0.01 for w in waits if w < 1)
+    assert stats["stopped"] == "fin des tours demandés" and env.status_bytes("com")[env.universe.index("b")] == explore.TAKEN_GANDI
+    status = live.status()
+    assert status["verified"] == 3 and status["remaining"] == 0 and "pat_" not in json.dumps(status)
+    # Jeton refusé : arrêt, erreur, alerte ; plus relancée avant le lendemain, sauf nouveau jeton.
+    live.plan = lambda limit, now=None: (["stop.com", "d.com"], {"total": 10, "due": 2, "planned_at": iso(utcnow())})
+    stats = asyncio.run(live.run())
+    assert "refusé" in stats["stopped"] and len(sent) == 1 and "continue" in sent[0]
+    assert not live.due() and live.status()["halted_at"]
+    client.set_key("pat_nouveau")
+    assert live.due()
+    # File vide : prochain tour dans 15 minutes ; case décochée : arrêt.
+    live.plan = lambda limit, now=None: ([], {"total": 10, "due": 0, "planned_at": iso(utcnow())})
+    waits.clear()
+    stats = asyncio.run(live.run(tours=1))
+    assert stats["next_tour"] and sum(waits) == gandi.LIVE_IDLE
+    live.store.set("gandi_live_enabled", "0")
+    assert not live.due() and asyncio.run(live.run())["stopped"] == "arrêtée dans Paramètres"
+
+
+def test_one_ceiling_for_every_gandi_request(env):
+    """Passe de nuit, passe continue, Vérifier : un seul client, jamais plus de GLOBAL_PER_MINUTE requêtes par minute."""
+    client = client_for(env)
+    clock = [1000.0]
+    waits = []
+
+    async def sleep(seconds):
+        waits.append(seconds)
+        clock[0] += seconds
+
+    client.clock = lambda: clock[0]
+    client.sleep = sleep
+    sent = []
+
+    def handler(request):
+        sent.append(clock[0])
+        return httpx.Response(200, json=answer("available", [STANDARD], request.url.params["name"]))
+
+    client._http_factory = lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    async def burst():
+        async with client._http_factory() as http:
+            for n in range(gandi.GLOBAL_PER_MINUTE + 50):
+                await client.check(f"a{n}.com", http)
+                clock[0] += 0.01
+
+    asyncio.run(burst())
+    cap = gandi.GLOBAL_PER_MINUTE
+    assert cap < 1000 and waits and round(waits[0], 2) == round(60 - cap * 0.01, 2)
+    assert all(sent[n + cap] - sent[n] >= 60 - 1e-6 for n in range(len(sent) - cap))
+
+
+def test_zone_read_switches_com_back_to_normal(env):
+    """CZDS accorde la zone et la lecture de nuit la lit : .com quitte la passe continue et revient à la zone pour
+    l'état, avec la seule passe de nuit chez Gandi."""
+    client = gandi_only(env)
+    live = gandi.LivePass(client, env.conn, env.fr.store, env, timezone.utc)
+    night = gandi.NightPass(client, env.conn, env.fr.store, env, timezone.utc)
+    now = utcnow()
+    client.record("maison.com", gandi.read(answer("unavailable")), now)
+    client.record("jardin.com", gandi.read(answer("available", [STANDARD])), now)
+    u = env.universe
+    assert env.status_bytes("com")[u.index("maison")] == explore.TAKEN_GANDI
+    assert live.tlds() == ["com"] and live.due() and night.tlds() == [] and night.pending(100, now) == []
+    # Lecture de la zone .com (maison y est, velo non).
+    zone(env, [], ["maison"])
+    assert env.tlds() == ["com"] and env.gandi_tlds() == []
+    data = env.status_bytes("com")
+    assert data[u.index("maison")] == explore.REGISTERED and data[u.index("velo")] == explore.ABSENT
+    assert data[u.index("jardin")] == explore.FREE  # absent de la zone, libre chez Gandi
+    assert live.tlds() == [] and not live.due() and live.plan(100, now)[0] == []
+    assert night.tlds() == ["com"] and "velo.com" in night.pending(10**6, now)
+    stats = asyncio.run(live.run())
+    assert stats["stopped"] == "zone lue : fonctionnement normal" and stats["checked"] == 0
+    # Une passe continue en route s'arrête aussi dès que la zone est lue.
+    env.drops._path("com", "short").unlink()
+    env.invalidate("com")
+    assert env.gandi_tlds() == ["com"]
+    asked = []
+
+    def handler(request):
+        asked.append(request.url.params["name"])
+        if len(asked) == 1:
+            zone(env, [], ["maison"])  # la zone arrive pendant le tour
+        return httpx.Response(200, json=answer("available", [STANDARD], request.url.params["name"]))
+
+    client._http_factory = lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    live.sleep = lambda s: asyncio.sleep(0)
+    live.plan = lambda limit, now=None: ([f"x{n}abc.com" for n in range(150)], {"total": 150, "due": 150, "planned_at": iso(utcnow())})
+    asyncio.run(live.run(tours=3))
+    assert len(asked) == 100  # relu tous les 100 noms : la suite n'est pas demandée
+
+
+def test_gandi_live_settings_and_diag_without_secret(logged):
+    client = logged()
+    st = client.app.state
+    assert client.put("/api/settings/gandi/live", json={"rate": 16}).status_code == 422
+    assert client.put("/api/settings/gandi/live", json={"days": 0}).status_code == 422
+    assert client.put("/api/settings/gandi/live", json={"tlds": ["fr"]}).status_code == 422
+    assert client.put("/api/settings/gandi/live", json={"tlds": ["co"]}).status_code == 422
+    saved = client.put("/api/settings/gandi/live", json={"enabled": False, "rate": 8, "days": 10}).json()
+    assert (saved["enabled"], saved["rate"], saved["days"], saved["tlds"], saved["configured"]) == (False, 8.0, 10, [], ["com"])
+    client.put("/api/settings/gandi", json={"key": "pat_secret-123"})
+    live = client.get("/api/settings").json()["gandi"]["live"]
+    assert live["tlds"] == ["com"] and live["per_minute_cap"] == gandi.GLOBAL_PER_MINUTE and live["max_rate"] == 15
+    diag = client.get("/api/diag").json()
+    assert diag["gandi_live"]["tlds"] == ["com"] and "pat_secret" not in json.dumps(diag)
+    assert any(j["id"] == "check_gandi_live" for j in diag["jobs"])
+    # Une ligne de .com par Gandi seul : « pas encore vérifié », état de base de chaque nom.
+    items = client.get("/api/explore", params={"tld": "com", "q": "jardin", "mode": "exact", "status": "all"}).json()["items"]
+    assert items and items[0]["status"] == explore.UNCHECKED and items[0]["status_label"] == "Pas encore vérifié"
+    st.store.set("gandi_live_enabled", "0")
     client.__exit__(None, None, None)

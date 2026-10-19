@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app import db, drops, explore, frdata, states
+from app.checker import iso, utcnow
 from app.rdap import DomainInfo, LookupResult
 from app.store import Store
 
@@ -1425,3 +1426,72 @@ def test_renewed_by_owner_is_not_shown_as_taken_again():
     assert event(retaken, {"registered_at": "2026-10-14T10:00:00+00:00"}) == "Repris"
     assert event(retaken, None) == "Repris"
     assert event({"state": states.RENEWED, "state_since": "2026-10-15", "removed_on": ""}, {}) == "Renouvelé (même titulaire)"
+
+
+def test_ai_queue_new_lists_first_after_free_names(env):
+    """File IA : libres et bientôt libres d'abord (inchangé) ; puis les noms à saisir des nouvelles listes, termes
+    premium, mots-clés et marques mêlés par rang, puis métier + ville ; ensuite le reste comme avant."""
+    from app import ai
+
+    zone(env, [], [])
+    u = env.universe
+    now = datetime.now(timezone.utc)
+    env.drops.record("com", ["maison"], [], now)
+    env.conn.execute("UPDATE drops SET state = 'available', state_since = ?, available_since = ? WHERE name = 'maison.com'",
+                     (iso(now),) * 2)
+    env.invalidate()
+    data = env.status_bytes("com")
+    first = [u.label(i) for i in u.frequency("premium,keyword,brand") if u.good[i] and data[i] == explore.ABSENT]
+    seen = set(first)
+    local = [u.label(i) for i in u.frequency("local") if u.good[i] and data[i] == explore.ABSENT and u.label(i) not in seen]
+    assert len(first) > 1000 and len(local) > 1000
+    picked, _ = ai._queue(env, 1 + len(first) + len(local) + 50)
+    names = [label for _, label, tld in picked]
+    assert names[0] == "maison"
+    assert names[1:1 + len(first)] == first and names[1 + len(first):1 + len(first) + len(local)] == local
+    rest = names[1 + len(first) + len(local):]
+    assert rest and not set(rest) & (seen | set(local))
+    # Un nom déjà noté ne revient pas ; la file publiée suit le même ordre.
+    env.conn.execute("""INSERT INTO domain_ai (name, exploit, resale, quick_low, quick_high, final_low, final_high, comment,
+                        rated_at, version) VALUES (?, 50, 50, 0, 0, 0, 100, 'À surveiller. Test. Acheteur type : test.', 'x', ?)""",
+                     (f"{first[0]}.com", ai.VERSION))
+    assert [n["name"] for n in ai.pending(env, 3)] == ["maison.com", f"{first[1]}.com", f"{first[2]}.com"]
+
+
+def test_ai_queue_takes_a_com_without_zone_once_gandi_says_free(env):
+    """.com par Gandi seul : un nom pas encore demandé n'entre pas dans la file IA ; libre d'après Gandi, il y entre
+    avec les libres ; pris d'après Gandi, il compte comme pris ailleurs."""
+    from app import ai, gandi as g
+    from tests.test_gandi import STANDARD, answer, client_for
+
+    env.gandi = client_for(env)
+    env.invalidate()
+    assert env.gandi_tlds() == ["com"]
+    assert ai._queue(env, 50)[0] == []
+    env.gandi.record("rachatcredit.com", g.read(answer("available", [STANDARD])), utcnow())
+    env.gandi.record("taxrelief.com", g.read(answer("unavailable")), utcnow())
+    picked = [f"{label}.{tld}" for _, label, tld in ai._queue(env, 50)[0]]
+    assert picked[0] == "rachatcredit.com"
+    assert all(env.status_bytes("com")[env.universe.index(n[:-4])] != explore.UNCHECKED for n in picked)
+    item = next(n for n in ai.pending(env, 50) if n["name"] == "rachatcredit.com")
+    assert item["status"] == "Libre (vérifié)" and item["gandi"] == {"kind": "available", "price": 13}
+
+
+def test_ai_queue_free_names_in_full_score_order(env):
+    """Libres en tête de la file IA, dans l'ordre du score complet, même quand la borne du score sert à n'en noter
+    qu'une partie (milliers de .com libres d'après Gandi)."""
+    from app import ai, gandi
+    from tests.test_gandi import STANDARD, answer, client_for
+
+    env.gandi = client_for(env)
+    env.invalidate()
+    u = env.universe
+    labels = [u.label(i) for i in u.frequency("english")[:400:2]] + [u.label(i) for i in u.good_letters(4)[:200:4]]
+    for label in labels:
+        env.gandi.record(f"{label}.com", gandi.read(answer("available", [STANDARD])), utcnow())
+    ctx = env._bonus_context("com")
+    expected = sorted(((env._value("com", u.index(x), x, ctx)["score"], x) for x in labels if u.good[u.index(x)]),
+                      key=lambda x: (-x[0], x[1]))
+    picked = [label for _, label, _ in ai._queue(env, len(expected))[0]]
+    assert picked == [x for _, x in expected]
+    assert [label for _, label, _ in ai._queue(env, 7)[0]] == picked[:7]
