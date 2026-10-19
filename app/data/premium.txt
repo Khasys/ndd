@@ -21,7 +21,6 @@ microcredit
 payrollservices
 taxrelief
 comptabiliteenligne
-commissairecomptes
 bilancomptable
 mutuellesenior
 assurancepret
@@ -331,7 +330,7 @@ serresdejardin
 industrie40
 usinagecnc
 emballagescarton
-logistiquee
+logistique
 entrepotsvirtuels
 forfaitsmobiles
 telephoneportable
@@ -457,7 +456,7 @@ voyagedenoces
 volslowcost
 flightsearch
 hotelbooking
-chambrehote
+chambredhote
 croisierefluviale
 tourismeculturel
 agencesdevoyage
@@ -499,7 +498,7 @@ attorneyatlaw
 santeautravail
 prendrerendezvous
 lentillesdecontact
-chiropracticien
+chiropraticien
 familytherapy
 chirurgiedumain
 dermalfillers
@@ -569,7 +568,7 @@ industry40
 usinagedeprecision
 emballageplastique
 entreposage
-demenagementlongue
+demenagementlonguedistance
 forfaitinternet
 internetservice
 televiseuroled
@@ -650,7 +649,7 @@ toitureavecpente
 roofinstallation
 voiturehybride
 autosoccasion
-pneuxhiver
+pneushiver
 garagepoidslourds
 motocrossfrance
 scooter50
@@ -855,7 +854,6 @@ insurancecompanies
 claimsadjuster
 agencegenerale
 immobilierluxe
-achatsecondaire
 coproprietaire
 terrainabatir
 cowork
@@ -989,7 +987,6 @@ claimsmanagement
 immobilierdebureau
 achatbureau
 locationbureau
-terrainbatir
 realestatelaw
 flexoffice
 avocatpermis
@@ -1017,7 +1014,7 @@ devissolaire
 solarquote
 hvaccontractor
 weatherproofing
-primeseenergie
+primesenergie
 contratgaz
 energieverte
 renovationtoiture
@@ -1169,7 +1166,7 @@ sylviculteur
 recyclagepapier
 etudedesol
 weddingvenue
-poussettedoubles
+poussettedouble
 animalerieoiseaux
 gestiondepatrimoine
 rechercherunemploi
@@ -1192,7 +1189,6 @@ centresdeformation
 offresstage
 mastereexecutif
 pmp
-bilandecompetence
 learnchinese
 englishtraining
 voyagesdeluxe
@@ -1452,7 +1448,6 @@ scooterquad
 cuisineamericaine
 douchesitaliennes
 bathroomfixtures
-meubleseconde
 canapecuir
 litscabane
 piscineshorssol
@@ -1561,7 +1556,7 @@ agiletraining
 parcoursup
 learnkorean
 businessenglish
-voyageadaptes
+voyagesadaptes
 volscharter
 flighttracking
 hoteldeluxe
@@ -1717,7 +1712,6 @@ electrovanne
 serrehorticole
 usinagealu
 stockagevalise
-demenagementtout
 forfaitetranger
 internetspeed
 telephonesenior
@@ -2073,11 +2067,11 @@ formationdiplomante
 formationmarketing
 ecoleingenieur
 bachelorsdegree
-courdechimie
+coursdechimie
 testprep
 sixsigma
 validationdesacquis
-etudeseranger
+etudesaletranger
 learnrussian
 tesol
 voyageseniors
@@ -2110,7 +2104,6 @@ droitdelimmigration
 droitdelurbanisme
 contratdetravail
 creerboutique
-fondsdecommercea
 patentfiling
 visatouriste
 injuryattorney
@@ -2210,7 +2203,7 @@ makeupremover
 coiffurevisagiste
 semipermanent
 regimecetogene
-vetementsdeseconde
+vetementsdesecondemain
 chaussuresdemarie
 bijouxbebe
 envoicolisfrance
@@ -2223,10 +2216,8 @@ ewallet
 declarationenligne
 expensemanagement
 complementairesante
-assurancertcivile
 wholelife
 estimerbien
-nupropriete
 locationbateau
 maisonpassive
 homesforsale
@@ -2258,7 +2249,7 @@ depannagevitrage
 raccordementeau
 dallebeton
 minimaison
-tuilesbetons
+tuilesbeton
 formationqualifiante
 organismedeformation
 ecolesingenieurs
@@ -2437,7 +2428,6 @@ voyagesscolaires
 jetsprives
 airportparking
 hoteldecharme
-gitesrural
 croisierenil
 tourismesportif
 excursionsjetski
@@ -2606,7 +2596,6 @@ careertest
 projetprofessionnel
 metiersdunumerique
 voituredefonction
-importeuracar
 jantesalliage
 contrevisite
 equipementmoto
@@ -2614,7 +2603,6 @@ voyagesolo
 billetavion
 airportshuttle
 hotelsdecharme
-giteruraux
 croisiereexpedition
 croisieredanube
 tourismenautique
@@ -2974,7 +2962,6 @@ recrutementexterne
 allocationchomage
 paystubgenerator
 careeradvice
-soinsanti
 eaudeparfum
 makeupkits
 coiffureextensions
@@ -3123,14 +3110,13 @@ logicielcao
 softwarelicensing
 jeuxdesimulation
 esportsagency
-artfigeratif
+artfiguratif
 tableauxpeinture
 luxurycar
 paydayloans
 refinancemortgage
 fcpi
 encaissement
-optimisationfiscal
 indemnites
 liabilityinsurance
 diagnosticdpe
@@ -3205,7 +3191,6 @@ nettoyagetoiture
 reparateurvolet
 autoneuves
 usedcars
-jantesocasion
 carrosseriemoto
 casquesjet
 ebikeconversion
@@ -3378,25 +3363,22 @@ droitdelinformatique
 droitdusport
 cabinetavocats
 startcompany
-droitdauteurs
 wrongfuldeath
 omega3
 haircloning
-medecineesthetiques
 cryolipolyse
 clinicalstudy
 labtesting
 geriatrics
 batteriestockage
 solarincentives
-sechetserviette
 radiantfloor
 passivhaus
 energyprovider
 gazpropane
 electricityproviders
 gasutility
-energiepropres
+energiespropres
 renovationpeinture
 devistoitures
 devisfosseseptique
@@ -3436,7 +3418,6 @@ biopiscine
 jardinvertical
 debroussailleuse
 lawnfertilizer
-serredevalid
 industrialfans
 tolerie
 cartondemenagement
@@ -3611,7 +3592,6 @@ greffecheveux
 bodycontouring
 healthcenters
 mammographie
-chauffeausolaire
 solartax
 radiateurelectrique
 chaudierefioul
@@ -3635,7 +3615,6 @@ canapemodulable
 litscoffre
 bedframe
 piscinegonflable
-muravegetal
 lawnfertilization
 cuveeaudepluie
 industrialpumps
@@ -3726,7 +3705,7 @@ croisierefluviales
 agencesdevoyages
 cosmetiques
 soinantirides
-parfumerienicheniche
+parfumerieniche
 lampeuvongles
 curedetox
 vetementsski
@@ -3769,7 +3748,7 @@ gitepetitsprix
 penichelocation
 officedetourisme
 guidedepeche
-activitesenplein
+activitesenpleinair
 assistancedepannage
 velovilleelectrique
 achatauto
@@ -3871,14 +3850,14 @@ bilandecompetences
 studyinfrance
 learnphotography
 sejourlinguistique
-dernieremin
+derniereminute
 billetdebus
 carrental
 hotelmarketing
 gites
 officesdetourisme
 guidesdepeche
-activitesplein
+activitespleinair
 employeebenefits
 demandeursdemploi
 livingwage
@@ -4014,7 +3993,6 @@ coursdedessin
 codingclasses
 studyineurope
 learnmarketing
-dernieremimute
 billetsdeferry
 hotelconsulting
 penichesavendre
@@ -4151,7 +4129,6 @@ meublesdejardin
 litelectrique
 bedroomdecor
 piscinekit
-murvegetaux
 lawnsprinkler
 citerneeau
 decoupelaserinox
@@ -4427,7 +4404,6 @@ decoupelaserbois
 logisticsprovider
 internetservices
 broadbanddeals
-telephonestrobustes
 telephonesip
 iptvservice
 recrutementcadres
@@ -4482,7 +4458,6 @@ salesoperations
 ppcservices
 smsservice
 ghostwriter
-creatordeeconomy
 brandnames
 identitevisuelle
 automatisationworkflow
@@ -4517,7 +4492,6 @@ learncrypto
 languagelearning
 jobmatching
 executivesearch
-travailtemporaires
 jobdete
 employeemonitoring
 primedactivite
@@ -4581,7 +4555,7 @@ decoupelasertole
 caisseenbois
 locationcamiongrue
 machinesagricoles
-poulaillerpas
+poulaillerpascher
 loggingcompanies
 releve3dbatiment
 cameraswifi
@@ -4654,7 +4628,7 @@ nailsalon
 programmesport
 vetementsmedicaux
 sneakerstore
-bijouxmoderne
+bijouxmodernes
 ventesflash
 envoiskis
 camerasolaire

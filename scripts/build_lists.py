@@ -193,6 +193,7 @@ def niche() -> list[str]:
 
 ARTICLE_TOP = 600    # noms par genre (et pluriels) pour « le / la / l' / les + mot »
 MEDIA_HEADS = ["journal", "planete", "monde", "univers", "gazette"]
+FEMININE = {"peche"}  # genre du Lexique trompeur pour ces thèmes
 
 
 def medias(lexique: Path, genders: dict[str, str], banned: set[str]) -> list[str]:
@@ -233,12 +234,14 @@ def medias(lexique: Path, genders: dict[str, str], banned: set[str]) -> list[str
     fr_tech = [p + w for w in unique(tech["french"] + tech["fr"]) for p in ("fr", "french")
                if (p == "french" or w in fr_only) and pronounceable(p + w)]
     # Tête de média + du / de la / de l' / des + thème : journaldelinformatique, planetedujardinage.
+    # Le y initial ne s'élide pas (du yoga) ; un pluriel inconnu du Lexique finit par s (des ados) ; pêche, féminin
+    # pour le sens qui compte ici, est aussi « le pêcher » au masculin dans le Lexique.
     def linked(head, theme):
-        if theme in plurals and theme not in genders:
+        if (theme in plurals or theme.endswith("s")) and theme not in genders:
             return head + "des" + theme
-        if theme[0] in "aeiouy":
+        if theme[0] in "aeiou":
             return head + "del" + theme
-        gender = genders.get(theme)
+        gender = "f" if theme in FEMININE else genders.get(theme)
         return head + ("du" if gender == "m" else "dela") + theme if gender else None
     heads = [x for t in read("themes_fr.txt") for h in MEDIA_HEADS if (x := linked(h, t))]
     families = [articles, les_themes, fr_tech, heads]

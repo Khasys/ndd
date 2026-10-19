@@ -35,7 +35,7 @@ blogbricolage
 jardinagepratique
 homeautomationguide
 guidejardinage
-recettesfacile
+recettesfaciles
 diyblog
 forumrecettes
 patisseriefacile
@@ -74,7 +74,7 @@ conseilsbricolage
 potagerpassion
 homeautomationtips
 guidecuisine
-recettespratique
+recettespratiques
 woodworkingblog
 forumdeco
 investissementfacile

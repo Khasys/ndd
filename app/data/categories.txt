@@ -2541,7 +2541,7 @@ avocatsexpert	job
 avocatsexpress	job
 avocatsfacile	job
 avocatsfrance	job
-avocatsgratuit	job
+avocatsgratuits	job
 avocatsia	job
 avocatsmalin	job
 avocatsociete	job
@@ -4077,7 +4077,6 @@ cagehamsterpascher	animal
 cagelapin	animal
 cagelapinpascher	animal
 calculcalories	food
-calculerseretraite	trend
 calculfraisdenotaires	job
 calculfraisnotaire	job
 calculfraisnotaires	job
@@ -4755,7 +4754,6 @@ centredebienetre	trend
 certifiedaccountant	job
 chaletski	sport
 chambredesnotaires	job
-chambredhote	premium
 chambredhotediscount	keyword
 chambredhoteenligne	keyword
 chambredhotepascher	keyword
@@ -7849,7 +7847,6 @@ creator247	trend
 creatorai	trend
 creatorapp	trend
 creatorcenter	trend
-creatordeeconomy	trend
 creatordepot	trend
 creatordirect	trend
 creatoreconomy	trend
@@ -10402,7 +10399,6 @@ draincontractors	job
 dressagechien	animal
 dressagedechien	animal
 drivewaycontractors	job
-droitdauteurs	job
 droitfinancier	job
 droitnumerique	startup
 droitroutier	job
@@ -11897,7 +11893,6 @@ expertdrone	trend
 expertechecs	sport
 expertelectricien	job
 expertequitation	sport
-experteurcybersecurite	trend
 expertexpertcomptable	job
 expertfitness	sport
 expertfleuriste	job
@@ -13327,13 +13322,13 @@ gazettedelaminceur	food
 gazettedelamusculation	sport
 gazettedelanutrition	food
 gazettedelapatisserie	food
+gazettedelapeche	sport
 gazettedelaplongee	sport
 gazettedelaquarium	animal
 gazettedelarandonnee	sport
 gazettedelarenovation	trend
 gazettedelequitation	sport
 gazettedelisolation	trend
-gazettedelyoga	sport
 gazettedeschats	animal
 gazettedeschevaux	animal
 gazettedeschiens	animal
@@ -13354,6 +13349,7 @@ gazettedusurf	sport
 gazetteduvelo	trend,sport
 gazetteduvin	food
 gazetteduwhisky	food
+gazetteduyoga	sport
 gazpascher	keyword
 generateursolaire	trend
 genouillerepascher	sport
@@ -16051,13 +16047,13 @@ journaldelaminceur	food
 journaldelamusculation	sport
 journaldelanutrition	food
 journaldelapatisserie	food
+journaldelapeche	sport
 journaldelaplongee	sport
 journaldelaquarium	animal
 journaldelarandonnee	sport
 journaldelarenovation	trend
 journaldelequitation	sport
 journaldelisolation	trend
-journaldelyoga	sport
 journaldeschats	animal
 journaldeschevaux	animal
 journaldeschiens	animal
@@ -16078,6 +16074,7 @@ journaldusurf	sport
 journalduvelo	trend,sport
 journalduvin	food
 journalduwhisky	food
+journalduyoga	sport
 jumbomortgagebroker	job
 juridique	premium
 juridiquediscount	keyword
@@ -17169,7 +17166,6 @@ logicielveterinaire	startup,job,animal
 logistics	premium
 logisticsfinder	keyword
 logisticsonline	keyword
-logistique	premium
 logistiquediscount	keyword
 logistiqueenligne	keyword
 logistiquemilitaire	job
@@ -18702,13 +18698,13 @@ mondedelaminceur	food
 mondedelamusculation	sport
 mondedelanutrition	food
 mondedelapatisserie	food
+mondedelapeche	sport
 mondedelaplongee	sport
 mondedelaquarium	animal
 mondedelarandonnee	sport
 mondedelarenovation	trend
 mondedelequitation	sport
 mondedelisolation	trend
-mondedelyoga	sport
 mondedeschats	animal
 mondedeschevaux	animal
 mondedeschiens	animal
@@ -18729,6 +18725,7 @@ mondedusurf	sport
 mondeduvelo	trend,sport
 mondeduvin	food
 mondeduwhisky	food
+mondeduyoga	sport
 mondirecteur	job
 mondocteur	job
 moneclair	food
@@ -18959,7 +18956,6 @@ movingfinder	keyword
 movingonline	keyword
 multicloud	trend,startup
 mursvegetaux	food
-murvegetaux	food
 musculation	premium
 musculation24	sport
 musculationconseil	sport
@@ -22503,13 +22499,13 @@ planetedelaminceur	food
 planetedelamusculation	sport
 planetedelanutrition	food
 planetedelapatisserie	food
+planetedelapeche	sport
 planetedelaplongee	sport
 planetedelaquarium	animal
 planetedelarandonnee	sport
 planetedelarenovation	trend
 planetedelequitation	sport
 planetedelisolation	trend
-planetedelyoga	sport
 planetedeschats	animal
 planetedeschevaux	animal
 planetedeschiens	animal
@@ -22530,6 +22526,7 @@ planetedusurf	sport
 planeteduvelo	trend,sport
 planeteduvin	food
 planeteduwhisky	food
+planeteduyoga	sport
 planfinancier	job
 planfinancierbanque	job
 planfinancierexcel	job
@@ -22757,7 +22754,6 @@ plateformeartisans	job
 plateformecrypto	trend
 plateformecryptofrance	trend
 plateformefreelance	trend,job
-platformeartisans	job
 plomberie	premium
 plomberiedevis	keyword
 plomberiediscount	keyword
@@ -24879,13 +24875,12 @@ recettehealthy	food
 recetterapide	food
 recettesdegrandmere	food
 recettesdujour	food
-recettesfacile	food
 recettesfaciles	food
 recettesinfo	food
 recettesmag	food
 recettesminceur	food
 recettespassion	food
-recettespratique	food
+recettespratiques	food
 recettesrapides	food
 recharge	premium
 rechargediscount	keyword
@@ -30072,13 +30067,13 @@ universdelaminceur	food
 universdelamusculation	sport
 universdelanutrition	food
 universdelapatisserie	food
+universdelapeche	sport
 universdelaplongee	sport
 universdelaquarium	animal
 universdelarandonnee	sport
 universdelarenovation	trend
 universdelequitation	sport
 universdelisolation	trend
-universdelyoga	sport
 universdeschats	animal
 universdeschevaux	animal
 universdeschiens	animal
@@ -30099,6 +30094,7 @@ universdusurf	sport
 universduvelo	trend,sport
 universduvin	food
 universduwhisky	food
+universduyoga	sport
 universite	premium
 universitediscount	keyword
 universiteenligne	keyword
@@ -30310,6 +30306,7 @@ vetementchienpascher	animal
 vetementpublicitaire	job
 vetements	premium
 vetementsbio	trend
+vetementsdesecondemain	trend
 vetementsdiscount	keyword
 vetementsenligne	keyword
 vetementsoutdoor	trend
