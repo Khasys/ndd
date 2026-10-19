@@ -93,6 +93,11 @@ RISK_COST = 3     # points de note retirés par point de risque
 TAKE_MIN = 60     # « À prendre » : meilleure note d'au moins 60, risque de 4 au plus, acheteurs de 4 et plus
 TAKE_BUYERS = 4
 LEAVE_MAX = 40    # « À laisser » : meilleure note de 40 au plus, ou risque de 8 et plus
+# Longueur : au-delà de 12 lettres, un nom se lit et se retient mal (assurancesantesenior), quel que soit son
+# marché. 3 % de note en moins par lettre de plus, 30 % au plus (22 lettres et au-delà).
+LENGTH_FREE = 12
+LENGTH_STEP = 0.03
+LENGTH_FLOOR = 0.7
 
 # Prix utilisateur final selon la note de revente, pour un .fr (repères indicatifs, pas une cote : à
 # recaler sur les ventes réelles du portefeuille). Autres extensions : coefficient. Paliers de 5 points
@@ -114,10 +119,16 @@ def _round5(x: float) -> int:
     return max(0, min(100, int(5 * round(x / 5))))
 
 
+def length_factor(name: str) -> float:
+    """Part de la note gardée selon la longueur du nom, sans l'extension."""
+    label = name.rpartition(".")[0] or name
+    return max(LENGTH_FLOOR, 1 - LENGTH_STEP * max(0, len(label) - LENGTH_FREE))
+
+
 def derive(item: dict) -> dict:
     """Notes sur 100 et verdict, calculés depuis les sous-notes : même règle partout."""
     risk = item["risque"]
-    form = FORM_FLOOR + (1 - FORM_FLOOR) * (item["oral"] + item["radio"]) / 20
+    form = (FORM_FLOOR + (1 - FORM_FLOOR) * (item["oral"] + item["radio"]) / 20) * length_factor(item.get("name") or "")
     exploit = _round5(10 * sum(item[k] * w for k, w in EXPLOIT_WEIGHTS.items()) * form - RISK_COST * risk)
     resale = _round5(10 * sum(item[k] * w for k, w in RESALE_WEIGHTS.items()) * form - RISK_COST * risk)
     best = max(exploit, resale)

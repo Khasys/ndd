@@ -1501,3 +1501,23 @@ def test_ai_queue_free_names_in_full_score_order(env):
     picked = [label for _, label, _ in ai._queue(env, len(expected))[0]]
     assert picked == [x for _, x in expected]
     assert [label for _, label, _ in ai._queue(env, 7)[0]] == picked[:7]
+
+
+def test_long_names_lose_points_and_saved_opinions_are_recomputed(env):
+    """Au-delà de 12 lettres, la note baisse ; les avis gardés sont recalculés une fois depuis leurs sous-notes."""
+    import json
+
+    from app import ai, ai_format
+
+    grid = {"oral": 8, "radio": 8, "memo": 3, "sens": 8, "marque": 3, "marche": 8, "ext": 9, "acheteurs": 5, "risque": 1}
+    assert ai_format.length_factor("monassurance.fr") == 1 and ai_format.length_factor("x" * 30 + ".com") == 0.7
+    short, long = ai_format.derive({"name": "assurances.com", **grid}), ai_format.derive({"name": "assurancesantesenior.com", **grid})
+    assert long["resale"] < short["resale"] and long["resale"] <= 45
+    env.conn.execute(
+        "INSERT INTO domain_ai (name, exploit, resale, quick_low, quick_high, final_low, final_high, comment, rated_at, version, grid) "
+        "VALUES ('assurancesantesenior.com', 50, 55, 600, 1500, 1500, 7500, 'À surveiller. Mutuelle senior. Acheteur type : courtier.', 'x', 5, ?)",
+        (json.dumps(grid),))
+    assert ai.rederive(env.conn, env.fr.store) == 1 and ai.rederive(env.conn, env.fr.store) == 0
+    row = env.conn.execute("SELECT * FROM domain_ai").fetchone()
+    assert row["resale"] == long["resale"] and row["comment"] == f"{long['verdict']}. Mutuelle senior. Acheteur type : courtier."
+    assert row["final_high"] < 7500

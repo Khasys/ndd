@@ -34,7 +34,11 @@ UNCHECKED = 10            # extension par Gandi seul, pas encore demandé : rien
 FIRST_LISTS = (("premium", "keyword", "brand"), ("local",))
 
 from .ai_format import (COMMENT_MAX, CRITERIA_V5, FIELDS, FIELDS_V5, FORMAT_V5, PRICE_STEPS, check,  # noqa: F401  (réexportés)
-                        check_any, derive, is_v5)
+                        VERDICTS, check_any, default_prices, derive, is_v5)
+
+# Règle de calcul des notes (ai_format.derive) : la monter recalcule les avis gardés depuis leurs sous-notes, sans
+# renoter. 2 : pénalité de longueur au-delà de 12 lettres.
+DERIVE_VERSION = "2"
 
 FORMAT = FORMAT_V5
 
@@ -79,6 +83,8 @@ Crédibilité avant tout :
 - Le statut du nom (libre, libération à venir, jamais enregistré, supprimé, enregistré) ne change pas sa valeur : juge le nom comme s'il était libre.
 - Un nom qui porte « gandi » a été vérifié chez un registrar (kind, price : prix d'achat en euros). Un premium coûte cher à l'achat : la revente doit couvrir ce prix, sinon descends marche et acheteurs. Un nom indisponible (unavailable, reserved, restricted) ne vaut rien à l'achat.
 - N'invente rien : un nom sans sens connu a sens 0, même s'il sonne bien.
+- Orthographe et grammaire : relis le nom mot à mot. Une lettre qui manque ou un accord faux (comptabilitenligne pour comptabiliteenligne, droitdufamille pour droitdelafamille) : radio 2 au plus, sens 3 au plus, marque 1, et la raison commence par « Faute : » suivi de la bonne forme.
+- Longueur : l'appli retire elle-même des points au-delà de 12 lettres. Juge le reste sans t'en soucier.
 
 Format : une liste JSON d'objets avec exactement ces clés : name, oral, radio, memo, sens, marque, marche, ext, acheteurs, risque, quick_low, quick_high, final_low, final_high, comment ; name est le nom complet reçu, tel quel ; un objet par nom, dans l'ordre reçu, sans texte autour.
 
@@ -102,7 +108,7 @@ Exemples de référence :
 {"name": "boulangerie.com", "oral": 9, "radio": 9, "memo": 7, "sens": 10, "marque": 6, "marche": 6, "ext": 10, "acheteurs": 7, "risque": 0, "quick_low": 1000, "quick_high": 3000, "final_low": 5000, "final_high": 15000, "comment": "Commerce que tout le monde fréquente, le .com porte une chaîne ou un site de commande national. Acheteur type : réseau de boulangeries franchisées ou appli de retrait en boutique."}
   (calculé : exploitation 75, revente 70, À prendre)
 {"name": "comparateurenergie.com", "oral": 8, "radio": 8, "memo": 5, "sens": 8, "marque": 3, "marche": 8, "ext": 10, "acheteurs": 6, "risque": 0, "quick_low": 500, "quick_high": 1500, "final_low": 2000, "final_high": 8000, "comment": "Requête tapée à chaque hausse des tarifs, et chaque client signé rapporte une commission. Acheteur type : courtier en énergie pour particuliers."}
-  (calculé : exploitation 55, revente 60, À prendre)
+  (calculé : exploitation 45, revente 50, À surveiller)
 {"name": "stack.io", "oral": 9, "radio": 9, "memo": 9, "sens": 8, "marque": 7, "marche": 6, "ext": 9, "acheteurs": 6, "risque": 3, "quick_low": 500, "quick_high": 1500, "final_low": 3000, "final_high": 10000, "comment": "Évoque la pile logicielle (tech stack), vocabulaire quotidien des développeurs. Acheteur type : start-up d'outils pour développeurs."}
   (calculé : exploitation 65, revente 60, À prendre)
 {"name": "ciel.org", "oral": 9, "radio": 8, "memo": 8, "sens": 8, "marque": 4, "marche": 2, "ext": 3, "acheteurs": 3, "risque": 0, "quick_low": 100, "quick_high": 300, "final_low": 800, "final_high": 3000, "comment": "Parle aux causes climat et astronomie, mais le .org ferme la porte aux acheteurs commerciaux. Acheteur type : association d'astronomie ou de qualité de l'air."}
@@ -432,6 +438,31 @@ def _describe(explorer, picked, data) -> list[dict]:
             item["gandi"] = found
         out.append(item)
     return out
+
+
+def rederive(conn, store) -> int:
+    """Notes, verdict et prix des avis gardés recalculés depuis leurs sous-notes après un changement de règle
+    (DERIVE_VERSION) ; une fois. Les prix d'un avis dont la note de revente change reprennent le palier."""
+    if store.get("ai_derive") == DERIVE_VERSION:
+        return 0
+    changed = 0
+    rows = conn.execute("SELECT name, grid, comment, exploit, resale FROM domain_ai WHERE grid IS NOT NULL").fetchall()
+    for r in rows:
+        item = {"name": r["name"], **json.loads(r["grid"])}
+        notes = derive(item)
+        reason = r["comment"].split(". ", 1)[1] if r["comment"].startswith(VERDICTS) and ". " in r["comment"] else r["comment"]
+        comment = f"{notes['verdict']}. {reason}"
+        if (notes["exploit"], notes["resale"], comment) == (r["exploit"], r["resale"], r["comment"]):
+            continue
+        prices = default_prices(item) if notes["resale"] != r["resale"] else None
+        conn.execute("UPDATE domain_ai SET exploit = ?, resale = ?, comment = ? WHERE name = ?",
+                     (notes["exploit"], notes["resale"], comment, r["name"]))
+        if prices:
+            conn.execute("UPDATE domain_ai SET quick_low = ?, quick_high = ?, final_low = ?, final_high = ? WHERE name = ?",
+                         (prices["quick_low"], prices["quick_high"], prices["final_low"], prices["final_high"], r["name"]))
+        changed += 1
+    store.set("ai_derive", DERIVE_VERSION)
+    return changed
 
 
 def save(conn, results: list, known, status_of=None) -> dict:

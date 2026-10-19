@@ -458,6 +458,10 @@ async def lifespan(app: FastAPI):
             await _off(fr_dns.position, "")
 
     app.state.explorer_warm = asyncio.create_task(warm_explorer())
+    # Règle de calcul des notes IA changée : avis gardés recalculés depuis leurs sous-notes (une fois).
+    rederived = ai.rederive(conn, store)
+    if rederived:
+        log.info("Avis IA recalculés : %s", rederived)
     app.state.store = store
     app.state.telegram = telegram
     app.state.settings = settings
