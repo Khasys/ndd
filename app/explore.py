@@ -1610,11 +1610,10 @@ class Explorer:
     def recheck(self, name: str, now: datetime) -> None:
         """Indisponible chez Gandi pour un nom qu'on croit libre : sans doute enregistré depuis la dernière lecture
         (zone, open data, vérification). Le registre tranche tout de suite : pris, ou réservé s'il le dit libre.
-        Gandi.on_blocked. Ni un réservé de liste, ni un domaine suivi (vérifié par l'écran Domaines)."""
+        Gandi.on_blocked. Pas un réservé de liste ; un domaine suivi est aussi revu côté Domaines."""
         if self.reserved is not None and name in self.reserved.names():
             return
-        if self.conn.execute("SELECT 1 FROM domains WHERE name = ?", (name,)).fetchone():
-            return
+        self.conn.execute("UPDATE domains SET next_check_at = ? WHERE name = ?", (iso(now), name))
         row = self.drops.row(name)
         if row is None:
             row = self.drops.ensure(name, now)  # sans sortie constatée, comme Vérifier depuis l'Explorer
