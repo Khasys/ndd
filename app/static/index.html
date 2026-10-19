@@ -209,12 +209,12 @@
       <dt>Extensions</dt><dd>Puces à cocher, plusieurs à la fois, ou « Toutes ». Depuis « Toutes », une puce choisit cette extension seule ; les suivantes s'ajoutent ou se retirent. Choix mémorisé ; dans l'Explorer, il suit les vues enregistrées et l'export CSV.</dd>
       <dt>Sur une carte</dt><dd>L'état en toutes lettres (probablement libre, libre vérifié, libération estimée, pris, réservé, premium probable, premium), le prix d'achat en pastille (« 13 € » discret, « Premium 878 € » ambre), le verdict IA en pastille (À prendre vert, À surveiller ambre, À laisser gris) et le prix utilisateur final, puis Réserver, Vérifier (nom probablement libre) et Surveiller.</dd>
       <dt>Tris</dt><dd>Les meilleurs d'abord, les plus récents (Veille), libération la plus proche (Bientôt libres seulement), les plus courts et score seul (Explorer), les plus fréquents : prénoms et noms de famille du plus donné au moins donné (Insee), mots du plus courant au moins courant ; la carte dit le rang, « 12e prénom le plus donné ». Un tri ne retire aucun filtre. Domaines sur téléphone : menu de tri au-dessus de la liste, flèche pour inverser.</dd>
-      <dt>Nom hors des listes</dt><dd>Un nom tapé dans l'Explorer qui n'est dans aucune liste s'affiche quand même, une ligne par extension suivie : Vérifier interroge le registre, puis Réserver ou Surveiller.</dd>
+      <dt>Nom hors des listes</dt><dd>Un nom tapé dans l'Explorer qui n'est dans aucune liste s'affiche quand même, une ligne par extension suivie : Vérifier interroge le registre, puis Réserver ou Surveiller. « Ajouter aux noms suivis » (carte de recherche ou fiche) le range dans Mes ajouts : voir Listes de noms.</dd>
       <dt>Ignorer</dt><dd>Dans la Veille, un nom ou une sélection : il quitte l'écran (il reste dans l'Explorer) et la décision est gardée. Le message propose « Annuler » ; Paramètres, « Tout réafficher », les remet tous. Portefeuille, « Décisions » : chaque nom ignoré ou acheté, son état du jour, « repris » si quelqu'un d'autre l'a enregistré depuis (regrets).</dd>
       <dt>Actions groupées</dt><dd>Domaines, Veille et Explorer : cases, puis Vérifier, Analyse IA, Surveiller… Un seul bilan à la fin : « 3 vérifiés, 1 échec ».</dd>
       <dt>Erreurs réseau</dt><dd>« Réseau injoignable » (NAS, proxy ou annuaire IANA hors d'atteinte) et « Pas de réponse du registre » (délai dépassé) résument l'erreur ; le détail (serveur, type d'erreur) suit en ligne « Détail : … » et au survol ; « Réessayer » rejoue l'action. RDAP d'une extension injoignable : l'appli se replie sur son WHOIS et le dit. Dans la Veille, la ligne des sources distingue une erreur temporaire d'une source à configurer.</dd>
     </dl>
-    <p class="small muted">Fiche d'un nom : en tête l'état et la date qui compte, puis la carte décision, qui porte tout l'avis IA : notes de revente et d'exploitation (celle de l'usage choisi en premier), verdict, prix de revente rapide et utilisateur final, pourquoi, commentaire, et « Détail IA » pour la grille des sous-notes ; sans avis, le score et la date de notation prévue. Dessous, une rangée de pictos : Réserver, Suivre (un appui sur « Suivi » arrête le suivi, après confirmation), Analyser (fait noter le nom dans l'heure), Vérifier, et « Plus » (Analyse SEO, Réservé par registre pour un nom refusé par le registre, Voir dans Portefeuille). Le détail suit en sections repliables, avec un résumé à droite de chaque titre.</p>
+    <p class="small muted">Fiche d'un nom : en tête l'état et la date qui compte, puis la carte décision, qui porte tout l'avis IA : notes de revente et d'exploitation (celle de l'usage choisi en premier), verdict, prix de revente rapide et utilisateur final, pourquoi, commentaire, et « Détail IA » pour la grille des sous-notes ; sans avis, le score et la date de notation prévue. Dessous, une rangée de pictos : Réserver, Suivre (un appui sur « Suivi » arrête le suivi, après confirmation), Analyser (fait noter le nom dans l'heure), Vérifier, et « Plus » (Analyse SEO, Réservé par registre pour un nom refusé par le registre, Voir dans Portefeuille, Retirer de mes ajouts). Le détail suit en sections repliables, avec un résumé à droite de chaque titre.</p>
 
     <h3 id="help-gandi">Prix d'achat et premiums</h3>
     <p>Source d'information seulement : rien n'est acheté. Avec un jeton Gandi (Paramètres, réglages avancés), l'appli demande à ce registrar si un nom non pris est premium, libre au prix standard, ou indisponible, et à quel prix (création pour un an, TTC). Prix indicatif : l'achat se fait où l'on veut, mais le prix d'un premium vaut partout en ordre de grandeur.</p>
@@ -265,6 +265,10 @@
       <dt>Sport</dt><dd>Sports, disciplines, équipements : football, padel, yoga, raquette, marathon…</dd>
       <dt>Animaux</dt><dd>chien, chaton, cheval, renard, croquettes…</dd>
       <dt>Cuisine</dt><dd>Plats, ingrédients, boissons : recette, raclette, fraise, cafe…</dd>
+      <dt>Termes premium, mots-clés à forte valeur, métier + ville</dt><dd>Listes fournies, de la plus à la moins précieuse : leur rang compte dans le score. Langue déduite des mots qui composent le nom (plombierparis : français), sinon aucune.</dd>
+      <dt>Marques inventées</dt><dd>Mots inventés (zovano, kelora…) : la sonorité et le rang comptent, pas le sens ; pas de langue.</dd>
+      <dt>Mes ajouts</dt><dd>Les noms ajoutés depuis l'Explorer (« Ajouter aux noms suivis »), sans redémarrage : un score, puis les zones à leur prochaine lecture, le fichier .fr au prochain import, le DNS de .co, .ai et .io à la passe suivante, Gandi et la file IA comme les autres. D'ici là, le nom demandé est vérifié au registre à l'ajout, et « Vérifier » vaut pour les autres extensions. Retirer : menu « Plus » de la fiche.</dd>
+      <dt>Liste ajoutée</dt><dd>Ses noms ne sont cherchés qu'à la lecture suivante de chaque source : d'ici là, ils n'apparaissent pas pour cette extension plutôt que d'y passer pour libres.</dd>
     </dl>
 
     <h3 id="help-words">Vocabulaire</h3>
@@ -766,6 +770,9 @@
             <div class="ex-card-head">
               <span class="mono ex-card-name" x-text="exCard.label"></span>
               <span class="small muted" x-text="exCard.known ? exCard.categories.map((c) => kindLabel(exData.kinds, c)).join(', ') : 'hors des listes suivies : à vérifier'"></span>
+              <!-- Hors des listes : le libellé entre dans Mes ajouts (univers rechargé, nom demandé vérifié). -->
+              <button type="button" class="btn-ghost sm ex-card-add" x-show="!exCard.known && mineAddable(exCard.label)" :disabled="mineBusy"
+                      @click="mineAdd(mineSearchName())" x-text="mineBusy ? 'Ajout…' : 'Ajouter aux noms suivis'"></button>
             </div>
             <ol class="ex-list">
               <template x-for="i in (exCard.known ? exCard.items : exProbe)" :key="i.name">
@@ -1663,8 +1670,14 @@
           <button type="button" role="menuitem" x-show="fiche.item && ![1, 6].includes(fiche.item.status)" @click="ficheMenu = false; ficheFlag()"
                   x-text="fiche.item && fiche.item.status === 7 ? 'Pas réservé par registre' : 'Réservé par registre'"></button>
           <button type="button" role="menuitem" x-show="fiche.in_portfolio" @click="ficheMenu = false; fiche = null; openSheet('portfolio')">Voir dans Portefeuille</button>
+          <button type="button" role="menuitem" x-show="fiche.mine" :disabled="mineBusy" @click="ficheMenu = false; mineRemove()">Retirer de mes ajouts</button>
         </div>
       </div>
+      <!-- Nom hors des listes suivies : l'ajouter à Mes ajouts le fait entrer dans les zones, le DNS, Gandi et la file IA. -->
+      <p class="fiche-mine" x-show="!fiche.known && mineAddable(fiche.label)">
+        <span class="small muted">Hors des listes suivies : ni zones, ni DNS, ni notation IA de nuit.</span>
+        <button type="button" class="btn-ghost sm" :disabled="mineBusy" @click="mineAdd(fiche.name)" x-text="mineBusy ? 'Ajout…' : 'Ajouter aux noms suivis'"></button>
+      </p>
       <!-- Ligne de temps : les dates du nom, passées puis à venir ; au-delà de 6, les 3 dernières passées et tout l'avenir. -->
       <section class="fiche-timeline" x-show="(fiche.timeline || []).length" aria-labelledby="fiche-tl-title">
         <div class="ftl-head">

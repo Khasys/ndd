@@ -3,6 +3,11 @@ noms de média et listes thématiques (métiers, sport, animaux, cuisine) dans a
 
 Usage : python scripts/build_lists.py WORDFREQ_DIR LEXIQUE_TXT
         python scripts/build_lists.py --themes   (listes thématiques et langues.txt seulement, sans Lexique)
+        python scripts/build_lists.py --provided (langue des listes fournies dans langues.txt, sans Lexique)
+
+Listes fournies (termes premium, mots-clés à forte valeur, métier + ville, marques inventées : premium.txt,
+motscles.txt, local.txt, marques_inventees.txt) : rédigées ailleurs, jamais écrites ici. Le script en vérifie
+le format et en relève la langue (langues.txt) ; une marque inventée n'en a pas.
 
 WORDFREQ_DIR : dossier du paquet wordfreq 3.1.1 décompressé (contient data/large_en.msgpack.gz).
 LEXIQUE_TXT : Lexique383.txt (paquet pylexique 1.5.1), encodé en Latin-1. Il faut aussi le module msgpack.
@@ -310,6 +315,16 @@ def main() -> None:
             LANG["en"].add(t)
     mixed = set(sectors) | set(trends) | set(combined) | set(niches) | set(expressions) | set(media)
     mixed |= themes(set(english_words))
+    # Listes fournies : jamais réécrites, leur langue relevée comme celle des autres.
+    known = {"fr": existing | LANG["fr"], "en": set(english_words) | LANG["en"]}
+    vocab = vocabularies()
+    for file, with_lang in PROVIDED.items():
+        entries = check_provided(file)
+        if with_lang:
+            for name, langs in provided_langs(entries, known, vocab).items():
+                for lang in langs:
+                    LANG[lang].add(name)
+                mixed.add(name)
     lines = []
     for name in sorted(mixed):
         langs = [k for k in ("fr", "en") if name in LANG[k]]
@@ -334,8 +349,102 @@ def themes_only() -> None:
     write("langues.txt", [f"{name}\t{langs}" for name, langs in sorted(lines.items())])
 
 
+# Listes fournies : fichier de app/data -> langue à relever (une marque inventée n'en a pas).
+PROVIDED = {"premium.txt": True, "motscles.txt": True, "local.txt": True, "marques_inventees.txt": False}
+PIECE = 3  # une partie de nom composé fait 3 lettres au moins (« de », « my » collent à tout)
+
+
+def vocabularies() -> dict[str, set[str]]:
+    """Mots connus par langue, pour découper un nom composé : Lexique (mots, formes), mots anglais, villes,
+    métiers et services des listes à la main."""
+    def words(name: str) -> set[str]:
+        return set((DATA / name).read_text(encoding="utf-8").split())
+
+    fr = words("mots.txt") | words("formes.txt") | set(read("villes_fr.txt")) | set(read("metiers_fr.txt"))
+    en = words("anglais.txt") | set(read("cities_us.txt")) | set(read("trades_en.txt"))
+    return {"fr": {w.replace("-", "") for w in fr if len(w) >= PIECE}, "en": {w for w in en if len(w) >= PIECE}}
+
+
+def pieces(name: str, vocabulary: set[str], parts: int = 3) -> int | None:
+    """Nombre de mots du vocabulaire (1 à parts) qui composent le nom (plombierparis : 2), None s'il ne se
+    découpe pas."""
+    if name in vocabulary:
+        return 1
+    if parts <= 1:
+        return None
+    found = [n for cut in range(PIECE, len(name) - PIECE + 1)
+             if name[:cut] in vocabulary and (n := pieces(name[cut:], vocabulary, parts - 1)) is not None]
+    return 1 + min(found) if found else None
+
+
+def provided_langs(names: list[str], known: dict[str, set[str]], vocab: dict[str, set[str]]) -> dict[str, list[str]]:
+    """Langue des noms d'une liste fournie qui n'en ont pas encore (Lexique, anglais, langues.txt) : celle des
+    mots qui les composent, la plus économe en mots l'emportant (carinsurance : car + insurance, pas
+    car + insu + rance) ; ne se découpe pas : sans langue (absent du résultat)."""
+    found = {}
+    for name in names:
+        if any(name in known[k] for k in ("fr", "en")):
+            continue  # langue déjà connue de l'appli
+        counts = {k: pieces(name.replace("-", ""), vocab[k]) for k in ("fr", "en")}
+        best = min((n for n in counts.values() if n is not None), default=None)
+        if best is not None:
+            found[name] = [k for k, n in counts.items() if n == best]
+    return found
+
+
+def check_provided(name: str) -> list[str]:
+    """Entrées d'une liste fournie, dans son ordre ; signale ce qui ne passe pas (format, doublons)."""
+    path = DATA / name
+    if not path.exists():
+        print(f"{name}: absent")
+        return []
+    entries, bad, seen = [], [], set()
+    for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        entry = line.strip()
+        if not entry:
+            continue
+        if not valid(entry) and not (len(entry) == 1 and entry.isascii() and entry.isalnum()) or entry != entry.lower():
+            bad.append(f"ligne {n} : {entry!r}")
+        elif entry in seen:
+            bad.append(f"ligne {n} : {entry!r} en double")
+        else:
+            seen.add(entry)
+            entries.append(entry)
+    print(f"{name}: {len(entries)}" + (f", {len(bad)} entrée(s) ignorée(s) par l'appli : " + "; ".join(bad[:10]) if bad else ""))
+    return entries
+
+
+def provided_only() -> None:
+    """Sans wordlists ni Lexique : vérifie les listes fournies (sans les réécrire) et complète langues.txt."""
+    lines = {}
+    for line in (DATA / "langues.txt").read_text(encoding="utf-8").splitlines():
+        name, _, langs = line.partition("\t")
+        if name:
+            lines[name] = set(langs.split(","))
+    known = {"fr": set((DATA / "mots.txt").read_text(encoding="utf-8").split())
+             | set((DATA / "formes.txt").read_text(encoding="utf-8").split()),
+             "en": set((DATA / "anglais.txt").read_text(encoding="utf-8").split())}
+    for name, langs in lines.items():
+        for lang in langs:
+            known.setdefault(lang, set()).add(name)
+    vocab = vocabularies()
+    without = 0
+    for file, with_lang in PROVIDED.items():
+        entries = check_provided(file)
+        if not with_lang:
+            continue
+        found = provided_langs(entries, known, vocab)
+        without += sum(1 for e in entries if e not in found and not any(e in known[k] for k in ("fr", "en")))
+        for name, langs in found.items():
+            lines.setdefault(name, set()).update(langs)
+    print(f"sans langue (listes fournies, hors marques inventées) : {without}")
+    write("langues.txt", [f"{name}\t{','.join(k for k in ('fr', 'en') if k in langs)}" for name, langs in sorted(lines.items())])
+
+
 if __name__ == "__main__":
     if sys.argv[1:] == ["--themes"]:
         themes_only()
+    elif sys.argv[1:] == ["--provided"]:
+        provided_only()
     else:
         main()

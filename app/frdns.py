@@ -114,13 +114,15 @@ class FrDns:
         """Les .fr probablement libres à revoir, du meilleur score de base au moins bon.
         Fort score : revu chaque nuit ; les autres : chaque semaine. Un nom vu délégué par le DNS
         reste dans la file : s'il disparaît du DNS, il redevient « probablement libre »."""
-        from .explore import ABSENT, GONE, REGISTERED  # import local : explore n'importe pas ce module
+        from .explore import ABSENT, GONE, INVALID, REGISTERED  # import local : explore n'importe pas ce module
 
         now = now or utcnow()
         u = self.explorer.universe
         buckets = u.buckets()
         base = self.explorer.base_bytes("fr")
         data = self.explorer.status_bytes("fr")
+        # Noms ajoutés aux listes depuis le dernier fichier .fr : pas encore cherchés dedans, interrogés quand même.
+        unread = self.explorer.unread("fr")
         seen = {r["label"]: r["checked_at"] for r in self.conn.execute("SELECT label, checked_at FROM name_dns")}
         top_after = iso(now - timedelta(days=FRESH_DAYS_TOP) + timedelta(hours=2))
         other_after = iso(now - timedelta(days=FRESH_DAYS_OTHER) + timedelta(hours=2))
@@ -128,7 +130,9 @@ class FrDns:
         for score in range(len(buckets) - 1, -1, -1):
             fresh_after = top_after if score >= TOP_BASE else other_after
             for i in buckets[score]:
-                if not u.good[i] or base[i] not in (GONE, ABSENT) or data[i] not in (GONE, ABSENT, REGISTERED):
+                if not u.good[i] or (base[i] not in (GONE, ABSENT) and i not in unread):
+                    continue
+                if data[i] not in (GONE, ABSENT, REGISTERED) and not (i in unread and data[i] == INVALID):
                     continue
                 label = u.label(i)
                 if base[i] == ABSENT and len(label) <= 2:

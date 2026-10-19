@@ -131,10 +131,12 @@ et même licence CC BY-SA 4.0 que mots.txt.
 ## langues.txt
 
 Langue (fr, en ou les deux) de chaque nom des listes mêlées : secteurs, tendances, combinaisons,
-sites de niche, expressions, métiers, sport, animaux, cuisine. Relevée à la construction.
+sites de niche, expressions, métiers, sport, animaux, cuisine, et listes fournies (termes premium,
+mots-clés, métier + ville) quand elle se déduit des mots qui composent le nom. Relevée à la construction.
 
 Pour reconstruire les fichiers : `python scripts/build_lists.py DOSSIER_WORDFREQ LEXIQUE383_TXT` ;
-`python scripts/build_lists.py --themes` pour les seules listes thématiques et langues.txt.
+`python scripts/build_lists.py --themes` pour les seules listes thématiques et langues.txt ;
+`python scripts/build_lists.py --provided` pour la langue des listes fournies (elles ne sont jamais réécrites).
 
 ## startup.txt
 
@@ -161,3 +163,32 @@ main, 2026-10. Sert au score (mesure « sigle connu »), pas à la surveillance.
 
 Marques connues, liste non exhaustive à la main : retirées de anglais.txt à la construction, et
 mesure « marque » du score (un nom identique ne se revend pas sans risque).
+
+## premium.txt
+
+Termes premium : mots et expressions génériques à forte valeur de revente, du plus au moins précieux, une
+entrée par ligne, en lettres minuscules et chiffres. Liste rédigée par IA, relue, 2026-10. Fichier fourni :
+scripts/build_lists.py ne l'écrit pas. Le fichier livré avec l'appli n'est qu'un échantillon d'une dizaine
+d'entrées, à remplacer par la liste complète.
+
+## motscles.txt
+
+Mots-clés à forte valeur (assurance, crédit, santé, énergie, droit…), réunion de plusieurs listes françaises
+et anglaises, du plus au moins précieux, une entrée par ligne, mots collés. Liste rédigée par IA, relue,
+2026-10. Fichier fourni, échantillon d'une dizaine d'entrées en attendant la liste complète.
+
+## local.txt
+
+Métier + ville, collés (plombierparis, serrurierlyon), du plus au moins précieux. Liste rédigée par IA, relue,
+2026-10. Fichier fourni, échantillon d'une dizaine d'entrées en attendant la liste complète.
+
+## marques_inventees.txt
+
+Marques inventées : mots sans sens, choisis pour leur sonorité (zovano, kelora), du plus au moins réussi. Pas
+de langue. Liste rédigée par IA, relue, 2026-10. Fichier fourni, échantillon d'une dizaine d'entrées en
+attendant la liste complète.
+
+## Mes ajouts (hors de ce dossier)
+
+Pas de fichier ici : les noms ajoutés depuis l'Explorer (« Ajouter aux noms suivis ») sont rangés dans le
+dossier de données du NAS, `mes_ajouts.txt`, dans l'ordre d'ajout. Rien n'est livré avec l'image.

@@ -59,10 +59,11 @@ AUTORENEW_RECHECK_DAYS = 45
 
 
 def lists_version() -> str:
-    """Empreinte des listes de noms suivis : si elles changent, le fichier est relu."""
+    """Empreinte des listes de noms suivis de l'image : si elles changent, le fichier est relu. Mes ajouts n'y
+    entrent pas : chaque ajout ferait retélécharger le fichier (120 Mo) ; ils sont cherchés à l'import suivant."""
     import hashlib
 
-    names = sorted(w.decode() for w in wordlists.watched())
+    names = sorted(set().union(*wordlists.static_lists().values()))
     return hashlib.sha256("\n".join(names).encode()).hexdigest()[:16]
 
 
@@ -137,7 +138,7 @@ def following_check(info, now: datetime) -> datetime:
 
 
 def watched_label(label: str) -> bool:
-    return drops.valid_label(label) or bool(wordlists.categories(label))
+    return drops.valid_label(label) or label in wordlists.listed()
 
 
 def read_rows(text_lines, watched=watched_label) -> tuple[dict[str, tuple[date | None, date | None]], dict]:
@@ -389,9 +390,11 @@ class FrWatcher:
                 except httpx.HTTPError as exc:
                     raise FrDataError(f"Téléchargement Afnic interrompu ({exc.__class__.__name__}).") from None
                 tmp.replace(target)
-            kept, stats = await asyncio.to_thread(read_zip, target)
+            searched = wordlists.listed()  # noms cherchés par cet import : Mes ajouts peuvent changer pendant
+            kept, stats = await asyncio.to_thread(read_zip, target, lambda label: drops.valid_label(label) or label in searched)
             # Des centaines de milliers d'écritures : hors de la boucle, l'appli reste réactive.
             await asyncio.to_thread(self._apply, kept, utcnow())
+            self._save_searched(searched)
             self.store.set("fr_status", json.dumps({
                 "at": iso(utcnow()), "file_date": modified, "rows": stats["rows"], "kept": stats["kept"],
                 "columns": stats["columns"], "dated": stats["dated"], "reader": READER_VERSION, "lists": lists_version(), "error": None,
@@ -407,6 +410,19 @@ class FrWatcher:
                 leftover.unlink(missing_ok=True)
             self.running = False
         return self.status()
+
+    def _save_searched(self, names) -> None:
+        """Noms des listes cherchés par l'import : un nom ajouté depuis attend le suivant (Explorer : masqué)."""
+        self.dir.mkdir(parents=True, exist_ok=True)
+        path = self.dir / "fr.searched"
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text("\n".join(sorted(names)), encoding="utf-8")
+        tmp.replace(path)
+
+    def searched(self) -> set[str] | None:
+        """Noms des listes cherchés au dernier import ; None pour un import plus ancien que ce relevé."""
+        path = self.dir / "fr.searched"
+        return set(path.read_text(encoding="utf-8").split()) if path.exists() else None
 
     def _apply(self, kept: dict, now: datetime) -> None:
         """Met fr_names à jour et passe les nouvelles suppressions à l'écran Suppressions.

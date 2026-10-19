@@ -26,7 +26,9 @@ TLDS = ("co", "ai", "io")
 PER_TLD = 50_000          # noms suivis par extension : les meilleurs scores de base des listes ci-dessous
 # .co se vend comme le .com : toutes les listes. .ai et .io visent la tech et les startups : noms
 # anglais, tendances, et la liste tech et startups (anglais et français).
-CATEGORIES = {"co": None, "ai": ("english", "trend", "startup"), "io": ("english", "trend", "startup")}
+# Marques inventées : des noms de startup. Mes ajouts : partout, et toujours interrogés (pending).
+CATEGORIES = {"co": None, "ai": ("english", "trend", "startup", "brand", "mine"),
+              "io": ("english", "trend", "startup", "brand", "mine")}
 
 
 def load_names(conn, names: list[str]) -> dict[str, dict]:
@@ -51,19 +53,21 @@ class CcDns(FrDns):
         return True
 
     def pending(self, limit: int, now=None) -> list[str]:
-        """Les meilleurs noms des listes choisies ; jamais interrogés d'abord, puis les plus anciens."""
+        """Les meilleurs noms des listes choisies ; jamais interrogés d'abord, puis les plus anciens. Mes ajouts
+        en font toujours partie, quel que soit leur score : on les a ajoutés pour les suivre."""
         u = self.explorer.universe
         buckets = u.buckets()
         lists = wordlists.lists()
         chosen_lists = CATEGORIES.get(self.tld) or tuple(lists)
         wanted = set().union(*(lists[c] for c in chosen_lists if c in lists))
-        chosen = []
+        chosen = [label for label in wordlists.mine() if len(label) > 2]
+        mine = set(chosen)
         for score in range(len(buckets) - 1, -1, -1):
             for i in buckets[score]:
                 if not u.good[i]:
                     continue
                 label = u.label(i)
-                if len(label) > 2 and label in wanted:  # 1 ou 2 caractères : réservés ou premium
+                if len(label) > 2 and label in wanted and label not in mine:  # 1 ou 2 caractères : réservés ou premium
                     chosen.append(label)
                     if len(chosen) >= PER_TLD:
                         break

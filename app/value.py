@@ -22,7 +22,8 @@ from . import quality as measures  # le nom quality est pris par la fonction plu
 
 def quality(label: str) -> str:
     """word : vrai mot ; pron : prononçable ; letters : suite de lettres ; autre sinon."""
-    if label in pronounce.real_words() or any(label in names for names in wordlists.lists().values()):
+    # Une marque inventée ou un nom de Mes ajouts n'est pas un vrai mot : sa forme se juge à la sonorité.
+    if label in pronounce.real_words() or label in wordlists.meaningful():
         return "word"
     if label.isalpha():
         return "pron" if len(label) <= 2 or pronounce.pronounceable(label) else "letters"
@@ -58,9 +59,11 @@ def shape(label: str) -> tuple[int, str | None]:
 POPULAR = {"word": "mot", "form": "forme", "surname": "nom", "firstname": "prénom", "english": "anglais",
            "sector": "secteur", "trend": "tendance", "combo": "combinaison", "niche": "site de niche",
            "expr": "expression", "media": "nom de média",
-           "startup": "tech et startups", "job": "métier", "sport": "sport", "animal": "animal", "food": "cuisine"}
-# Une forme fléchie vaut moins que le mot de base ; une combinaison bien moins qu'un mot seul.
-POPULAR_FACTOR = {"form": 0.7, "combo": 0.5, "niche": 0.5, "expr": 0.8, "media": 0.6}
+           "startup": "tech et startups", "job": "métier", "sport": "sport", "animal": "animal", "food": "cuisine",
+           "premium": "terme premium", "keyword": "mot-clé", "local": "métier + ville", "brand": "marque inventée"}
+# Une forme fléchie vaut moins que le mot de base ; une combinaison bien moins qu'un mot seul (métier + ville
+# en est une ; une marque inventée n'a pas de sens, seulement un rang parmi les autres).
+POPULAR_FACTOR = {"form": 0.7, "combo": 0.5, "niche": 0.5, "expr": 0.8, "media": 0.6, "local": 0.5, "brand": 0.5}
 
 
 def popularity(label: str) -> tuple[int, str | None]:
@@ -68,7 +71,7 @@ def popularity(label: str) -> tuple[int, str | None]:
     best, reason = 0, None
     for key, ranks in wordlists.ranks().items():
         rank = ranks.get(label)
-        if rank is None:
+        if rank is None or key in wordlists.NO_RANK:
             continue
         points = round(30 * (1 - math.sqrt((rank - 1) / len(ranks))))
         points = round(points * POPULAR_FACTOR.get(key, 1))
@@ -82,7 +85,8 @@ POPULAR_PHRASE = {"word": "mot le plus courant", "form": "forme la plus courante
                   "firstname": "prénom le plus donné", "english": "mot anglais le plus courant", "sector": "secteur porteur",
                   "trend": "tendance", "combo": "combinaison", "niche": "site de niche", "expr": "expression courante",
                   "media": "nom de média", "startup": "mot tech et startups", "job": "métier le plus demandé",
-                  "sport": "mot du sport", "animal": "animal", "food": "mot de cuisine"}
+                  "sport": "mot du sport", "animal": "animal", "food": "mot de cuisine", "premium": "terme premium",
+                  "keyword": "mot-clé à forte valeur", "local": "métier + ville", "brand": "nom de marque inventé"}
 
 
 def _nth(rank: int) -> str:

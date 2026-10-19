@@ -256,7 +256,8 @@ picto « IA » en gras dans un cadre : en pointillés et « En cours » quand un
 vérification ; « Plus » (trois points) ouvre un petit menu sous la rangée, au clavier comme à la souris (flèches,
 Échap, clic dehors) : Analyse SEO, « Réservé par registre » (à cocher quand le registre refuse un nom que
 l'appli croyait libre : il sort des noms à prendre ; « Pas réservé par registre » l'y remet), Voir dans
-Portefeuille (nom du portefeuille). Arrêter le suivi se fait par le picto « Suivi », pas en double dans le menu. L'ajout au portefeuille se fait à la main, dans l'écran Portefeuille.
+Portefeuille (nom du portefeuille), « Retirer de mes ajouts » pour un nom de Mes ajouts. Un nom hors des listes
+suivies a, sous la rangée, une ligne « Hors des listes suivies » et le bouton « Ajouter aux noms suivis ». Arrêter le suivi se fait par le picto « Suivi », pas en double dans le menu. L'ajout au portefeuille se fait à la main, dans l'écran Portefeuille.
 
 En .fr, un mot seulement anglais (should) ou une forme conjuguée (vais) perd une vingtaine de
 points de forme et de sens par rapport au même mot bien placé : ils se lisent mal en .fr. La raison
@@ -271,9 +272,11 @@ entre 1900 et 2018 (environ 10 000). S'y ajoutent les 30 000 mots anglais les pl
 immobilier, droit, santé, travaux…), environ 200 mots en vogue et environ 35 000 combinaisons
 (monassurance, plombier-lyon, insurancehub, dallasplumber…) et environ 4 000 noms de sites de
 niche (forumdomotique, guidepotager, gardeningforum…), environ 1 000 expressions courantes
-françaises et anglaises (bonplan, faitmaison, goodvibes…) et quatre listes thématiques (métiers,
-sport, animaux, cuisine, voir « Listes de noms »). Une liste ajoutée n'est cherchée
-dans une zone qu'à la lecture suivante : d'ici là, ses noms n'apparaissent pas pour cette
+françaises et anglaises (bonplan, faitmaison, goodvibes…), quatre listes thématiques (métiers,
+sport, animaux, cuisine), quatre listes fournies (termes premium, mots-clés à forte valeur, métier + ville,
+marques inventées) et « Mes ajouts », les noms ajoutés depuis l'Explorer (voir « Listes de noms »). Une liste
+ajoutée n'est cherchée dans une zone qu'à la lecture suivante, dans le fichier .fr qu'à l'import suivant,
+dans le DNS de .co, .ai et .io qu'à la passe suivante : d'ici là, ses noms n'apparaissent pas pour cette
 extension plutôt que d'y passer pour libres. Sources et licences des listes :
 `app/data/SOURCES.md`. Un bouton Surveiller ajoute un nom à la liste principale.
 
@@ -296,6 +299,44 @@ le filtre de langue (langue relevée dans `app/data/langues.txt` pour les listes
 | sport | Sport | environ 220 sports, disciplines, équipements et mots du sport (football, padel, raquette, marathon) |
 | animal | Animaux | environ 220 animaux et mots des animaux de compagnie (chien, chaton, renard, croquettes) |
 | food | Cuisine | environ 330 plats, ingrédients, boissons et mots de la table (recette, raclette, fraise, cafe) |
+| premium | Termes premium | `premium.txt`, fourni |
+| keyword | Mots-clés à forte valeur | `motscles.txt`, fourni (réunion de listes françaises et anglaises) |
+| local | Métier + ville | `local.txt`, fourni (plombierparis) |
+| brand | Marques inventées | `marques_inventees.txt`, fourni : mots inventés, la sonorité compte, pas le sens |
+| mine | Mes ajouts | `data/mes_ajouts.txt`, dans le dossier de données : les noms ajoutés depuis l'Explorer |
+
+**Listes fournies** (premium, keyword, local, brand) : rédigées ailleurs, une entrée par ligne, en `[a-z0-9]`, de
+la plus à la moins précieuse, jusqu'à environ 100 000 entrées en tout. `scripts/build_lists.py` ne les écrit
+jamais : `python scripts/build_lists.py --provided` en vérifie le format (une entrée hors format ou en double est
+signalée, et écartée par l'appli) et relève leur langue dans `langues.txt` : celle d'un mot déjà connu, sinon
+celle des mots qui composent le nom (plombierparis : français ; carinsurance : anglais), sinon aucune, comme
+les noms propres. Les marques inventées n'ont pas de langue. Un fichier absent vaut une liste vide. Dans le
+score, leur rang compte comme celui des autres listes, avec le poids appris pour la liste la plus proche
+(termes premium et mots-clés : secteurs porteurs ; métier + ville : combinaisons ; marques inventées : tech et
+startups). Une marque inventée n'est pas un « vrai mot » : sa forme se juge à la sonorité et elle ne gagne
+aucun point de sens, mais son rang lui en donne : pas de classement « faible » d'office (sur l'échantillon,
+de 30 à 41 selon le rang et l'extension, 30 étant le seuil des noms faibles).
+
+Pour brancher les vrais fichiers : les copier dans `app/data` (mêmes noms), puis
+`python scripts/build_lists.py --provided && python -m app.precompute` (scores.bin, environ 70 s pour 250 000
+noms ; sans lui, chaque démarrage recalcule). Au premier démarrage, le fichier .fr est relu (les listes ont
+changé) et chaque zone cherche ces noms à sa lecture suivante.
+
+**Mes ajouts** : dans l'Explorer, un nom cherché absent des listes (« hors des listes suivies ») porte le bouton
+« Ajouter aux noms suivis », sur la carte de recherche comme dans sa fiche. Son libellé, sans l'extension, est
+normalisé (minuscules, sans accents, lettres, chiffres et tirets, 1 à 63 caractères ; sinon refus, 422) et
+rangé dans `data/mes_ajouts.txt`. L'univers de l'Explorer est rechargé sans redémarrage (environ 1 à 2 s) :
+le nom a un score (sans point pour son rang, l'ordre d'ajout ne classe rien), il entre dans les zones à leur
+prochaine lecture, le fichier .fr au prochain import (le DNS du .fr l'interroge dès la nuit suivante), le DNS
+de .co, .ai et .io en tête de la passe suivante, la passe Gandi et la file IA comme les autres noms. D'ici là,
+le nom demandé (avec son extension) est vérifié au registre au moment de l'ajout ; « Vérifier » fait de même
+pour les autres extensions. Retirer : menu « Plus » de la fiche, « Retirer de mes ajouts ».
+
+`POST /api/explore/mine` (`{"name": "monsuperprojet.fr"}`, l'extension est facultative) : `label`, `added`
+(false s'il y était déjà), `count`, `check` (l'élément de Vérifier pour le nom avec extension, sinon null),
+`check_error` (la vérification a échoué, l'ajout est fait), `seconds` (rechargement). `DELETE
+/api/explore/mine/{label}` : `label`, `removed`, `count`, `seconds` ; 404 s'il n'y est pas. Session seulement :
+le jeton en lecture seule n'y a pas accès. `/api/explore/name` et la fiche portent `mine` (dans Mes ajouts).
 
 Les listes thématiques sont en français ; l'équivalent anglais n'y est ajouté que s'il manque à la
 liste anglaise (roofer, petshop, dumbbell), sinon il garde son rang dans celle-ci. Sources :
@@ -396,7 +437,8 @@ L'appli fonctionne alors en trois temps :
 5. .co, .ai et .io : ces extensions de pays ne publient pas leur zone. Chaque jour, en même temps
    que le .fr, l'appli interroge leurs serveurs DNS pour les 50 000 meilleurs noms (plus de 2
    caractères), jamais interrogés d'abord : toutes les listes pour .co (vendu comme le .com) ; Mots
-   anglais, Tendances et Tech et startups pour .ai et .io. Mêmes garde-fous, propres à chaque
+   anglais, Tendances, Tech et startups et Marques inventées pour .ai et .io. Mes ajouts sont toujours
+   interrogés, en tête, quel que soit leur score. Mêmes garde-fous, propres à chaque
    extension. Dès la première passe, chaque extension apparaît dans l'Explorer : délégué, « Enregistré » ;
    absent, « Absent du DNS, à vérifier » ; pas interrogé, hors des listes et des compteurs. Absent du DNS
    ne veut pas dire libre : le nom peut être enregistré sans serveurs DNS, réservé ou premium du registre,
@@ -442,7 +484,10 @@ par verdict IA, et une sélection multiple (case devant chaque nom, « Sélectio
 affichées) avec Vérifier et Analyse IA groupés, bilan en un message (« 3 vérifiés, 1 échec »).
 
 Quand les listes suivies changent (formes fléchies ajoutées, par exemple), le dernier fichier
-.fr est relu automatiquement : sans ça, les nouveaux noms passeraient pour jamais enregistrés.
+.fr est relu automatiquement : sans ça, les nouveaux noms passeraient pour jamais enregistrés. D'ici là, et
+pour Mes ajouts (qui ne font pas retélécharger le fichier : ils attendent l'import suivant), un nom pas encore
+cherché dans le fichier est masqué dans l'Explorer (noms cherchés à chaque import : `data/zones/fr.searched`) ;
+la passe DNS du .fr l'interroge quand même, et un nom délégué passe « Enregistré ».
 
 #### Portefeuille
 
@@ -475,7 +520,8 @@ meilleurs noms de chacune, voir « Le .fr », point 5), données de la Veille pa
 DNS change de version à la fin de chaque passe : l'Explorer se recalcule alors.
 
 - **Top** : les 10, 50, 100, 200, 500 ou 1 000 premiers d'une liste (secteurs, métiers, sport, animaux,
-  cuisine, tendances, sites de niche, mots, anglais, prénoms, noms…), pris ou non, avec l'état sur chaque extension en toutes lettres
+  cuisine, tendances, sites de niche, termes premium, mots-clés, métier + ville, marques inventées, Mes ajouts
+  dans l'ordre d'ajout, mots, anglais, prénoms, noms…), pris ou non, avec l'état sur chaque extension en toutes lettres
   (probablement libre, pris, à venir, libre, réservé, premium probable). Un état ouvre la fiche. Les
   puces d'état de la liste sont masquées tant que le Top est ouvert : il montre tous les états.
   À côté de « Prénoms » (1900-2018), « Prénoms 2024 » (l'année la plus récente du fichier de l'Insee,
@@ -539,7 +585,8 @@ DNS change de version à la fin de chaque passe : l'Explorer se recalcule alors.
   absent de toutes les listes (monsuperprojet) s'affiche quand même, une ligne par extension suivie
   (ou celle tapée, monsuperprojet.fr) : « Vérifier » interroge le registre (`POST /api/explore/check`,
   qui renvoie alors l'état, le registrar et l'échéance sans score ni catégorie), puis Réserver ou
-  Surveiller.
+  Surveiller. « Ajouter aux noms suivis » le range dans Mes ajouts (voir « Listes de noms ») ; le nom vérifié
+  à l'ajout est celui tapé avec son extension, sinon sur la première extension choisie dans l'Explorer.
 - Par défaut, seuls les noms qui ont un sens sont listés et comptés : noms des listes, vrais mots
   courts (toutes les formes de 2 à 4 lettres du Lexique, même rares), noms prononçables, chiffres
   seuls. Les suites imprononçables (qsd, xkcd), les mélanges lettres-chiffres et les tirets

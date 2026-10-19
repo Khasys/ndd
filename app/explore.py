@@ -1,7 +1,8 @@
 """Explorer : tous les noms suivis, extension par extension, avec leur état connu.
 
-L'univers est fixe : les 1 926 220 noms possibles de 1 à 4 caractères, puis les mots, noms de
-famille et prénoms de 5 caractères et plus. Pour chaque extension, un octet d'état par nom
+L'univers : les 1 926 220 noms possibles de 1 à 4 caractères, puis les noms des listes de 5 caractères
+et plus (mots, noms de famille, prénoms, listes fournies, Mes ajouts). Il ne change qu'avec Mes ajouts
+(reload_lists), sans redémarrage. Pour chaque extension, un octet d'état par nom
 (environ 2 Mo) est tiré des données déjà sur le NAS, sans aucune requête :
 
 - zones ICANN : carte de bits des noms courts et liste des mots présents, lues chaque jour ;
@@ -182,10 +183,13 @@ _EXPAND = [bytes((b >> i) & 1 for i in range(8)) for b in range(256)]
 _PRESENT_TO_STATUS = bytes([ABSENT, REGISTERED]) + bytes(254)
 
 
-def _words() -> list[str]:
+def _words(extra=()) -> list[str]:
     """Noms des listes de plus de 4 caractères, triés : ils suivent les noms courts dans l'univers
-    (même liste que le précalcul des scores, dans le même ordre)."""
-    return precompute.words()
+    (liste du précalcul des scores, dans le même ordre, avec les noms de Mes ajouts qui n'y sont pas)."""
+    found = precompute.words()
+    known = set(found)
+    added = sorted({w for w in extra if len(w) > drops.MAX_SHORT and w not in known})
+    return list(heapq.merge(found, added)) if added else found
 
 
 # Filtre sur l'avis IA : verdicts et bornes (basse, haute) de chaque note et de chaque prix.
@@ -299,20 +303,34 @@ def lens_tier(opinion: dict | None) -> int:
 
 
 class Universe:
-    def __init__(self):
-        self.words = _words()
+    def __init__(self, previous: "Universe | None" = None):
+        # Mes ajouts (wordlists.MINE) font partie de l'univers : il est refait quand ils changent (reload_lists).
+        self.mine = wordlists.mine()
+        self.words = _words(self.mine)
         self.word_index = {w: i for i, w in enumerate(self.words)}
         self.size = drops.CELLS + len(self.words)
-        listed = {w for names in wordlists.lists().values() for w in names}
+        lists = wordlists.lists()
+        # Position de chaque nom des listes, calculée une fois : les index ci-dessous la relisent (deux fois plus
+        # rapide que index() à chaque usage, l'univers se refait à chaque changement de Mes ajouts).
+        positions = {w: i for w in wordlists.listed() if (i := self.index(w)) is not None}
+
+        def at(w: str) -> int | None:
+            i = positions.get(w)
+            return i if i is not None else self.index(w)
+
         # Noms des listes, par position : le filtre par catégorie ne parcourt qu'eux.
-        self.listed = sorted(i for i in (self.index(w) for w in listed) if i is not None)
-        self.by_list = {key: array("i", sorted(self.index(w) for w in names if self.index(w) is not None))
-                        for key, names in wordlists.lists().items()}
-        # Positions des noms en lettres seules et en chiffres seuls, par longueur.
-        self.letters = {n: array("i", (drops.encode("".join(p)) for p in itertools.product(drops.CHARSET[:26], repeat=n)))
-                        for n in range(1, drops.MAX_SHORT + 1)}
-        self.digits = {n: array("i", (drops.encode("".join(p)) for p in itertools.product(drops.CHARSET[26:36], repeat=n)))
-                       for n in range(1, drops.MAX_SHORT + 1)}
+        self.listed = sorted(positions.values())
+        self.by_list = {key: array("i", sorted(positions[w] for w in names if w in positions))
+                        for key, names in lists.items()}
+        # Positions des noms en lettres seules et en chiffres seuls, par longueur (sans rapport avec les listes :
+        # reprises de l'univers précédent).
+        if previous is not None:
+            self.letters, self.digits = previous.letters, previous.digits
+        else:
+            self.letters = {n: array("i", (drops.encode("".join(p)) for p in itertools.product(drops.CHARSET[:26], repeat=n)))
+                            for n in range(1, drops.MAX_SHORT + 1)}
+            self.digits = {n: array("i", (drops.encode("".join(p)) for p in itertools.product(drops.CHARSET[26:36], repeat=n)))
+                           for n in range(1, drops.MAX_SHORT + 1)}
         self.letters4, self.digits4 = self.letters[4], self.digits[4]
         self._buckets: list[array] | None = None
         self.base_table: bytearray | None = None
@@ -321,26 +339,28 @@ class Universe:
         self.good: bytearray | None = None
         # Noms des listes du plus fréquent au moins fréquent, par liste et toutes listes confondues.
         ranks = wordlists.ranks()
-        self.by_frequency = {key: array("i", (self.index(w) for w in sorted(r, key=r.get) if self.index(w) is not None))
+        self.by_frequency = {key: array("i", (positions[w] for w in sorted(r, key=r.get) if w in positions))
                              for key, r in ranks.items()}
         best: dict[int, float] = {}
         for key, r in ranks.items():
+            size = len(r)
             for w, n in r.items():
-                i = self.index(w)
+                i = positions.get(w)
                 if i is not None:
-                    best[i] = min(best.get(i, 1.0), n / len(r))
+                    best[i] = min(best.get(i, 1.0), n / size)
         self.by_frequency[""] = array("i", sorted(best, key=best.get))
         # Unions de listes (plusieurs catégories cochées), faites à la demande.
         self._unions: dict[str, array] = {}
-        # Noms de 5 caractères et plus, du plus court au plus long puis par ordre alphabétique.
-        self.by_length = array("i", sorted(range(drops.CELLS, self.size),
-                                           key=lambda i: (len(self.words[i - drops.CELLS]), self.words[i - drops.CELLS])))
+        # Noms de 5 caractères et plus, du plus court au plus long puis par ordre alphabétique (tri stable : les
+        # mots sont déjà dans l'ordre alphabétique).
+        lengths = [len(w) for w in self.words]
+        self.by_length = array("i", (drops.CELLS + n for n in sorted(range(len(lengths)), key=lengths.__getitem__)))
         self._positions: dict = {}
         natures = wordlists.natures()
-        self.by_nature = {key: array("i", sorted(i for i in (self.index(w) for w, ks in natures.items() if key in ks)
+        self.by_nature = {key: array("i", sorted(i for i in (at(w) for w, ks in natures.items() if key in ks)
                                                 if i is not None))
                           for key in wordlists.NATURES}
-        self.by_lang = {key: array("i", sorted(i for i in (self.index(w) for w in names) if i is not None))
+        self.by_lang = {key: array("i", sorted(i for i in (at(w) for w in names) if i is not None))
                         for key, names in wordlists.languages().items()}
 
     def buckets(self) -> list[array]:
@@ -355,19 +375,27 @@ class Universe:
         with self._lock:
             if self._buckets is not None:
                 return self._buckets
-            buckets = [array("i") for _ in range(71)]
-            good = bytearray(self.size)
-            good[drops.CELLS:] = b"\x01" * (self.size - drops.CELLS)  # noms des listes de 5 caractères et plus
             # Score de base précalculé (construction de l'image) : forme et sens, la meilleure extension.
-            table = precompute.load() or precompute.compute()
+            table = self._table()
             # Classement : noms de 1 à 3 caractères, 4 lettres et 4 chiffres, noms des listes. Les 4
             # caractères mélangés (1,4 million) valent trop peu pour y entrer : leur octet est à 0.
-            for i in range(drops.CELLS):
-                byte = table[i]
-                if byte & precompute.GOOD:
-                    good[i] = 1
-                if byte & 127:
-                    buckets[byte & 127].append(i)
+            # Noms courts : rangés une fois par processus (_short_part), copiés ici ; un nom court de Mes ajouts
+            # dont l'octet diffère y est déplacé.
+            short_buckets, short_good, static = _short_part()
+            buckets = [array("i", b) for b in short_buckets]
+            good = bytearray(short_good)
+            good += b"\x01" * (self.size - drops.CELLS)  # noms des listes de 5 caractères et plus
+            for w in self.mine:
+                i = drops.encode(w) if len(w) <= drops.MAX_SHORT else None
+                if i is None or table[i] == static[i]:
+                    continue
+                if static[i] & 127:
+                    old = buckets[static[i] & 127]
+                    del old[bisect.bisect_left(old, i)]
+                good[i] = 1 if table[i] & precompute.GOOD else 0
+                if table[i] & 127:
+                    found = buckets[table[i] & 127]
+                    found.insert(bisect.bisect_left(found, i), i)
             for i in range(drops.CELLS, self.size):
                 buckets[table[i] & 127].append(i)
             self.base_table = table  # borne du score de forme et de sens, nom par nom
@@ -375,6 +403,30 @@ class Universe:
             self.good_int = int.from_bytes(good, "big")
             self._buckets = buckets
             return buckets
+
+    def _table(self) -> bytearray:
+        """Table du précalcul, avec les noms de Mes ajouts absents des listes de l'image notés ici (une
+        centaine de microsecondes par nom). Les autres noms gardent leur octet : Mes ajouts n'entrent pas
+        dans le score."""
+        static = precompute.table()
+        if not self.mine:
+            return static
+        table = bytearray(self.size)
+        table[:drops.CELLS] = static[:drops.CELLS]
+        known = wordlists.static_lists()
+        image = set().union(*known.values())
+        position = drops.CELLS
+        for n, w in enumerate(self.words):
+            if w in image:
+                table[drops.CELLS + n] = static[position]
+                position += 1
+            else:
+                table[drops.CELLS + n] = precompute.byte(w)
+        for w in self.mine:
+            if len(w) <= drops.MAX_SHORT and w not in image:
+                # Nom court ajouté à la main : il a un sens pour qui l'a ajouté, et son score de base.
+                table[drops.encode(w)] = precompute.byte(w)
+        return table
 
     def good_letters(self, n: int) -> array:
         """Noms de n lettres qui ont un sens ou se prononcent (après buckets())."""
@@ -449,18 +501,40 @@ class Universe:
         return kinds + wordlists.categories(label)
 
 
+_SHORT: tuple[list[array], bytearray, bytes] | None = None
+
+
+def _short_part() -> tuple[list[array], bytearray, bytes]:
+    """Noms courts du précalcul, rangés par score de base, et leurs octets « a un sens » : ne dépendent pas de
+    Mes ajouts, donc faits une fois par processus (1,9 million de noms : 0,4 s à chaque rechargement sinon)."""
+    global _SHORT
+    if _SHORT is None:
+        table = precompute.table()
+        buckets = [array("i") for _ in range(71)]
+        good = bytearray(drops.CELLS)
+        for i in range(drops.CELLS):
+            byte = table[i]
+            if byte & precompute.GOOD:
+                good[i] = 1
+            if byte & 127:
+                buckets[byte & 127].append(i)
+        _SHORT = (buckets, good, bytes(table[:drops.CELLS]))
+    return _SHORT
+
+
 _UNIVERSE: Universe | None = None
 _UNIVERSE_LOCK = threading.Lock()
 
 
 def shared_universe() -> Universe:
-    """L'univers ne dépend que des listes de noms : une seule instance par processus.
+    """L'univers ne dépend que des listes de noms : une seule instance par processus, refaite quand
+    Mes ajouts changent (les noms courts tirés de l'ancienne sont repris).
     Verrou : au démarrage, la préparation en tâche de fond et une première requête l'appellent en
     même temps depuis deux fils ; sans lui, deux univers seraient construits (mémoire doublée)."""
     global _UNIVERSE
     with _UNIVERSE_LOCK:
-        if _UNIVERSE is None:
-            _UNIVERSE = Universe()
+        if _UNIVERSE is None or _UNIVERSE.mine != wordlists.mine():
+            _UNIVERSE = Universe(_UNIVERSE)
         return _UNIVERSE
 
 
@@ -491,17 +565,52 @@ class Explorer:
         self._map_cache: tuple[float, dict, tuple] | None = None
         self._map_dirty = False
         self._map_running = False
+        # Noms des listes pas encore cherchés par la dernière lecture de l'extension (zone ou fichier .fr) :
+        # masqués (INVALID) jusqu'à la suivante. La passe DNS du .fr les interroge quand même.
+        self._unread: dict[str, frozenset[int]] = {}
+        self._lists_version = -1
+        self._swap_lock = threading.Lock()
         # Les vérifications automatiques corrigent l'Explorer au fil de l'eau, nom par nom.
         drops_watcher.on_change = self.touch
         fr_watcher.on_change = self.touch
 
     @property
     def universe(self) -> Universe:
-        if self._universe is None:
+        if self._universe is None or self._lists_version != wordlists.version:
+            self._swap_universe()
+        return self._universe
+
+    def _swap_universe(self) -> None:
+        """Premier accès, ou Mes ajouts changés (wordlists.reload) : univers refait si son contenu a changé,
+        et tout ce qui tient à ses positions oublié (octets d'état, compteurs, scores, carte, réservés)."""
+        with self._swap_lock:
+            version = wordlists.version
+            if self._universe is not None and self._lists_version == version:
+                return
             universe = shared_universe()
             universe.buckets()  # construit aussi universe.good
+            if universe is not self._universe:
+                with self._memo_lock:
+                    self.generation += 1
+                    self._memos.clear()
+                    self._values.clear()
+                    self._map_cache = None
+                    self._cache.clear()
+                    self._unread.clear()
+                    self._recent_cache = None
+                if self.reserved is not None:
+                    self.reserved._indices = {}  # positions des réservés dans l'ancien univers
             self._universe = universe
-        return self._universe
+            self._lists_version = version
+
+    def reload_lists(self) -> float:
+        """Mes ajouts changés : univers et octets d'état refaits tout de suite, pas au prochain écran (les
+        contextes de score suivent à la première fiche ou au premier classement). Renvoie la durée, en secondes."""
+        started = time.monotonic()
+        self.universe  # noqa: B018 refait l'univers si besoin
+        for tld in self.tlds():
+            self.status_bytes(tld)
+        return time.monotonic() - started
 
     def _memo(self, key, compute, ttl: float = MEMO_SECONDS):
         """Résultat gardé en mémoire. Un nom qui change est corrigé en place par touch() ;
@@ -586,7 +695,8 @@ class Explorer:
 
     def _build_dns(self, tld: str) -> bytearray:
         """.co, .ai, .io : délégué dans le DNS, enregistré ; absent, à vérifier ; jamais interrogé, rien
-        (INVALID : hors des listes et des compteurs, comme un nom pas encore lu dans une zone)."""
+        (INVALID : hors des listes et des compteurs, comme un nom pas encore lu dans une zone). Un nom ajouté aux
+        listes n'est pas encore interrogé : il l'est à la passe suivante, Mes ajouts en tête (ccdns.pending)."""
         u = self.universe
         status = bytearray(u.size)
         for name, present in self.conn.execute("SELECT name, present FROM cc_dns WHERE name LIKE ?", (f"%.{tld}",)):
@@ -605,17 +715,31 @@ class Explorer:
         u.apply_valid(status)
         # Liste ajoutée après la dernière lecture : ses noms ne sont pas encore cherchés dans la
         # zone. Masqués jusqu'à la prochaine lecture plutôt qu'affichés « libres » à tort.
-        lists = wordlists.lists()
         searched = self.drops.searched(tld)
         if searched is None:
             # Lecture d'avant ce relevé : on se fie aux empreintes des listes.
+            lists = wordlists.lists()
             covered = self.drops.covered(tld)
             searched = set().union(*(lists[k] for k in covered)) if covered else set()
-        for w in set().union(*lists.values()) - searched:
+        self._mask_unread(tld, status, searched)
+        return status
+
+    def _mask_unread(self, tld: str, status: bytearray, searched: set[str]) -> None:
+        """Noms des listes (5 caractères et plus) absents de la dernière lecture faute d'y avoir été cherchés :
+        INVALID plutôt qu'absents à tort. Relevés dans _unread (passe DNS du .fr, touch)."""
+        u = self.universe
+        unread = []
+        for w in wordlists.listed() - searched:
             i = u.index(w)
             if i is not None and status[i] == ABSENT and i >= drops.CELLS:
                 status[i] = INVALID
-        return status
+                unread.append(i)
+        self._unread[tld] = frozenset(unread)
+
+    def unread(self, tld: str) -> frozenset[int]:
+        """Positions masquées faute d'avoir été cherchées à la dernière lecture de l'extension."""
+        self._base(tld)
+        return self._unread.get(tld, frozenset())
 
     def _build_fr(self) -> bytearray:
         u = self.universe
@@ -625,6 +749,14 @@ class Explorer:
             i = u.index(label)
             if i is not None:
                 status[i] = GONE if removed else REGISTERED
+        # Un nom ajouté aux listes depuis le dernier import n'a pas été cherché dans le fichier : « Jamais
+        # enregistré » serait faux. Masqué jusqu'à l'import suivant ; le DNS du .fr peut le dire pris d'ici là.
+        searched = self.fr.searched()
+        if searched is None:
+            # Import d'avant ce relevé : il couvrait les listes d'alors, pas celles ajoutées depuis.
+            lists = wordlists.lists()
+            searched = set().union(*(names for key, names in lists.items() if key not in wordlists.LATE))
+        self._mask_unread("fr", status, searched)
         return status
 
     def status_bytes(self, tld: str) -> bytearray:
@@ -640,10 +772,11 @@ class Explorer:
         status = bytearray(self._base(tld))
         u = self.universe
         if tld == "fr":
-            # DNS plus frais que l'open data : un nom délégué est pris.
+            # DNS plus frais que l'open data : un nom délégué est pris (aussi un nom pas encore cherché).
+            unread = self._unread.get("fr", frozenset())
             for label in frdns.present(self.conn):
                 i = u.index(label)
-                if i is not None and status[i] in (GONE, ABSENT):
+                if i is not None and (status[i] in (GONE, ABSENT) or i in unread):
                     status[i] = REGISTERED
         delegated = frdns.present_at(self.conn) if tld == "fr" else {}
         for label, state, checked in self.conn.execute(
@@ -1585,14 +1718,14 @@ class Explorer:
         """(octet de base, octet affiché) d'un nom, relus en base pour ce seul nom."""
         if tld == "fr":
             row = self.conn.execute("SELECT removed_on FROM fr_names WHERE label = ?", (label,)).fetchone()
-            base = ABSENT if row is None else GONE if row["removed_on"] else REGISTERED
+            base = (INVALID if i in self.unread("fr") else ABSENT) if row is None else GONE if row["removed_on"] else REGISTERED
         elif tld in ccdns.TLDS:
             row = self.conn.execute("SELECT present FROM cc_dns WHERE name = ?", (f"{label}.{tld}",)).fetchone()
             base = INVALID if row is None else REGISTERED if row["present"] else ABSENT
         else:
             base = self._base(tld)[i]
         code = base
-        if tld == "fr" and code in (GONE, ABSENT):
+        if tld == "fr" and (code in (GONE, ABSENT) or i in self.unread("fr")):
             seen = self.conn.execute("SELECT present FROM name_dns WHERE label = ?", (label,)).fetchone()
             if seen and seen["present"]:
                 code = REGISTERED
@@ -1935,7 +2068,7 @@ class Explorer:
         for other in others:
             other["ai_summary"] = ai_summary(other.get("ai"))
         return {
-            "name": name, "label": label, "tld": tld, "known": card["known"],
+            "name": name, "label": label, "tld": tld, "known": card["known"], "mine": card["mine"],
             "item": main,
             "others": others,
             "comparables": self.comparables(name) if card["known"] else [],
@@ -2128,14 +2261,16 @@ class Explorer:
         """Un nom sur toutes les extensions connues."""
         label = self.normalize(label)
         i = self.universe.index(label)
+        # mine : dans Mes ajouts (bouton « Retirer de mes ajouts ») ; un nom inconnu peut y être ajouté.
+        mine = label in wordlists.lists()[wordlists.MINE]
         if i is None:
-            return {"label": label, "known": False, "items": []}
+            return {"label": label, "known": False, "mine": mine, "items": []}
         items = []
         for tld in self.tlds():
             item = self.describe(tld, [i])[0]
             item.update(self._value(tld, i, label, self._bonus_context(tld)))
             items.append(item)
-        return {"label": label, "known": True, "categories": self.universe.categories(label), "items": items}
+        return {"label": label, "known": True, "mine": mine, "categories": self.universe.categories(label), "items": items}
 
     # --- Vérification à la demande ----------------------------------------------------
 

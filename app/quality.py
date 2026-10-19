@@ -82,11 +82,12 @@ def _runs(pattern: str, char: str) -> int:
 
 
 def _list_strength(label: str) -> dict[str, float]:
-    """Pour chaque liste où le nom figure : 1 pour le premier rang, vers 0 pour le dernier."""
+    """Pour chaque liste où le nom figure : 1 pour le premier rang, vers 0 pour le dernier (Mes ajouts : aucun
+    rang, l'ordre d'ajout ne classe rien)."""
     found = {}
     for key, ranks in wordlists.ranks().items():
         rank = ranks.get(label)
-        if rank is not None:
+        if rank is not None and key not in wordlists.NO_RANK:
             found[key] = 1 - math.sqrt((rank - 1) / len(ranks))
     return found
 
@@ -134,9 +135,16 @@ def features(label: str, tld: str) -> dict[str, float]:
         # Jusqu'à 3 chiffres, le .com se vend (marché asiatique) ; au-delà, et ailleurs, bien moins.
         f["digits_com"] = float(n <= 3 and tld == "com")
     strength = _list_strength(label)
+    # Listes sans avis IA de calage (termes premium, mots-clés, métier + ville, marques inventées) : leur rang
+    # compte avec le poids de la liste calée la plus proche (wordlists.SCORE_AS).
+    borrowed = {k: v for k, v in strength.items() if k not in wordlists.SCORE_AS}
+    for key, like in wordlists.SCORE_AS.items():
+        if key in strength:
+            borrowed[like] = max(borrowed.get(like, 0.0), strength[key])
     for key in LIST_KEYS:
-        f["in_" + key] = strength.get(key, 0.0)
-    f["meaning"] = max(strength.values(), default=0.0)
+        f["in_" + key] = borrowed.get(key, 0.0)
+    # Une marque inventée n'a pas de sens : seule sa sonorité et son rang comptent.
+    f["meaning"] = max((v for k, v in strength.items() if k not in wordlists.NO_MEANING), default=0.0)
     f["real_short"] = float(n <= 4 and label in pronounce.real_words())
     f["negative"] = float(label in negatives())
     f["brand"] = float(label in brands())

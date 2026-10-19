@@ -755,6 +755,7 @@ button:disabled { cursor: default; opacity: .55; }
 
 .ex-card { margin: 4px 0 14px; padding: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; scroll-margin-top: 130px; }
 .ex-card-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: 0 0 10px; }
+.ex-card-head .ex-card-add { margin-left: auto; }
 .ex-card-name { font-size: 22px; font-weight: 500; }
 .ex-card .ex-list { border-color: var(--line); }
 /* Top et Carte : un titre, une phrase, Fermer. */
@@ -1241,6 +1242,8 @@ button:disabled { cursor: default; opacity: .55; }
 
 /* Actions en pictos, comme la barre du bas : une ligne, colonnes égales. Couleurs légères selon l'état. */
 .fiche-actbar { position: relative; margin: 0 0 16px; }
+/* Nom hors des listes : une ligne sobre sous les pictos, le bouton passe sous le texte s'il manque de place. */
+.fiche-mine { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; margin: -6px 0 16px; }
 .fiche-acts { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
 .fiche-acts .fa {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-width: 0; height: 60px; padding: 6px 2px;

@@ -114,6 +114,7 @@ BCRYPT_HASH = re.compile(r"\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}")
 async def lifespan(app: FastAPI):
     settings = load_settings()
     settings.data_dir.mkdir(parents=True, exist_ok=True)
+    wordlists.configure(settings.data_dir)  # « Mes ajouts » vivent dans le dossier de données
     conn = db.connect(settings.db_path)
     db.migrate(conn, settings.backup_dir)
 
@@ -2427,6 +2428,45 @@ async def _ai_eta(explorer, fiche: dict) -> dict | None:
 @app.post("/api/explore/check")
 async def explore_check(request: Request, payload: NameCheck):
     return await _verify(request, payload.name)
+
+
+@app.post("/api/explore/mine")
+async def add_mine(request: Request, payload: NameCheck):
+    """« Ajouter aux noms suivis » : le libellé (sans l'extension) entre dans Mes ajouts, puis dans l'univers
+    sans redémarrage. Le nom demandé (avec extension) est vérifié au registre tout de suite : les zones ne le
+    chercheront qu'à leur prochaine lecture. Session seulement (jamais le jeton en lecture seule)."""
+    try:
+        label = wordlists.normalize(payload.name)
+    except wordlists.InvalidLabel as exc:
+        raise HTTPException(422, str(exc)) from None
+    explorer = request.app.state.explorer
+    added = await asyncio.to_thread(wordlists.add_mine, label)
+    seconds = await _off(explorer.reload_lists)
+    log.info("Mes ajouts : %s ajouté, univers rechargé en %.1f s", label, seconds)
+    tld = payload.name.strip().lower().partition(".")[2]
+    check, error = None, None
+    if tld:
+        try:
+            check = await _verify(request, f"{label}.{tld}")
+        except HTTPException as exc:
+            error = exc.detail  # l'ajout est fait : la vérification se refait avec « Vérifier »
+    return {"label": label, "added": added, "count": len(wordlists.mine()), "check": check, "check_error": error,
+            "seconds": round(seconds, 2)}
+
+
+@app.delete("/api/explore/mine/{label}")
+async def remove_mine(request: Request, label: str):
+    """« Retirer de mes ajouts » : le nom sort de l'univers s'il n'est dans aucune autre liste."""
+    try:
+        label = wordlists.normalize(label)
+    except wordlists.InvalidLabel as exc:
+        raise HTTPException(422, str(exc)) from None
+    removed = await asyncio.to_thread(wordlists.remove_mine, label)
+    if not removed:
+        raise HTTPException(404, "Ce nom n'est pas dans Mes ajouts.")
+    seconds = await _off(request.app.state.explorer.reload_lists)
+    log.info("Mes ajouts : %s retiré, univers rechargé en %.1f s", label, seconds)
+    return {"label": label, "removed": True, "count": len(wordlists.mine()), "seconds": round(seconds, 2)}
 
 
 @app.post("/api/drops/scan", status_code=202)

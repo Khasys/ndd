@@ -16,6 +16,7 @@ const KIND_LABELS = {
   form: "Formes fléchies", surname: "Noms de famille", firstname: "Prénoms", english: "Mots anglais",
   sector: "Secteurs porteurs", trend: "Tendances", combo: "Combinaisons", niche: "Sites de niche", expr: "Expressions",
   media: "Médias et marques", startup: "Tech et startups", job: "Métiers", sport: "Sport", animal: "Animaux", food: "Cuisine",
+  premium: "Termes premium", keyword: "Mots-clés à forte valeur", local: "Métier + ville", brand: "Marques inventées", mine: "Mes ajouts",
 };
 const NATURE_LABELS = { noun: "nom commun", verb: "verbe", adj: "adjectif", adv: "adverbe", other: "mot outil" };
 // Rang dans une liste, en clair : « 12e prénom le plus donné » (mêmes mots que les raisons du score, value.py).
@@ -24,6 +25,7 @@ const FREQ_PHRASES = {
   firstname: "prénom le plus donné", english: "mot anglais le plus courant", sector: "secteur porteur", trend: "tendance",
   combo: "combinaison", niche: "site de niche", expr: "expression courante", media: "nom de média",
   startup: "mot tech et startups", job: "métier le plus demandé", sport: "mot du sport", animal: "animal", food: "mot de cuisine",
+  premium: "terme premium", keyword: "mot-clé à forte valeur", local: "métier + ville", brand: "nom de marque inventé", mine: "de mes ajouts",
 };
 const VERDICT_CLASSES = { "À prendre": "take", "À surveiller": "watch", "À laisser": "skip" };
 // min : score minimum des filtres avancés ; 0 = tout voir. period : libérés depuis / libération dans (clé de
@@ -56,10 +58,15 @@ const EX_TYPES = [
   { k: "firstname", label: "Prénoms" }, { k: "surname", label: "Noms de famille" }, { k: "startup", label: "Tech et startups" },
   { k: "media", label: "Médias et marques" }, { k: "sector", label: "Secteurs" }, { k: "job", label: "Métiers" },
   { k: "sport", label: "Sport" }, { k: "animal", label: "Animaux" }, { k: "food", label: "Cuisine" }, { k: "trend", label: "Tendances" },
-  { k: "niche", label: "Sites de niche" }, { k: "expr", label: "Expressions" }, { k: "short", label: "Courts (1 à 4)" },
+  { k: "niche", label: "Sites de niche" }, { k: "expr", label: "Expressions" }, { k: "premium", label: "Termes premium" },
+  { k: "keyword", label: "Mots-clés à forte valeur" }, { k: "local", label: "Métier + ville" }, { k: "brand", label: "Marques inventées" },
+  { k: "mine", label: "Mes ajouts" }, { k: "short", label: "Courts (1 à 4)" },
 ];
 // Listes du Top (Classements), dans l'ordre des puces de type ; firstname_recent : « Prénoms <année> » (Insee), si lus.
-const TOP_LISTS = ["sector", "job", "sport", "animal", "food", "trend", "expr", "niche", "word", "english", "firstname", "firstname_recent", "surname", "combo", "form"];
+const TOP_LISTS = ["sector", "job", "sport", "animal", "food", "trend", "expr", "niche", "premium", "keyword", "local", "brand", "mine",
+  "word", "english", "firstname", "firstname_recent", "surname", "combo", "form"];
+// Libellé d'un nom ajoutable à Mes ajouts (wordlists.normalize côté serveur, qui ôte aussi les accents).
+const LABEL_OK = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
 // Erreurs réseau en français simple : le détail technique reste dans la console du navigateur, qui
 // journalise la requête de toute façon ; l'appli n'y ajoute rien.
 const PLAIN_ERRORS = [
@@ -236,6 +243,7 @@ document.addEventListener("alpine:init", () => {
     exCard: null,
     exMap: null,
     exBusy: {},
+    mineBusy: false,
     exSeo: { running: false, done: 0, total: 0, key_set: true },
     seoKey: "",
     ex: { tld: "", q: "", status: "bookable", cat: "", len: "", sort: "best", nat: "", rank: "", taken: "", min: "", junk: "", seo: "", lang: "", nopremium: "", gprice: "", level: "good", ...AI_FILTER_DEFAULTS },
@@ -1163,6 +1171,58 @@ document.addEventListener("alpine:init", () => {
       // Marqué : il quitte la liste des noms à saisir ; remis : sa ligne prend le nouvel état.
       if (reserved) this.exItems = this.exItems.filter((x) => x.name !== name);
       else if (this.fiche && this.fiche.item) this.exReplace(this.fiche.item);
+    },
+
+    // « Ajouter aux noms suivis » (recherche de l'Explorer, fiche d'un nom hors des listes) : le libellé entre
+    // dans Mes ajouts ; le nom demandé (avec extension) est vérifié au registre dans la foulée.
+    mineAddable(label) {
+      const folded = String(label || "").toLowerCase().replace(/œ/g, "oe").replace(/æ/g, "ae").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      return LABEL_OK.test(folded);
+    },
+
+    async mineAdd(name) {
+      if (this.mineBusy) return;
+      this.mineBusy = true;
+      try {
+        const r = await this.api("POST", "/api/explore/mine", { name });
+        const check = r.check_error ? ` Vérification : ${r.check_error}` : "";
+        this.say(`${r.label} ajouté aux noms suivis (Mes ajouts). Les zones le chercheront à leur prochaine lecture ; d'ici là, « Vérifier » pour chaque extension.${check}`);
+        await this.mineRefresh();
+      } catch (e) {
+        this.sayError(e, name, () => this.mineAdd(name));
+      } finally {
+        this.mineBusy = false;
+      }
+    },
+
+    async mineRemove() {
+      const label = this.fiche && this.fiche.label;
+      if (!label || this.mineBusy || !confirm(`Retirer ${label} de Mes ajouts ? Il n'est plus suivi s'il n'est dans aucune autre liste.`)) return;
+      this.mineBusy = true;
+      try {
+        await this.api("DELETE", `/api/explore/mine/${encodeURIComponent(label)}`);
+        this.say(`${label} retiré de Mes ajouts.`);
+        await this.mineRefresh();
+      } catch (e) {
+        this.sayError(e, label, () => this.mineRemove());
+      } finally {
+        this.mineBusy = false;
+      }
+    },
+
+    // Univers changé : la fiche, la carte de recherche et la liste de l'Explorer sont relues.
+    async mineRefresh() {
+      const jobs = [this.ficheReload()];
+      if (this.exploreOpen) jobs.push(this.ex.q.trim() ? this.exTyped() : this.exLoad(), this.exLoadMap());
+      await Promise.all(jobs);
+    },
+
+    // Nom tapé dans la recherche : avec l'extension tapée, sinon la première de l'Explorer (vérifiée à l'ajout).
+    mineSearchName() {
+      const q = this.ex.q.trim().toLowerCase();
+      const typed = q.split(".").slice(1).join(".");
+      const tld = typed || (this.exTlds()[0] || "");
+      return this.exCard.label + (tld ? "." + tld : "");
     },
 
     // Fiche d'un nom : lignes libellé / valeur de chaque section (valeurs déjà échappées), sans champ vide.
