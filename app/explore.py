@@ -656,22 +656,22 @@ class Explorer:
         # Gandi en dernier : ce qu'il dit l'emporte sur les estimations (premium probable, court réservé).
         listed = self.reserved.names() if self.reserved is not None else frozenset()
         cut = len(tld) + 1
-        for name, kind, at, since in self._gandi_rows(tld):
+        for name, kind, at, since, checked in self._gandi_rows(tld):
             i = u.index(name[:-cut])
-            if i is not None and not (since and since > at):
+            if i is not None and gandi.applies({"kind": kind, "checked_at": at}, since, checked):
                 status[i] = gandi_code(status[i], kind, name in listed)
         return status
 
     def _gandi_rows(self, tld: str, where: str = "", args: tuple = ()) -> list:
         """Réponses de Gandi de l'extension (hors erreurs), avec l'entrée du nom dans son état actuel (Veille)."""
         return self.conn.execute(
-            f"""SELECT g.name, g.kind, g.checked_at, d.state_since FROM gandi_checks g LEFT JOIN drops d ON d.name = g.name
+            f"""SELECT g.name, g.kind, g.checked_at, d.state_since, d.checked_at FROM gandi_checks g LEFT JOIN drops d ON d.name = g.name
                 WHERE g.name LIKE ? AND g.kind != 'error' {where}""", (f"%.{tld}", *args)).fetchall()
 
     def _gandi_indices(self, tld: str, gprice: int) -> list[int]:
         """Noms de l'extension vérifiés chez Gandi, achetables au plus à ce prix (TTC), dans l'ordre de l'univers."""
         cut = len(tld) + 1
-        found = (self.universe.index(name[:-cut]) for name, _, at, since in self._gandi_rows(
+        found = (self.universe.index(name[:-cut]) for name, _, at, since, _ in self._gandi_rows(
             tld, "AND g.kind IN ('available', 'premium') AND g.price IS NOT NULL AND g.price <= ?", (gprice,))
             if not (since and since > at))
         return sorted(i for i in found if i is not None)
@@ -1580,7 +1580,7 @@ class Explorer:
             seen = self.conn.execute("SELECT present FROM name_dns WHERE label = ?", (label,)).fetchone()
             if seen and seen["present"]:
                 code = REGISTERED
-        drop = self.conn.execute("SELECT state, state_since FROM drops WHERE name = ?", (f"{label}.{tld}",)).fetchone()
+        drop = self.conn.execute("SELECT state, state_since, checked_at FROM drops WHERE name = ?", (f"{label}.{tld}",)).fetchone()
         state = drop["state"] if drop else None
         if state in drops.TRACKED:
             code = COMING
@@ -1601,7 +1601,7 @@ class Explorer:
               and (self.reserved is None or f"{label}.{tld}" not in self.reserved.unflagged())):
             code = PREMIUM
         found = self.conn.execute("SELECT kind, checked_at FROM gandi_checks WHERE name = ?", (f"{label}.{tld}",)).fetchone()
-        if found is not None and gandi.applies(dict(found), drop["state_since"] if drop else None):
+        if found is not None and gandi.applies(dict(found), drop["state_since"] if drop else None, drop["checked_at"] if drop else None):
             listed = self.reserved is not None and f"{label}.{tld}" in self.reserved.names()
             code = gandi_code(code, found["kind"], listed)
         return base, code
@@ -1770,7 +1770,8 @@ class Explorer:
             drop = dropped.get(name)
             check = checks.get(name)
             since = drop["state_since"] if drop else None
-            seen = self._gandi_seen(code, check, since, name in listed)
+            checked = drop["checked_at"] if drop else None
+            seen = self._gandi_seen(code, check, since, name in listed, checked)
             items.append({
                 "label": label,
                 "name": name,
@@ -1801,14 +1802,14 @@ class Explorer:
                 "ai": opinions.get(name),
                 "premium_price": (round(check["price"]) if seen and code == PREMIUM and check["price"] is not None
                                   else None if seen else self._premium_price(tld, label, code)),
-                "gandi": gandi.public(check, since),
+                "gandi": gandi.public(check, since, checked),
             })
         return items
 
     @staticmethod
-    def _gandi_seen(code: int, check: dict | None, since: str | None, listed: bool) -> bool:
+    def _gandi_seen(code: int, check: dict | None, since: str | None, listed: bool, checked: str | None = None) -> bool:
         """La réponse de Gandi fait l'état affiché du nom (et pas une liste de réservés ni un nom enregistré)."""
-        if not gandi.applies(check, since):
+        if not gandi.applies(check, since, checked):
             return False
         expected = {"available": FREE, "premium": PREMIUM}.get(check["kind"], RESERVED if check["kind"] in gandi.BLOCKED else None)
         return code == expected and not (code == RESERVED and listed)
@@ -1911,14 +1912,15 @@ class Explorer:
             "ai": ai.load(self.conn, [name]).get(name),
             "dns": frdns.load(self.conn, [label]).get(label) if tld == "fr" else None,
             # Dernière réponse de Gandi (prix, statut, date), aussi pour un nom hors des listes.
-            "gandi": (main or {}).get("gandi") or gandi.public(gandi.load(self.conn, [name]).get(name), self._drop_since(name)),
+            "gandi": (main or {}).get("gandi") or gandi.public(gandi.load(self.conn, [name]).get(name), *self._drop_since(name)),
             "domain_id": domain["id"] if domain is not None else None,
             "rdap_next": self._rdap_next(name, tld, domain),
         }
 
-    def _drop_since(self, name: str) -> str | None:
-        row = self.conn.execute("SELECT state_since FROM drops WHERE name = ?", (name,)).fetchone()
-        return row["state_since"] if row else None
+    def _drop_since(self, name: str) -> tuple[str | None, str | None]:
+        """Entrée du nom dans son état actuel et dernière vérification au registre (Veille)."""
+        row = self.conn.execute("SELECT state_since, checked_at FROM drops WHERE name = ?", (name,)).fetchone()
+        return (row["state_since"], row["checked_at"]) if row else (None, None)
 
     def _status_label(self, tld: str, code: int) -> str:
         if code == INVALID and tld in ccdns.TLDS:
@@ -2163,9 +2165,10 @@ class Explorer:
             code = SUSPENDED if state == drops.SUSPENDED else REGISTERED
         check = gandi.load(self.conn, [name]).get(name)
         since = drop["state_since"] if drop else None
-        if gandi.applies(check, since):
+        checked = drop["checked_at"] if drop else None
+        if gandi.applies(check, since, checked):
             code = gandi_code(code, check["kind"])
-        seen = self._gandi_seen(code, check, since, False)
+        seen = self._gandi_seen(code, check, since, False, checked)
         watched = self.conn.execute("SELECT 1 FROM domains WHERE name = ?", (name,)).fetchone() is not None
         owned = self.conn.execute("SELECT 1 FROM portfolio WHERE name = ?", (name,)).fetchone() is not None
         return {
@@ -2179,7 +2182,7 @@ class Explorer:
             "reserved": self._reserved_why(name, code, check if seen else None),
             "ai": ai.load(self.conn, [name]).get(name),
             "premium_price": round(check["price"]) if seen and code == PREMIUM and check["price"] is not None else None,
-            "gandi": gandi.public(check, since),
+            "gandi": gandi.public(check, since, checked),
             "score": 0, "reasons": [], "parts": {},
         }
 

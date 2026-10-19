@@ -634,7 +634,7 @@ document.addEventListener("alpine:init", () => {
     // Gandi : la réponse qui fait l'état affiché (ni une erreur, ni une réponse d'avant un changement d'état).
     gandiOf(i) {
       const g = i && i.gandi;
-      return g && !g.stale && g.kind !== "error" ? g : null;
+      return g && !g.stale && !g.pending && g.kind !== "error" ? g : null;
     },
 
     gandiEuros(p) { return p === null || p === undefined || p === "" ? "" : `${this.fmt(Math.round(Number(p)))}\u00a0€`; },
@@ -1222,6 +1222,7 @@ document.addEventListener("alpine:init", () => {
       if (g.error && g.kind !== "error") parts.push(`dernière vérification en erreur : ${g.error}`);
       else if (g.error) parts.push(g.error);
       if (g.stale) parts.push("avant le dernier changement d'état, revu à la prochaine passe");
+      if (g.pending) parts.push("sans doute enregistré depuis, revérification au registre en cours");
       return parts.join(", ");
     },
 

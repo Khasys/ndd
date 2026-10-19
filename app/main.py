@@ -1312,7 +1312,7 @@ def _drop_gandi(state, rows) -> dict[str, dict]:
     found = {}
     for r in rows:
         check, since = checks.get(r["name"]), r["state_since"]
-        kind = check["kind"] if gandi.applies(check, since) else None
+        kind = check["kind"] if gandi.applies(check, since, r["checked_at"]) else None
         # Un nom en rédemption est forcément indisponible chez Gandi : seul un premium dit quelque chose de lui.
         if kind and r["state"] not in OPEN_DROP_STATES and kind != "premium":
             kind = None
@@ -1321,7 +1321,7 @@ def _drop_gandi(state, rows) -> dict[str, dict]:
         guess = (kind is None and r["tld"] != "fr" and r["tld"] not in premium_off and length == str(explore.PREMIUM_LENGTH))
         price = round(check["price"]) if kind == "premium" and check["price"] is not None else None
         found[r["name"]] = {
-            "check": check, "since": since, "kind": kind, "premium": kind == "premium" or guess,
+            "check": check, "since": since, "checked": r["checked_at"], "kind": kind, "premium": kind == "premium" or guess,
             "premium_price": price if kind == "premium" else prices.get(r["tld"], {}).get(length) if guess else None,
             "blocked": kind in gandi.BLOCKED, "free": kind == "available" and r["state"] in OPEN_DROP_STATES,
         }
@@ -1355,7 +1355,7 @@ def _drop_items(state, rows, values: dict) -> list[dict]:
             "premium_price": found[r["name"]]["premium_price"],
             # Gandi : la réponse gardée (prix, date) et ce qu'elle dit de l'état affiché (gandi_state : available,
             # premium, unavailable, reserved, restricted ; vide si elle ne change rien ou date d'avant l'état actuel).
-            "gandi": gandi.public(found[r["name"]]["check"], found[r["name"]]["since"]),
+            "gandi": gandi.public(found[r["name"]]["check"], found[r["name"]]["since"], found[r["name"]]["checked"]),
             "gandi_state": found[r["name"]]["kind"],
             **values[r["name"]],
         }

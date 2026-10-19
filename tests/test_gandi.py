@@ -128,6 +128,40 @@ def test_gandi_answers_set_the_state_of_names_thought_free(env):
     assert env.fiche("abe.com")["gandi"]["kind"] == "premium"
 
 
+def test_unavailable_on_a_free_drop_rechecks_the_registry_first(env):
+    """lesimpots.fr : libre dans la Veille, enregistré depuis, Gandi dit indisponible. Pas « Réservé » : le registre
+    est revu tout de suite ; pris, la réponse de Gandi ne compte plus ; toujours libre, elle compte (réservé)."""
+    zone(env, [], [])
+    now = utcnow()
+    before = iso(now - timedelta(hours=10))
+    env.drops.record("com", ["jardin"], [], now)
+    env.conn.execute("""UPDATE drops SET state = 'available', state_since = ?, available_since = ?, checked_at = ?,
+                        next_check_at = ? WHERE name = 'jardin.com'""", (before, before, before, iso(now + timedelta(hours=14))))
+    env.touch("jardin.com")
+    client = client_for(env)
+    client.record("jardin.com", gandi.read(answer("unavailable")), now)
+    row = env.drops.row("jardin.com")
+    assert row["next_check_at"] == iso(now)  # revérification au registre tout de suite
+
+    def one():
+        return env.search("com", q="jardin", mode="exact", status="", premium=True)["items"][0]
+
+    found = one()
+    assert found["status"] == explore.FREE and found["reserved"] == [] and found["gandi"]["pending"] is True
+    fiche = env.fiche("jardin.com")
+    assert fiche["gandi"]["pending"] is True and "Réservé" not in str(fiche.get("status_label"))
+    # Le registre le dit toujours libre après Gandi : indisponible compte, nom réservé.
+    env.conn.execute("UPDATE drops SET checked_at = ? WHERE name = 'jardin.com'", (iso(now + timedelta(minutes=2)),))
+    env.touch("jardin.com")
+    found = one()
+    assert found["status"] == explore.RESERVED and found["reserved"] == ["Indisponible chez Gandi"]
+    assert found["gandi"]["pending"] is False
+    # Un nom pris ne bouge pas : la requête ne concerne que les libres de la Veille.
+    env.conn.execute("UPDATE drops SET state = 'taken', next_check_at = NULL WHERE name = 'jardin.com'")
+    client.record("jardin.com", gandi.read(answer("unavailable")), now + timedelta(minutes=3))
+    assert env.drops.row("jardin.com")["next_check_at"] is None
+
+
 def test_verify_asks_gandi_for_names_not_taken(env):
     zone(env, [], ["maison"])
     calls = []

@@ -20,6 +20,7 @@ from datetime import datetime, timedelta
 
 import httpx
 
+from . import drops, states
 from .checker import iso, utcnow
 
 log = logging.getLogger(__name__)
@@ -134,13 +135,20 @@ def load(conn, names: list[str]) -> dict[str, dict]:
     return found
 
 
-def applies(row: dict | None, since: str | None = None) -> bool:
+def applies(row: dict | None, since: str | None = None, checked: str | None = None) -> bool:
     """Le résultat compte pour l'état du nom : pas une erreur, et pas antérieur à un changement d'état
-    (since : entrée du nom dans son état actuel, Veille). Un résultat dépassé attend la passe suivante."""
-    return bool(row) and row["kind"] != "error" and not (since and since > row["checked_at"])
+    (since : entrée du nom dans son état actuel, Veille). Un résultat dépassé attend la passe suivante.
+    Indisponible sur un nom de la Veille (checked : dernière vérification au registre) : compte seulement
+    une fois le registre revu après Gandi, sinon c'est sans doute un nom enregistré depuis (voir pending)."""
+    return bool(row) and row["kind"] != "error" and not (since and since > row["checked_at"]) and not pending(row, checked)
 
 
-def public(row: dict | None, since: str | None = None) -> dict | None:
+def pending(row: dict | None, checked: str | None) -> bool:
+    """Indisponible chez Gandi, registre pas encore revu depuis : la revérification décide (pris ou réservé)."""
+    return bool(row) and row["kind"] in BLOCKED and checked is not None and checked < row["checked_at"]
+
+
+def public(row: dict | None, since: str | None = None, checked: str | None = None) -> dict | None:
     """Ce que l'interface montre : sorte, statut, prix, date, erreur en clair, et si le résultat compte."""
     if not row:
         return None
@@ -150,7 +158,8 @@ def public(row: dict | None, since: str | None = None) -> dict | None:
             "checked_at": row["checked_at"],
             "error": ERROR_LABELS.get(error, error) if error else (ERROR_LABELS.get(row["status"], row["status"] or "réponse illisible")
                                                                  if row["kind"] == "error" else None),
-            "stale": row["kind"] != "error" and bool(since and since > row["checked_at"])}
+            "stale": row["kind"] != "error" and bool(since and since > row["checked_at"]),
+            "pending": pending(row, checked)}
 
 
 def summary(row: dict | None, since: str | None = None) -> dict | None:
@@ -233,7 +242,13 @@ class Gandi:
     def record(self, name: str, found: dict, now: datetime | None = None) -> bool:
         """Garde une lecture ; True si la sorte ou le prix du nom a changé. L'Explorer corrige le nom dans tous
         les cas : une vérification plus récente qu'un changement d'état peut seule rendre le résultat valable."""
-        before, after = save(self.conn, name, found, now or utcnow())
+        now = now or utcnow()
+        before, after = save(self.conn, name, found, now)
+        if after["kind"] in BLOCKED:
+            # Indisponible alors que la Veille le croit libre : sans doute enregistré depuis la dernière
+            # vérification. Le registre tranche tout de suite, pas à la date prévue.
+            self.conn.execute("UPDATE drops SET next_check_at = ? WHERE name = ? AND state IN (?, ?)",
+                              (iso(now), name, states.AVAILABLE, drops.UNCONFIRMED))
         if self.on_change:
             self.on_change(name)
         return before is None or (before["kind"], before["price"]) != (after["kind"], after["price"])
