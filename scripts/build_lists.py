@@ -20,7 +20,6 @@ import sys
 import unicodedata
 from pathlib import Path
 
-import msgpack
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -74,6 +73,8 @@ def unique(words) -> list[str]:
 
 
 def english(wordfreq_dir: Path, banned: set[str]) -> list[str]:
+    import msgpack  # import local : seule la construction complète en a besoin (pas --provided, pas les tests)
+
     raw = msgpack.unpackb(gzip.open(wordfreq_dir / "data" / "large_en.msgpack.gz").read(), raw=False)
     words = (w for bucket in raw[1:] for w in bucket)
     picked = []
