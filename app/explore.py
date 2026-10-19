@@ -67,16 +67,38 @@ GANDI_OPEN = (GONE, ABSENT, UNCONFIRMED, FREE, PREMIUM, RESERVED)
 FREE_GANDI = LABELS[FREE]
 
 
-def gandi_code(code: int, kind: str, listed: bool = False) -> int:
-    """État d'un nom une fois prise en compte une réponse de Gandi valable (gandi.applies)."""
-    if code not in GANDI_OPEN or (code == RESERVED and listed):
-        return code
+def gandi_effect(code: int, check: dict | None, since: str | None = None, checked: str | None = None,
+                 listed: bool = False) -> tuple[int, str | None]:
+    """La seule règle de l'effet d'une réponse de Gandi sur l'état d'un nom, pour tous les écrans (Explorer, fiche,
+    Veille, Aujourd'hui, Domaines) : (état, sorte qui le fait, ou None). Sans effet : réponse en erreur, d'avant le
+    dernier changement d'état (since), indisponible pas encore revu au registre (checked : gandi.applies) ; nom
+    enregistré, bientôt libre ou suspendu (hors GANDI_OPEN) ; terme d'une liste de réservés (listed)."""
+    if not gandi.applies(check, since, checked) or code not in GANDI_OPEN or (code == RESERVED and listed):
+        return code, None
+    kind = check["kind"]
     if kind == "available":
-        return FREE
+        return FREE, kind
     if kind == "premium":
-        return PREMIUM
+        return PREMIUM, kind
     if kind in gandi.BLOCKED:
-        return RESERVED
+        return RESERVED, kind
+    return code, None
+
+
+def drop_code(state: str | None) -> int | None:
+    """État de l'Explorer d'un état de la Veille (registre), None sans vérification."""
+    if state in drops.TRACKED:
+        return COMING
+    return {states.AVAILABLE: FREE, drops.UNCONFIRMED: UNCONFIRMED, drops.SUSPENDED: SUSPENDED,
+            drops.TAKEN: REGISTERED, states.RENEWED: REGISTERED}.get(state)
+
+
+def drop_open_code(state: str | None, checked: str | None, delegated: str | None) -> int | None:
+    """drop_code, la plus récente observation l'emportant : un nom libre au registre puis vu délégué dans le DNS
+    (delegated : date) a été enregistré depuis ; la revérification au registre suit (frdns.changed)."""
+    code = drop_code(state)
+    if code in (FREE, UNCONFIRMED) and delegated and delegated > (checked or ""):
+        return REGISTERED
     return code
 
 
@@ -623,20 +645,13 @@ class Explorer:
                 i = u.index(label)
                 if i is not None and status[i] in (GONE, ABSENT):
                     status[i] = REGISTERED
-        for label, state in self.conn.execute("SELECT label, state FROM drops WHERE tld = ? AND state IS NOT NULL", (tld,)):
+        delegated = frdns.present_at(self.conn) if tld == "fr" else {}
+        for label, state, checked in self.conn.execute(
+                "SELECT label, state, checked_at FROM drops WHERE tld = ? AND state IS NOT NULL", (tld,)):
             i = u.index(label)
-            if i is None:
-                continue
-            if state in drops.TRACKED:
-                status[i] = COMING
-            elif state == states.AVAILABLE:
-                status[i] = FREE
-            elif state == drops.UNCONFIRMED:
-                status[i] = UNCONFIRMED
-            elif state == drops.SUSPENDED:
-                status[i] = SUSPENDED
-            elif state in (drops.TAKEN, states.RENEWED):
-                status[i] = REGISTERED
+            code = drop_open_code(state, checked, delegated.get(label))
+            if i is not None and code is not None:
+                status[i] = code
         if self.reserved is not None:
             # Réservé : seulement s'il n'est pas enregistré. Un nom pris reste « Enregistré ».
             for i in self.reserved.indices(tld, u):
@@ -658,8 +673,8 @@ class Explorer:
         cut = len(tld) + 1
         for name, kind, at, since, checked in self._gandi_rows(tld):
             i = u.index(name[:-cut])
-            if i is not None and gandi.applies({"kind": kind, "checked_at": at}, since, checked):
-                status[i] = gandi_code(status[i], kind, name in listed)
+            if i is not None:
+                status[i] = gandi_effect(status[i], {"kind": kind, "checked_at": at}, since, checked, name in listed)[0]
         return status
 
     def _gandi_rows(self, tld: str, where: str = "", args: tuple = ()) -> list:
@@ -1582,17 +1597,9 @@ class Explorer:
             if seen and seen["present"]:
                 code = REGISTERED
         drop = self.conn.execute("SELECT state, state_since, checked_at FROM drops WHERE name = ?", (f"{label}.{tld}",)).fetchone()
-        state = drop["state"] if drop else None
-        if state in drops.TRACKED:
-            code = COMING
-        elif state == states.AVAILABLE:
-            code = FREE
-        elif state == drops.UNCONFIRMED:
-            code = UNCONFIRMED
-        elif state == drops.SUSPENDED:
-            code = SUSPENDED
-        elif state in (drops.TAKEN, states.RENEWED):
-            code = REGISTERED
+        if drop is not None:
+            dns = frdns.load(self.conn, [label]).get(label) if tld == "fr" else None
+            code = drop_open_code(drop["state"], drop["checked_at"], dns["at"] if dns and dns["present"] else None) or code
         if self.reserved is not None and f"{label}.{tld}" in self.reserved.names() and code in (GONE, ABSENT, UNCONFIRMED, FREE, COMING):
             code = RESERVED
         elif self.reserved is not None and code in (ABSENT, UNCONFIRMED, FREE) and self.reserved.short_reserved(f"{label}.{tld}"):
@@ -1602,12 +1609,24 @@ class Explorer:
               and (self.reserved is None or f"{label}.{tld}" not in self.reserved.unflagged())):
             code = PREMIUM
         found = self.conn.execute("SELECT kind, checked_at FROM gandi_checks WHERE name = ?", (f"{label}.{tld}",)).fetchone()
-        if found is not None and gandi.applies(dict(found), drop["state_since"] if drop else None, gandi.registry_checked(drop)):
+        if found is not None:
             listed = self.reserved is not None and f"{label}.{tld}" in self.reserved.names()
-            code = gandi_code(code, found["kind"], listed)
+            code = gandi_effect(code, dict(found), drop["state_since"] if drop else None, gandi.registry_checked(drop), listed)[0]
         return base, code
 
-    def recheck(self, name: str, now: datetime) -> None:
+    def sync_registry(self, name: str, result, now: datetime | None = None) -> None:
+        """Domaine suivi lu au registre (écran Domaines) : sa ligne de Veille, créée au besoin comme pour Vérifier,
+        prend la même lecture ; l'Explorer et la fiche disent donc la même chose que Domaines. Sans cela, un nom
+        suivi restait « libre » dans la Veille une fois repris, ou « probablement libre » dans l'Explorer."""
+        if result is None or result.error:
+            return
+        now = now or utcnow()
+        rdapinfo.save(self.conn, name, result)
+        row = self.drops.ensure(name, now)
+        self.drops.apply(row, result, now)
+        self.touch(name)
+
+    def recheck(self, name: str, now: datetime, create: bool = True) -> None:
         """Indisponible chez Gandi pour un nom qu'on croit libre : sans doute enregistré depuis la dernière lecture
         (zone, open data, vérification). Le registre tranche tout de suite : pris, ou réservé s'il le dit libre.
         Gandi.on_blocked. Pas un réservé de liste ; un domaine suivi est aussi revu côté Domaines."""
@@ -1615,8 +1634,10 @@ class Explorer:
             return
         self.conn.execute("UPDATE domains SET next_check_at = ? WHERE name = ?", (iso(now), name))
         row = self.drops.row(name)
+        if row is None and not create:
+            return
         if row is None:
-            row = self.drops.ensure(name, now)  # sans sortie constatée, comme Vérifier depuis l'Explorer
+            row = self.drops.ensure(name, now, "gandi")  # sans sortie constatée, hors Veille et Aujourd'hui
         elif row["state"] not in (states.AVAILABLE, drops.UNCONFIRMED, None):
             return  # pris, en rédemption : Gandi a raison, rien à revoir
         self.conn.execute("UPDATE drops SET next_check_at = ?, state_since = COALESCE(state_since, ?) WHERE name = ?",
@@ -1820,16 +1841,15 @@ class Explorer:
                 "premium_price": (round(check["price"]) if seen and code == PREMIUM and check["price"] is not None
                                   else None if seen else self._premium_price(tld, label, code)),
                 "gandi": gandi.public(check, since, checked),
+                "gandi_state": check["kind"] if seen else None,  # sorte qui fait l'état affiché (gandi_effect)
             })
         return items
 
     @staticmethod
     def _gandi_seen(code: int, check: dict | None, since: str | None, listed: bool, checked: str | None = None) -> bool:
         """La réponse de Gandi fait l'état affiché du nom (et pas une liste de réservés ni un nom enregistré)."""
-        if not gandi.applies(check, since, checked):
-            return False
-        expected = {"available": FREE, "premium": PREMIUM}.get(check["kind"], RESERVED if check["kind"] in gandi.BLOCKED else None)
-        return code == expected and not (code == RESERVED and listed)
+        effect, kind = gandi_effect(code, check, since, checked, listed)
+        return kind is not None and effect == code
 
     def _reserved_why(self, name: str, code: int, check: dict | None) -> list[str]:
         """Raisons d'un nom réservé : listes et marquages, puis la réponse de Gandi."""
@@ -2025,7 +2045,17 @@ class Explorer:
                 add(dns["lost_at"], "dns_out", "Sorti du DNS")
         elif drop is not None and tld != "fr":
             add(drop["removed_on"], "zone_out", "Sorti de la zone")  # vide si vérifié à la main : rien
-        if drop is not None:
+        # Vérifié sans sortie constatée nulle part (zone, DNS, open data .fr) : pas une libération.
+        exited = bool((drop is not None and drop["removed_on"]) or any(k in ("dns_out", "removed") for _, k, _ in found))
+        if drop is not None and drop["origin"] and not exited:
+            # Vérifié sans être sorti (bouton Vérifier, refus d'achat) : ce que le registre a dit, pas une libération.
+            if drop["state"] == states.AVAILABLE:
+                add(drop["state_since"], "drop_seen", "Vu libre au registre")
+            elif drop["state"] in (drops.TAKEN, states.RENEWED):
+                add(drop["state_since"], "drop_seen", "Vu enregistré au registre")
+            elif drop["state"] in TIMELINE_DROP_STATES:
+                add(drop["state_since"], "drop_" + drop["state"], TIMELINE_DROP_STATES[drop["state"]])
+        elif drop is not None:
             if drop["state"] in TIMELINE_DROP_STATES:
                 add(drop["state_since"], "drop_" + drop["state"], self._drop_event(drop, rdap))
             add(drop["available_since"], "available", "Libération constatée")
@@ -2183,8 +2213,7 @@ class Explorer:
         check = gandi.load(self.conn, [name]).get(name)
         since = drop["state_since"] if drop else None
         checked = gandi.registry_checked(drop)
-        if gandi.applies(check, since, checked):
-            code = gandi_code(code, check["kind"])
+        code = gandi_effect(code, check, since, checked)[0]
         seen = self._gandi_seen(code, check, since, False, checked)
         watched = self.conn.execute("SELECT 1 FROM domains WHERE name = ?", (name,)).fetchone() is not None
         owned = self.conn.execute("SELECT 1 FROM portfolio WHERE name = ?", (name,)).fetchone() is not None
@@ -2201,6 +2230,7 @@ class Explorer:
             "ai": ai.load(self.conn, [name]).get(name),
             "premium_price": round(check["price"]) if seen and code == PREMIUM and check["price"] is not None else None,
             "gandi": gandi.public(check, since, checked),
+            "gandi_state": check["kind"] if seen else None,
             "score": 0, "reasons": [], "parts": {},
         }
 

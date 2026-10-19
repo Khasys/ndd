@@ -54,7 +54,7 @@ def test_read_premium_and_other_statuses():
     # Plusieurs lignes : la première d'une durée minimale d'un an, la ligne premium pour un premium.
     lines = [{**STANDARD, "min_duration": 2}, {**PREMIUM, "min_duration": 2, "price_after_taxes": 2000}, PREMIUM]
     assert gandi.read(answer("available", lines))["price"] == 878.4
-    assert gandi.read(answer("unavailable_premium")) == {"kind": "premium", "status": "unavailable_premium", "price": None,
+    assert gandi.read(answer("unavailable_premium")) == {"kind": "unavailable", "status": "unavailable_premium", "price": None,
                                                          "price_ht": None, "currency": "EUR"}
     kinds = {s: gandi.read(answer(s))["kind"] for s in (
         "available_reserved", "reserved_corporate", "unavailable_restricted", "available_preorder", "pending",
@@ -65,13 +65,15 @@ def test_read_premium_and_other_statuses():
     assert gandi.read({"currency": "EUR", "products": []})["kind"] == "error"
 
 
-def test_gandi_code_never_touches_registered_or_listed_names():
-    assert explore.gandi_code(explore.REGISTERED, "available") == explore.REGISTERED
-    assert explore.gandi_code(explore.COMING, "unavailable") == explore.COMING
-    assert explore.gandi_code(explore.RESERVED, "available", listed=True) == explore.RESERVED
-    assert explore.gandi_code(explore.RESERVED, "available") == explore.FREE  # « court réservé » estimé : Gandi tranche
-    assert explore.gandi_code(explore.UNCONFIRMED, "restricted") == explore.RESERVED
-    assert explore.gandi_code(explore.ABSENT, "error") == explore.ABSENT
+def test_gandi_effect_never_touches_registered_or_listed_names():
+    """Le détail de la règle est dans tests/test_state_rules.py (toutes les combinaisons)."""
+    check = lambda kind: {"kind": kind, "checked_at": "2026-10-19T03:00:00+00:00"}  # noqa: E731
+    assert explore.gandi_effect(explore.REGISTERED, check("available"))[0] == explore.REGISTERED
+    assert explore.gandi_effect(explore.COMING, check("unavailable"))[0] == explore.COMING
+    assert explore.gandi_effect(explore.RESERVED, check("available"), listed=True)[0] == explore.RESERVED
+    assert explore.gandi_effect(explore.RESERVED, check("available"))[0] == explore.FREE  # « court réservé » estimé
+    assert explore.gandi_effect(explore.UNCONFIRMED, check("restricted"))[0] == explore.RESERVED
+    assert explore.gandi_effect(explore.ABSENT, check("error"))[0] == explore.ABSENT
 
 
 # --- Effet sur l'état des noms --------------------------------------------------------------------
@@ -231,11 +233,17 @@ def test_night_queue_free_first_then_by_score_skipping_fresh_checks(env):
     env.invalidate("com")
     night, _ = make_pass(env)
     names = night.pending(10**6, now)
-    assert names[0] == "velo.com"  # libre : en tête, avant les probablement libres
-    assert "jardin.com" not in names  # vu il y a 2 jours, revu au bout de 7
+    # Libres en tête, revus chaque jour : velo.com (Veille), jardin.com (libre d'après Gandi il y a 2 jours).
+    assert set(names[:2]) == {"velo.com", "jardin.com"}
     assert {"chat.com", "lune.com", "ciel.com"} <= set(names)  # changé d'état, en erreur, vu il y a 8 jours (réservé)
     assert "maison.com" not in names and len(names) == len(set(names))
-    assert night.pending(3, now)[0] == "velo.com" and len(night.pending(3, now)) == 3
+    assert set(night.pending(3, now)[:2]) == {"velo.com", "jardin.com"} and len(night.pending(3, now)) == 3
+    # Un probablement libre vu il y a 2 jours attend 7 jours (réglable).
+    env.conn.execute("UPDATE gandi_checks SET kind = 'unavailable', status = 'unavailable' WHERE name = 'jardin.com'")
+    env.conn.execute("INSERT INTO gandi_checks (name, status, kind, checked_at) VALUES ('soleil.com', 'error', 'error', ?)",
+                     (iso(now - timedelta(days=2)),))
+    env.invalidate("com")
+    assert "jardin.com" not in night.pending(10**6, now)
     night.store.set("gandi_pass_days", "1")
     assert "jardin.com" in night.pending(10**6, now)
 

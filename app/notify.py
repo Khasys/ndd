@@ -39,8 +39,8 @@ def changed(conn, since: datetime) -> list[dict]:
     stamp = iso(since)
     rows = conn.execute(
         f"""SELECT name, state, state_since, available_since, release_at FROM drops
-            WHERE (state = ? AND available_since >= ?)
-               OR (state IN ({','.join('?' * len(COMING_STATES))}) AND state_since >= ?)
+            WHERE ((state = ? AND available_since >= ?)
+               OR (state IN ({','.join('?' * len(COMING_STATES))}) AND state_since >= ?)) AND origin IS NOT 'gandi'
             ORDER BY COALESCE(available_since, state_since) DESC""",
         (states.AVAILABLE, stamp, *COMING_STATES, stamp),
     ).fetchall()

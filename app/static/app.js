@@ -642,16 +642,9 @@ document.addEventListener("alpine:init", () => {
 
     gandiEuros(p) { return p === null || p === undefined || p === "" ? "" : `${this.fmt(Math.round(Number(p)))}\u00a0€`; },
 
-    // Sorte qui vaut pour l'état affiché : Veille et Aujourd'hui, gandi_state du serveur ; ailleurs, l'état de l'Explorer
-    // (premium 8, libre 5, réservé 7) quand il vient de cette réponse.
-    gandiKind(i, list) {
-      const g = this.gandiOf(i);
-      if (!g) return "";
-      if (list === "veille" || list === "today") return i.gandi_state || "";
-      if (g.kind === "premium" && i.status === 8) return "premium";
-      if (g.kind === "available" && i.status === 5) return "available";
-      if (GANDI_BLOCKED.includes(g.kind) && i.status === 7) return g.kind;
-      return "";
+    // Sorte qui fait l'état affiché, décidée par le serveur pour tous les écrans (explore.gandi_effect) : gandi_state.
+    gandiKind(i) {
+      return (this.gandiOf(i) && i.gandi_state) || "";
     },
 
     // Pastille de prix : ambre « Premium 878 € », sinon discrète « 13 € » (prix Gandi, indicatif).
@@ -992,7 +985,7 @@ document.addEventListener("alpine:init", () => {
     ficheBadge(f) {
       if (f && f.item) return { text: f.item.status_label, cls: this.badgeClass(f.item), title: "" };
       const d = this.ficheDomain;
-      if (d) return { text: this.stateLabel(d), cls: "s-" + this.displayState(d), title: this.stateTitle(d) };
+      if (d) return { text: this.stateLabel(d), cls: this.stateClass(d), title: this.stateTitle(d) };
       return { text: "Hors des listes suivies", cls: "x-0", title: "" };
     },
 
@@ -1924,12 +1917,11 @@ document.addEventListener("alpine:init", () => {
     // Domaines : prix d'achat d'un domaine non pris, ou « Indisponible chez Gandi ».
     domGandi(d) {
       const g = this.gandiOf(d);
-      if (!g) return null;
+      const kind = this.gandiKind(d);
+      if (!g || !kind) return null;
       const title = `Prix d'achat indicatif : création pour un an, TTC. Vérifié ${this.relative(g.checked_at)}.`;
-      if (g.kind === "premium") return { text: g.price ? `Premium ${this.gandiEuros(g.price)}` : "Premium", cls: "gandi-premium", title };
-      if (d.state !== "available") return null;
-      if (g.kind === "available" && g.price) return { text: `achat ${this.gandiEuros(g.price)}`, cls: "gandi-price", title };
-      if (GANDI_BLOCKED.includes(g.kind)) return { text: g.label, cls: "gandi-blocked", title: `Vérifié ${this.relative(g.checked_at)}.` };
+      if (kind === "premium") return { text: g.price ? `Premium ${this.gandiEuros(g.price)}` : "Premium", cls: "gandi-premium", title };
+      if (kind === "available" && g.price) return { text: `achat ${this.gandiEuros(g.price)}`, cls: "gandi-price", title };
       return null;
     },
 
@@ -3094,9 +3086,16 @@ document.addEventListener("alpine:init", () => {
 
     stateLabel(d) {
       if (d.check_error) return LABELS.error;
+      // Libre au registre mais refusé à l'achat au prix normal (revu au registre après) : même état que l'Explorer.
+      if (GANDI_BLOCKED.includes(this.gandiKind(d))) return d.gandi.label;
       // Disponible d'après le seul WHOIS : à confirmer chez un registrar.
       if (d.state === "available" && d.source === "whois") return "Disponible selon le WHOIS, à confirmer";
       return LABELS[d.state] || "Non vérifié";
+    },
+
+    // Classe du badge d'état : celle de l'état, ou celle de l'Explorer pour un nom libre refusé à l'achat.
+    stateClass(d) {
+      return !d.check_error && GANDI_BLOCKED.includes(this.gandiKind(d)) ? "x-7" : "s-" + this.displayState(d);
     },
 
     stateTitle(d) {

@@ -76,7 +76,8 @@ class GandiError(Exception):
 def read(raw: dict) -> dict:
     """Réponse brute de /v5/domain/check -> sorte, statut brut, prix TTC et HT d'un an de création.
 
-    premium : une ligne de prix de type « premium », ou le statut unavailable_premium ; reserved :
+    premium : un nom disponible avec une ligne de prix de type « premium » (vu en vrai : statut available) ;
+    unavailable_premium, premium déjà enregistré, ne s'achète pas : unavailable ; reserved :
     available_reserved, reserved_corporate ; restricted : unavailable_restricted ; error : pending,
     error_* et tout statut inconnu. Prix : la première ligne d'une durée minimale d'un an (TVA comprise
     seulement quand le nom est disponible, comme Gandi l'affiche)."""
@@ -85,7 +86,7 @@ def read(raw: dict) -> dict:
         return {"kind": "error", "status": "", "price": None, "price_ht": None, "currency": raw.get("currency") or "EUR"}
     status = str(product.get("status") or "")
     prices = [p for p in product.get("prices") or [] if isinstance(p, dict)]
-    premium = status == "unavailable_premium" or any(p.get("type") == "premium" for p in prices)
+    premium = status in AVAILABLE and any(p.get("type") == "premium" for p in prices)
     yearly = [p for p in prices if p.get("min_duration", 1) == 1 and p.get("duration_unit", "y") == "y"]
     if premium:
         yearly = [p for p in yearly if p.get("type") == "premium"] or yearly
@@ -376,11 +377,11 @@ class NightPass:
                 and self.store.get(f"{self.key}_last") != now_local.date().isoformat() and bool(self.explorer.tlds()))
 
     def pending(self, limit: int, now: datetime | None = None) -> list[str]:
-        """Noms à vérifier, dans l'ordre de la file IA : libres et bientôt libres d'abord, par score complet ;
+        """Noms à vérifier, dans l'ordre de la file IA : libres d'abord, par score complet, revus chaque jour ;
         puis probablement libres, libres selon le WHOIS, premiums et indisponibles déjà vus chez Gandi, par score
         de base, toutes extensions mêlées. Sautés : vérifiés depuis moins de N jours (un jour pour un nom qui a
         changé d'état depuis, ou une réponse en erreur). Seuls les noms qui ont un sens."""
-        from .explore import ABSENT, COMING, FREE, GONE, PREMIUM, RESERVED, UNCONFIRMED  # import local : explore importe ce module
+        from .explore import ABSENT, FREE, GONE, PREMIUM, RESERVED, UNCONFIRMED  # import local : explore importe ce module
 
         now = now or utcnow()
         ex = self.explorer
@@ -395,20 +396,20 @@ class NightPass:
         fresh_after = iso(now - timedelta(days=self.days) + timedelta(hours=2))
         recent_after = iso(now - timedelta(days=CHANGED_DAYS) + timedelta(hours=2))
 
-        def due(name: str) -> bool:
+        def due(name: str, daily: bool = False) -> bool:
             found = seen.get(name)
             if found is None:
                 return True
             at, kind, error = found
-            if kind == "error" or error or (since.get(name) or "") > at:
+            if daily or kind == "error" or error or (since.get(name) or "") > at:
                 return at <= recent_after
             return at <= fresh_after
 
         picked: list[str] = []
         taken: set[str] = set()
 
-        def take(name: str) -> bool:
-            if name in taken or not due(name):
+        def take(name: str, daily: bool = False) -> bool:
+            if name in taken or not due(name, daily):
                 return False
             taken.add(name)
             picked.append(name)
@@ -417,7 +418,9 @@ class NightPass:
         soon = []
         for tld in tlds:
             ctx = ex._bonus_context(tld)
-            for code in (FREE, COMING):
+            # Libres : revus chaque jour (un nom enregistré depuis passe indisponible, revérifié au registre).
+            # Bientôt libres (rédemption, suppression) : pas demandés, Gandi les dit toujours indisponibles.
+            for code in (FREE,):
                 at = data[tld].find(code)
                 while at != -1:
                     if u.good[at]:
@@ -425,7 +428,7 @@ class NightPass:
                         soon.append((ex._value(tld, at, label, ctx)["score"], f"{label}.{tld}"))
                     at = data[tld].find(code, at + 1)
         for _, name in sorted(soon, key=lambda x: (-x[0], x[1])):
-            if take(name):
+            if take(name, daily=True):
                 return picked
         maybe = (GONE, ABSENT, UNCONFIRMED, PREMIUM)
         for score in range(len(buckets) - 1, -1, -1):

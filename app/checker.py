@@ -53,6 +53,8 @@ class Checker:
         # Gandi, posé par main : async (nom, forcé) appelé après un check réussi d'un nom non pris (libre,
         # en rédemption ou en suppression) ; forcé pour un check à la main ou un changement d'état.
         self.gandi = None
+        # Lecture du registre réussie : la Veille et la fiche voient la même (Explorer.sync_registry).
+        self.on_result = None
 
     async def _notify_from_env(self, text: str) -> str | None:
         return await alerts.send_telegram(self.http, self.settings.telegram_token, self.settings.telegram_chat_id, text)
@@ -207,6 +209,12 @@ class Checker:
         except Exception:
             self.conn.execute("ROLLBACK")
             raise
+
+        if self.on_result is not None:
+            try:
+                self.on_result(row["name"], result)
+            except Exception:  # noqa: BLE001  la synchronisation ne doit jamais faire échouer le suivi
+                log.exception("%s : synchronisation avec la Veille impossible", row["name"])
 
         # Un passage à « disponible » vide le registrar : l'alerte d'état suffit.
         registrar_changed = bool(row["registrar"] and values["registrar"] and row["registrar"] != values["registrar"])

@@ -604,9 +604,11 @@ en erreur ne remplace pas un résultat connu : elle est notée à côté.
 
 - **Passe de nuit** (`gandi.NightPass`), de 3 h 30 à 4 h 45 (heure `TZ`), après les lectures et les passes DNS,
   avant la notation IA de 5 h. File : les noms non pris de toutes les extensions lues (.fr, zones ICANN, .co, .ai,
-  .io), dans l'ordre de la file IA : libres et bientôt libres d'abord (score complet), puis probablement libres,
+  .io), dans l'ordre de la file IA : libres d'abord (score complet, revus chaque jour : un nom enregistré depuis passe
+  indisponible et revérifié au registre), puis probablement libres,
   libres selon le WHOIS, premiums et noms déjà dits indisponibles par Gandi, par score de base décroissant ; noms qui
-  ont un sens seulement. Sautés : vérifiés depuis moins de 7 jours (réglable), 1 jour pour un nom qui a changé d'état
+  ont un sens seulement. Bientôt libres (rédemption, suppression) : pas demandés, Gandi les dit toujours
+  indisponibles. Sautés : vérifiés depuis moins de 7 jours (réglable), 1 jour pour un nom qui a changé d'état
   depuis ou une réponse en erreur. 3 requêtes par seconde au plus et 8 000 noms par nuit au plus (réglables). Jeton
   refusé (401, 403) : arrêt, erreur dans Paramètres, alerte Telegram une fois par jour au plus. Trop de requêtes
   (429) : attente demandée par Gandi (60 s par défaut), puis reprise au même nom ; au troisième refus d'affilée,
@@ -619,17 +621,24 @@ en erreur ne remplace pas un résultat connu : elle est notée à côté.
 - **À la demande** : Vérifier d'une fiche (après le RDAP, pour un nom libre, à confirmer ou en rédemption ; une panne
   de Gandi est dite dans `gandi_note` sans faire échouer la vérification) et la vérification d'un domaine suivi
   libre, en rédemption ou en suppression (une fois par jour au plus, toujours à la main ou à un changement d'état).
-- **Effet sur l'état** (Explorer, Veille, Aujourd'hui, fiche) : premium, état « Premium (Gandi) » avec le vrai prix
-  (`premium_price`) au lieu du prix des réglages ; libre au prix standard, un nom probablement libre, à confirmer ou
-  premium probable devient « Libre (Gandi) » (libre), le prix en petit ; indisponible, réservé ou restreint, un nom
-  qu'on croyait libre devient « Réservé » avec la raison « Indisponible chez Gandi » (« Réservé (Gandi) »,
-  « Restreint (Gandi) ») : retiré de la Veille comme les autres réservés, jamais compté libre. Un nom enregistré, en
-  rédemption ou d'une liste de réservés ne change jamais ; une réponse antérieure au dernier changement d'état du nom
-  (Veille) ne compte plus jusqu'à la vérification suivante (`stale`). Indisponible sur un nom qu'on croit libre (Veille, ou
-  absent de la zone ou de l'open data) : sans doute enregistré depuis la dernière lecture ; le registre est revu tout
-  de suite (ligne de Veille créée au besoin, sans sortie constatée), et la réponse ne compte
-  qu'une fois le registre revu après elle (`pending` d'ici là) : pris, le nom passe « Pris » ; toujours libre au
-  registre, il devient « Réservé ». Erreur : aucun changement, l'erreur est dans la fiche. Aujourd'hui compte comme libéré un nom à confirmer que Gandi dit libre.
+- **Effet sur l'état** : une seule règle pour tous les écrans (Explorer et fiche, Veille, Aujourd'hui, Domaines),
+  `explore.gandi_effect`, détaillée et testée combinaison par combinaison dans `tests/test_state_rules.py`. Premium
+  (statut available avec un prix premium) : « Premium » et son prix ; libre au prix standard : « Libre (vérifié) », le
+  prix en petit (« achat 10 € ») ; indisponible, réservé ou restreint (`unavailable_premium` compris : un premium déjà
+  enregistré ne s'achète pas) : d'abord une revérification au registre, tout de suite (`Explorer.recheck`) ; pris, le
+  nom passe « Enregistré » ; toujours libre au registre, « Indisponible à l'achat » (premium ou vente par un tiers, prix
+  à voir chez un registrar). D'ici là (`pending`), l'état d'avant tient. Jamais d'effet sur un nom enregistré, bientôt
+  libre ou suspendu, ni sur un terme d'une liste de réservés ; une réponse d'avant le dernier changement d'état ne
+  compte plus (`stale`) ; une erreur ne change rien. `gandi_state` (Explorer, fiche, Veille, Aujourd'hui, Domaines) :
+  la sorte qui fait l'état affiché ; l'interface ne refait pas le calcul.
+- **La dernière lecture l'emporte** : un .fr libre au registre puis vu délégué dans le DNS est enregistré depuis
+  (`explore.drop_open_code`), et le registre est revu ; la vérification d'un domaine suivi (écran Domaines) vaut aussi
+  pour sa ligne de Veille et l'Explorer (`Explorer.sync_registry`) ; un nom revenu dans sa zone ou dans le DNS est
+  repris. Une ligne de Veille créée sans sortie constatée (`origin` : `manual` pour Vérifier ou un domaine suivi,
+  `gandi` pour une revérification après un refus d'achat) dit « Vu libre au registre » ou « Vu enregistré au
+  registre », jamais « Libération constatée » ni « Repris » ; celles d'un refus d'achat restent hors de la Veille,
+  d'Aujourd'hui, des alertes et du résumé du matin. Contrôle sur des données réelles : `tests/fixtures/state_cases.json`
+  (combinaisons relevées sur un NAS, sans les noms), rejouées dans tous les écrans.
 - **Données** : `gandi` dans les éléments de l'Explorer, de la fiche (et `fiche.gandi`), de `/api/drops`,
   `/api/today` et `/api/domains` (`kind`, `status`, `label`, `price`, `price_ht`, `currency`, `checked_at`, `error`
   en clair, `stale`) ; `gandi_state` dans la Veille (la sorte qui vaut pour l'état affiché). File IA

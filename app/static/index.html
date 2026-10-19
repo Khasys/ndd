@@ -1531,7 +1531,7 @@
               </span>
             </td>
             <td class="state">
-              <span class="badge" :class="'s-' + displayState(d)" :title="stateTitle(d)" x-text="stateLabel(d)"></span>
+              <span class="badge" :class="stateClass(d)" :title="stateTitle(d)" x-text="stateLabel(d)"></span>
               <span class="last-known" x-show="d.check_error && d.state" :title="d.check_error && d.state ? 'Dernier état : ' + labels[d.state] : ''" x-text="'Dernier état : ' + labels[d.state]"></span>
               <span class="abandon" x-show="d.abandoned" :title="d.signals.map(s => s.label).join(', ')">Signes d'abandon</span>
             </td>
@@ -1696,7 +1696,7 @@
             <dl class="fdl">
               <dt>État</dt>
               <dd>
-                <span class="badge" :class="'s-' + displayState(d)" :title="stateTitle(d)" x-text="stateLabel(d)"></span>
+                <span class="badge" :class="stateClass(d)" :title="stateTitle(d)" x-text="stateLabel(d)"></span>
                 <span class="abandon" x-show="d.abandoned">Signes d'abandon</span>
                 <span class="muted small" x-show="d.state_since" x-text="'depuis le ' + shortDate(d.state_since)"></span>
               </dd>

@@ -71,6 +71,11 @@ def present(conn) -> list[str]:
     return [r[0] for r in conn.execute("SELECT label FROM name_dns WHERE present = 1")]
 
 
+def present_at(conn) -> dict[str, str]:
+    """Noms vus délégués et quand : plus récent qu'une vérification « libre » du registre, le DNS l'emporte."""
+    return dict(conn.execute("SELECT label, checked_at FROM name_dns WHERE present = 1").fetchall())
+
+
 def load(conn, labels: list[str]) -> dict[str, dict]:
     found = {}
     for chunk in range(0, len(labels), 900):
@@ -146,6 +151,9 @@ class FrDns:
         )
 
     def changed(self, label: str, present: bool) -> None:
+        if present:
+            # Délégué : libre dans la Veille, il a été enregistré depuis. Le registre est revu tout de suite.
+            self.explorer.recheck(f"{label}.fr", utcnow(), create=False)
         self.explorer.touch(f"{label}.fr")  # le nom change d'état dans l'Explorer
 
     # --- Requêtes -------------------------------------------------------------------

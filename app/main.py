@@ -373,6 +373,7 @@ async def lifespan(app: FastAPI):
             log.info("%s : Gandi : %s", name, exc)
 
     checker.gandi = gandi_domain
+    checker.on_result = app.state.explorer.sync_registry
     # Explorer : univers et classement préparés hors requête (thread), puis états et carte en mémoire.
     async def warm_explorer() -> None:
         await asyncio.get_running_loop().run_in_executor(None, lambda: explore.shared_universe().buckets())
@@ -844,16 +845,25 @@ async def list_domains(request: Request):
     items = [_serialize(row, checker) for row in rows]
     # Score et avis IA, mêmes calculs que l'Explorer : filtres et tri communs à tous les écrans.
     values = await _off(request.app.state.explorer.value_of, [d["name"] for d in items])
-    # Gandi : prix et premium d'un domaine non pris (libre, en rédemption, en suppression).
+    # Gandi : même règle que l'Explorer et la Veille (explore.gandi_effect), datée par la dernière lecture du registre.
     checks = gandi.load(request.app.state.conn, [d["name"] for d in items])
+    listed = request.app.state.reserved.names()
     for d in items:
         v = values.get(d["name"]) or {}
         d.update(score=v.get("score", 0), reasons=v.get("reasons", []), parts=v.get("parts", {}), ai=v.get("ai"),
-                 gandi=gandi.public(checks.get(d["name"])) if d["state"] in GANDI_DOMAIN_STATES else None)
+                 **_domain_gandi(d, checks.get(d["name"]), d["name"] in listed))
     return items
 
 
-GANDI_DOMAIN_STATES = (states.AVAILABLE, states.REDEMPTION, states.PENDING_DELETE)
+def _domain_gandi(d: dict, check: dict | None, listed: bool) -> dict:
+    """Réponse de Gandi d'un domaine suivi (gandi, ou None si elle ne concerne pas son état) et ce qu'elle fait de
+    l'état affiché (gandi_state). Registre lu en dernier : last_success_at ; entrée dans l'état : state_since."""
+    code = explore.FREE if d["state"] == states.AVAILABLE else None
+    if code is None or check is None:
+        return {"gandi": None, "gandi_state": None}
+    since, checked = d.get("state_since"), d.get("last_success_at") or ""
+    _, kind = explore.gandi_effect(code, check, since, checked, listed)
+    return {"gandi": gandi.public(check, since, checked), "gandi_state": kind}
 
 
 class NewDomain(BaseModel):
@@ -898,7 +908,8 @@ async def check_domain(request: Request, domain_id: int):
     checker = request.app.state.checker
     await checker.check(domain_id, manual=True)
     found = _serialize(_get_row(request, domain_id), checker)
-    found["gandi"] = gandi.public(gandi.load(request.app.state.conn, [found["name"]]).get(found["name"]))
+    found.update(_domain_gandi(found, gandi.load(request.app.state.conn, [found["name"]]).get(found["name"]),
+                               found["name"] in request.app.state.reserved.names()))
     return found
 
 
@@ -1281,8 +1292,8 @@ def _drop_rows(state) -> list:
     shown_since = iso(utcnow() - timedelta(days=watcher.keep_days))
     # Libres selon le seul WHOIS : affichés « à confirmer », depuis leur constat (pas de date de libération).
     rows = conn.execute(
-        """SELECT * FROM drops WHERE state IN (?, ?, ?) OR (state = ? AND available_since >= ?)
-             OR (state = ? AND state_since >= ?)
+        """SELECT * FROM drops WHERE (state IN (?, ?, ?) OR (state = ? AND available_since >= ?)
+             OR (state = ? AND state_since >= ?)) AND origin IS NOT 'gandi'
            ORDER BY release_at IS NULL, release_at, name""",
         (*drops.TRACKED, states.AVAILABLE, shown_since, drops.UNCONFIRMED, shown_since),
     ).fetchall()
@@ -1299,32 +1310,29 @@ def _drop_rows(state) -> list:
     return rows
 
 
-OPEN_DROP_STATES = (states.AVAILABLE, drops.UNCONFIRMED)
-
-
 def _drop_gandi(state, rows) -> dict[str, dict]:
-    """Réponse de Gandi pour chaque nom de la Veille, et ce qu'elle change : état (« available » fait d'un nom à
-    confirmer un nom libre, « premium », un indisponible ne s'affiche plus libre), premium (Gandi, sinon l'estimation
-    des 3 caractères hors .fr) et son prix (Gandi, sinon celui des réglages)."""
+    """Réponse de Gandi pour chaque nom de la Veille, et ce qu'elle change, par la même règle que l'Explorer
+    (explore.gandi_effect) : « available » fait d'un nom à confirmer un nom libre, « premium » un premium, un
+    indisponible revu au registre n'est plus affiché libre ; rien sur un nom en rédemption ou repris. Premium :
+    Gandi, sinon l'estimation des 3 caractères libres hors .fr (explore.PREMIUM), avec le prix des réglages."""
     explorer = state.explorer
     checks = gandi.load(state.conn, [r["name"] for r in rows])
     prices = explorer.premium_prices()
     premium_off = explorer.premium_tlds_off()
+    listed = state.reserved.names()
     found = {}
     for r in rows:
-        check, since = checks.get(r["name"]), r["state_since"]
-        kind = check["kind"] if gandi.applies(check, since, gandi.registry_checked(r)) else None
-        # Un nom en rédemption est forcément indisponible chez Gandi : seul un premium dit quelque chose de lui.
-        if kind and r["state"] not in OPEN_DROP_STATES and kind != "premium":
-            kind = None
+        check, since, checked = checks.get(r["name"]), r["state_since"], gandi.registry_checked(r)
+        code = explore.drop_code(r["state"])
+        _, kind = explore.gandi_effect(code, check, since, checked, r["name"] in listed) if code is not None else (code, None)
         length = str(len(r["name"]) - len(r["tld"]) - 1)
-        # 3 caractères libres hors .fr : souvent premium chez le registre (voir explore.PREMIUM), tant que Gandi n'a rien dit.
-        guess = (kind is None and r["tld"] != "fr" and r["tld"] not in premium_off and length == str(explore.PREMIUM_LENGTH))
+        guess = (kind is None and code in (explore.FREE, explore.UNCONFIRMED) and r["tld"] != "fr"
+                 and r["tld"] not in premium_off and length == str(explore.PREMIUM_LENGTH))
         price = round(check["price"]) if kind == "premium" and check["price"] is not None else None
         found[r["name"]] = {
-            "check": check, "since": since, "checked": gandi.registry_checked(r), "kind": kind, "premium": kind == "premium" or guess,
+            "check": check, "since": since, "checked": checked, "kind": kind, "premium": kind == "premium" or guess,
             "premium_price": price if kind == "premium" else prices.get(r["tld"], {}).get(length) if guess else None,
-            "blocked": kind in gandi.BLOCKED, "free": kind == "available" and r["state"] in OPEN_DROP_STATES,
+            "blocked": kind in gandi.BLOCKED, "free": kind == "available",
         }
     return found
 
@@ -1380,7 +1388,7 @@ async def list_drops(request: Request):
     if focus:
         rows = (await _off(_today_sets, state, rows, utcnow(), TODAY_PERIODS[period],
                            request.query_params.get("nopremium") == "1"))[focus]
-    pending = conn.execute("SELECT COUNT(*) FROM drops WHERE state IS NULL").fetchone()[0]
+    pending = conn.execute("SELECT COUNT(*) FROM drops WHERE state IS NULL AND origin IS NOT 'gandi'").fetchone()[0]
     suspended = dict(conn.execute("SELECT tld, COUNT(*) FROM drops WHERE state = ? GROUP BY tld", (drops.SUSPENDED,)).fetchall())
     hidden = conn.execute("SELECT COUNT(*) FROM drop_hidden").fetchone()[0]
     # Rafraîchissement de l'état seul (écran ouvert) : pas de liste, quelques Ko au lieu de plusieurs Mo.

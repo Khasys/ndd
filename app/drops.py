@@ -627,7 +627,7 @@ class DropWatcher:
                 self.conn.execute(
                     """INSERT INTO drops (name, tld, label, kind, lists, removed_on, next_check_at)
                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                       ON CONFLICT(name) DO UPDATE SET removed_on = excluded.removed_on, state = NULL,
+                       ON CONFLICT(name) DO UPDATE SET removed_on = excluded.removed_on, state = NULL, origin = NULL,
                          state_since = NULL, release_at = NULL, available_since = NULL, error = NULL,
                          next_check_at = excluded.next_check_at, lists = excluded.lists""",
                     (name, tld, label, kind_of(label), ",".join(wordlists.categories(label)),
@@ -785,15 +785,21 @@ class DropWatcher:
     def row(self, name: str):
         return self.conn.execute("SELECT * FROM drops WHERE name = ?", (name,)).fetchone()
 
-    def ensure(self, name: str, now: datetime):
-        """La ligne d'un nom, créée au besoin (vérification manuelle depuis l'Explorer). Aucune sortie de zone
-        ni du DNS n'a été constatée : removed_on vide (MANUAL), pas la date du jour, sinon la fiche
+    def ensure(self, name: str, now: datetime, origin: str = "manual"):
+        """La ligne d'un nom, créée au besoin : vérification manuelle depuis l'Explorer (origin manual), ou
+        revérification d'un nom refusé à l'achat (gandi, Explorer.recheck : hors Veille et Aujourd'hui). Aucune
+        sortie de zone ni du DNS n'a été constatée : removed_on vide (MANUAL), pas la date du jour, sinon la fiche
         afficherait « Sorti du DNS » ou « Sorti de la zone » ce jour-là."""
         found = self.row(name)
         if found is None:
             label, tld = name.split(".", 1)
             self.record(tld, [label], [], now)
-            self.conn.execute("UPDATE drops SET next_check_at = NULL, removed_on = ? WHERE name = ?", (MANUAL, name))
+            self.conn.execute("UPDATE drops SET next_check_at = NULL, removed_on = ?, origin = ? WHERE name = ?",
+                              (MANUAL, origin, name))
+            found = self.row(name)
+        elif origin == "manual" and found["origin"] == "gandi":
+            # Vérifié à la main ensuite : le nom entre dans la Veille comme les autres vérifications manuelles.
+            self.conn.execute("UPDATE drops SET origin = 'manual' WHERE name = ?", (name,))
             found = self.row(name)
         return found
 
