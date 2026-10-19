@@ -1391,7 +1391,7 @@ def test_ai_queue_new_lists_first_after_free_names(env):
                      (iso(now),) * 2)
     env.invalidate()
     data = env.status_bytes("com")
-    # 1 ou 2 caractères jamais vus : réservés par les registres, jamais dans la file (« ia », terme premium par dérivation).
+    # 1 ou 2 caractères jamais vus : réservés par les registres, jamais dans la file (« ia », terme star par dérivation).
     first = [u.label(i) for i in u.frequency("premium,keyword,brand")
              if u.good[i] and data[i] == explore.ABSENT and len(u.label(i)) > 2]
     seen = set(first)

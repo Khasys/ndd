@@ -46,7 +46,8 @@ LABELS = {
     UNCONFIRMED: "Libre selon le WHOIS, à confirmer",
     UNCHECKED: "Pas encore vérifié",
     # Indisponible chez Gandi, sans zone ni registre revu : enregistré dans l'immense majorité des cas en .com.
-    TAKEN_GANDI: "Pris (d'après Gandi)",
+    # Un seul statut « pris » à l'écran, quelle que soit la source (code distinct pour la revérification seule).
+    TAKEN_GANDI: "Enregistré",
 }
 # 3 caractères libres sur une extension générique : souvent vendus au prix premium par le registre.
 # Rien ne le confirme sans accès registrar ; l'Explorer les masque sauf si on demande à les voir.
@@ -375,8 +376,8 @@ class Universe:
                 if i is not None:
                     best[i] = min(best.get(i, 1.0), n / size)
         # Rang relatif de chaque nom d'une catégorie : dans sa liste ; nom dérivé, son meilleur rang relatif dans les
-        # listes d'où vient la catégorie (wordlists.DERIVED_FROM : assurance, 1er secteur porteur, parmi les premiers
-        # termes premium, pas au rang de « it » dans les mots anglais), après les mots du thème pour un thème.
+        # listes d'où vient la catégorie (wordlists.DERIVED_FROM : assurance, 1er terme star, parmi les premiers
+        # termes stars, pas au rang de « it » dans les mots anglais), après les mots du thème pour un thème.
         self.relative: dict[str, dict[int, float]] = {}
         gained = wordlists.derived()
         for key, r in ranks.items():
@@ -994,7 +995,7 @@ class Explorer:
 
     def best_rank(self, label: str, category: str = "") -> int | None:
         """Meilleur rang du nom dans les listes du filtre de catégorie (une ou plusieurs), sinon dans toutes. Nom
-        dérivé dans la catégorie (assurance dans Termes premium) : son meilleur rang dans les listes d'où vient la
+        dérivé dans la catégorie (assurance dans Termes stars) : son meilleur rang dans les listes d'où vient la
         catégorie (wordlists.DERIVED_FROM)."""
         ranks = wordlists.ranks()
         keys = [category] if category in ranks else ([c for c in category.split(",") if c in ranks] if "," in category else [])
@@ -1866,7 +1867,7 @@ class Explorer:
         if row is None and not create:
             return
         if row is None and name.partition(".")[2] in self.gandi_tlds() and not self._recheck_worth(name, now):
-            return  # par Gandi seul : « Pris (d'après Gandi) », sans requête au registre
+            return  # par Gandi seul : pris d'après Gandi, sans requête au registre
         if row is None:
             row = self.drops.ensure(name, now, "gandi")  # sans sortie constatée, hors Veille et Aujourd'hui
         elif row["state"] not in (states.AVAILABLE, drops.UNCONFIRMED, None):

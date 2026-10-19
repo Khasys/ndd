@@ -4,9 +4,10 @@
   WHOIS, noms .co / .ai / .io sortis du DNS ; seulement les bons (score minimum ou avis IA favorable), chacun
   avec le lien direct vers sa fiche, sans les pépites (annoncées à part). Rien à signaler : pas de rubrique.
 - Santé : lecture de zone en erreur ou en retard, .fr en erreur ou en pause longue, notation IA de nuit muette,
-  passe DNS en erreur ou à vide, Gandi en erreur, exécutions manquées du planificateur. Le contrôle horaire note
+  passe DNS en erreur ou à vide, Gandi en erreur, exécutions manquées du planificateur. Le contrôle de santé (toutes les 10 minutes) note
   l'apparition et la disparition de chaque problème (health_events) ; le quotidien les dit une fois, puis rappelle
-  d'une ligne ceux qui durent.
+  d'une ligne ceux qui durent. Les pannes bloquantes (BLOCKING) partent tout de suite (notify.urgent_tick), et le
+  quotidien ne les redit qu'en « Toujours en cours ».
 """
 
 import json
@@ -23,6 +24,10 @@ FR_PAUSE_ALERT = timedelta(hours=1)
 SCHEDULER_MISSED_MAX = 3   # exécutions manquées en 24 h tolérées avant l'alerte
 GOOD_VERDICTS = ("À prendre", "À surveiller")
 MAX_EVENTS = 50          # événements de santé gardés pour le quotidien
+# Pannes qui arrêtent l'appli sur une partie de son travail : dites tout de suite, apparition et fin. Jeton Gandi
+# refusé (passes de nuit et continue arrêtées), vérifications .fr en pause longue, zones non lues depuis 36 h,
+# fichier .fr de l'Afnic en erreur. Le reste attend le quotidien.
+BLOCKING = ("gandi", "fr_pause", "czds_late", "fr")
 
 
 def link(base: str, name: str) -> str:
@@ -167,12 +172,14 @@ def _events(store) -> list[dict]:
 
 
 def record_health(store, current: dict[str, str], now: datetime) -> int:
-    """Contrôle horaire : note les problèmes apparus et ceux réglés depuis le passage précédent (health_events),
+    """Contrôle de santé : note les problèmes apparus et ceux réglés depuis le passage précédent (health_events),
     pour le quotidien. Rien n'est envoyé ici. Renvoie le nombre d'événements notés."""
     before = json.loads(store.get("health_open") or "{}")
     events = _events(store)
-    added = [{"at": iso(now), "kind": "open", "text": text} for key, text in current.items() if key not in before]
-    added += [{"at": iso(now), "kind": "closed", "text": text} for key, text in before.items() if key not in current]
+    added = [{"at": iso(now), "kind": "open", "text": text, "urgent": key in BLOCKING}
+             for key, text in current.items() if key not in before]
+    added += [{"at": iso(now), "kind": "closed", "text": text, "urgent": key in BLOCKING}
+              for key, text in before.items() if key not in current]
     store.set("health_open", json.dumps(current))
     if added:
         store.set("health_events", json.dumps((events + added)[-MAX_EVENTS:]))
@@ -187,17 +194,46 @@ def note(store, text: str, now: datetime) -> None:
 EVENT_WORDS = {"open": "Apparu", "closed": "Réglé", "note": "Signalé"}
 
 
-def health_section(store) -> tuple[str | None, int]:
-    """Rubrique Santé du quotidien et nombre d'événements qu'elle couvre (effacés une fois le message parti) :
-    chaque événement une fois, puis une ligne par problème encore ouvert déjà signalé."""
-    events = _events(store)
+def _event_id(e: dict) -> tuple:
+    return e.get("at"), e.get("kind"), e.get("text")
+
+
+def urgent_events(store) -> list[dict]:
+    """Pannes bloquantes apparues ou réglées, pas encore envoyées."""
+    return [e for e in _events(store) if e.get("urgent") and not e.get("sent")]
+
+
+def mark_urgent_sent(store, events: list[dict]) -> None:
+    """Envoyées : le quotidien ne les redit pas (une panne qui dure y reste en « Toujours en cours »)."""
+    ids = {_event_id(e) for e in events}
+    store.set("health_events", json.dumps([{**e, "sent": True} if _event_id(e) in ids else e for e in _events(store)]))
+
+
+def urgent_text(events: list[dict]) -> str:
     zone = digest.local_zone()
     lines = []
     for e in events:
         at = parse_iso(e.get("at"))
+        when = f" ({at.astimezone(zone).strftime('%d/%m à %H:%M')})" if at else ""
+        word = "Réglé" if e.get("kind") == "closed" else "Panne bloquante"
+        lines.append(f"{word}{when} : {e.get('text', '')}")
+    return "\n".join(lines)
+
+
+def health_section(store) -> tuple[str | None, int]:
+    """Rubrique Santé du quotidien et nombre d'événements qu'elle couvre (effacés une fois le message parti) :
+    chaque événement une fois (sauf une panne bloquante déjà envoyée), puis une ligne par problème encore ouvert
+    déjà signalé."""
+    events = _events(store)
+    zone = digest.local_zone()
+    lines = []
+    for e in events:
+        if e.get("sent"):
+            continue
+        at = parse_iso(e.get("at"))
         when = f" le {at.astimezone(zone).strftime('%d/%m à %H:%M')}" if at else ""
         lines.append(f"{EVENT_WORDS.get(e.get('kind'), 'Signalé')}{when} : {e.get('text', '')}")
-    told = {e.get("text") for e in events if e.get("kind") == "open"}
+    told = {e.get("text") for e in events if e.get("kind") == "open" and not e.get("sent")}
     lines += [f"Toujours en cours : {text}" for text in json.loads(store.get("health_open") or "{}").values() if text not in told]
     if not lines:
         return None, len(events)

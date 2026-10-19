@@ -57,11 +57,11 @@ def shape(label: str) -> tuple[int, str | None]:
 
 
 POPULAR = {"word": "mot", "form": "forme", "surname": "nom", "firstname": "prénom", "english": "anglais",
-           "sector": "secteur", "trend": "tendance", "combo": "combinaison", "niche": "site de niche",
+           "sector": "terme star", "trend": "tendance", "combo": "nom composé", "niche": "site de niche",
            "expr": "expression", "media": "nom de média",
            "startup": "tech et startups", "job": "métier", "sport": "sport", "animal": "animal", "food": "cuisine",
-           "premium": "terme premium", "keyword": "mot-clé", "local": "métier + ville", "brand": "nom de marque"}
-# Une forme fléchie vaut moins que le mot de base ; une combinaison bien moins qu'un mot seul (métier + ville
+           "premium": "terme star", "keyword": "mot-clé", "local": "métier + ville", "brand": "nom de marque"}
+# Une forme fléchie vaut moins que le mot de base ; un nom composé bien moins qu'un mot seul (métier + ville
 # en est une ; une marque inventée n'a pas de sens, seulement un rang parmi les autres).
 POPULAR_FACTOR = {"form": 0.7, "combo": 0.5, "niche": 0.5, "expr": 0.8, "media": 0.6, "local": 0.5, "brand": 0.5}
 
@@ -82,10 +82,10 @@ def popularity(label: str) -> tuple[int, str | None]:
 
 # Raison lisible : « 153e mot le plus courant » plutôt que « mot n° 153 ».
 POPULAR_PHRASE = {"word": "mot le plus courant", "form": "forme la plus courante", "surname": "nom de famille le plus porté",
-                  "firstname": "prénom le plus donné", "english": "mot anglais le plus courant", "sector": "secteur porteur",
-                  "trend": "tendance", "combo": "combinaison", "niche": "site de niche", "expr": "expression courante",
+                  "firstname": "prénom le plus donné", "english": "mot anglais le plus courant", "sector": "terme star",
+                  "trend": "tendance", "combo": "nom composé", "niche": "site de niche", "expr": "expression courante",
                   "media": "nom de média", "startup": "mot tech et startups", "job": "métier le plus demandé",
-                  "sport": "mot du sport", "animal": "animal", "food": "mot de cuisine", "premium": "terme premium",
+                  "sport": "mot du sport", "animal": "animal", "food": "mot de cuisine", "premium": "terme star",
                   "keyword": "mot-clé à forte valeur", "local": "métier + ville", "brand": "nom de marque"}
 
 

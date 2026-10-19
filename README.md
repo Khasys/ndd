@@ -82,6 +82,7 @@ Deux rythmes. **Immédiat** : ce qui demande d'agir tout de suite. **Chaque jour
 | Bons noms du jour | chaque jour | libérés, entrés en rédemption ou en suppression, libres selon le WHOIS à confirmer, .co / .ai / .io sortis du DNS, en 24 h ; score minimum ou avis « À prendre » / « À surveiller » ; sans les pépites | fenêtre de 24 h |
 | Vues enregistrées | chaque jour | « Vue « X » : N nouveaux noms », les noms devenus libres ou bientôt libres depuis le message précédent qui répondent aux filtres de la vue (case « alerte » de la vue, Explorer) ; sans les pépites | depuis le passage précédent de la vue |
 | Renouvellements | chaque jour | noms du portefeuille 30 puis 7 jours avant l'échéance | par échéance et par rappel |
+| Panne bloquante | immédiat, au contrôle de santé (toutes les 10 minutes) | « Panne bloquante » puis « Réglé » : jeton Gandi refusé, vérifications .fr en pause plus d'une heure (limite Afnic), aucune zone ICANN lue avec succès depuis 36 h, fichier .fr de l'Afnic en erreur | à l'apparition et à la fin ; le quotidien ne la redit qu'en « Toujours en cours » |
 | Santé | chaque jour | apparu, réglé, signalé : zone en erreur ou pas lue depuis 36 h (ou aucune zone lue avec succès depuis 36 h), fichier .fr en erreur, pause .fr de plus d'une heure, notation IA muette depuis 36 h, passe DNS (.fr, .co, .ai, .io) en erreur, à vide ou arrêtée, Gandi en erreur ou passe arrêtée, plus de 3 exécutions manquées du planificateur en 24 h ; puis « Toujours en cours » pour ce qui dure | chaque événement une fois |
 | Résumé de la semaine | le jour choisi, dans le message du jour | domaines suivis : changements de la semaine, expirations et libérations des 30 jours à venir, domaines en erreur (rien sans domaine suivi) | une fois par semaine |
 
@@ -208,7 +209,7 @@ une autre valeur : 422. Les anciens noms `freed_24h` et `coming_48h` restent acc
 et **Bientôt libres** (en rédemption ou en suppression, avec la date estimée). **Explorer** : tous
 les noms suivis, pour chercher. Grande barre de recherche, puis l'état : **Libres**, **Bientôt
 libres** ou **Tous, même pris**, et le type de nom en mots simples (mots courants, anglais,
-prénoms, tech et startups, noms de médias, termes premium, métiers, sport, animaux, cuisine, courts…).
+prénoms, tech et startups, noms de médias, termes stars, métiers, sport, animaux, cuisine, courts…).
 
 Réglages communs, gardés d'un écran à l'autre :
 
@@ -317,11 +318,11 @@ mots français les plus courants (forme de base, sans accents), les noms de fami
 de 500 fois en France entre 1891 et 2000 (environ 21 700) et les prénoms donnés plus de 100 fois
 entre 1900 et 2018 (environ 10 000). S'y ajoutent les 30 000 mots anglais les plus fréquents
 (marques connues retirées), environ 580 mots des secteurs qui paient (assurance, crédit,
-immobilier, droit, santé, travaux…), environ 200 mots en vogue et environ 35 000 combinaisons
+immobilier, droit, santé, travaux…), environ 200 mots en vogue et environ 35 000 noms composés
 (monassurance, plombier-lyon, insurancehub, dallasplumber…) et environ 4 000 noms de sites de
 niche (forumdomotique, guidepotager, gardeningforum…), environ 1 000 expressions courantes
 françaises et anglaises (bonplan, faitmaison, goodvibes…), quatre listes thématiques (métiers,
-sport, animaux, cuisine), quatre listes fournies (termes premium, mots-clés à forte valeur, métier + ville,
+sport, animaux, cuisine), quatre listes fournies (termes stars, mots-clés à forte valeur, métier + ville,
 marques inventées) et « Mes ajouts », les noms ajoutés depuis l'Explorer (voir « Listes de noms »). Une liste
 ajoutée n'est cherchée dans une zone qu'à la lecture suivante, dans le fichier .fr qu'à l'import suivant,
 dans le DNS de .co, .ai et .io qu'à la passe suivante : d'ici là, ses noms n'apparaissent pas pour cette
@@ -341,13 +342,13 @@ dérivés (ci-dessous) ; le filtre de langue suit la langue relevée dans `app/d
 | word, form | Mots, Formes fléchies | 20 000 lemmes et 10 000 formes du Lexique |
 | surname, firstname | Noms de famille, Prénoms | Insee |
 | english | Mots anglais | 30 000 mots de wordfreq, marques retirées |
-| sector, trend, startup | Secteurs porteurs, Tendances, Tech et startups | listes à la main ; Secteurs porteurs sans puce à l'écran (ses noms sont dans Termes premium), la liste reste pour le score et le calage IA |
-| combo, niche, expr, media | Combinaisons, Sites de niche, Expressions, Noms de médias | construites par `scripts/build_lists.py` (noms de médias : lesvoeux, mondedujardinage, frandroid) |
+| sector, trend, startup | Secteurs porteurs, Tendances, Tech et startups | listes à la main ; Secteurs porteurs sans puce à l'écran (ses noms sont dans Termes stars), la liste reste pour le score et le calage IA |
+| combo, niche, expr, media | Noms composés, Sites de niche, Expressions, Noms de médias | construites par `scripts/build_lists.py` (noms de médias : lesvoeux, mondedujardinage, frandroid) |
 | job | Métiers | environ 500 métiers et professions, féminins et pluriels courants (plombier, notaire, infirmiere, avocats) |
 | sport | Sport | environ 220 sports, disciplines, équipements et mots du sport (football, padel, raquette, marathon) |
 | animal | Animaux | environ 220 animaux et mots des animaux de compagnie (chien, chaton, renard, croquettes) |
 | food | Cuisine | environ 330 plats, ingrédients, boissons et mots de la table (recette, raclette, fraise, cafe) |
-| premium | Termes premium | `premium.txt`, fourni |
+| premium | Termes stars | `premium.txt`, fourni |
 | keyword | Mots-clés à forte valeur | `motscles.txt`, fourni (réunion de listes françaises et anglaises) |
 | local | Métier + ville | `local.txt`, fourni (plombierparis) |
 | brand | Noms de marque | `marques_inventees.txt`, fourni : lieux et légendes, mots étrangers, mots réels détournés, noms inventés, composés rythmés, mots-valises ; la sonorité compte, pas le sens |
@@ -360,17 +361,17 @@ Elles servent à classer et filtrer seulement : rangs, traits et score restent c
 `ranks`), et l'empreinte de `scores.bin` ne couvre pas ce fichier (table identique octet par octet avant et après,
 test `test_derived_categories_do_not_change_the_score`).
 
-- Secteurs porteurs et tendances sont aussi des termes premium (assurance, credit, mortgage, padel).
-- Une combinaison est aussi un mot-clé à forte valeur quand elle associe une racine commerciale (secteur, terme
-  premium) à une intention de recherche (pas cher, discount, en ligne, comparateur, best, finder, online…) ou à
+- Secteurs porteurs et tendances sont aussi des termes stars (assurance, credit, mortgage, padel).
+- Un nom composé est aussi un mot-clé à forte valeur quand elle associe une racine commerciale (secteur, terme
+  star) à une intention de recherche (pas cher, discount, en ligne, comparateur, best, finder, online…) ou à
   une autre racine : assurancepascher, bestinsurance ; devis et quotes seulement pour un métier ou un service
   (assurancedevis, moversquotes ; pas matelasdevis) ; pas les possessifs ni les ajouts de média ou de marque
   (monassurance, mytravel, insurancehub, hairexpress, assurancepro, buyteeth).
-- Une combinaison ou un mot-clé de forme métier + ville est aussi Métier + ville : plombierlyon, plombier-lyon,
+- Un nom composé ou un mot-clé de forme métier + ville est aussi Métier + ville : plombierlyon, plombier-lyon,
   arlingtonlawyer, fortworthdentist ; ville d'abord seulement pour une ville américaine et pour immo, immobilier,
   auto, garage (lyonimmobilier). Villes de France et régions de `scripts/lists/metier_ville.txt` (celles de
   `local.txt`), villes américaines de `scripts/lists/cities_us.txt` ; pas de numéro de département (24 : 24 h).
-- Un nom composé (combinaisons, mots-clés, métier + ville, termes premium, sites de niche, expressions, noms de
+- Un nom composé (noms composés, mots-clés, métier + ville, termes stars, sites de niche, expressions, noms de
   médias) est découpé en vrais mots (Lexique, formes, anglais, thèmes, villes, affixes ; la découpe la plus économe,
   toutes ses variantes d'accord) : un mot de Métiers, Sport, Animaux, Cuisine, Tech et startups ou Tendances lui
   donne ce thème (coachsportif : Sport et Métiers, assuranceanimaux : Animaux, aiagents : Tech et startups et
@@ -383,7 +384,7 @@ test `test_derived_categories_do_not_change_the_score`).
 - Jamais vers les mots, formes, anglais, noms de famille, prénoms, marques inventées ni Mes ajouts.
 
 Ordre « les plus fréquents » et Top : un nom dérivé prend son rang relatif dans les listes d'où vient la catégorie
-(assurance, 1er secteur porteur, parmi les dix premiers termes premium) ; dans un thème, les noms composés gagnés
+(assurance, 1er terme star, parmi les dix premiers termes stars) ; dans un thème, les noms composés gagnés
 viennent après les mots du thème. Le filtre de fréquence (top N) leur applique ce même rang d'origine. Comparables
 de la fiche : la liste principale reste la première liste d'origine.
 
@@ -394,7 +395,7 @@ signalée, et écartée par l'appli) et relève leur langue dans `langues.txt` :
 celle des mots qui composent le nom (plombierparis : français ; carinsurance : anglais), sinon aucune, comme
 les noms propres. Les marques inventées n'ont pas de langue. Un fichier absent vaut une liste vide. Dans le
 score, leur rang compte comme celui des autres listes, avec le poids appris pour la liste la plus proche
-(termes premium et mots-clés : secteurs porteurs ; métier + ville : combinaisons ; marques inventées : tech et
+(termes stars et mots-clés : secteurs porteurs ; métier + ville : noms composés ; marques inventées : tech et
 startups). Une marque inventée n'est pas un « vrai mot » : sa forme se juge à la sonorité et elle ne gagne
 aucun point de sens, mais son rang lui en donne : pas de classement « faible » d'office (sur l'échantillon,
 de 30 à 41 selon le rang et l'extension, 30 étant le seuil des noms faibles).
@@ -604,7 +605,7 @@ meilleurs noms de chacune, voir « Le .fr », point 5), données de la Veille pa
 (avec un jeton Gandi) vient des réponses de Gandi : « Pas encore vérifié » tant qu'il n'a pas répondu (voir Gandi). Une extension
 DNS change de version à la fin de chaque passe : l'Explorer se recalcule alors.
 
-- **Top** : les 10, 50, 100, 200, 500 ou 1 000 premiers d'une catégorie (termes premium avec les secteurs
+- **Top** : les 10, 50, 100, 200, 500 ou 1 000 premiers d'une catégorie (termes stars avec les secteurs
   porteurs et les tendances, métiers, sport, animaux, cuisine, tendances, sites de niche, mots-clés, métier + ville,
   marques inventées, Mes ajouts
   dans l'ordre d'ajout, mots, anglais, prénoms, noms…), pris ou non, avec l'état sur chaque extension en toutes lettres
@@ -760,9 +761,9 @@ en erreur ne remplace pas un résultat connu : elle est notée à côté.
   d'accès CZDS, fichier trop gros, ou zone pas encore lue), avec un jeton, est dans l'Explorer quand même
   (`Explorer.gandi_tlds`). État de base de chaque nom : « Pas encore vérifié » (code 10, dans « Tous, même pris »
   seulement). Réponse de Gandi : libre, « Libre (vérifié) » et son prix ; premium, « Premium » et son prix ;
-  indisponible, réservé ou restreint, « Pris (d'après Gandi) » (code 11, compté pris : compteurs, demande « pris
-  ailleurs », filtre « pris sur une autre extension », mesure a posteriori des avis IA), libellé honnête : en .com,
-  presque toujours enregistré ; erreur, rien ne change. Pas de revérification au registre de chaque indisponible
+  indisponible, réservé ou restreint, « Enregistré » comme tout nom pris (un seul statut à l'écran ; code interne 11,
+  compté pris partout : compteurs, demande « pris ailleurs », filtre « pris sur une autre extension », mesure a
+  posteriori des avis IA) : en .com, presque toujours enregistré ; erreur, rien ne change. Pas de revérification au registre de chaque indisponible
   (des dizaines de milliers de requêtes RDAP vers Verisign) : seulement « Vérifier » (sans plafond), un nom déjà lu
   libre au registre que Gandi contredit (règle commune), et les noms à avis IA « À prendre », 50 par jour au plus
   (`explore.RECHECK_DAILY`). Un nom lu au registre suit la règle commune ; lu enregistré puis dit achetable par
@@ -864,7 +865,7 @@ l'Explorer ; rubrique d'Aujourd'hui et alertes Telegram, voir « Alertes ».
 
 Le NAS publie la liste à noter (`GET /api/ai/pending`) : noms libres ou bientôt libres d'abord (score complet ; la
 borne du score range d'abord, un nom n'est noté en entier que s'il peut sortir), puis les noms probablement libres ou
-libres des listes fournies (termes premium, mots-clés et marques mêlés par rang, puis métier + ville ; .fr et .com,
+libres des listes fournies (termes stars, mots-clés et marques mêlés par rang, puis métier + ville ; .fr et .com,
 puis .org), puis les autres probablement libres, puis enregistrés, les plus prometteurs d'abord. Un .com par Gandi
 seul entre dans la file dès que Gandi le dit libre (pas encore vérifié : jamais) ; mêmes filtres partout (mot
 seulement anglais écarté en .fr, 1 ou 2 caractères jamais vus écartés, réservés et premiums probables exclus), avec la consigne et des exemples

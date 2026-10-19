@@ -602,7 +602,7 @@ def test_exchange_script_compact_format_keeps_every_field_and_the_rules(tmp_path
 def test_top_follows_language_and_extensions(logged):
     client = logged()
     client.app.state.conn.execute("INSERT INTO fr_names (label, created_on) VALUES ('assurance', '2001-01-01')")
-    # cat=sector (adresse ancienne) : Termes premium, qui contient les secteurs porteurs, chacun à son rang relatif.
+    # cat=sector (adresse ancienne) : Termes stars, qui contient les secteurs porteurs, chacun à son rang relatif.
     every = client.get("/api/explore/top", params={"cat": "sector", "n": 100}).json()
     labels = [i["label"] for i in every["items"]]
     assert every["category"] == "premium" and "sector" not in every["lists"] and labels[:2] == ["cryptomonnaie", "rachatcredit"]
@@ -1172,7 +1172,7 @@ def test_interface_wires_the_wave_one_routes():
         assert route in js, route
     assert "/api/portfolio/export" in html
     assert 'this.api("GET", "/api/settings")' not in js.split("async startPairing")[1].split("async removeTelegram")[0]
-    # Nouvelles listes : puces de type et gabarit du Top ; Secteurs porteurs sans puce (dans Termes premium).
+    # Nouvelles listes : puces de type et gabarit du Top ; Secteurs porteurs sans puce (dans Termes stars).
     kinds = [k.split('"')[0] for k in js.split("const EX_TYPES")[1].split("];")[0].split('k: "')[1:]]
     assert kinds[kinds.index("media"):kinds.index("media") + 5] == ["media", "job", "sport", "animal", "food"]
     top = js.split("const TOP_LISTS = [")[1].split("]")[0]

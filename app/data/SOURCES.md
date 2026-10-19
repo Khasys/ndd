@@ -131,7 +131,7 @@ et même licence CC BY-SA 4.0 que mots.txt.
 ## langues.txt
 
 Langue (fr, en ou les deux) de chaque nom des listes mêlées : secteurs, tendances, combinaisons,
-sites de niche, expressions, métiers, sport, animaux, cuisine, et listes fournies (termes premium,
+sites de niche, expressions, métiers, sport, animaux, cuisine, et listes fournies (termes stars,
 mots-clés, métier + ville) quand elle se déduit des mots qui composent le nom. Relevée à la construction.
 
 Pour reconstruire les fichiers : `python scripts/build_lists.py DOSSIER_WORDFREQ LEXIQUE383_TXT` ;
@@ -166,7 +166,7 @@ mesure « marque » du score (un nom identique ne se revend pas sans risque).
 
 ## premium.txt
 
-Termes premium : mots et expressions génériques à forte valeur de revente, du plus au moins précieux, une
+Termes stars : mots et expressions génériques à forte valeur de revente, du plus au moins précieux, une
 entrée par ligne, en lettres minuscules et chiffres. Liste rédigée par IA, relue, 2026-10. Fichier fourni :
 scripts/build_lists.py ne l'écrit pas. 4 800 entrées, 26 secteurs, termes absents des autres listes.
 

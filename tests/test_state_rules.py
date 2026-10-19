@@ -358,7 +358,7 @@ def test_every_screen_shows_the_same_state_without_zone(logged):
             seen["domaines"] = domain_class(watched[name])
         assert set(seen.values()) == {expected}, (name, seen)
         if expected == "taken_gandi":
-            assert fiche["item"]["status_label"] == "Pris (d'après Gandi)" and fiche["item"]["gandi_state"] in gandi.BLOCKED
+            assert fiche["item"]["status_label"] == "Enregistré" and fiche["item"]["gandi_state"] in gandi.BLOCKED
         if expected == "unchecked":
             assert fiche["item"]["status_label"] == "Pas encore vérifié"
     client.__exit__(None, None, None)

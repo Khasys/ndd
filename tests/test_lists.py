@@ -1,4 +1,4 @@
-"""Listes fournies (termes premium, mots-clés, métier + ville, marques inventées) et « Mes ajouts »."""
+"""Listes fournies (termes stars, mots-clés, métier + ville, marques inventées) et « Mes ajouts »."""
 
 import asyncio
 import json
@@ -26,7 +26,7 @@ def mine_dir(tmp_path):
 
 def test_provided_lists_are_loaded_with_labels_and_languages():
     lists = wordlists.lists()
-    for key, label in (("premium", "Termes premium"), ("keyword", "Mots-clés à forte valeur"),
+    for key, label in (("premium", "Termes stars"), ("keyword", "Mots-clés à forte valeur"),
                        ("local", "Métier + ville"), ("brand", "Noms de marque"), ("mine", "Mes ajouts")):
         assert wordlists.LABELS[key] == label and key in explore.KINDS and key in explore.MAP_ROWS
     assert {"cryptomonnaie", "refinancing"} <= lists["premium"] and "rachatcredit" in lists["keyword"]
@@ -65,7 +65,7 @@ def test_provided_lists_count_in_the_score():
     f = quality.features("rachatcredit", "fr")
     assert f["in_sector"] > 0.9 and f["meaning"] > 0.9
     assert "12e mot-clé à forte valeur" in value.score("leasingvoiture", [])["reasons"]
-    assert "2e terme premium" in value.score("rachatcredit", [])["reasons"]  # aussi mot-clé : la liste la mieux placée
+    assert "2e terme star" in value.score("rachatcredit", [])["reasons"]  # aussi mot-clé : la liste la mieux placée
     assert quality.features("courtiercreditparis", "fr")["in_combo"] > 0
     # Marque inventée : la sonorité et le rang comptent, pas le sens ; jamais « faible » d'office.
     brand = quality.features("kinia", "com")
@@ -273,7 +273,7 @@ def test_sectors_and_trends_are_also_premium(build):
     found = b.derive({"sector": ["assurance", "mortgage"], "trend": ["padel", "agents"], "premium": ["agents"],
                       "word": ["assurance"]}, vocab)
     assert found["assurance"] == ["premium"] and found["mortgage"] == ["premium"] and found["padel"] == ["premium"]
-    assert "premium" not in found["agents"]  # déjà terme premium : rien à gagner (Tech et startups, par son mot)
+    assert "premium" not in found["agents"]  # déjà terme star : rien à gagner (Tech et startups, par son mot)
     for name in ("assurance", "credit", "mortgage", "assuranceauto", "creditimmobilier"):
         assert name in wordlists.classes()["premium"] and name not in wordlists.lists()["premium"]
 
@@ -417,7 +417,7 @@ def test_explorer_filters_counts_map_and_order_see_derived_categories(env):
     # Compteurs : l'union ; cat=sector se lit comme cat=premium (vues enregistrées, adresses anciennes).
     every = env.facets("fr", category="premium", junk=True)
     assert every == env.facets("fr", category="sector", junk=True) == env.facets("fr", category="premium,sector", junk=True)
-    # Termes premium : ses 4 800 noms et les 747 secteurs et tendances qui n'y étaient pas (quelques noms de 2 lettres
+    # Termes stars : ses 4 800 noms et les 747 secteurs et tendances qui n'y étaient pas (quelques noms de 2 lettres
     # réservés en .fr à part).
     assert len(wordlists.lists()["premium"]) + 700 < every["available"] <= len(wordlists.classes()["premium"])
     both = env.facets("fr", category="job,local", junk=True)["available"]

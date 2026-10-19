@@ -194,7 +194,8 @@ async def lifespan(app: FastAPI):
             notify.commit_daily(app.state.explorer, store, marks, utcnow())
 
     async def check_health() -> None:
-        """Contrôle horaire : les pannes apparues ou réglées sont notées pour la rubrique Santé du quotidien."""
+        """Toutes les 10 minutes : les pannes apparues ou réglées sont notées pour la rubrique Santé du quotidien ;
+        les bloquantes partent au passage suivant de send_alerts."""
         await _off(morning.record_health, store, await _off(morning.problems, app.state, utcnow()), utcnow())
 
     async def refresh_signals() -> None:
@@ -211,6 +212,9 @@ async def lifespan(app: FastAPI):
                                      telegram.configured, bool(state.gandi.key))
             if text and await telegram.send(text) is None:
                 pepites.mark_alerted(conn, names, now)
+            text, events = notify.urgent_tick(store, telegram.configured)
+            if text and await telegram.send(text) is None:
+                morning.mark_urgent_sent(store, events)
 
     async def update_outcomes() -> None:
         """Nuit : les avis d'il y a 30 jours sur des noms libres, revus à l'état d'aujourd'hui (ai_outcomes)."""
@@ -324,7 +328,7 @@ async def lifespan(app: FastAPI):
     # Messages Telegram en file de rejeu (429, panne, réseau) : renvoyés quand leur heure est venue.
     scheduler.add_job(telegram.flush, "interval", minutes=5, next_run_time=now + timedelta(minutes=7), max_instances=1, id="telegram_flush")
     scheduler.add_job(send_daily, "interval", minutes=5, next_run_time=now + timedelta(minutes=5), max_instances=1, id="send_daily")
-    scheduler.add_job(check_health, "interval", hours=1, next_run_time=now + timedelta(minutes=20), max_instances=1)
+    scheduler.add_job(check_health, "interval", minutes=10, next_run_time=now + timedelta(minutes=20), max_instances=1)
     scheduler.add_job(refresh_signals, "interval", hours=1, next_run_time=now + timedelta(minutes=2), max_instances=1)
     scheduler.add_job(send_alerts, "interval", minutes=1, next_run_time=now + timedelta(minutes=7), max_instances=1, id="send_alerts")
     scheduler.add_job(update_outcomes, "cron", hour=4, minute=40, max_instances=1, id="ai_outcomes")
@@ -1806,7 +1810,7 @@ TOP_SIZES = (10, 50, 100, 200, 500, 1000)
 TOP_STATES = {explore.REGISTERED: "pris", explore.SUSPENDED: "pris", explore.GONE: "probablement libre", explore.ABSENT: "probablement libre",
               explore.COMING: "à venir", explore.FREE: "libre", explore.RESERVED: "réservé", explore.INVALID: "pas lu",
               explore.PREMIUM: "premium probable", explore.UNCONFIRMED: "libre à confirmer",
-              explore.UNCHECKED: "pas encore vérifié", explore.TAKEN_GANDI: "pris (d'après Gandi)"}
+              explore.UNCHECKED: "pas encore vérifié", explore.TAKEN_GANDI: "pris"}
 
 
 def _top_state(tld: str, code: int) -> str:
@@ -1819,7 +1823,7 @@ def _top_state(tld: str, code: int) -> str:
 async def explore_top(request: Request):
     """Les N premiers d'une liste, pris ou non, avec leur état sur chaque extension."""
     explorer = request.app.state.explorer
-    # cat=sector (adresses anciennes) : Termes premium, qui contient tous les secteurs porteurs.
+    # cat=sector (adresses anciennes) : Termes stars, qui contient tous les secteurs porteurs.
     category = wordlists.canonical(request.query_params.get("cat", "premium"))
     if category not in wordlists.SHOWN and category != prenoms.TOP_KEY:
         raise HTTPException(422, "Liste inconnue.")

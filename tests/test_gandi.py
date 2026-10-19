@@ -530,7 +530,7 @@ def test_com_without_zone_is_known_through_gandi_alone(env, monkeypatch):
     jardin, abe, maison, velo, lune = (one(x) for x in ("jardin", "abe", "maison", "velo", "lune"))
     assert jardin["status"] == explore.FREE and jardin["status_label"] == "Libre (vérifié)" and jardin["gandi_state"] == "available"
     assert abe["status"] == explore.PREMIUM and abe["premium_price"] == 878
-    assert maison["status"] == explore.TAKEN_GANDI and maison["status_label"] == "Pris (d'après Gandi)"
+    assert maison["status"] == explore.TAKEN_GANDI and maison["status_label"] == "Enregistré"  # un seul statut « pris » à l'écran
     assert maison["gandi_state"] == "unavailable" and maison["reserved"] == []
     assert velo["status"] == explore.TAKEN_GANDI
     assert lune["status"] == explore.UNCHECKED and lune["status_label"] == "Pas encore vérifié" and lune["gandi"]["error"]

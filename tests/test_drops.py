@@ -330,7 +330,7 @@ def test_listed_words_are_tracked_with_their_categories(watcher):
         "navarro.com": ("long", "surname,english"),
         "courir.com": ("long", "word"),
         "martin.com": ("long", "word,surname,firstname,english"),
-        # Tendance, donc aussi terme premium (catégorie dérivée).
+        # Tendance, donc aussi terme star (catégorie dérivée).
         "velo.com": ("letters", "word,trend,sport,premium"),
     }
 

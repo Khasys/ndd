@@ -5,7 +5,7 @@ Usage : python scripts/build_lists.py WORDFREQ_DIR LEXIQUE_TXT
         python scripts/build_lists.py --themes   (listes thématiques et langues.txt seulement, sans Lexique)
         python scripts/build_lists.py --provided (langue des listes fournies dans langues.txt, sans Lexique)
 
-Listes fournies (termes premium, mots-clés à forte valeur, métier + ville, marques inventées : premium.txt,
+Listes fournies (termes stars, mots-clés à forte valeur, métier + ville, marques inventées : premium.txt,
 motscles.txt, local.txt, marques_inventees.txt) : rédigées ailleurs, jamais écrites ici. Le script en vérifie
 le format et en relève la langue (langues.txt) ; une marque inventée n'en a pas.
 
@@ -451,7 +451,7 @@ def provided_only() -> None:
 # jamais le score (rangs et traits restent ceux des listes d'origine). À relancer quand une liste change :
 # python scripts/build_lists.py --provided (ou --themes, ou la construction complète), qui finissent par là.
 # Listes d'où vient chaque catégorie (wordlists.DERIVED_FROM) : règle a, secteurs porteurs et tendances sont aussi
-# des termes premium ; b, combinaisons vers mots-clés ; c, combinaisons et mots-clés vers métier + ville ; d, noms
+# des termes stars ; b, combinaisons vers mots-clés ; c, combinaisons et mots-clés vers métier + ville ; d, noms
 # composés (wordlists.COMPOUNDS) vers les thèmes.
 TO_PREMIUM = wordlists.DERIVED_FROM["premium"]
 COMPOUNDS = wordlists.COMPOUNDS
@@ -495,7 +495,7 @@ STRONG = {"startup": {
     "qubit", "quantum", "cipher", "startup", "founder", "venture", "numerique", "logiciel", "appli", "robotique",
     "donnees", "algorithme", "serveur", "jeunepousse", "fondateur", "chip", "byte", "token", "deploy", "kernel",
     "autopilot", "ledger", "wallet"}}
-# Dans les listes commerciales (combinaisons, mots-clés, métier + ville, termes premium), « cuisine » et « kitchen »
+# Dans les listes commerciales (combinaisons, mots-clés, métier + ville, termes stars), « cuisine » et « kitchen »
 # sont le cuisiniste (cuisine-metz, deviscuisine, kitchenquotes), pas la table ; dans un site de niche ou un média
 # (forumcuisine, guidecuisine), la table.
 TRADE_LISTS = ("combo", "keyword", "local", "premium")
@@ -557,7 +557,7 @@ def derive_vocab(lists: dict[str, list[str]]) -> dict:
     services = {w.replace("-", "") for w in local["services"] + read("metiers_fr.txt") + read("trades_en.txt")}
     services |= themes["job"]
     affixes = {a for part in (*mods.values(), *formats.values()) for a in part} | LINKS | INTENT | QUOTE
-    # Racine commerciale : un secteur ou un terme premium qui n'est pas un ajout de combinaison (expert, app, pro).
+    # Racine commerciale : un secteur ou un terme star qui n'est pas un ajout de combinaison (expert, app, pro).
     # Une ville n'en est pas une (paris : aussi un secteur, les paris sportifs).
     roots = (set(lists.get("sector", ())) | set(lists.get("premium", ()))) - affixes - cities - us
     # Découpe en vrais mots : Lexique, formes et anglais de 3 lettres et plus (un mot de 2 lettres colle à tout),
@@ -593,7 +593,7 @@ def theme_of(name: str, vocab: dict, trade: bool = False) -> set[str]:
 
 
 def is_keyword(name: str, vocab: dict) -> bool:
-    """Combinaison qui associe une racine commerciale (secteur, terme premium) à une intention de recherche ou à
+    """Combinaison qui associe une racine commerciale (secteur, terme star) à une intention de recherche ou à
     une autre racine (assurancepascher, bestinsurance, assurancedevis), dans chacune de ses découpes les plus
     économes ; un devis seulement pour un métier ou un service."""
     ways = splits(name.replace("-", ""), vocab["commerce"])

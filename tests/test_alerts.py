@@ -274,6 +274,27 @@ def test_health_events_reach_the_daily_once(env):
     assert morning.health_section(store) == (None, 0)
 
 
+def test_blocking_health_goes_out_at_once_and_daily_only_recalls_it(env):
+    store = env.fr.store
+    morning.record_health(store, {"gandi": "Gandi : Jeton Gandi refusé", "dns:fr": "Passe DNS .fr en erreur : x"}, NOW)
+    assert notify.urgent_tick(store, can_send=False) == (None, [])  # sans Telegram : reste pour le quotidien
+    text, events = notify.urgent_tick(store, can_send=True)
+    assert text.startswith("Panne bloquante (") and "Jeton Gandi refusé" in text and "DNS" not in text
+    morning.mark_urgent_sent(store, events)
+    assert notify.urgent_tick(store, can_send=True) == (None, [])  # une fois
+    daily, count = morning.health_section(store)
+    assert "Apparu le " in daily and "Passe DNS" in daily and "Toujours en cours : Gandi : Jeton Gandi refusé" in daily
+    assert daily.count("Jeton") == 1  # déjà envoyée : rappelée, pas redite comme apparue
+    morning.consume_health(store, count)
+    morning.record_health(store, {"dns:fr": "Passe DNS .fr en erreur : x"}, NOW)  # jeton remplacé
+    text, events = notify.urgent_tick(store, can_send=True)
+    assert text.startswith("Réglé (") and "Jeton" in text
+    store.set("alert_on_health_urgent", "0")
+    morning.record_health(store, {"dns:fr": "x", "fr_pause": "Vérifications .fr en pause"}, NOW)
+    assert notify.urgent_tick(store, can_send=True) == (None, [])  # décoché : dite dans le quotidien
+    assert "Vérifications .fr en pause" in morning.health_section(store)[0]
+
+
 def test_pack_keeps_sections_whole_under_the_telegram_limit():
     parts = ["a" * 2500, "b" * 2500, "c" * 100, "d" * 5000]
     messages = notify.pack(parts)

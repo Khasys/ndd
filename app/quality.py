@@ -135,7 +135,7 @@ def features(label: str, tld: str) -> dict[str, float]:
         # Jusqu'à 3 chiffres, le .com se vend (marché asiatique) ; au-delà, et ailleurs, bien moins.
         f["digits_com"] = float(n <= 3 and tld == "com")
     strength = _list_strength(label)
-    # Listes sans avis IA de calage (termes premium, mots-clés, métier + ville, marques inventées) : leur rang
+    # Listes sans avis IA de calage (termes stars, mots-clés, métier + ville, marques inventées) : leur rang
     # compte avec le poids de la liste calée la plus proche (wordlists.SCORE_AS).
     borrowed = {k: v for k, v in strength.items() if k not in wordlists.SCORE_AS}
     for key, like in wordlists.SCORE_AS.items():

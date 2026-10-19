@@ -29,7 +29,7 @@ TAKEN_MIN_BASE = 40       # noms enregistrés notés seulement à partir de ce s
 MAYBE_FREE = (2, 3, 9)    # supprimé non repris, jamais vu, libre selon le seul WHOIS
 TAKEN = (1, 6, 4, 11)     # enregistré, suspendu, libération à venir, pris d'après Gandi (pris ailleurs = demande)
 UNCHECKED = 10            # extension par Gandi seul, pas encore demandé : rien n'est connu, pas noté
-# Nouvelles listes, en tête des noms probablement libres ou libres : termes premium, mots-clés et marques mêlés par
+# Nouvelles listes, en tête des noms probablement libres ou libres : termes stars, mots-clés et marques mêlés par
 # rang, puis métier + ville.
 FIRST_LISTS = (("premium", "keyword", "brand"), ("local",))
 
@@ -273,7 +273,7 @@ def _refresh_positions(explorer, locked: bool = False):
 
 def _queue(explorer, limit: int):
     """1. libres ou bientôt libres, du meilleur score au moins bon (extension pondérée) ;
-    2. probablement libres ou libres des nouvelles listes (termes premium, mots-clés et marques mêlés par rang, puis
+    2. probablement libres ou libres des nouvelles listes (termes stars, mots-clés et marques mêlés par rang, puis
     métier + ville), par palier d'extension ; 3. les autres probablement libres, puis 4. enregistrés, par score de
     base et extension. Ni les noms réservés ni ceux encore masqués (liste pas encore cherchée dans la zone), ni ceux
     d'une extension par Gandi seul pas encore demandés (un .com y entre dès que Gandi le dit libre)."""

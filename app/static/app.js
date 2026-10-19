@@ -14,18 +14,18 @@ const DNS_TLDS = ["co", "ai", "io"];
 const KIND_LABELS = {
   letters: "Lettres", digits: "Chiffres", mixed: "Lettres et chiffres", hyphen: "Avec tiret", word: "Mots",
   form: "Formes fléchies", surname: "Noms de famille", firstname: "Prénoms", english: "Mots anglais",
-  sector: "Secteurs porteurs", trend: "Tendances", combo: "Combinaisons", niche: "Sites de niche", expr: "Expressions",
+  sector: "Secteurs porteurs", trend: "Tendances", combo: "Noms composés", niche: "Sites de niche", expr: "Expressions",
   media: "Noms de médias", startup: "Tech et startups", job: "Métiers", sport: "Sport", animal: "Animaux", food: "Cuisine",
-  premium: "Termes premium", keyword: "Mots-clés à forte valeur", local: "Métier + ville", brand: "Noms de marque", mine: "Mes ajouts",
+  premium: "Termes stars", keyword: "Mots-clés à forte valeur", local: "Métier + ville", brand: "Noms de marque", mine: "Mes ajouts",
 };
 const NATURE_LABELS = { noun: "nom commun", verb: "verbe", adj: "adjectif", adv: "adverbe", other: "mot outil" };
 // Rang dans une liste, en clair : « 12e prénom le plus donné » (mêmes mots que les raisons du score, value.py).
 const FREQ_PHRASES = {
   word: "mot le plus courant", form: "forme la plus courante", surname: "nom de famille le plus porté",
-  firstname: "prénom le plus donné", english: "mot anglais le plus courant", sector: "secteur porteur", trend: "tendance",
-  combo: "combinaison", niche: "site de niche", expr: "expression courante", media: "nom de média",
+  firstname: "prénom le plus donné", english: "mot anglais le plus courant", sector: "terme star", trend: "tendance",
+  combo: "nom composé", niche: "site de niche", expr: "expression courante", media: "nom de média",
   startup: "mot tech et startups", job: "métier le plus demandé", sport: "mot du sport", animal: "animal", food: "mot de cuisine",
-  premium: "terme premium", keyword: "mot-clé à forte valeur", local: "métier + ville", brand: "nom de marque inventé", mine: "de mes ajouts",
+  premium: "terme star", keyword: "mot-clé à forte valeur", local: "métier + ville", brand: "nom de marque", mine: "de mes ajouts",
 };
 const VERDICT_CLASSES = { "À prendre": "take", "À surveiller": "watch", "À laisser": "skip" };
 // min : score minimum des filtres avancés ; 0 = tout voir. period : libérés depuis / libération dans (clé de
@@ -58,7 +58,7 @@ const EX_TYPES = [
   { k: "firstname", label: "Prénoms" }, { k: "surname", label: "Noms de famille" }, { k: "startup", label: "Tech et startups" },
   { k: "media", label: "Noms de médias" }, { k: "job", label: "Métiers" },
   { k: "sport", label: "Sport" }, { k: "animal", label: "Animaux" }, { k: "food", label: "Cuisine" }, { k: "trend", label: "Tendances" },
-  { k: "niche", label: "Sites de niche" }, { k: "expr", label: "Expressions" }, { k: "premium", label: "Termes premium" },
+  { k: "niche", label: "Sites de niche" }, { k: "expr", label: "Expressions" }, { k: "premium", label: "Termes stars" },
   { k: "keyword", label: "Mots-clés à forte valeur" }, { k: "local", label: "Métier + ville" }, { k: "brand", label: "Noms de marque" },
   { k: "mine", label: "Mes ajouts" }, { k: "short", label: "Courts (1 à 4)" },
 ];
@@ -772,8 +772,8 @@ document.addEventListener("alpine:init", () => {
                          when: i.release_at ? `libération ~${this.shortDate(i.release_at)}` : "libération à venir", canReserve: false, canCheck: false };
         case 1: return { badge: { text: "pris", cls: "x-1" }, when: detail || checked, canReserve: false, canCheck: false };
         case 6: return { badge: { text: "pris, suspendu", cls: "x-6" }, when: detail || checked, canReserve: false, canCheck: false };
-        // Extension par Gandi seul (.com sans zone) : indisponible chez Gandi, pris presque toujours ; Vérifier lit le registre.
-        case 11: return { badge: { text: "pris (d'après Gandi)", cls: "x-11" }, when: g ? `vérifié ${this.relative(g.checked_at)}` : "", canReserve: false, canCheck: true };
+        // Extension par Gandi seul (.com sans zone) : pris, comme les autres (un seul statut) ; Vérifier lit le registre.
+        case 11: return { badge: { text: "pris", cls: "x-1" }, when: g ? `vérifié ${this.relative(g.checked_at)}` : "", canReserve: false, canCheck: true };
         case 7: return GANDI_BLOCKED.includes(kind)
           ? { badge: { text: g.label.toLowerCase(), cls: "x-7" }, when: BLOCKED_WHY, canReserve: false, canCheck: false }
           : { badge: { text: "réservé", cls: "x-7" }, when: (i.reserved || []).join(", "), canReserve: false, canCheck: false };
@@ -1357,6 +1357,7 @@ document.addEventListener("alpine:init", () => {
     badgeClass(i) {
       if (!i) return "x-0";
       if (i.status === 8 && this.gandiKind(i, "explore") === "premium") return "x-8 gandi";
+      if (i.status === 11) return "x-1";  // pris d'après Gandi : même badge que pris
       return i.status === 4 && i.drop_state ? "s-" + i.drop_state : "x-" + i.status;
     },
 
@@ -1549,7 +1550,7 @@ document.addEventListener("alpine:init", () => {
       if (f.sort === "release" && f.status && f.status !== "coming") f.sort = "best";
       if (f.level && f.level !== "good") f.level = "good";
       // Plusieurs catégories : dans l'ordre du serveur (triées), pour reconnaître la vue active. Secteurs porteurs
-      // n'a plus de puce : ses noms sont dans Termes premium (CAT_ALIASES, wordlists.ALIASES côté serveur).
+      // n'a plus de puce : ses noms sont dans Termes stars (CAT_ALIASES, wordlists.ALIASES côté serveur).
       if (f.cat) f.cat = [...new Set(String(f.cat).split(",").filter(Boolean).map((c) => CAT_ALIASES[c] || c))].sort().join(",");
       return f;
     },

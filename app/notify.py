@@ -4,7 +4,8 @@ Immédiat :
 - pépite libre (pepites.py) : vue chaque minute, une fois par nom et par libération, les pépites d'un même passage
   dans un seul message ;
 - domaine suivi (écran Domaines) : changement d'état, de registrar ou de libération estimée (checker.py) ;
-- analyse IA demandée prête.
+- analyse IA demandée prête ;
+- panne bloquante (morning.BLOCKING) : apparue ou réglée, vue au contrôle de santé (toutes les 10 minutes).
 Quotidien, un seul message (en plusieurs parts au-delà de 4 000 caractères) à l'heure réglée, 8 h par défaut :
 pépites bientôt libres (nouvelles, libération sous 48 h ou date revue), bons noms des dernières 24 h (morning.py),
 vues enregistrées en alerte, rappels de renouvellement du portefeuille, santé (morning.py), et le jour choisi le
@@ -29,13 +30,17 @@ TYPES = (
     ("domain_change", "Domaine suivi", IMMEDIATE,
      "Nom de l'écran Domaines : changement d'état, de registrar ou de libération estimée"),
     ("ai_ready", "Analyse IA prête", IMMEDIATE, "Analyse demandée depuis une fiche, avec le lien"),
+    ("health_urgent", "Panne bloquante", IMMEDIATE,
+     "Jeton Gandi refusé, vérifications .fr en pause plus d'une heure, zones ICANN non lues depuis 36 h, fichier .fr "
+     "en erreur : à l'apparition et quand c'est réglé"),
     ("pepite_coming", "Pépites bientôt libres", DAILY,
      "Expirées, en rédemption ou en suppression, avec la libération estimée : nouvelles, sous 48 h ou date revue"),
     ("morning", "Bons noms du jour", DAILY,
      "Libérés, entrés en rédemption, à confirmer, sortis du DNS en 24 h : score minimum ou avis favorable"),
     ("views", "Vues enregistrées", DAILY, "Nouveaux noms des vues marquées « alerte » (Explorer)"),
     ("renewals", "Renouvellements", DAILY, "Noms du portefeuille, 30 puis 7 jours avant l'échéance"),
-    ("health", "Santé", DAILY, "Pannes apparues ou réglées : zones, .fr, DNS, Gandi, notation IA, planificateur"),
+    ("health", "Santé", DAILY, "Autres pannes apparues ou réglées (DNS, notation IA, planificateur…), et les pannes "
+     "bloquantes qui durent"),
     ("weekly", "Résumé de la semaine", WEEKLY,
      "Domaines suivis : changements, expirations et libérations à 30 jours, erreurs ; le jour choisi"),
 )
@@ -93,6 +98,17 @@ def save(store, enabled_types: dict[str, bool] | None = None, **values) -> None:
     for key in ("pepite_min", "daily_hour", "weekly_day", "morning_min"):
         if values.get(key) is not None:
             store.set(f"alert_{key}", str(int(values[key])))
+
+
+# --- Immédiat : pannes bloquantes ------------------------------------------------------------
+
+def urgent_tick(store, can_send: bool) -> tuple[str | None, list[dict]]:
+    """Pannes bloquantes pas encore dites : le message et les événements à marquer envoyés. Type décoché ou Telegram
+    absent : rien ici, elles restent pour la rubrique Santé du quotidien."""
+    if not can_send or not enabled(store, "health_urgent"):
+        return None, []
+    events = morning.urgent_events(store)
+    return (morning.urgent_text(events), events) if events else (None, [])
 
 
 # --- Immédiat : pépites libres ---------------------------------------------------------------

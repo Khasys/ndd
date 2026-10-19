@@ -1,10 +1,10 @@
 """Listes de noms surveillés au-delà des noms courts : mots français, noms de famille, prénoms,
 mots anglais, secteurs porteurs, tendances, combinaisons et listes thématiques (métiers, sport, animaux,
-cuisine), construites par scripts/build_lists.py ; termes premium, mots-clés à forte valeur, métier + ville
+cuisine), construites par scripts/build_lists.py ; termes stars, mots-clés à forte valeur, métier + ville
 et marques inventées, fournis tels quels ; « Mes ajouts », les noms ajoutés depuis l'Explorer.
 
 Catégories : un nom a ses listes d'origine, plus les catégories dérivées (categories.txt, calculé par
-scripts/build_lists.py : assurance aussi dans Termes premium, plombierlyon aussi dans Métiers). Les dérivées
+scripts/build_lists.py : assurance aussi dans Termes stars, plombierlyon aussi dans Métiers). Les dérivées
 servent à classer et filtrer (classes, categories) ; le score ne connaît que les listes d'origine (lists, ranks).
 
 Fichiers dans app/data, une entrée par ligne, déjà en minuscules et sans accents, du plus
@@ -20,10 +20,10 @@ from pathlib import Path
 
 DATA = Path(__file__).parent / "data"
 LABELS = {"word": "Mots", "form": "Formes fléchies", "surname": "Noms de famille", "firstname": "Prénoms",
-          "english": "Mots anglais", "sector": "Secteurs porteurs", "trend": "Tendances", "combo": "Combinaisons",
+          "english": "Mots anglais", "sector": "Secteurs porteurs", "trend": "Tendances", "combo": "Noms composés",
           "niche": "Sites de niche", "expr": "Expressions", "media": "Noms de médias",
           "startup": "Tech et startups", "job": "Métiers", "sport": "Sport", "animal": "Animaux",
-          "food": "Cuisine", "premium": "Termes premium", "keyword": "Mots-clés à forte valeur",
+          "food": "Cuisine", "premium": "Termes stars", "keyword": "Mots-clés à forte valeur",
           "local": "Métier + ville", "brand": "Noms de marque", "mine": "Mes ajouts"}
 # Nature des mots et des formes, tirée du Lexique.
 NATURES = {"verb": "Verbes", "noun": "Noms communs", "adj": "Adjectifs", "adv": "Adverbes", "other": "Mots outils"}
@@ -62,10 +62,10 @@ THEMES = ("startup", "job", "sport", "animal", "food", "trend")
 # Noms composés, découpés en mots pour leur donner un thème.
 COMPOUNDS = ("combo", "keyword", "local", "premium", "niche", "expr", "media")
 # Listes d'où vient chaque catégorie dérivée (règles de scripts/build_lists.py) : un nom dérivé y prend son rang
-# (Top, « les plus fréquents », filtre de fréquence) : assurance, 1er secteur porteur, parmi les premiers termes premium.
+# (Top, « les plus fréquents », filtre de fréquence) : assurance, 1er terme star, parmi les premiers termes stars.
 DERIVED_FROM = {"premium": ("sector", "trend"), "keyword": ("combo",), "local": ("combo", "keyword"),
                 **{key: COMPOUNDS for key in THEMES}}
-# Liste sans puce : ses noms sont tous dans Termes premium (catégorie dérivée) ; elle reste pour le score et le
+# Liste sans puce : ses noms sont tous dans Termes stars (catégorie dérivée) ; elle reste pour le score et le
 # calage IA, et cat=sector (vues enregistrées, adresses anciennes) se lit comme cat=premium.
 HIDDEN = ("sector",)
 ALIASES = {"sector": "premium"}

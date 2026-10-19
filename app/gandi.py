@@ -84,7 +84,7 @@ LIVE_IDLE = 900           # rien à revoir : tour suivant dans 15 minutes
 LIVE_FAIL_PAUSE = 900     # FAIL_STOP échecs réseau d'affilée : pause de 15 minutes, puis reprise
 LIVE_LIMIT_MAX = 3600     # « trop de requêtes » répétés : attente doublée à chaque refus, une heure au plus
 LIVE_HALT_HOURS = 24      # jeton refusé : nouvel essai le lendemain, ou dès qu'un jeton est enregistré
-# Ordre de la file : listes fournies d'abord, termes premium, mots-clés et marques mêlés par rang, puis métier + ville.
+# Ordre de la file : listes fournies d'abord, termes stars, mots-clés et marques mêlés par rang, puis métier + ville.
 FIRST_LISTS = (("premium", "keyword", "brand"), ("local",))
 DAILY_KINDS = ("available", "premium", "error")  # revus chaque jour : un nom à prendre, ou sans réponse exploitable
 
@@ -693,7 +693,7 @@ class LivePass:
 
     def plan(self, limit: int, now: datetime | None = None) -> tuple[list[str], dict]:
         """(noms à demander, dans l'ordre ; compte des noms concernés et de ceux à revoir). Ordre : libres et premiums
-        à revoir (revus chaque jour), puis les listes fournies (termes premium, mots-clés et marques mêlés par rang,
+        à revoir (revus chaque jour), puis les listes fournies (termes stars, mots-clés et marques mêlés par rang,
         puis métier + ville), puis le reste par score de base. Noms qui ont un sens seulement ; pas un terme réservé,
         ni un nom enregistré ou bientôt libre d'après le registre (Vérifier), sauf « enregistré » revu après N jours."""
         from .explore import FREE, PREMIUM, REGISTERED, TAKEN_GANDI, UNCHECKED  # import local : explore importe ce module
