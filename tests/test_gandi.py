@@ -234,18 +234,20 @@ def test_night_queue_free_first_then_by_score_skipping_fresh_checks(env):
     env.invalidate("com")
     night, _ = make_pass(env)
     names = night.pending(10**6, now)
-    # Libres en tête, revus chaque jour : velo.com (Veille), jardin.com (libre d'après Gandi il y a 2 jours).
-    assert set(names[:2]) == {"velo.com", "jardin.com"}
-    assert {"chat.com", "lune.com", "ciel.com"} <= set(names)  # changé d'état, en erreur, vu il y a 8 jours (réservé)
-    assert "maison.com" not in names and len(names) == len(set(names))
-    assert set(night.pending(3, now)[:2]) == {"velo.com", "jardin.com"} and len(night.pending(3, now)) == 3
-    # Un probablement libre vu il y a 2 jours attend 7 jours (réglable).
-    env.conn.execute("UPDATE gandi_checks SET kind = 'unavailable', status = 'unavailable' WHERE name = 'jardin.com'")
-    env.conn.execute("INSERT INTO gandi_checks (name, status, kind, checked_at) VALUES ('soleil.com', 'error', 'error', ?)",
-                     (iso(now - timedelta(days=2)),))
+    # Libre au registre jamais demandé (velo.com, Veille) en tête. Déjà dit libre au tarif normal par Gandi (jardin.com) :
+    # pas revu, la zone dira s'il est repris et son prix est celui de la grille. Revus : état changé depuis la réponse
+    # (chat.com), réponse en erreur (lune.com) ; pris il y a 8 jours (ciel.com) : pas avant 30 jours (réglable).
+    assert names[0] == "velo.com" and {"chat.com", "lune.com"} <= set(names)
+    assert not {"jardin.com", "ciel.com", "maison.com"} & set(names) and len(names) == len(set(names))
+    assert night.pending(3, now)[0] == "velo.com" and len(night.pending(3, now)) == 3
+    night.store.set("gandi_pass_days", "7")
+    assert "ciel.com" in night.pending(10**6, now)
+    # Premium : revu après 30 jours, 7 avec un avis « À prendre ».
+    env.conn.execute("UPDATE gandi_checks SET kind = 'premium', status = 'available', checked_at = ? WHERE name = 'jardin.com'",
+                     (iso(now - timedelta(days=10)),))
     env.invalidate("com")
     assert "jardin.com" not in night.pending(10**6, now)
-    night.store.set("gandi_pass_days", "1")
+    _take(env.conn, "jardin.com")
     assert "jardin.com" in night.pending(10**6, now)
 
 
@@ -619,9 +621,9 @@ def test_com_without_zone_uses_the_registry_dns_before_gandi(env, monkeypatch):
     names, info = live.plan(10**7)
     # Seulement les absents : un délégué est pris, un nom pas encore interrogé attend la passe DNS.
     assert sorted(names) == ["jardin.com", "velo.com"] and info["total"] == info["due"] == 2
-    # Libre d'après Gandi il y a deux jours, pas encore interrogé dans le DNS : revu chaque jour quand même, en tête.
-    env.conn.execute("INSERT INTO gandi_checks (name, status, kind, checked_at) VALUES ('soleil.com', 'available', "
-                     "'available', ?)", (iso(utcnow() - timedelta(days=2)),))
+    # Premium vu il y a 31 jours, pas encore interrogé dans le DNS : revu quand même, en tête.
+    env.conn.execute("INSERT INTO gandi_checks (name, status, kind, price, checked_at) VALUES ('soleil.com', "
+                     "'available', 'premium', 878, ?)", (iso(utcnow() - timedelta(days=31)),))
     env.touch("soleil.com")
     assert live.plan(10**7)[0] == ["soleil.com", *names]
     # Absent du DNS et pris d'après Gandi (enregistré sans serveurs) : pris ; libre : libre.
@@ -671,19 +673,23 @@ def test_live_pass_order_lists_first_then_score_with_revisits(env):
     rest = names[len(pkb) + len(local):]
     scores = [u.base_table[u.index(n[:-4])] & 127 for n in rest[:2000]]
     assert scores == sorted(scores, reverse=True)
-    # Revus : libres et premiums chaque jour (en tête), les autres après 7 jours (réglable), les erreurs le lendemain.
+    # Revus selon revisit_due : libres au tarif normal jamais d'office, premiums après 30 jours, pris après 30 jours
+    # (réglable), erreurs le lendemain.
     at = lambda days: iso(now - timedelta(days=days))  # noqa: E731
     for name, kind, days in (("jardin.com", "available", 2), ("abe.com", "premium", 2), ("maison.com", "unavailable", 2),
                              ("velo.com", "unavailable", 8), ("lune.com", "error", 2), ("soleil.com", "available", 0.5)):
         env.conn.execute("INSERT INTO gandi_checks (name, status, kind, checked_at) VALUES (?, ?, ?, ?)", (name, kind, kind, at(days)))
         env.touch(name)
     names, info = live.plan(10**7, now)
-    assert set(names[:2]) == {"jardin.com", "abe.com"}
-    assert "maison.com" not in names and "soleil.com" not in names and {"velo.com", "lune.com"} <= set(names)
-    assert info["due"] == len(names) == info["total"] - 2
+    assert "lune.com" in names and not {"jardin.com", "abe.com", "maison.com", "velo.com", "soleil.com"} & set(names)
+    assert info["due"] == len(names) == info["total"] - 5
     assert live.plan(5, now)[0] == names[:5]
     live.store.set("gandi_live_days", "1")
-    assert "maison.com" in live.plan(10**7, now)[0]
+    assert {"maison.com", "velo.com"} <= set(live.plan(10**7, now)[0])
+    # Premium vu il y a plus de 30 jours : revu, en tête.
+    env.conn.execute("UPDATE gandi_checks SET checked_at = ? WHERE name = 'abe.com'", (at(31),))
+    env.touch("abe.com")
+    assert live.plan(10**7, now)[0][0] == "abe.com"
 
 
 def test_live_pass_keeps_its_rate_when_gandi_is_slow(env):
@@ -896,3 +902,29 @@ def test_gandi_live_settings_and_diag_without_secret(logged):
     assert items and items[0]["status"] == explore.UNCHECKED and items[0]["status_label"] == "Pas encore vérifié"
     st.store.set("gandi_live_enabled", "0")
     client.__exit__(None, None, None)
+
+
+def test_price_grid_one_call_per_extension_a_day(env):
+    """Prix normal de chaque extension : un appel par jour sur un nom tiré au hasard, au lieu de redemander chaque
+    libre. Un prix qui change est reporté sur tous les libres au tarif normal de l'extension, pas sur les premiums."""
+    calls = []
+    price = {"value": 13.2}
+
+    def handler(request):
+        calls.append(request.url.params["name"])
+        line = {**STANDARD, "price_after_taxes": price["value"], "price_before_taxes": round(price["value"] / 1.2, 2)}
+        return httpx.Response(200, json=answer("available", [line], request.url.params["name"]))
+
+    client = client_for(env, handler)
+    now = utcnow()
+    for name, kind, value in (("jardin.com", "available", 13.2), ("abe.com", "premium", 878.4), ("velo.xyz", "available", 13.2)):
+        env.conn.execute("INSERT INTO gandi_checks (name, status, kind, price, checked_at) VALUES (?, 'available', ?, ?, ?)",
+                         (name, kind, value, iso(now)))
+    assert asyncio.run(client.refresh_grid(["com", "xyz"], now)) == {"com": 13.2, "xyz": 13.2}
+    assert len(calls) == 2 and all(len(c.split(".")[0]) == 16 for c in calls)
+    assert set(gandi.grid(env.fr.store)) == {"com", "xyz"}
+    assert asyncio.run(client.refresh_grid(["com", "xyz"], now)) == {} and len(calls) == 2  # une fois par jour
+    price["value"] = 15.6
+    assert asyncio.run(client.refresh_grid(["com"], now + timedelta(days=1))) == {"com": 15.6}
+    found = gandi.load(env.conn, ["jardin.com", "abe.com", "velo.xyz"])
+    assert found["jardin.com"]["price"] == 15.6 and found["abe.com"]["price"] == 878.4 and found["velo.xyz"]["price"] == 13.2

@@ -273,6 +273,13 @@ async def lifespan(app: FastAPI):
             start_pass(app.state.cc_dns[tld])
         return check
 
+    async def refresh_gandi_grid() -> None:
+        state = app.state
+        tlds = sorted({*state.gandi_pass.tlds(), *state.gandi_live.tlds()})
+        if tlds and state.gandi.key:
+            if await state.gandi.refresh_grid(tlds):
+                state.explorer.invalidate()  # prix normal changé : reporté sur les libres de l'extension
+
     async def check_gandi() -> None:
         """Passe Gandi : de 3 h 30 à 4 h 45, après les lectures et les passes DNS, avant la notation IA de 5 h."""
         night = app.state.gandi_pass
@@ -349,6 +356,9 @@ async def lifespan(app: FastAPI):
     # Gandi : une passe par nuit, dans sa fenêtre ; la tâche rend la main tout de suite (passe à part).
     scheduler.add_job(check_gandi, "interval", minutes=5, next_run_time=now + timedelta(minutes=13), max_instances=1,
                       id="check_gandi", name="check_gandi")
+    # Grille de prix Gandi : un appel par extension et par jour (prix normal ; les libres ne sont plus redemandés).
+    scheduler.add_job(refresh_gandi_grid, "interval", hours=1, next_run_time=now + timedelta(minutes=4), max_instances=1,
+                      id="gandi_grid", name="gandi_grid")
     # Extensions par Gandi seul : passe continue, jour et nuit ; relancée toutes les 5 minutes si elle s'est arrêtée.
     scheduler.add_job(check_gandi_live, "interval", minutes=5, next_run_time=now + timedelta(minutes=3), max_instances=1,
                       id="check_gandi_live", name="check_gandi_live")

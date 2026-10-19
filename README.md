@@ -738,12 +738,10 @@ en erreur ne remplace pas un résultat connu : elle est notée à côté.
 
 - **Passe de nuit** (`gandi.NightPass`), de 3 h 30 à 4 h 45 (heure `TZ`), après les lectures et les passes DNS,
   avant la notation IA de 5 h. File : les noms non pris de toutes les extensions lues (.fr, zones ICANN, .co, .ai,
-  .io ; pas une extension par Gandi seul, voir plus bas), dans l'ordre de la file IA : libres d'abord (score complet, revus chaque jour : un nom enregistré depuis passe
-  indisponible et revérifié au registre), puis probablement libres,
+  .io ; pas une extension par Gandi seul, voir plus bas), dans l'ordre de la file IA : libres d'abord (score complet), puis probablement libres,
   libres selon le WHOIS, premiums et noms déjà dits indisponibles par Gandi, par score de base décroissant ; noms qui
   ont un sens seulement. Bientôt libres (rédemption, suppression) : pas demandés, Gandi les dit toujours
-  indisponibles. Sautés : vérifiés depuis moins de 7 jours (réglable), 1 jour pour un nom qui a changé d'état
-  depuis ou une réponse en erreur. 3 requêtes par seconde au plus et 8 000 noms par nuit au plus (réglables) ;
+  indisponibles. Un nom déjà demandé n'est revu que selon `gandi.revisit_due` (voir « Économie des appels »). 3 requêtes par seconde au plus et 8 000 noms par nuit au plus (réglables) ;
   jusqu'à 8 requêtes en vol (`gandi.Inflight`, comme la passe continue) : une à une, la passe tombait à 1 nom par
   seconde (4 384 noms la nuit du 19/10) et n'atteignait pas son plafond dans la fenêtre. Jeton
   refusé (401, 403) : arrêt, erreur dans Paramètres et dans la rubrique Santé du message du jour. Trop de requêtes
@@ -756,6 +754,19 @@ en erreur ne remplace pas un résultat connu : elle est notée à côté.
   `PUT /api/settings/gandi/pass` (`enabled`, `rate` de 0,2 à 10, `nightly` de 1 à 50 000, `days` de 1 à 90). État :
   `gandi.pass` de `GET /api/settings`, `gandi_pass` de `/api/diag` (sans le jeton ni sa présence), `gandi` de
   `/api/drops` (ligne des sources de la Veille et carte « Sources et lectures »).
+- **Économie des appels** : chaque appel extérieur ne part que s'il peut apprendre quelque chose.
+  - Gandi, nom déjà classé (`revisit_due`, une seule règle pour les deux passes) : sur un événement (état changé
+    depuis la réponse : sortie de zone ou du DNS, libération), ou une réponse en erreur, le lendemain ; libre au tarif
+    normal, jamais d'office (zone, DNS ou registre disent s'il est repris) ; premium, 30 jours (7 avec un avis IA
+    « À prendre ») ; pris, réservé ou restreint, 30 jours (réglable, `days`). Avant : libres et premiums chaque jour
+    (6 100 des 8 000 requêtes de la nuit du 19/10).
+  - Prix normal par extension (`Gandi.refresh_grid`, tâche `gandi_grid`) : un appel par extension et par jour, sur un
+    nom de 16 lettres tiré au hasard ; un prix qui change est reporté sur tous les libres au tarif normal de
+    l'extension (`gandi_grid` dans les réglages), sans les redemander.
+  - DNS .co, .ai, .io, .com sans zone (`ccdns.pending`) : comme le .fr, fort score de base (40 et plus) et Mes ajouts
+    chaque jour, les autres chaque semaine ; jamais interrogés d'abord. Avant : la même liste entière chaque jour.
+  - Registre (RDAP, WHOIS) : déjà sur échéance (dates anniversaire et suppressions .fr, Veille, domaines suivis) ou à
+    la demande ; inchangé.
 - **À la demande** : Vérifier d'une fiche (après le RDAP, pour un nom libre, à confirmer ou en rédemption ; une panne
   de Gandi est dite dans `gandi_note` sans faire échouer la vérification) et la vérification d'un domaine suivi
   libre, en rédemption ou en suppression (une fois par jour au plus, toujours à la main ou à un changement d'état).
@@ -768,7 +779,7 @@ en erreur ne remplace pas un résultat connu : elle est notée à côté.
   .co, .ai, .io interroge aussi les serveurs du .com pour tous les noms qui ont un sens (environ 207 000, 150 000 par
   jour au plus, même moteur et mêmes garde-fous) ; délégué, « Enregistré » (pris, jamais demandé à Gandi) ; absent,
   il reste à vérifier et passe en tête de la file Gandi ; pas encore interrogé, il attend la passe DNS (Gandi ne
-  demande que les absents, et les libres et premiums revus chaque jour ; tous les noms seulement sans aucune donnée DNS) ;
+  demande que les absents, et les premiums à revoir ; tous les noms seulement sans aucune donnée DNS) ;
   sorti du DNS, dans la Veille comme un .co. Gandi limite les
   vérifications .com (environ 150 par quart d'heure, mesuré le 19/10), le DNS non : le tri se fait surtout par le DNS.
   Réponse de Gandi : libre, « Libre (vérifié) » et son prix ; premium, « Premium » et son prix ;
@@ -780,9 +791,9 @@ en erreur ne remplace pas un résultat connu : elle est notée à côté.
   (`explore.RECHECK_DAILY`). Un nom lu au registre suit la règle commune ; lu enregistré puis dit achetable par
   Gandi, il a été supprimé depuis : la réponse de Gandi l'emporte (`drop_open_code`, argument `offered`).
 - **Passe continue** (`gandi.LivePass`), jour et nuit, pour ces extensions seulement : chaque nom qui a un sens
-  (environ 207 000 en .com), d'abord les libres et premiums à revoir (chaque jour), puis les listes fournies (termes
-  stars, mots-clés et marques mêlés par rang, puis métier + ville), puis le reste par score de base ; les autres
-  revus après 7 jours (réglable), une réponse en erreur le lendemain. 5 requêtes par seconde par défaut (0,2 à 15),
+  (environ 207 000 en .com), d'abord les premiums à revoir, puis les absents du DNS, puis (sans données DNS) les
+  listes fournies (termes stars, mots-clés et marques mêlés par rang, puis métier + ville) et le reste par score de
+  base ; revue selon `gandi.revisit_due`. 5 requêtes par seconde par défaut (0,2 à 15),
   départs espacés de 1 / rythme et jusqu'à 8 en vol (Gandi met environ 1 s à répondre : une à une, la passe tombait
   à 1 nom par seconde) ; réponse vide (sans ligne de création) : Gandi limite (mesuré le 19/10 sur le .com : environ 150 vérifications, puis
   des réponses vides, de nouveau 150 un quart d'heure plus tard) ; le nom n'est pas noté, attente d'une minute doublée

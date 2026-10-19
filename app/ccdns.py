@@ -22,8 +22,10 @@ import logging
 from datetime import date
 
 from . import wordlists
-from .checker import utcnow
-from .frdns import NIGHTLY, FrDns
+from datetime import timedelta
+
+from .checker import iso, utcnow
+from .frdns import FRESH_DAYS_OTHER, FRESH_DAYS_TOP, NIGHTLY, TOP_BASE, FrDns
 
 log = logging.getLogger(__name__)
 
@@ -81,7 +83,22 @@ class CcDns(FrDns):
                 break
         seen = {r[0]: r[1] for r in self.conn.execute(
             "SELECT name, checked_at FROM cc_dns WHERE name LIKE ?", (f"%.{self.tld}",))}
+        # Comme le DNS .fr : fort score de base (et Mes ajouts) revus chaque jour, les autres chaque semaine. Un nom
+        # qui sort du DNS est vu au plus tard une semaine après pour un nom moyen, le lendemain pour un bon.
+        now = now or utcnow()
+        top_after = iso(now - timedelta(days=FRESH_DAYS_TOP) + timedelta(hours=2))
+        other_after = iso(now - timedelta(days=FRESH_DAYS_OTHER) + timedelta(hours=2))
+
+        def due(label: str) -> bool:
+            at = seen.get(f"{label}.{self.tld}")
+            if at is None:
+                return True
+            i = u.index(label)
+            top = label in mine or (i is not None and (u.base_table[i] & 127) >= TOP_BASE)
+            return at <= (top_after if top else other_after)
+
         rank = {label: n for n, label in enumerate(chosen)}
+        chosen = [label for label in chosen if due(label)]
         chosen.sort(key=lambda label: (seen.get(f"{label}.{self.tld}", ""), rank[label]))
         return chosen[:limit]
 

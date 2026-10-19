@@ -1180,6 +1180,24 @@ def test_cc_dns_lost_name_goes_to_the_veille_and_leaves_when_back(env, monkeypat
     assert checker.status()["totals"] == {"known": 3, "present": 2, "absent": 1, "lost": 0}
 
 
+def test_cc_dns_good_names_daily_others_weekly(env):
+    """DNS .co, .ai, .io, .com sans zone : un nom à fort score de base (ou de Mes ajouts) revu chaque jour, les autres
+    chaque semaine ; jamais interrogés d'abord. Avant : tous chaque jour, la même liste de 50 000 noms."""
+    from app import ccdns, frdns
+
+    checker = ccdns.CcDns("co", env.conn, env.fr.store, env, timezone.utc)
+    u = env.universe
+    labels = checker.pending(10**6)
+    good = next(x for x in labels if (u.base_table[u.index(x)] & 127) >= frdns.TOP_BASE)
+    weak = next(x for x in reversed(labels) if (u.base_table[u.index(x)] & 127) < frdns.TOP_BASE)
+    two_days = iso(utcnow() - timedelta(days=2))
+    for label in (good, weak):
+        checker.save(label, True, two_days)
+    again = checker.pending(10**6)
+    assert good in again and weak not in again and again[:2] != [good, weak]
+    assert len(again) == len(labels) - 1
+
+
 def test_dns_pass_shows_its_progress_live(env, monkeypatch):
     """Paramètres et /api/diag : une passe DNS en cours dit où elle en est (noms interrogés, présents, rythme), pas
     seulement « en cours » ; finie, le compteur disparaît et l'état de la passe prend le relais."""

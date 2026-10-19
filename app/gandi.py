@@ -21,7 +21,9 @@ son plafond commun (GLOBAL_PER_MINUTE), sous la limite de Gandi.
 import asyncio
 import json
 import logging
+import random
 import re
+import string
 import time
 from collections import deque
 from datetime import datetime, timedelta
@@ -64,7 +66,7 @@ NIGHTLY = 8_000           # noms par nuit au plus (réglable)
 RATE = 3.0                # requêtes par seconde au plus (réglable), loin de la limite de Gandi
 MAX_RATE = 10.0
 MIN_RATE = 0.2
-FRESH_DAYS = 7            # un nom vérifié depuis moins longtemps est sauté (réglable)
+FRESH_DAYS = 30           # pris ou réservé d'après Gandi : revu après ce délai (réglable), ou sur un changement d'état
 CHANGED_DAYS = 1          # nom qui a changé d'état depuis sa vérification, ou réponse en erreur
 FAIL_STOP = 20            # échecs d'affilée (réseau, réponse illisible) avant d'arrêter la passe
 LIMIT_STOP = 3            # « trop de requêtes » d'affilée avant d'arrêter la passe
@@ -94,7 +96,12 @@ LIVE_HALT_HOURS = 24      # jeton refusé : nouvel essai le lendemain, ou dès q
 PARALLEL = 8
 # Ordre de la file : listes fournies d'abord, termes stars, mots-clés et marques mêlés par rang, puis métier + ville.
 FIRST_LISTS = (("premium", "keyword", "brand"), ("local",))
-DAILY_KINDS = ("available", "premium", "error")  # revus chaque jour : un nom à prendre, ou sans réponse exploitable
+# Revue d'un nom déjà classé par Gandi (revisit_due) : sur un événement d'abord (changement d'état), sinon selon ce qu'il
+# a dit. Libre au tarif normal : jamais d'office (la zone ou le DNS voient qu'il est pris ; son prix est celui de la
+# grille de l'extension, grid). Premium : prix propre au nom, revu tous les 30 jours (7 avec un avis « À prendre »).
+PREMIUM_DAYS = 30
+HOT_DAYS = 7
+GRID_KEY = "gandi_grid"   # prix normal par extension : {tld: {"price", "price_ht", "currency", "at"}}
 
 
 class GandiError(Exception):
@@ -156,6 +163,35 @@ def brief(raw: dict) -> dict:
     first = prices[0] if prices else {}
     return {"status": product.get("status") or "inconnu", "price": first.get("price_after_taxes"),
             "type": first.get("type") or "", "currency": raw.get("currency") or "EUR"}
+
+
+def revisit_due(kind: str, error, at: str, changed: bool, now: datetime, days: int, hot: bool = False) -> bool:
+    """La seule règle de revue d'un nom déjà demandé à Gandi, pour les deux passes. Événement (état changé depuis la
+    réponse) ou réponse en erreur : revu le lendemain. Libre au tarif normal : jamais d'office (zone, DNS ou registre
+    disent s'il est pris ; prix de la grille). Premium : PREMIUM_DAYS (HOT_DAYS avec un avis « À prendre »). Pris,
+    réservé, restreint : days (réglable)."""
+    def older(n: float) -> bool:
+        return at <= iso(now - timedelta(days=n) + timedelta(hours=2))
+
+    if changed or kind == "error" or error:
+        return older(CHANGED_DAYS)
+    if kind == "available":
+        return False
+    if kind == "premium":
+        return older(HOT_DAYS if hot else PREMIUM_DAYS)
+    return older(days)
+
+
+def hot_names(conn) -> set[str]:
+    """Noms à avis IA « À prendre » : leurs premiums sont revus plus souvent."""
+    return {r[0] for r in conn.execute("SELECT name FROM domain_ai WHERE comment LIKE 'À prendre%'")}
+
+
+def grid(store) -> dict:
+    try:
+        return json.loads(store.get(GRID_KEY) or "{}")
+    except ValueError:
+        return {}
 
 
 def only_tlds(store) -> list[str]:
@@ -396,6 +432,39 @@ class Gandi:
         except ValueError:
             raise GandiError("Réponse Gandi illisible", "unreadable") from None
 
+    async def refresh_grid(self, tlds: list[str], now: datetime | None = None) -> dict:
+        """Prix normal de chaque extension, une fois par jour : un seul appel, sur un nom tiré au hasard (16 lettres,
+        libre au tarif normal à coup sûr). Un prix qui change est reporté sur tous les libres au tarif normal de
+        l'extension, sans les redemander nom par nom. Premium, pris ou erreur pour le nom tiré : rien ne change."""
+        now = now or utcnow()
+        day = now.date().isoformat()
+        known = grid(self.store)
+        changed = {}
+        todo = [t for t in tlds if (known.get(t) or {}).get("at", "")[:10] != day]
+        if not todo or not self.key:
+            return changed
+        async with self._http_factory() as http:
+            for tld in todo:
+                name = "".join(random.choices(string.ascii_lowercase, k=16)) + "." + tld
+                try:
+                    found = read(await self.check(name, http))
+                except GandiError as exc:
+                    log.info("Gandi, grille .%s : %s", tld, exc)
+                    continue
+                if found["kind"] != "available" or found["price"] is None:
+                    continue
+                before = known.get(tld) or {}
+                known[tld] = {"price": found["price"], "price_ht": found["price_ht"], "currency": found["currency"],
+                              "at": iso(now)}
+                if before.get("price") != found["price"] or before.get("price_ht") != found["price_ht"]:
+                    changed[tld] = found["price"]
+                    self.conn.execute("UPDATE gandi_checks SET price = ?, price_ht = ?, currency = ? WHERE tld = ? "
+                                      "AND kind = 'available'", (found["price"], found["price_ht"], found["currency"], tld))
+        self.store.set(GRID_KEY, json.dumps(known))
+        if changed:
+            log.info("Gandi, grille : nouveaux prix normaux %s", changed)
+        return changed
+
     def record(self, name: str, found: dict, now: datetime | None = None) -> bool:
         """Garde une lecture ; True si la sorte ou le prix du nom a changé. L'Explorer corrige le nom dans tous
         les cas : une vérification plus récente qu'un changement d'état peut seule rendre le résultat valable."""
@@ -521,10 +590,9 @@ class NightPass:
                 and self.store.get(f"{self.key}_last") != now_local.date().isoformat() and bool(self.tlds()))
 
     def pending(self, limit: int, now: datetime | None = None) -> list[str]:
-        """Noms à vérifier, dans l'ordre de la file IA : libres d'abord, par score complet, revus chaque jour ;
-        puis probablement libres, libres selon le WHOIS, premiums et indisponibles déjà vus chez Gandi, par score
-        de base, toutes extensions mêlées. Sautés : vérifiés depuis moins de N jours (un jour pour un nom qui a
-        changé d'état depuis, ou une réponse en erreur). Seuls les noms qui ont un sens."""
+        """Noms à vérifier, dans l'ordre de la file IA : libres d'abord, par score complet ; puis probablement libres,
+        libres selon le WHOIS, premiums et indisponibles déjà vus chez Gandi, par score de base, toutes extensions
+        mêlées. Un nom déjà demandé n'est revu que selon revisit_due. Seuls les noms qui ont un sens."""
         from .explore import ABSENT, FREE, GONE, PREMIUM, RESERVED, UNCONFIRMED  # import local : explore importe ce module
 
         now = now or utcnow()
@@ -539,23 +607,20 @@ class NightPass:
             f"SELECT name, checked_at, kind, error FROM gandi_checks WHERE tld IN ({','.join('?' * len(tlds))})", tlds)}
         since = dict(self.conn.execute("SELECT name, state_since FROM drops WHERE state_since IS NOT NULL").fetchall())
         listed = ex.reserved.names() if ex.reserved is not None else frozenset()
-        fresh_after = iso(now - timedelta(days=self.days) + timedelta(hours=2))
-        recent_after = iso(now - timedelta(days=CHANGED_DAYS) + timedelta(hours=2))
+        hot = hot_names(self.conn)
 
-        def due(name: str, daily: bool = False) -> bool:
+        def due(name: str) -> bool:
             found = seen.get(name)
             if found is None:
                 return True
             at, kind, error = found
-            if daily or kind == "error" or error or (since.get(name) or "") > at:
-                return at <= recent_after
-            return at <= fresh_after
+            return revisit_due(kind, error, at, (since.get(name) or "") > at, now, self.days, name in hot)
 
         picked: list[str] = []
         taken: set[str] = set()
 
-        def take(name: str, daily: bool = False) -> bool:
-            if name in taken or not due(name, daily):
+        def take(name: str) -> bool:
+            if name in taken or not due(name):
                 return False
             taken.add(name)
             picked.append(name)
@@ -564,7 +629,8 @@ class NightPass:
         soon = []
         for tld in tlds:
             ctx = ex._bonus_context(tld)
-            # Libres : revus chaque jour (un nom enregistré depuis passe indisponible, revérifié au registre).
+            # Libres d'après le registre, pas encore classés par Gandi (ou libérés de nouveau) : en premier. Déjà classés
+            # libres au tarif normal : pas revus (la zone dit s'ils sont repris, le prix est celui de la grille).
             # Bientôt libres (rédemption, suppression) : pas demandés, Gandi les dit toujours indisponibles.
             for code in (FREE,):
                 at = data[tld].find(code)
@@ -574,7 +640,7 @@ class NightPass:
                         soon.append((ex._value(tld, at, label, ctx)["score"], f"{label}.{tld}"))
                     at = data[tld].find(code, at + 1)
         for _, name in sorted(soon, key=lambda x: (-x[0], x[1])):
-            if take(name, daily=True):
+            if take(name):
                 return picked
         maybe = (GONE, ABSENT, UNCONFIRMED, PREMIUM)
         for score in range(len(buckets) - 1, -1, -1):
@@ -798,8 +864,7 @@ class LivePass:
         u = ex.universe
         buckets = u.buckets()
         listed = ex.reserved.names() if ex.reserved is not None else frozenset()
-        fresh_after = iso(now - timedelta(days=self.days) + timedelta(hours=2))
-        recent_after = iso(now - timedelta(days=CHANGED_DAYS) + timedelta(hours=2))
+        hot = hot_names(self.conn)
         wanted = (UNCHECKED, FREE, PREMIUM, TAKEN_GANDI, REGISTERED)
         table = bytes(1 if c in wanted else 0 for c in range(256))
         data, fresh, daily, skip, absent = {}, {}, [], {}, []
@@ -832,12 +897,11 @@ class LivePass:
                 i = u.index(label)
                 if i is None:
                     continue
-                again = kind in DAILY_KINDS or bool(error) or (since.get(label) or "") > at
-                if at > (recent_after if again else fresh_after):
+                if not revisit_due(kind, error, at, (since.get(label) or "") > at, now, self.days, name in hot):
                     done[i] = 1
                 elif kind in ("available", "premium") and u.good[i] and i not in delegated:
                     daily.append((-(u.base_table[i] & 127), i, tld))
-                    skip[tld][i] = 0  # libre ou premium revu chaque jour, même pas encore interrogé dans le DNS
+                    skip[tld][i] = 0  # premium à revoir (ou libre dont l'état a changé), même pas encore vu dans le DNS
             fresh[tld] = done
             eligible = int.from_bytes(data[tld].translate(table), "big") & u.good_int & ~int.from_bytes(skip[tld], "big")
             info["total"] += eligible.bit_count()
