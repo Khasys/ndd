@@ -162,7 +162,7 @@ une autre valeur : 422. Les anciens noms `freed_24h` et `coming_48h` restent acc
 et **Bientôt libres** (en rédemption ou en suppression, avec la date estimée). **Explorer** : tous
 les noms suivis, pour chercher. Grande barre de recherche, puis l'état : **Libres**, **Bientôt
 libres** ou **Tous, même pris**, et le type de nom en mots simples (mots courants, anglais,
-prénoms, tech et startups, médias et marques, secteurs, métiers, sport, animaux, cuisine, courts…).
+prénoms, tech et startups, noms de médias, termes premium, métiers, sport, animaux, cuisine, courts…).
 
 Réglages communs, gardés d'un écran à l'autre :
 
@@ -177,6 +177,8 @@ Réglages communs, gardés d'un écran à l'autre :
   vues enregistrées et mémoire du navigateur ; la longueur reste un filtre à part, la carte garde une case par
   catégorie. Les plus fréquents avec plusieurs listes : par meilleur rang relatif, `freq_list` dit la liste du rang.
   Prénoms ou Noms de famille cochés avec une autre liste : la langue ne filtre plus (ces listes n'en ont pas).
+  Une catégorie compte aussi ses noms dérivés (voir « Listes de noms ») ; `cat=sector` (vues enregistrées, adresses
+  anciennes) se lit comme `cat=premium`.
 - **Période** (Veille) : « Tout » par défaut (tout ce que la Veille garde), ou 24 h, 7 j, 30 j : Libérés depuis la
   période, Bientôt libres dont la libération estimée tombe dans la période (sans date estimée : masqués). Filtre
   du navigateur, puce effaçable (« Libérés depuis 7 jours »), gardé avec les autres filtres.
@@ -284,17 +286,17 @@ extension plutôt que d'y passer pour libres. Sources et licences des listes :
 
 Chaque liste est un fichier de `app/data` (un nom par ligne, minuscules sans accents, du plus
 courant au moins courant : le rang sert au score), déclaré dans `app/wordlists.py` (clé, libellé,
-fichier). Un nom peut être dans plusieurs listes (avocat : mots, secteurs, métiers). Les listes
-apparaissent telles quelles dans les catégories de l'Explorer et de la Veille, le Top, la carte et
-le filtre de langue (langue relevée dans `app/data/langues.txt` pour les listes mêlées).
+fichier). Un nom peut être dans plusieurs listes (avocat : mots, secteurs, métiers). Les catégories de l'Explorer
+et de la Veille (puces, compteurs, carte, Top, vues enregistrées, export CSV, fiche) sont les listes et leurs noms
+dérivés (ci-dessous) ; le filtre de langue suit la langue relevée dans `app/data/langues.txt` pour les listes mêlées.
 
 | Clé | Libellé | Contenu |
 |---|---|---|
 | word, form | Mots, Formes fléchies | 20 000 lemmes et 10 000 formes du Lexique |
 | surname, firstname | Noms de famille, Prénoms | Insee |
 | english | Mots anglais | 30 000 mots de wordfreq, marques retirées |
-| sector, trend, startup | Secteurs porteurs, Tendances, Tech et startups | listes à la main |
-| combo, niche, expr, media | Combinaisons, Sites de niche, Expressions, Médias et marques | construites par `scripts/build_lists.py` |
+| sector, trend, startup | Secteurs porteurs, Tendances, Tech et startups | listes à la main ; Secteurs porteurs sans puce à l'écran (ses noms sont dans Termes premium), la liste reste pour le score et le calage IA |
+| combo, niche, expr, media | Combinaisons, Sites de niche, Expressions, Noms de médias | construites par `scripts/build_lists.py` (noms de médias : lesvoeux, mondedujardinage, frandroid) |
 | job | Métiers | environ 500 métiers et professions, féminins et pluriels courants (plombier, notaire, infirmiere, avocats) |
 | sport | Sport | environ 220 sports, disciplines, équipements et mots du sport (football, padel, raquette, marathon) |
 | animal | Animaux | environ 220 animaux et mots des animaux de compagnie (chien, chaton, renard, croquettes) |
@@ -304,6 +306,40 @@ le filtre de langue (langue relevée dans `app/data/langues.txt` pour les listes
 | local | Métier + ville | `local.txt`, fourni (plombierparis) |
 | brand | Noms de marque | `marques_inventees.txt`, fourni : lieux et légendes, mots étrangers, mots réels détournés, noms inventés, composés rythmés, mots-valises ; la sonorité compte, pas le sens |
 | mine | Mes ajouts | `data/mes_ajouts.txt`, dans le dossier de données : les noms ajoutés depuis l'Explorer |
+
+**Catégories dérivées** : un nom garde ses listes d'origine et reçoit en plus les catégories que lui donnent des
+règles, calculées par `scripts/build_lists.py` (`--provided`, `--themes` et la construction complète finissent par
+là) dans `app/data/categories.txt` (nom, catégories gagnées), lu par `app/wordlists.py` (`classes`, `categories`).
+Elles servent à classer et filtrer seulement : rangs, traits et score restent ceux des listes d'origine (`lists`,
+`ranks`), et l'empreinte de `scores.bin` ne couvre pas ce fichier (table identique octet par octet avant et après,
+test `test_derived_categories_do_not_change_the_score`).
+
+- Secteurs porteurs et tendances sont aussi des termes premium (assurance, credit, mortgage, padel).
+- Une combinaison est aussi un mot-clé à forte valeur quand elle associe une racine commerciale (secteur, terme
+  premium) à une intention de recherche (pas cher, discount, en ligne, comparateur, best, finder, online…) ou à
+  une autre racine : assurancepascher, bestinsurance ; devis et quotes seulement pour un métier ou un service
+  (assurancedevis, moversquotes ; pas matelasdevis) ; pas les possessifs ni les ajouts de média ou de marque
+  (monassurance, mytravel, insurancehub, hairexpress, assurancepro, buyteeth).
+- Une combinaison ou un mot-clé de forme métier + ville est aussi Métier + ville : plombierlyon, plombier-lyon,
+  arlingtonlawyer, fortworthdentist ; ville d'abord seulement pour une ville américaine et pour immo, immobilier,
+  auto, garage (lyonimmobilier). Villes de France et régions de `scripts/lists/metier_ville.txt` (celles de
+  `local.txt`), villes américaines de `scripts/lists/cities_us.txt` ; pas de numéro de département (24 : 24 h).
+- Un nom composé (combinaisons, mots-clés, métier + ville, termes premium, sites de niche, expressions, noms de
+  médias) est découpé en vrais mots (Lexique, formes, anglais, thèmes, villes, affixes ; la découpe la plus économe,
+  toutes ses variantes d'accord) : un mot de Métiers, Sport, Animaux, Cuisine, Tech et startups ou Tendances lui
+  donne ce thème (coachsportif : Sport et Métiers, assuranceanimaux : Animaux, aiagents : Tech et startups et
+  Tendances). Jamais par sous-chaîne (marathon n'est pas de la cuisine) ; un mot de 3 lettres ne compte qu'entre de
+  vrais mots (petsitting oui, colo+cat+ion non) ; mots trop généraux ou ambigus écartés (`WEAK` : bear, terrain,
+  the, chat, expert…) ; Tech et startups par ses seuls mots techniques (`STRONG` : agents, cloud, api, logiciel…) ;
+  cuisine et kitchen dans une liste commerciale sont le cuisiniste. Faux positifs mesurés sur 50 noms tirés au
+  hasard par catégorie : 0 à 2 par thème (devisrobotpiscine en Tech et startups), 4 pour les mots-clés
+  (terraindiscount), 0 pour métier + ville.
+- Jamais vers les mots, formes, anglais, noms de famille, prénoms, marques inventées ni Mes ajouts.
+
+Ordre « les plus fréquents » et Top : un nom dérivé prend son rang relatif dans les listes d'où vient la catégorie
+(assurance, 1er secteur porteur, parmi les dix premiers termes premium) ; dans un thème, les noms composés gagnés
+viennent après les mots du thème. Le filtre de fréquence (top N) leur applique ce même rang d'origine. Comparables
+de la fiche : la liste principale reste la première liste d'origine.
 
 **Listes fournies** (premium, keyword, local, brand) : rédigées ailleurs, une entrée par ligne, en `[a-z0-9]`, de
 la plus à la moins précieuse, jusqu'à environ 100 000 entrées en tout. `scripts/build_lists.py` ne les écrit
@@ -318,8 +354,8 @@ aucun point de sens, mais son rang lui en donne : pas de classement « faible »
 de 30 à 41 selon le rang et l'extension, 30 étant le seuil des noms faibles).
 
 Pour brancher les vrais fichiers : les copier dans `app/data` (mêmes noms), puis
-`python scripts/build_lists.py --provided && python -m app.precompute` (scores.bin, environ 70 s pour 250 000
-noms ; sans lui, chaque démarrage recalcule). Au premier démarrage, le fichier .fr est relu (les listes ont
+`python scripts/build_lists.py --provided && python -m app.precompute` (catégories dérivées recalculées au
+passage ; scores.bin, environ 70 s pour 250 000 noms ; sans lui, chaque démarrage recalcule). Au premier démarrage, le fichier .fr est relu (les listes ont
 changé) et chaque zone cherche ces noms à sa lecture suivante.
 
 **Mes ajouts** : dans l'Explorer, un nom cherché absent des listes (« hors des listes suivies ») porte le bouton
@@ -519,8 +555,9 @@ requête : zones ICANN lues chaque jour, open data de l'Afnic, DNS de .co, .ai e
 meilleurs noms de chacune, voir « Le .fr », point 5), données de la Veille par-dessus. Une extension
 DNS change de version à la fin de chaque passe : l'Explorer se recalcule alors.
 
-- **Top** : les 10, 50, 100, 200, 500 ou 1 000 premiers d'une liste (secteurs, métiers, sport, animaux,
-  cuisine, tendances, sites de niche, termes premium, mots-clés, métier + ville, marques inventées, Mes ajouts
+- **Top** : les 10, 50, 100, 200, 500 ou 1 000 premiers d'une catégorie (termes premium avec les secteurs
+  porteurs et les tendances, métiers, sport, animaux, cuisine, tendances, sites de niche, mots-clés, métier + ville,
+  marques inventées, Mes ajouts
   dans l'ordre d'ajout, mots, anglais, prénoms, noms…), pris ou non, avec l'état sur chaque extension en toutes lettres
   (probablement libre, pris, à venir, libre, réservé, premium probable). Un état ouvre la fiche. Les
   puces d'état de la liste sont masquées tant que le Top est ouvert : il montre tous les états.

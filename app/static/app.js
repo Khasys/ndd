@@ -15,7 +15,7 @@ const KIND_LABELS = {
   letters: "Lettres", digits: "Chiffres", mixed: "Lettres et chiffres", hyphen: "Avec tiret", word: "Mots",
   form: "Formes fléchies", surname: "Noms de famille", firstname: "Prénoms", english: "Mots anglais",
   sector: "Secteurs porteurs", trend: "Tendances", combo: "Combinaisons", niche: "Sites de niche", expr: "Expressions",
-  media: "Médias et marques", startup: "Tech et startups", job: "Métiers", sport: "Sport", animal: "Animaux", food: "Cuisine",
+  media: "Noms de médias", startup: "Tech et startups", job: "Métiers", sport: "Sport", animal: "Animaux", food: "Cuisine",
   premium: "Termes premium", keyword: "Mots-clés à forte valeur", local: "Métier + ville", brand: "Noms de marque", mine: "Mes ajouts",
 };
 const NATURE_LABELS = { noun: "nom commun", verb: "verbe", adj: "adjectif", adv: "adverbe", other: "mot outil" };
@@ -56,14 +56,16 @@ const EX_STATES = [{ k: "bookable", label: "Libres" }, { k: "coming", label: "Bi
 const EX_TYPES = [
   { k: "", label: "Toutes" }, { k: "word", label: "Mots courants" }, { k: "english", label: "Anglais" },
   { k: "firstname", label: "Prénoms" }, { k: "surname", label: "Noms de famille" }, { k: "startup", label: "Tech et startups" },
-  { k: "media", label: "Médias et marques" }, { k: "sector", label: "Secteurs" }, { k: "job", label: "Métiers" },
+  { k: "media", label: "Noms de médias" }, { k: "job", label: "Métiers" },
   { k: "sport", label: "Sport" }, { k: "animal", label: "Animaux" }, { k: "food", label: "Cuisine" }, { k: "trend", label: "Tendances" },
   { k: "niche", label: "Sites de niche" }, { k: "expr", label: "Expressions" }, { k: "premium", label: "Termes premium" },
   { k: "keyword", label: "Mots-clés à forte valeur" }, { k: "local", label: "Métier + ville" }, { k: "brand", label: "Noms de marque" },
   { k: "mine", label: "Mes ajouts" }, { k: "short", label: "Courts (1 à 4)" },
 ];
+// Listes sans puce, lues comme une autre (mêmes valeurs que wordlists.ALIASES) : vues enregistrées, mémoire du navigateur.
+const CAT_ALIASES = { sector: "premium" };
 // Listes du Top (Classements), dans l'ordre des puces de type ; firstname_recent : « Prénoms <année> » (Insee), si lus.
-const TOP_LISTS = ["sector", "job", "sport", "animal", "food", "trend", "expr", "niche", "premium", "keyword", "local", "brand", "mine",
+const TOP_LISTS = ["premium", "job", "sport", "animal", "food", "trend", "expr", "niche", "keyword", "local", "brand", "mine",
   "word", "english", "firstname", "firstname_recent", "surname", "combo", "form"];
 // Libellé d'un nom ajoutable à Mes ajouts (wordlists.normalize côté serveur, qui ôte aussi les accents).
 const LABEL_OK = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
@@ -237,7 +239,7 @@ document.addEventListener("alpine:init", () => {
     exLimit: 50,
     exNoMore: false,
     exTopOpen: false,
-    top: { cat: "sector", n: 50 },
+    top: { cat: "premium", n: 50 },
     topData: null,
     exLoading: false,
     exCard: null,
@@ -1525,8 +1527,9 @@ document.addEventListener("alpine:init", () => {
       if (f.sort && !EX_SORTS.includes(f.sort)) f.sort = "best";
       if (f.sort === "release" && f.status && f.status !== "coming") f.sort = "best";
       if (f.level && f.level !== "good") f.level = "good";
-      // Plusieurs catégories : dans l'ordre du serveur (triées), pour reconnaître la vue active.
-      if (f.cat) f.cat = String(f.cat).split(",").filter(Boolean).sort().join(",");
+      // Plusieurs catégories : dans l'ordre du serveur (triées), pour reconnaître la vue active. Secteurs porteurs
+      // n'a plus de puce : ses noms sont dans Termes premium (CAT_ALIASES, wordlists.ALIASES côté serveur).
+      if (f.cat) f.cat = [...new Set(String(f.cat).split(",").filter(Boolean).map((c) => CAT_ALIASES[c] || c))].sort().join(",");
       return f;
     },
 
@@ -2504,7 +2507,7 @@ document.addEventListener("alpine:init", () => {
         this.df.min = Number(this.df.min) || 0;  // anciens filtres : null voulait dire « pas choisi »
         // Ancien réglage : une seule extension, en texte.
         this.dropTld = Array.isArray(saved.tld) ? saved.tld : saved.tld ? [saved.tld] : [];
-        this.dropKinds = Array.isArray(saved.kinds) ? saved.kinds : [];
+        this.dropKinds = Array.isArray(saved.kinds) ? [...new Set(saved.kinds.map((k) => CAT_ALIASES[k] || k))] : [];
         if (typeof saved.level === "string") this.dropLevel = saved.level;
         if (DROP_SORTS.includes(saved.sort)) this.dropSortMode = saved.sort;
         if (!PERIODS.some((p) => p.k === this.df.period)) this.df.period = "";

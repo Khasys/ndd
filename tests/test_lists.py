@@ -250,3 +250,216 @@ def test_mine_routes_session_only(logged, tmp_path):
     finally:
         client.__exit__(None, None, None)
         wordlists.configure(None)
+
+
+# --- Catégories dérivées -------------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def build():
+    """scripts/build_lists.py et le vocabulaire des règles, tiré des vraies listes (une seconde)."""
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    import build_lists
+
+    lists = {key: wordlists._ordered(file) for key, file in wordlists.FILES.items()}
+    return build_lists, build_lists.derive_vocab(lists)
+
+
+def test_sectors_and_trends_are_also_premium(build):
+    b, vocab = build
+    found = b.derive({"sector": ["assurance", "mortgage"], "trend": ["padel", "agents"], "premium": ["agents"],
+                      "word": ["assurance"]}, vocab)
+    assert found["assurance"] == ["premium"] and found["mortgage"] == ["premium"] and found["padel"] == ["premium"]
+    assert "premium" not in found["agents"]  # déjà terme premium : rien à gagner (Tech et startups, par son mot)
+    for name in ("assurance", "credit", "mortgage", "assuranceauto", "creditimmobilier"):
+        assert name in wordlists.classes()["premium"] and name not in wordlists.lists()["premium"]
+
+
+def test_combinations_with_a_search_intent_are_keywords(build):
+    b, vocab = build
+    for name in ("assurancepascher", "comparatifbanque", "bestinsurance", "insurancequotes", "creditenligne",
+                 "mortgagefinder", "assurancedevis", "moversquotes"):
+        assert b.is_keyword(name, vocab), name
+    # Possessifs, médias, ajouts de marque, villes, devis d'autre chose qu'un métier ou un service : pas des requêtes.
+    for name in ("monassurance", "mytravel", "insurancehub", "theinsurance", "hairexpress", "assurancepro",
+                 "sosassurance", "plombierparis", "infocredit", "assurance", "buyteeth", "matelasdevis", "churchquotes"):
+        assert not b.is_keyword(name, vocab), name
+    found = b.derive({"combo": ["assurancepascher", "monassurance"], "keyword": ["comparateurassurance"]}, vocab)
+    assert found == {"assurancepascher": ["keyword"]}
+
+
+def test_trade_and_city_names_are_local(build):
+    b, vocab = build
+    for name in ("plombierparis", "plombier-lyon", "arlingtonlawyer", "fortworthdentist", "injurylawyernewyork",
+                 "lyonimmobilier", "plombieriledefrance", "dallasplumber"):
+        assert b.is_local(name, vocab), name
+    # Ville française d'abord (sauf immo, immobilier, auto, garage), ville seule, numéro, pas de métier.
+    for name in ("gapinsurance", "parisplombier", "plombier92", "assurancepascher", "paris", "lyonmagazine",
+                 "contactlens"):
+        assert not b.is_local(name, vocab), name
+    found = b.derive({"combo": ["plombierlyon", "arlingtonlawyer"], "keyword": ["climaticienlyon"],
+                      "local": ["plombierparis"], "niche": ["forumparis"]}, vocab)
+    assert found["plombierlyon"] == ["job", "local"] and found["arlingtonlawyer"] == ["job", "local"]
+    assert "local" in found["climaticienlyon"] and "local" not in found.get("plombierparis", [])
+
+
+def test_compound_names_get_the_theme_of_their_words(build):
+    b, vocab = build
+    cases = {"coachsportif": {"sport", "job"}, "assuranceanimaux": {"animal"}, "aiagents": {"startup", "trend"},
+             "plombierlyon": {"job"}, "marathonparis": {"sport"}, "journaldesrecettes": {"food"},
+             "petsitting": {"animal"}, "dogfinder": {"animal"}, "stockagecloud": {"startup", "trend"}}
+    for name, themes in cases.items():
+        assert b.theme_of(name, vocab) == themes, name
+    # Mot entier seulement, mots trop généraux ou ambigus écartés, mot de 3 lettres seulement entre de vrais mots.
+    for name, theme in (("marathon", "food"), ("bearmarket", "animal"), ("theinsurance", "food"),
+                        ("terrainconstructible", "sport"), ("assuranceauto", "startup"), ("insurancehub", "startup"),
+                        ("mychat", "animal"), ("colocationhosting", "animal"), ("telephonie", "food"),
+                        ("expertassurance", "job"), ("permismoto", "sport"), ("campdeteaventure", "food")):
+        assert theme not in b.theme_of(name, vocab), name
+    # Cuisiniste dans une liste commerciale, cuisine dans un site de niche.
+    assert "food" not in b.theme_of("cuisine-metz", vocab, trade=True)
+    assert "food" in b.theme_of("forumcuisine", vocab)
+    assert b.splits("marathon", vocab["pieces"]) == [("marathon",)]
+
+
+def test_derived_categories_never_reach_dictionaries_brands_or_mine(build, tmp_path, monkeypatch):
+    b, vocab = build
+    found = b.derive({"combo": ["plombierlyon"], "word": ["plombierlyon"], "brand": ["kinia"], "mine": ["chienlyon"],
+                      "english": ["dogsitting"]}, vocab)
+    assert set(found) == {"plombierlyon"}
+    assert not {k for keys in found.values() for k in keys} & set(wordlists.NEVER_DERIVED)
+    # Fichier écrit : une catégorie interdite ou un nom hors des listes y sont ignorés à la lecture.
+    written = (wordlists.DATA / wordlists.DERIVED_FILE).read_text(encoding="utf-8")
+    assert not {k for line in written.splitlines() for k in line.split("\t")[1].split(",")} & set(wordlists.NEVER_DERIVED)
+    (tmp_path / wordlists.DERIVED_FILE).write_text("assurance\tword,brand,mine,premium\nzzqxv\tjob\n", encoding="utf-8")
+    monkeypatch.setattr(wordlists, "DATA", tmp_path)
+    monkeypatch.setattr(wordlists, "static_lists", lambda: {"word": frozenset({"assurance"})})
+    wordlists.derived.cache_clear()
+    try:
+        assert wordlists.derived() == {"premium": frozenset({"assurance"})}
+    finally:
+        monkeypatch.undo()
+        wordlists.derived.cache_clear()
+        wordlists.classes.cache_clear()
+
+
+def test_categories_are_the_union_of_lists_and_derived():
+    assert wordlists.categories("assurance") == ["word", "english", "premium"]  # sector : liste sans puce
+    assert wordlists.own("assurance") == ["word", "english", "sector"]
+    assert wordlists.categories("plombierlyon") == ["combo", "job", "local"]
+    assert set(wordlists.categories("coachsportif")) == {"sport", "job", "premium", "keyword"}
+    assert "animal" in wordlists.categories("assuranceanimaux") and "startup" in wordlists.categories("aiagents")
+    assert wordlists.categories("monassurance") == ["combo"] and wordlists.categories("kinia") == ["brand"]
+    assert wordlists.LABELS["media"] == "Noms de médias" and "sector" not in wordlists.SHOWN
+    assert "sector" not in explore.KINDS and "sector" not in explore.MAP_ROWS and "sector" not in drops.KINDS
+    assert wordlists.canonical("sector") == "premium" and explore.split_cats("sector,premium,job") == ["job", "premium"]
+    # Rien de dérivé n'entre dans les listes d'origine : ce sont elles que voit le score.
+    assert "plombierlyon" not in wordlists.lists()["job"] and "plombierlyon" in wordlists.classes()["job"]
+
+
+def test_derived_categories_do_not_change_the_score(monkeypatch):
+    """Les catégories dérivées ne servent qu'à classer : mêmes traits, même score de base (l'octet de scores.bin) et
+    même score complet sur 1 500 noms tirés au hasard, avec ou sans catégories dérivées."""
+    import random
+
+    lists = wordlists.static_lists()
+    pool = sorted(set().union(*(lists[k] for k in ("combo", "keyword", "local", "premium", "sector", "trend", "niche",
+                                                     "media", "expr", "word"))))
+    sample = random.Random(7).sample(pool, 1500) + ["assurance", "plombierlyon", "coachsportif", "aiagents"]
+
+    def scores():
+        return [(quality.features(n, tld), value.base(n), value.score(n, ["com"], tld=tld)["score"])
+                for n in sample for tld in ("fr", "com")]
+
+    before = scores()
+    everything = frozenset(sample)
+    monkeypatch.setattr(wordlists, "derived", lambda: {k: everything for k in wordlists.LABELS
+                                                        if k not in wordlists.NEVER_DERIVED})
+    wordlists.classes.cache_clear()
+    try:
+        assert "food" in wordlists.categories("plombierlyon")  # dérivées bien changées
+        assert scores() == before
+    finally:
+        monkeypatch.undo()
+        wordlists.classes.cache_clear()
+
+
+def test_score_fingerprint_ignores_derived_categories(tmp_path, monkeypatch):
+    """scores.bin reste valable quand seules les catégories dérivées changent ; une liste qui change le périme."""
+    import shutil
+
+    from app import precompute
+
+    for path in precompute.DATA.iterdir():
+        if path.suffix in (".txt", ".json"):
+            shutil.copy(path, tmp_path / path.name)
+    monkeypatch.setattr(precompute, "DATA", tmp_path)
+    before = precompute.fingerprint()
+    (tmp_path / wordlists.DERIVED_FILE).write_text("assurance\tjob,sport\n", encoding="utf-8")
+    assert precompute.fingerprint() == before
+    (tmp_path / "secteurs.txt").write_text("assurance\n", encoding="utf-8")
+    assert precompute.fingerprint() != before
+
+
+def test_explorer_filters_counts_map_and_order_see_derived_categories(env):
+    env.fr._save_searched(wordlists.listed())  # import .fr fait avec toutes les listes : rien de masqué
+    add_fr(env, "maison")
+    u = env.universe
+    i = u.index("plombierlyon")
+    assert i in u.by_list["job"] and i in u.by_list["local"] and i in u.in_lists("job,sport")
+    assert u.index("assurance") in u.by_list["premium"] and u.index("coachsportif") in u.by_list["sport"]
+    found = env.search("fr", q="plombierlyon", mode="exact", category="job")["items"]
+    assert [x["label"] for x in found] == ["plombierlyon"] and found[0]["categories"] == ["combo", "job", "local"]
+    assert env.card("assuranceanimaux")["categories"] == ["animal", "premium", "keyword"]
+    # Compteurs : l'union ; cat=sector se lit comme cat=premium (vues enregistrées, adresses anciennes).
+    every = env.facets("fr", category="premium", junk=True)
+    assert every == env.facets("fr", category="sector", junk=True) == env.facets("fr", category="premium,sector", junk=True)
+    # Termes premium : ses 4 800 noms et les 747 secteurs et tendances qui n'y étaient pas (quelques noms de 2 lettres
+    # réservés en .fr à part).
+    assert len(wordlists.lists()["premium"]) + 700 < every["available"] <= len(wordlists.classes()["premium"])
+    both = env.facets("fr", category="job,local", junk=True)["available"]
+    assert len(wordlists.lists()["job"] | wordlists.lists()["local"]) + 14_000 < both
+    # Carte : une ligne par catégorie affichée, même compte que la puce « Libres ».
+    grid = env.map()
+    assert "sector" not in grid["rows"] and grid["rows"]["media"] == "Noms de médias"
+    assert grid["cells"]["fr"]["premium"] == env.facets("fr", category="premium")["bookable"]
+    # Fréquence : un nom dérivé prend son rang dans la liste d'où vient la catégorie (assurance, 1er secteur
+    # porteur ; ia, 1re tendance) ; un thème garde d'abord ses propres mots.
+    assert env.facets("fr", category="premium", max_rank=1, junk=True)["available"] == 3
+    sport = [x["label"] for x in env.rank("fr", category="sport", sort="freq", limit=300, junk=True)["items"]]
+    own = wordlists.lists()["sport"]
+    assert sport[0] == "sport" and sport.index("coachsportif") > max(sport.index(w) for w in own if w in sport)
+    item = next(x for x in env.rank("fr", category="sport", sort="freq", limit=300, junk=True)["items"]
+                if x["label"] == "coachsportif")
+    assert item["freq_list"] == "keyword" and "sport" not in item["ranks"]
+    # Liste principale des comparables : la liste d'origine, pas une catégorie dérivée.
+    assert env._family(i, "plombierlyon") == "combo"
+
+
+def test_routes_show_derived_categories(logged):
+    client = logged()
+    conn = client.app.state.conn
+    conn.execute("INSERT INTO fr_names (label, created_on) VALUES ('plombierlyon', '2010-02-01'), ('assurance', '2001-01-01')")
+    conn.execute("INSERT INTO drops (name, tld, label, kind, removed_on, state, lists) VALUES "
+                 "('assurance.com', 'com', 'assurance', 'long', '2026-10-01', 'redemption', 'word,english,sector'), "
+                 "('zzqvxold.com', 'com', 'zzqvxold', 'long', '2026-10-01', 'redemption', 'sector,premium')")
+    try:
+        # Veille : les catégories du jour ; un nom sorti des listes garde les siennes, secteur lu comme premium.
+        items = {i["name"]: i for i in client.get("/api/drops").json()["items"]}
+        assert items["assurance.com"]["categories"] == ["word", "english", "premium"]
+        assert items["zzqvxold.com"]["categories"] == ["premium"]
+        data = client.get("/api/explore", params={"q": "plombierlyon", "mode": "exact", "cat": "job"}).json()
+        assert data["items"][0]["categories"] == ["combo", "job", "local"]
+        assert "sector" not in data["kinds"] and data["kinds"]["media"] == "Noms de médias"
+        old = client.get("/api/explore", params={"q": "assurance", "mode": "exact", "cat": "sector"})
+        assert old.status_code == 200 and old.json()["items"][0]["name"] == "assurance.fr"
+        csv = client.get("/api/explore/export", params={"q": "plombierlyon", "mode": "exact", "cat": "local",
+                                                        "status": "registered"}).text
+        assert "plombierlyon.fr;Enregistré;" in csv and ";combo,job,local;" in csv
+        fiche = client.get("/api/explore/fiche", params={"name": "assurance.fr"}).json()
+        assert fiche["categories"] == ["word", "english", "premium"]
+    finally:
+        client.__exit__(None, None, None)

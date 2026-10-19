@@ -604,12 +604,15 @@ def test_exchange_script_compact_format_keeps_every_field_and_the_rules(tmp_path
 def test_top_follows_language_and_extensions(logged):
     client = logged()
     client.app.state.conn.execute("INSERT INTO fr_names (label, created_on) VALUES ('assurance', '2001-01-01')")
-    every = client.get("/api/explore/top", params={"cat": "sector", "n": 10}).json()
-    assert [i["label"] for i in every["items"]][:2] == ["assurance", "insurance"]
-    french = client.get("/api/explore/top", params={"cat": "sector", "n": 10, "lang": "fr", "tld": "fr"}).json()
+    # cat=sector (adresse ancienne) : Termes premium, qui contient les secteurs porteurs, chacun à son rang relatif.
+    every = client.get("/api/explore/top", params={"cat": "sector", "n": 100}).json()
+    labels = [i["label"] for i in every["items"]]
+    assert every["category"] == "premium" and "sector" not in every["lists"] and labels[:2] == ["cryptomonnaie", "rachatcredit"]
+    assert {"assurance", "insurance"} <= set(labels[:30]) and labels.index("assurance") < labels.index("insurance")
+    french = client.get("/api/explore/top", params={"cat": "premium", "n": 100, "lang": "fr", "tld": "fr"}).json()
     labels = [i["label"] for i in french["items"]]
     assert "mutuelle" in labels and "loans" not in labels and french["tlds"] == ["fr"]
-    assert french["items"][0]["cells"]["fr"]["state"] == "pris"
+    assert french["items"][labels.index("assurance")]["cells"]["fr"]["state"] == "pris"
     assert client.get("/api/explore/top", params={"cat": "nope"}).status_code == 422
 
 
@@ -1213,11 +1216,11 @@ def test_interface_wires_the_wave_one_routes():
         assert route in js, route
     assert "/api/portfolio/export" in html
     assert 'this.api("GET", "/api/settings")' not in js.split("async startPairing")[1].split("async removeTelegram")[0]
-    # Nouvelles listes : puces de type et gabarit du Top, après Secteurs.
+    # Nouvelles listes : puces de type et gabarit du Top ; Secteurs porteurs sans puce (dans Termes premium).
     kinds = [k.split('"')[0] for k in js.split("const EX_TYPES")[1].split("];")[0].split('k: "')[1:]]
-    assert kinds[kinds.index("sector"):kinds.index("sector") + 5] == ["sector", "job", "sport", "animal", "food"]
+    assert kinds[kinds.index("media"):kinds.index("media") + 5] == ["media", "job", "sport", "animal", "food"]
     top = js.split("const TOP_LISTS = [")[1].split("]")[0]
-    assert top.startswith('"sector", "job", "sport", "animal", "food"')
+    assert top.startswith('"premium", "job", "sport", "animal", "food"') and "sector" not in kinds + top.split(", ")
     # « Masquer » devient « Ignorer » pour la décision (la case « Masquer les noms faibles » est un filtre, elle reste).
     assert ">Ignorer<" in html and "dropBulk('hide')\" :disabled=\"dropBulkRunning\">Masquer" not in html
     assert "masqué(s)" not in html and "noms ignorés" in js
@@ -1617,7 +1620,7 @@ def test_cc_dns_extensions_in_explorer_top_fiche_and_veille(logged):
     assert "ai" in ranked["tlds"] and ranked["absent_label"] == "Absent du DNS, à vérifier"
     labels = {i["label"]: i["status_label"] for i in ranked["items"]}
     assert labels["assurance"] == "Enregistré" and labels["insurance"] == "Absent du DNS, à vérifier"
-    top = client.get("/api/explore/top", params={"cat": "sector", "n": 50, "tld": "ai"}).json()
+    top = client.get("/api/explore/top", params={"cat": "sector", "n": 100, "tld": "ai"}).json()
     cells = {i["label"]: i["cells"]["ai"]["state"] for i in top["items"]}
     assert cells["assurance"] == "pris" and cells["insurance"] == "probablement libre" and cells["mutuelle"] == "pas interrogé"
     fiche = client.get("/api/explore/fiche", params={"name": "insurance.ai"}).json()

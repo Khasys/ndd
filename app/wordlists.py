@@ -3,6 +3,10 @@ mots anglais, secteurs porteurs, tendances, combinaisons et listes thématiques 
 cuisine), construites par scripts/build_lists.py ; termes premium, mots-clés à forte valeur, métier + ville
 et marques inventées, fournis tels quels ; « Mes ajouts », les noms ajoutés depuis l'Explorer.
 
+Catégories : un nom a ses listes d'origine, plus les catégories dérivées (categories.txt, calculé par
+scripts/build_lists.py : assurance aussi dans Termes premium, plombierlyon aussi dans Métiers). Les dérivées
+servent à classer et filtrer (classes, categories) ; le score ne connaît que les listes d'origine (lists, ranks).
+
 Fichiers dans app/data, une entrée par ligne, déjà en minuscules et sans accents, du plus
 fréquent au moins fréquent. Sources et licences : app/data/SOURCES.md. « Mes ajouts » vit dans le
 dossier de données (mes_ajouts.txt), pas dans l'image : il change sans redémarrage (reload).
@@ -17,7 +21,7 @@ from pathlib import Path
 DATA = Path(__file__).parent / "data"
 LABELS = {"word": "Mots", "form": "Formes fléchies", "surname": "Noms de famille", "firstname": "Prénoms",
           "english": "Mots anglais", "sector": "Secteurs porteurs", "trend": "Tendances", "combo": "Combinaisons",
-          "niche": "Sites de niche", "expr": "Expressions", "media": "Médias et marques",
+          "niche": "Sites de niche", "expr": "Expressions", "media": "Noms de médias",
           "startup": "Tech et startups", "job": "Métiers", "sport": "Sport", "animal": "Animaux",
           "food": "Cuisine", "premium": "Termes premium", "keyword": "Mots-clés à forte valeur",
           "local": "Métier + ville", "brand": "Noms de marque", "mine": "Mes ajouts"}
@@ -47,6 +51,25 @@ LATE = (*PROVIDED, MINE)
 NO_MEANING = ("brand", MINE)
 # Rang sans valeur pour le score : l'ordre d'ajout ne classe rien.
 NO_RANK = (MINE,)
+# Catégories dérivées (nom, catégories gagnées), écrites par scripts/build_lists.py. Hors de l'empreinte du score
+# (precompute) : elles ne changent aucun score.
+DERIVED_FILE = "categories.txt"
+# Jamais dérivées : la langue a son propre filtre, une marque inventée vaut par sa sonorité, Mes ajouts sont à part.
+NEVER_DERIVED = ("word", "form", "english", "surname", "firstname", "brand", MINE)
+# Thèmes : les noms composés gagnés viennent après les mots du thème dans l'ordre « les plus fréquents » (le Top
+# Sport commence par football, pas par coachsportif).
+THEMES = ("startup", "job", "sport", "animal", "food", "trend")
+# Noms composés, découpés en mots pour leur donner un thème.
+COMPOUNDS = ("combo", "keyword", "local", "premium", "niche", "expr", "media")
+# Listes d'où vient chaque catégorie dérivée (règles de scripts/build_lists.py) : un nom dérivé y prend son rang
+# (Top, « les plus fréquents », filtre de fréquence) : assurance, 1er secteur porteur, parmi les premiers termes premium.
+DERIVED_FROM = {"premium": ("sector", "trend"), "keyword": ("combo",), "local": ("combo", "keyword"),
+                **{key: COMPOUNDS for key in THEMES}}
+# Liste sans puce : ses noms sont tous dans Termes premium (catégorie dérivée) ; elle reste pour le score et le
+# calage IA, et cat=sector (vues enregistrées, adresses anciennes) se lit comme cat=premium.
+HIDDEN = ("sector",)
+ALIASES = {"sector": "premium"}
+SHOWN = {key: label for key, label in LABELS.items() if key not in HIDDEN}
 # Listes sans avis IA de calage (score_model.json) : leur rang compte avec le poids de la liste la plus proche.
 SCORE_AS = {"premium": "sector", "keyword": "sector", "local": "combo", "brand": "startup"}
 
@@ -131,7 +154,7 @@ version = 0
 def reload() -> None:
     """Mes ajouts changés : tout ce qui en dépend est relu. Les listes du dossier app/data restent en mémoire."""
     global version
-    for cached in (_read_mine, lists, ranks, watched, fingerprints, languages, listed, meaningful):
+    for cached in (_read_mine, lists, ranks, watched, fingerprints, languages, listed, meaningful, classes):
         cached.cache_clear()
     version += 1
 
@@ -215,8 +238,44 @@ def fingerprints() -> dict[str, str]:
     return {key: hashlib.sha256("\n".join(sorted(names)).encode()).hexdigest()[:16] for key, names in lists().items()}
 
 
-def categories(label: str) -> list[str]:
+@lru_cache(maxsize=1)
+def derived() -> dict[str, frozenset[str]]:
+    """Noms gagnés par chaque catégorie (absents de sa liste d'origine), lus dans categories.txt. Un nom sorti des
+    listes ou une catégorie interdite (dictionnaires, marques inventées, Mes ajouts) est ignoré."""
+    path = DATA / DERIVED_FILE
+    if not path.exists():
+        return {}
+    known = frozenset().union(*static_lists().values())
+    found: dict[str, set[str]] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        name, _, keys = line.partition("\t")
+        if name in known:
+            for key in keys.split(","):
+                if key in LABELS and key not in NEVER_DERIVED:
+                    found.setdefault(key, set()).add(name)
+    return {key: frozenset(names) for key, names in found.items()}
+
+
+@lru_cache(maxsize=1)
+def classes() -> dict[str, frozenset[str]]:
+    """Noms de chaque catégorie : sa liste et les noms dérivés. Classement, filtres, compteurs, carte, Top."""
+    gained = derived()
+    return {key: names | gained.get(key, frozenset()) for key, names in lists().items()}
+
+
+def own(label: str) -> list[str]:
+    """Listes d'origine du nom (sans les catégories dérivées) : ce que voit le score."""
     return [key for key, names in lists().items() if label in names]
+
+
+def categories(label: str) -> list[str]:
+    """Catégories du nom, listes d'origine et dérivées, dans l'ordre de LABELS (sans les listes masquées)."""
+    return [key for key, names in classes().items() if label in names and key not in HIDDEN]
+
+
+def canonical(key: str) -> str:
+    """Catégorie demandée (filtre, Top) : cat=sector se lit comme cat=premium."""
+    return ALIASES.get(key, key)
 
 
 @lru_cache(maxsize=1)

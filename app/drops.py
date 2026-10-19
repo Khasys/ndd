@@ -48,7 +48,7 @@ _INDEX = {c: i for i, c in enumerate(CHARSET)}
 
 KINDS = {
     "letters": "Lettres", "digits": "Chiffres", "mixed": "Lettres et chiffres", "hyphen": "Avec tiret",
-    **wordlists.LABELS,
+    **wordlists.SHOWN,
 }
 
 # États propres à cet écran, en plus de ceux de states.

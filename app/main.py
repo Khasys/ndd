@@ -1375,7 +1375,9 @@ def _drop_items(state, rows, values: dict) -> list[dict]:
             "name": r["name"],
             "tld": r["tld"],
             "kind": r["kind"],
-            "categories": ([r["kind"]] if r["kind"] != "long" else []) + [c for c in r["lists"].split(",") if c],
+            # Catégories du jour (listes et dérivées) ; celles gardées à la sortie de zone pour un nom sorti des listes.
+            "categories": ([r["kind"]] if r["kind"] != "long" else [])
+            + (wordlists.categories(r["label"]) or list(dict.fromkeys(wordlists.canonical(c) for c in r["lists"].split(",") if c))),
             "state": r["state"],
             "removed_on": r["removed_on"],
             "release_at": r["release_at"],
@@ -1797,8 +1799,9 @@ def _top_state(tld: str, code: int) -> str:
 async def explore_top(request: Request):
     """Les N premiers d'une liste, pris ou non, avec leur état sur chaque extension."""
     explorer = request.app.state.explorer
-    category = request.query_params.get("cat", "sector")
-    if category not in wordlists.LABELS and category != prenoms.TOP_KEY:
+    # cat=sector (adresses anciennes) : Termes premium, qui contient tous les secteurs porteurs.
+    category = wordlists.canonical(request.query_params.get("cat", "premium"))
+    if category not in wordlists.SHOWN and category != prenoms.TOP_KEY:
         raise HTTPException(422, "Liste inconnue.")
     if category == prenoms.TOP_KEY and await _off(explorer.recent_order) is None:
         raise HTTPException(409, "Prénoms récents pas encore téléchargés (Paramètres, Prénoms récents).")
@@ -1819,7 +1822,7 @@ def _top(explorer, category, size, wanted, lang):
     chosen = [t for t in wanted.split(",") if t in known]
     tlds = chosen or known
     data = {t: explorer.status_bytes(t) for t in tlds}
-    lists = dict(wordlists.LABELS)
+    lists = dict(wordlists.SHOWN)
     recent = explorer.recent_order()
     if recent is not None:
         lists[prenoms.TOP_KEY] = f"Prénoms {recent['year']}"

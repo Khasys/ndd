@@ -31,7 +31,8 @@ UNRANKED_BOUND = 9 + MARGIN
 def fingerprint() -> bytes:
     digest = hashlib.sha256()
     for path in sorted(DATA.iterdir()):
-        if path.suffix in (".txt", ".json"):
+        # Catégories dérivées : classement et filtres seulement, jamais le score (tests/test_lists.py le vérifie).
+        if path.suffix in (".txt", ".json") and path.name != wordlists.DERIVED_FILE:
             digest.update(path.name.encode())
             digest.update(path.read_bytes())
     # Les règles de calcul (ce module : marge, noms classables ; drops : alphabet et ordre des noms) aussi.

@@ -152,7 +152,7 @@ KINDS = {
     "digits": "Chiffres",
     "mixed": "Mélangés, tirets",
     "hyphen": "Avec tiret",
-    **wordlists.LABELS,
+    **wordlists.SHOWN,
 }
 
 # Lignes de la carte : catégorie -> libellé.
@@ -160,7 +160,7 @@ KINDS = {
 MAP_ROWS = {
     "short": "1 à 3 caractères",
     "l4": "4 lettres",
-    **wordlists.LABELS,
+    **wordlists.SHOWN,
 }
 
 CACHE_SECONDS = 600
@@ -249,8 +249,9 @@ def ai_condition(spec: str) -> tuple[str, list]:
 
 
 def split_cats(category: str | None) -> list[str]:
-    """Catégories d'un filtre : une ou plusieurs, séparées par des virgules (cat=firstname,surname), triées."""
-    return sorted({c.strip() for c in (category or "").split(",") if c.strip()})
+    """Catégories d'un filtre : une ou plusieurs, séparées par des virgules (cat=firstname,surname), triées ;
+    cat=sector se lit comme cat=premium (wordlists.ALIASES)."""
+    return sorted({wordlists.canonical(c.strip()) for c in (category or "").split(",") if c.strip()})
 
 
 def freq_key(category: str | None) -> str:
@@ -309,7 +310,8 @@ class Universe:
         self.words = _words(self.mine)
         self.word_index = {w: i for i, w in enumerate(self.words)}
         self.size = drops.CELLS + len(self.words)
-        lists = wordlists.lists()
+        # Catégories : listes d'origine et noms dérivés (wordlists.classes) ; le score ne voit que les premières.
+        lists = wordlists.classes()
         # Position de chaque nom des listes, calculée une fois : les index ci-dessous la relisent (deux fois plus
         # rapide que index() à chaque usage, l'univers se refait à chaque changement de Mes ajouts).
         positions = {w: i for w in wordlists.listed() if (i := self.index(w)) is not None}
@@ -339,8 +341,6 @@ class Universe:
         self.good: bytearray | None = None
         # Noms des listes du plus fréquent au moins fréquent, par liste et toutes listes confondues.
         ranks = wordlists.ranks()
-        self.by_frequency = {key: array("i", (positions[w] for w in sorted(r, key=r.get) if w in positions))
-                             for key, r in ranks.items()}
         best: dict[int, float] = {}
         for key, r in ranks.items():
             size = len(r)
@@ -348,6 +348,22 @@ class Universe:
                 i = positions.get(w)
                 if i is not None:
                     best[i] = min(best.get(i, 1.0), n / size)
+        # Rang relatif de chaque nom d'une catégorie : dans sa liste ; nom dérivé, son meilleur rang relatif dans les
+        # listes d'où vient la catégorie (wordlists.DERIVED_FROM : assurance, 1er secteur porteur, parmi les premiers
+        # termes premium, pas au rang de « it » dans les mots anglais), après les mots du thème pour un thème.
+        self.relative: dict[str, dict[int, float]] = {}
+        gained = wordlists.derived()
+        for key, r in ranks.items():
+            found = {positions[w]: n / len(r) for w, n in r.items() if w in positions}
+            after = 1.0 if key in wordlists.THEMES else 0.0
+            sources = [ranks[k] for k in wordlists.DERIVED_FROM.get(key, ())]
+            for w in gained.get(key, ()):
+                i = positions.get(w)
+                if i is not None and i not in found:
+                    found[i] = min((s[w] / len(s) for s in sources if w in s), default=1.0) + after
+            self.relative[key] = found
+        self.by_frequency = {key: array("i", sorted(found, key=lambda i, f=found: (f[i], i)))
+                             for key, found in self.relative.items()}
         self.by_frequency[""] = array("i", sorted(best, key=best.get))
         # Unions de listes (plusieurs catégories cochées), faites à la demande.
         self._unions: dict[str, array] = {}
@@ -451,14 +467,10 @@ class Universe:
         par le meilleur rang relatif, comme pour toutes)."""
         found = self.by_frequency.get(key)
         if found is None:
-            ranks = wordlists.ranks()
             best: dict[int, float] = {}
             for k in key.split(","):
-                r = ranks[k]
-                for w, n in r.items():
-                    i = self.index(w)
-                    if i is not None:
-                        best[i] = min(best.get(i, 1.0), n / len(r))
+                for i, n in self.relative[k].items():
+                    best[i] = min(best.get(i, 2.0), n)
             found = self.by_frequency[key] = array("i", sorted(best, key=lambda i: (best[i], i)))
         return found
 
@@ -911,18 +923,21 @@ class Explorer:
         return 0, self.universe.size
 
     def best_rank(self, label: str, category: str = "") -> int | None:
-        """Meilleur rang du nom dans les listes du filtre de catégorie (une ou plusieurs), sinon dans toutes."""
+        """Meilleur rang du nom dans les listes du filtre de catégorie (une ou plusieurs), sinon dans toutes. Nom
+        dérivé dans la catégorie (assurance dans Termes premium) : son meilleur rang dans les listes d'où vient la
+        catégorie (wordlists.DERIVED_FROM)."""
         ranks = wordlists.ranks()
-        if category in ranks:
-            return ranks[category].get(label)
-        keys = ([c for c in category.split(",") if c in ranks] if "," in category else []) or ranks
-        found = [ranks[k][label] for k in keys if label in ranks[k]]
+        keys = [category] if category in ranks else ([c for c in category.split(",") if c in ranks] if "," in category else [])
+        found = [ranks[k][label] for k in (keys or ranks) if label in ranks[k]]
+        if keys and not found:
+            sources = {s for k in keys if label in wordlists.classes()[k] for s in wordlists.DERIVED_FROM.get(k, ())}
+            found = [ranks[s][label] for s in sources if label in ranks[s]]
         return min(found) if found else None
 
     @staticmethod
     def _in_category(label: str, category: str) -> bool:
         if category in wordlists.LABELS:
-            return label in wordlists.lists()[category]
+            return label in wordlists.classes()[category]
         if len(label) > drops.MAX_SHORT:
             return False
         kind = drops.kind_of(label)
@@ -1607,7 +1622,10 @@ class Explorer:
         sizes = {k: len(r) for k, r in wordlists.ranks().items()}
         keys = key.split(",") if key else None
         for item in items:
-            ranks = {k: n for k, n in item["ranks"].items() if keys is None or k in keys}
+            # Nom dérivé dans la catégorie du filtre : le rang de sa meilleure liste d'origine.
+            ranks = ({k: n for k, n in item["ranks"].items() if keys is None or k in keys}
+                     or {k: n for k, n in item["ranks"].items()
+                         if any(k in wordlists.DERIVED_FROM.get(c, ()) for c in keys or ())})
             item["freq_list"] = min(ranks, key=lambda k: ranks[k] / sizes[k], default=None)
         return {"items": items}
 
@@ -1890,7 +1908,7 @@ class Explorer:
     def _build_map(self) -> dict:
         """Carte extension x catégorie : noms à saisir par case (noms qui ont un sens seulement)."""
         tlds = self.tlds()
-        filters = {"short": ("", -3), "l4": ("letters", 4), **{k: (k, None) for k in wordlists.LABELS}}
+        filters = {"short": ("", -3), "l4": ("letters", 4), **{k: (k, None) for k in wordlists.SHOWN}}
         # Mêmes compteurs que la puce « Libres » de la liste par défaut (réservables, premiums compris, libération à venir exclue) :
         # une case et le filtre qu'elle ouvre donnent le même nombre. Le masque d'une ligne ne dépend pas
         # de l'extension : fait une fois. Seuls les états réservables sont comptés, en un passage par case.
@@ -2098,9 +2116,9 @@ class Explorer:
         return absent_label(tld) if code == ABSENT else LABELS.get(code, "")
 
     def _family(self, i: int, label: str) -> str:
-        """Liste principale d'un nom (la première de ses listes) ; pour un nom court hors des listes, sa
+        """Liste principale d'un nom (la première de ses listes d'origine) ; pour un nom court hors des listes, sa
         forme et sa longueur (L3g : 3 lettres prononçables, D3 : 3 chiffres…)."""
-        listed = wordlists.categories(label)
+        listed = wordlists.own(label)
         return listed[0] if listed else self.universe.shape_class(i)
 
     def comparables(self, name: str) -> list[dict]:

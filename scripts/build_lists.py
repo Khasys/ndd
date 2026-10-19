@@ -9,6 +9,8 @@ Listes fournies (termes premium, mots-clés à forte valeur, métier + ville, ma
 motscles.txt, local.txt, marques_inventees.txt) : rédigées ailleurs, jamais écrites ici. Le script en vérifie
 le format et en relève la langue (langues.txt) ; une marque inventée n'en a pas.
 
+Chaque usage finit par les catégories dérivées (categories.txt, voir « Catégories dérivées » plus bas).
+
 WORDFREQ_DIR : dossier du paquet wordfreq 3.1.1 décompressé (contient data/large_en.msgpack.gz).
 LEXIQUE_TXT : Lexique383.txt (paquet pylexique 1.5.1), encodé en Latin-1. Il faut aussi le module msgpack.
 Les listes choisies à la main sont dans scripts/lists ; sources et licences : app/data/SOURCES.md.
@@ -23,6 +25,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+from app import wordlists  # noqa: E402  listes et catégories (clés, fichiers, règles des catégories dérivées)
 from app.pronounce import pronounceable  # noqa: E402  filtre des noms « fr + mot tech »
 
 LISTS = ROOT / "scripts" / "lists"
@@ -442,6 +445,233 @@ def provided_only() -> None:
     write("langues.txt", [f"{name}\t{','.join(k for k in ('fr', 'en') if k in langs)}" for name, langs in sorted(lines.items())])
 
 
+# --- Catégories dérivées ---------------------------------------------------------------------------------
+# Un nom garde ses listes et reçoit en plus les catégories que lui donnent les règles ci-dessous, écrites dans
+# app/data/categories.txt (nom, catégories gagnées) et lues par app.wordlists : classement et filtres seulement,
+# jamais le score (rangs et traits restent ceux des listes d'origine). À relancer quand une liste change :
+# python scripts/build_lists.py --provided (ou --themes, ou la construction complète), qui finissent par là.
+# Listes d'où vient chaque catégorie (wordlists.DERIVED_FROM) : règle a, secteurs porteurs et tendances sont aussi
+# des termes premium ; b, combinaisons vers mots-clés ; c, combinaisons et mots-clés vers métier + ville ; d, noms
+# composés (wordlists.COMPOUNDS) vers les thèmes.
+TO_PREMIUM = wordlists.DERIVED_FROM["premium"]
+COMPOUNDS = wordlists.COMPOUNDS
+# Thèmes et leur source à la main (sections [fr] et [en] : un mot anglais compte même s'il est resté dans
+# anglais.txt). Tech et startups, tendances : la liste elle-même.
+THEME_SOURCES = {"job": "metiers.txt", "sport": "sport.txt", "animal": "animaux.txt", "food": "cuisine.txt",
+                 "startup": None, "trend": None}
+# Mots d'un thème trop généraux ou ambigus pour le donner à un nom composé, relevés sur 50 noms tirés au hasard
+# par thème : « bear » ferait de bearmarket un animal, « terrain » de terrainconstructible un nom de sport, « the »
+# de theinsurance un nom de cuisine, « chat » de mychat un animal, « expert » d'expertassurance un métier.
+WEAK = {
+    "job": {"expert", "guide", "assistant", "assistante", "conseiller", "conseillere", "commercial", "responsable",
+            "manager", "cadre", "patron", "pilote", "gardien", "auteur", "independant", "employe", "clerc", "moniteur",
+            "acheteur", "vendeur", "builder", "builders", "trainer", "trainers", "commissaire", "mandataire",
+            "controleur", "poseur", "installateur", "auditeur", "juge"},
+    "sport": {"terrain", "piscine", "coach", "team", "club", "clubs", "match", "record", "ring", "piste", "circuit",
+              "parcours", "filet", "course", "marche", "tir", "casque", "gants", "bandeau", "gourde", "casquette",
+              "equipe", "ligue", "coupe", "transfert", "capitaine", "gardien", "cavalier", "fan", "fans", "supporter",
+              "supporters", "ultras", "arena", "league", "trainer", "entraineur", "polo", "lutte", "champion",
+              "champions", "championne", "joueur", "joueurs", "joueuse", "sprint", "competition", "chasse", "ballon",
+              "moto"},
+    "animal": {"chat", "pension", "compagnie", "niche", "adoption", "collier", "bete", "betes", "ver", "pie", "ours",
+               "python", "puma", "jaguar", "morse", "sole", "raie", "carpe", "bull", "bear", "shark", "whale", "seal",
+               "bat", "ant", "fox", "wolf", "eagle", "swan", "owl", "turkey", "spider", "refuge", "faune", "mascotte",
+               "souris", "renne", "elan", "ane", "rat", "oie", "boa", "cygne", "lynx", "bouc"},
+    "food": {"the", "cote", "lentille", "lentilles", "rouge", "blanc", "rose", "orange", "sel", "filet", "four",
+             "poele", "cocotte", "couteau", "menu", "menus", "punch", "pate", "creme", "huile", "eau", "vapeur",
+             "regime", "chef", "plat", "entree", "pain", "pie", "apple", "cookie", "cookies", "comte", "olive",
+             "sauce", "salt", "pepper", "grill", "dish", "dishes", "bio", "organic", "healthy", "cuisson", "mixeur",
+             "blender", "tablier", "toque", "lait", "diner", "cola", "soda", "rhum", "gin", "wrap", "lemon"},
+    "startup": set(),
+    "trend": {"local", "alpha", "storage", "stockage", "clean", "impact", "silver", "space", "edge", "remote",
+              "cargo", "chat", "agent", "assistant", "influence", "createur", "borne", "bornes", "recharge", "defi",
+              "chips", "vegetal"},
+}
+# Tech et startups : une liste de mots évocateurs (nova, forge, hub, lab, smart, auto) ; seuls ses mots techniques
+# donnent le thème à un nom composé (aiagents, stockagecloud, logicielcomptable).
+STRONG = {"startup": {
+    "agents", "copilot", "prompt", "neural", "inference", "tensor", "vector", "gpu", "api", "apis", "sdk", "cli",
+    "infra", "cloud", "compute", "cluster", "dataset", "data", "dev", "devs", "stack", "bot", "bots", "robot",
+    "qubit", "quantum", "cipher", "startup", "founder", "venture", "numerique", "logiciel", "appli", "robotique",
+    "donnees", "algorithme", "serveur", "jeunepousse", "fondateur", "chip", "byte", "token", "deploy", "kernel",
+    "autopilot", "ledger", "wallet"}}
+# Dans les listes commerciales (combinaisons, mots-clés, métier + ville, termes premium), « cuisine » et « kitchen »
+# sont le cuisiniste (cuisine-metz, deviscuisine, kitchenquotes), pas la table ; dans un site de niche ou un média
+# (forumcuisine, guidecuisine), la table.
+TRADE_LISTS = ("combo", "keyword", "local", "premium")
+WEAK_TRADE = {"food": {"cuisine", "cuisines", "kitchen", "kitchens", "cocktail"}}
+# Règle b : modificateurs d'intention de recherche (prix, comparaison, en ligne, devis). Les formes possessives et
+# de média (mon, my, le, the, info, guide, hub, hq, top, sos, allo…) n'en sont pas, ni les ajouts de marque (pro,
+# expert, direct, express, 24, now, instant, quick, buy, find) : monassurance, mytravel, hairexpress, buyteeth sont
+# des noms de marque ou de média, pas des requêtes. Un devis se demande à un métier ou à un service (assurancedevis,
+# moversquotes ; pas matelasdevis ni churchquotes).
+INTENT = {"pascher", "discount", "enligne", "comparateur", "comparatif", "tarif", "tarifs", "simulation",
+          "simulateur", "best", "finder", "online", "cheap", "compare", "rates"}
+QUOTE = {"devis", "quotes", "quote"}
+# Mots de liaison et possessifs des noms construits (monassurance, journaldelinformatique) : des morceaux de
+# découpe, jamais un thème.
+LINKS = {"mon", "ma", "le", "la", "les", "my", "the", "de", "du", "des", "del", "dela", "d", "l"}
+
+
+def splits(name: str, vocabulary: set[str], parts: int = 4, keep: int = 8) -> list[tuple[str, ...]]:
+    """Découpes les plus économes du nom en mots du vocabulaire (au plus parts mots, keep découpes) ; vide si le
+    nom ne se découpe pas entièrement. Pas de sous-chaîne : chaque lettre appartient à un mot."""
+    from functools import lru_cache
+
+    @lru_cache(maxsize=None)
+    def best(i: int, left: int):
+        if i == len(name):
+            return 0, ((),)
+        if left == 0:
+            return None
+        found = None
+        for j in range(i + 1, len(name) + 1):
+            if name[i:j] not in vocabulary or (rest := best(j, left - 1)) is None:
+                continue
+            ways = tuple((name[i:j], *r) for r in rest[1])
+            if found is None or rest[0] + 1 < found[0]:
+                found = (rest[0] + 1, ways)
+            elif rest[0] + 1 == found[0]:
+                found = (found[0], (found[1] + ways)[:keep])
+        return found
+
+    found = best(0, parts)
+    return list(found[1]) if found else []
+
+
+def derive_vocab(lists: dict[str, list[str]]) -> dict:
+    """Vocabulaires des règles, tirés des listes et des listes à la main : mots (Lexique, formes, anglais), thèmes,
+    secteurs et thèmes des sites de niche, villes et métiers des listes « métier + ville » et des combinaisons,
+    affixes des combinaisons et des sites de niche."""
+    local = sections("metier_ville.txt")
+    mods, formats = sections("modifiers.txt"), sections("formats.txt")
+    themes = {}
+    for key, source in THEME_SOURCES.items():
+        found = set(lists.get(key, ()))
+        if source:
+            parts = sections(source)
+            found |= set(parts.get("fr", [])) | set(parts.get("en", []))
+        themes[key] = {w.replace("-", "") for w in found}
+    cities = {c.replace("-", "") for c in local["villes"] + local["regions"] + read("villes_fr.txt")}
+    us = set(read("cities_us.txt"))
+    services = {w.replace("-", "") for w in local["services"] + read("metiers_fr.txt") + read("trades_en.txt")}
+    services |= themes["job"]
+    affixes = {a for part in (*mods.values(), *formats.values()) for a in part} | LINKS | INTENT | QUOTE
+    # Racine commerciale : un secteur ou un terme premium qui n'est pas un ajout de combinaison (expert, app, pro).
+    # Une ville n'en est pas une (paris : aussi un secteur, les paris sportifs).
+    roots = (set(lists.get("sector", ())) | set(lists.get("premium", ()))) - affixes - cities - us
+    # Découpe en vrais mots : Lexique, formes et anglais de 3 lettres et plus (un mot de 2 lettres colle à tout),
+    # thèmes (ia et ai compris), thèmes des sites de niche, villes et affixes connus, même courts (my, hq, d, l).
+    # Pas les noms composés des listes (coachsportif, assurancevie) : ils cacheraient leurs mots.
+    words = {w for key in ("word", "form", "english") for w in lists.get(key, ()) if len(w) >= 3}
+    words |= set(read("themes_fr.txt")) | set(read("themes_en.txt"))
+    pieces = words | {w for t in themes.values() for w in t if len(w) >= 2} | cities | us | affixes
+    return {"themes": themes, "cities": cities, "us": us, "places": cities | us, "services": services,
+            "trades_en": set(read("trades_en.txt")), "before": set(local["avant-ville"]), "roots": roots,
+            "affixes": affixes, "pieces": pieces, "commerce": pieces | roots}
+
+
+def theme_of(name: str, vocab: dict, trade: bool = False) -> set[str]:
+    """Thèmes d'un nom composé : ceux d'un de ses mots (3 lettres au moins), dans chacune de ses découpes les plus
+    économes (marathon reste un mot entier : pas de « thon » pour la cuisine). Un mot de 3 lettres ne compte que si
+    les autres sont des mots de 4 lettres et plus ou des affixes connus (petsitting, thevet ; pas colo+cat+ion+hosting
+    ni tele+pho+nie). trade : nom d'une liste commerciale."""
+    def gives(key: str, piece: str, way: tuple[str, ...]) -> bool:
+        if len(piece) < 3 or piece not in vocab["themes"][key]:
+            return False
+        if len(piece) == 3 and any(len(p) < 4 and p not in vocab["affixes"] for p in way if p != piece):
+            return False
+        if key in STRONG:
+            return piece in STRONG[key]
+        return piece not in WEAK[key] and not (trade and piece in WEAK_TRADE.get(key, ()))
+
+    found = None
+    for way in splits(name.replace("-", ""), vocab["pieces"]):
+        got = {key for key in vocab["themes"] for piece in way if gives(key, piece, way)}
+        found = got if found is None else found & got
+    return found or set()
+
+
+def is_keyword(name: str, vocab: dict) -> bool:
+    """Combinaison qui associe une racine commerciale (secteur, terme premium) à une intention de recherche ou à
+    une autre racine (assurancepascher, bestinsurance, assurancedevis), dans chacune de ses découpes les plus
+    économes ; un devis seulement pour un métier ou un service."""
+    ways = splits(name.replace("-", ""), vocab["commerce"])
+    if not ways:
+        return False
+    for way in ways:
+        roots = [p for p in way if p in vocab["roots"]]
+        quote = any(p in QUOTE for p in way)
+        if len(way) < 2 or not roots or any(p not in vocab["roots"] and p not in INTENT | QUOTE for p in way):
+            return False
+        if quote and not any(p in vocab["services"] for p in roots):
+            return False
+    return True
+
+
+def is_local(name: str, vocab: dict) -> bool:
+    """Métier + ville : plombierlyon, injurylawyernewyork, arlingtonlawyer ; ville d'abord seulement pour une ville
+    américaine (comme les combinaisons) et pour immo, immobilier, auto, garage (lyonimmobilier)."""
+    label = name.replace("-", "")
+    for city in vocab["places"]:
+        if label.endswith(city) and label[:-len(city)] in vocab["services"]:
+            return True
+        if label.startswith(city):
+            rest = label[len(city):]
+            if rest in vocab["before"] or (city in vocab["us"] and rest in vocab["trades_en"]):
+                return True
+    return False
+
+
+def derive(lists: dict[str, list[str]], vocab: dict | None = None) -> dict[str, list[str]]:
+    """Catégories gagnées par nom (absentes de ses listes d'origine), dans l'ordre de app.wordlists.LABELS."""
+    vocab = vocab or derive_vocab(lists)
+    own: dict[str, set[str]] = {}
+    for key, names in lists.items():
+        for name in names:
+            own.setdefault(name, set()).add(key)
+    gained: dict[str, set[str]] = {}
+
+    def give(name: str, key: str) -> None:
+        if key not in own[name]:
+            gained.setdefault(name, set()).add(key)
+
+    for key in TO_PREMIUM:
+        for name in lists.get(key, ()):
+            give(name, "premium")
+    for name in (n for key in wordlists.DERIVED_FROM["keyword"] for n in lists.get(key, ())):
+        if is_keyword(name, vocab):
+            give(name, "keyword")
+    for key in wordlists.DERIVED_FROM["local"]:
+        for name in lists.get(key, ()):
+            if is_local(name, vocab):
+                give(name, "local")
+    trade = {name for key in TRADE_LISTS for name in lists.get(key, ())}
+    for key in COMPOUNDS:
+        for name in lists.get(key, ()):
+            for theme in theme_of(name, vocab, trade=name in trade):
+                give(name, theme)
+    order = list(wordlists.LABELS)
+    # Règle e : jamais vers les dictionnaires, les marques inventées ni Mes ajouts (la langue a son propre filtre).
+    assert not {k for keys in gained.values() for k in keys} & set(wordlists.NEVER_DERIVED)
+    return {name: sorted(keys, key=order.index) for name, keys in sorted(gained.items())}
+
+
+def write_derived() -> dict[str, list[str]]:
+    """Relit les listes de app/data et réécrit categories.txt ; affiche les noms gagnés par catégorie."""
+    lists = {key: wordlists._ordered(file) for key, file in wordlists.FILES.items()}
+    found = derive(lists)
+    lines = "".join(f"{name}\t{','.join(keys)}\n" for name, keys in found.items())
+    (DATA / wordlists.DERIVED_FILE).write_text(lines, encoding="utf-8")
+    counts: dict[str, int] = {}
+    for keys in found.values():
+        for key in keys:
+            counts[key] = counts.get(key, 0) + 1
+    print(f"{wordlists.DERIVED_FILE}: {len(found)} noms ; " + ", ".join(
+        f"{key} {len(lists[key])} + {n}" for key, n in sorted(counts.items(), key=lambda kv: -kv[1])))
+    return found
+
+
 if __name__ == "__main__":
     if sys.argv[1:] == ["--themes"]:
         themes_only()
@@ -449,3 +679,4 @@ if __name__ == "__main__":
         provided_only()
     else:
         main()
+    write_derived()
