@@ -3773,7 +3773,6 @@ bourse	premium
 boursecrypto	trend
 boursediscount	keyword
 bourseducrypto	trend
-bourseenligne	keyword
 boursepascher	keyword
 boutique	premium
 boutiqueaquarium	animal

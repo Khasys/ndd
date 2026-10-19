@@ -60382,6 +60382,7 @@ telephonediscount	fr
 telephonedoccasion	en
 telephonedurci	fr
 telephoneenligne	fr
+telephoneetanche	fr
 telephoneexpert	fr
 telephoneexpress	fr
 telephonefacile	fr
@@ -60411,7 +60412,6 @@ telephonesportables	fr
 telephonesrobustes	fr
 telephonessansfil	fr,en
 telephonesseniors	en
-telephonetanche	en
 teleprospecteur	fr
 teleprospection	fr
 telepsychiatry	en

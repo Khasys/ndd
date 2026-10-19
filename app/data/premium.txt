@@ -20,7 +20,7 @@ invoicefinancing
 microcredit
 payrollservices
 taxrelief
-comptabilitenligne
+comptabiliteenligne
 commissairecomptes
 bilancomptable
 mutuellesenior
@@ -1231,7 +1231,7 @@ creditscore
 traditionira
 contratvie
 moneymarket
-boursenligne
+bourseenligne
 financementstartup
 pretentreprise
 crowdequity
@@ -3066,7 +3066,6 @@ consuel
 secondoeuvres
 mobilhomeoccasion
 demoussagetoiture
-voiturelectrique
 mandatairevoiture
 cardealer
 jantesmoto

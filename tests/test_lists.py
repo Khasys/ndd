@@ -463,3 +463,16 @@ def test_routes_show_derived_categories(logged):
         assert fiche["categories"] == ["word", "english", "premium"]
     finally:
         client.__exit__(None, None, None)
+
+
+def test_no_elided_e_before_en_ligne():
+    """« comptabilité en ligne » s'écrit comptabiliteenligne : le e final du mot ne tombe pas devant « en »."""
+    known = set((wordlists.DATA / "mots.txt").read_text().split())
+    wrong = []
+    for name, names in wordlists.static_lists().items():
+        for w in names:
+            at = w.find("enligne")
+            head = w[:at]
+            if at > 3 and head not in known and head + "e" in known:
+                wrong.append((name, w))
+    assert wrong == []

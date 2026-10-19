@@ -7566,7 +7566,7 @@ taxdebtsoftware
 travauxchezsoi
 cleaningcompanies
 douchealitalienne
-telephonetanche
+telephoneetanche
 pensiondereversion
 taxrefundonline
 depannageplomberie
@@ -20526,7 +20526,6 @@ cel
 corporatetaxcalculator
 treequotes
 prixcollierchat
-comptepargnelogement
 firsthomebuyersoftware
 marketplaceseo
 prixgreffedesourcils
