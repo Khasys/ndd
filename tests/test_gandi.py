@@ -81,7 +81,7 @@ def test_gandi_effect_never_touches_registered_or_listed_names():
 
 def test_gandi_answers_set_the_state_of_names_thought_free(env):
     zone(env, [], ["maison"])
-    env.fr.store.set("premium_off", "[]")  # .com : 3 caractères en premium probable, pour l'exemple
+    env.premium_tlds_off = lambda: frozenset()  # .com : 3 caractères en premium probable, pour l'exemple
     env.invalidate("com")
     u = env.universe
     data = env.status_bytes("com")

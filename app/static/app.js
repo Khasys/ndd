@@ -728,9 +728,7 @@ document.addEventListener("alpine:init", () => {
         // Explorer : l'état d'un premium vu chez Gandi est déjà « Premium 878 € » (badge) ; pas de pastille en double.
         price: (i.status === 8 && !veilleLike) || (veilleLike && this.gandiKind(i, list) === "premium" && ["available", "unconfirmed"].includes(i.state))
           ? null : this.gandiPill(i, list),
-        premium: this.gandiKind(i, list) === "premium" ? ""
-          : veilleLike && i.premium ? (i.premium_price ? `premium probable ~${this.fmt(i.premium_price)} €` : "premium probable")
-          : i.status === 8 && i.premium_price ? `~${this.fmt(i.premium_price)} €` : "",
+        premium: this.gandiKind(i, list) !== "premium" && veilleLike && i.premium ? "premium probable" : "",
         watched: !!i.watched,
         owned: !!i.in_portfolio,
         busy: !!this.exBusy[i.name],
@@ -1020,7 +1018,7 @@ document.addEventListener("alpine:init", () => {
       } else if (GANDI_BLOCKED.includes(kind)) {
         k.premium = `${g.label} : ${BLOCKED_WHY}.`;
       } else if (item && item.status === 8) {
-        k.premium = item.premium_price ? `Premium probable : ~${this.fmt(item.premium_price)} € chez le registre` : "Premium probable : le registre peut demander bien plus que le prix courant";
+        k.premium = "Premium probable : le registre peut demander bien plus que le prix courant, Gandi le dira.";
       }
       return k;
     },
@@ -2529,32 +2527,6 @@ document.addEventListener("alpine:init", () => {
       if (d.fr && d.fr.enabled && d.fr.at) parts.push(`.fr importé ${this.relative(d.fr.at)}`);
       if (d.gandi && d.gandi.finished_at) parts.push(`prix ${this.relative(d.gandi.finished_at)}`);
       return parts.length ? "Lectures à jour : " + parts.join(", ") + "." : "Lectures à jour.";
-    },
-
-    premiumPrice(tld, len) { return this.cfg?.premium?.prices?.[tld]?.[len] ?? ""; },
-
-    setPremiumPrice(tld, len, value) {
-      const prices = { ...(this.cfg.premium.prices || {}) };
-      prices[tld] = { ...(prices[tld] || {}), [len]: value === "" ? null : Number(value) };
-      this.cfg.premium.prices = prices;
-      this.savePremium();
-    },
-
-    togglePremiumTld(tld, possible) {
-      const off = new Set(this.cfg.premium.off || []);
-      if (possible) off.delete(tld); else off.add(tld);
-      this.cfg.premium.off = [...off].sort();
-      this.savePremium();
-    },
-
-    async savePremium() {
-      try {
-        const saved = await this.api("PUT", "/api/settings/premium", { devalue: !!this.cfg.premium.devalue, prices: this.cfg.premium.prices || {}, off: this.cfg.premium.off || [] });
-        this.cfg.premium = { ...this.cfg.premium, ...saved };
-        this.say("Réglage des premiums enregistré.");
-      } catch (e) {
-        this.say(e.message, "error");
-      }
     },
 
     // Avis IA en valeur triable : revente rapide haute, puis note de revente.

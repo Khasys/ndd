@@ -52,7 +52,8 @@ LABELS = {
 # 3 caractères libres sur une extension générique : souvent vendus au prix premium par le registre.
 # Rien ne le confirme sans accès registrar ; l'Explorer les masque sauf si on demande à les voir.
 PREMIUM_LENGTH = 3
-PREMIUM_OFF_DEFAULT = ("com", "net")
+# .com et .net : prix unique imposé au registre (Verisign), jamais de premium.
+PREMIUM_OFF = frozenset(("com", "net"))
 # Niveaux de l'Explorer et de la Veille ; classements selon l'usage.
 LEVEL_GOOD, LEVEL_GEM = 30, 50
 LENSES = ("resale", "exploit")
@@ -1215,23 +1216,9 @@ class Explorer:
     def weights(self) -> dict[str, float]:
         return value.weights_from(self.fr.store.get("score_weights"))
 
-    def premium_prices(self) -> dict[str, dict[str, int]]:
-        """Prix premium saisis dans Paramètres : {extension: {"2": euros, "3": euros}}."""
-        try:
-            return json.loads(self.fr.store.get("premium_prices") or "{}")
-        except ValueError:
-            return {}
-
-    def premium_devalue(self) -> bool:
-        return self.fr.store.get("premium_devalue") == "1"
-
     def premium_tlds_off(self) -> frozenset[str]:
-        """Extensions sans prix premium chez le registre : .com et .net (prix unique imposé à Verisign)
-        par défaut, puis ce que l'on décoche dans Paramètres."""
-        try:
-            return frozenset(json.loads(self.fr.store.get("premium_off") or '["com", "net"]'))
-        except ValueError:
-            return frozenset(PREMIUM_OFF_DEFAULT)
+        """Extensions sans prix premium chez le registre : pas de « premium probable » sur elles."""
+        return PREMIUM_OFF
 
     def _bonus_context(self, tld: str) -> dict:
         return self._memo(("bonus", tld), lambda: self._build_bonus_context(tld))
@@ -1256,7 +1243,7 @@ class Explorer:
         rates = {t: self._rates(data, TAKEN_CODES) for t, data in others.items()}
         held = self._rates(self.status_bytes(tld), (GONE,), (GONE, ABSENT)) if tld == "fr" else {}
         return {"others": others, "gone": gone, "seo": seo, "today": date.today(), "reach": reach, "rates": rates, "held": held,
-                "reach_parts": parts, "weights": w, "status": self.status_bytes(tld), "devalue": self.premium_devalue()}
+                "reach_parts": parts, "weights": w, "status": self.status_bytes(tld)}
 
     def _rates(self, data, wanted: tuple[int, ...], among: tuple[int, ...] | None = None) -> dict[str, float]:
         """Par forme de nom : part des noms dans un des états voulus (parmi tous les noms valides, ou
@@ -1313,10 +1300,6 @@ class Explorer:
             found["reasons"] = self._with_recent(found.get("reasons", []), label, recent[0])
         # Rang dans chaque liste : tri « les plus portés » et « 12e prénom le plus donné » sur la carte.
         found["ranks"] = {k: r[label] for k, r in wordlists.ranks().items() if label in r}
-        if ctx.get("devalue") and ctx["status"][i] == PREMIUM:
-            # Case « dévaluer les premiums probables » : score divisé par deux, la raison le dit.
-            found["score"] //= 2
-            found["reasons"] = found.get("reasons", []) + ["premium probable"]
         return found
 
     def _with_recent(self, reasons: list[str], label: str, rank: int) -> list[str]:
@@ -1999,14 +1982,12 @@ class Explorer:
     def refresh_settings(self) -> None:
         """Barème ou mode des réservés changé : on met à jour ce qui en dépend, sans recompter."""
         weights = self.weights
-        devalue = self.premium_devalue()
         with self._memo_lock:
             for key, (_, _, value) in list(self._memos.items()):
                 if key[0][0] == "bonus":
                     value["weights"] = weights
                     value["reach"] = (value["reach_parts"][0] * weights["demand"] + value["reach_parts"][1] * weights["history"]
                                       + value["reach_parts"][2] * weights["seo"])
-                    value["devalue"] = devalue
             # Scores gardés, classements et carte dépendent du barème et du mode des réservés.
             self._values.clear()
             self._map_cache = None
@@ -2127,8 +2108,7 @@ class Explorer:
                 "rdap": details.get(name),
                 "reserved": self._reserved_why(name, code, check if seen else None),
                 "ai": opinions.get(name),
-                "premium_price": (round(check["price"]) if seen and code == PREMIUM and check["price"] is not None
-                                  else None if seen else self._premium_price(tld, label, code)),
+                "premium_price": round(check["price"]) if seen and code == PREMIUM and check["price"] is not None else None,
                 "gandi": gandi.public(check, since, checked),
                 "gandi_state": check["kind"] if seen else None,  # sorte qui fait l'état affiché (gandi_effect)
             })
@@ -2148,13 +2128,6 @@ class Explorer:
         if check is not None and check["kind"] in gandi.BLOCKED:
             found = found + [gandi.KIND_LABELS[check["kind"]]]
         return found
-
-    def _premium_price(self, tld: str, label: str, code: int) -> int | None:
-        """Prix premium saisi pour cette extension et cette longueur (2 ou 3 caractères), s'il y en a un."""
-        if tld == "fr" or code not in (PREMIUM, RESERVED) or len(label) not in (2, 3):
-            return None
-        price = self.premium_prices().get(tld, {}).get(str(len(label)))
-        return int(price) if price else None
 
     def value_of(self, names: list[str]) -> dict[str, dict]:
         """Score, raisons et filtres d'une liste de noms (écran Suppressions), mêmes calculs que l'Explorer.

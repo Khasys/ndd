@@ -593,9 +593,9 @@ def test_morning_summary_lists_good_names_with_links(env):
 def test_premium_probable_bookable_and_release_sort(env):
     zone(env, [], ["maison"])
     u = env.universe
-    # .com et .net sont sans premium par défaut : la règle s'y applique une fois cochée.
+    # .com et .net sont sans premium : la règle ne s'y applique pas (ici, on fait comme si le .com en avait).
     assert env.status_bytes("com")[u.index("abd")] == explore.ABSENT
-    env.fr.store.set("premium_off", "[]")
+    env.premium_tlds_off = lambda: frozenset()
     env.invalidate("com")
     status = env.status_bytes("com")
     assert status[u.index("abd")] == explore.PREMIUM and status[u.index("maison")] == explore.REGISTERED
@@ -605,14 +605,8 @@ def test_premium_probable_bookable_and_release_sort(env):
     assert hidden == [] and [i["label"] for i in shown] == ["abd"]
     counts = env.facets("com", premium=True)
     assert counts["premium"] > 0 and counts["bookable"] > env.facets("com")["bookable"]
-    # Prix saisi dans Paramètres : affiché sur le nom ; dévaluation : score divisé par deux.
-    env.fr.store.set("premium_prices", '{"com": {"3": 1200}}')
-    assert shown and env.search("com", q="abd", mode="exact", premium=True)["items"][0]["premium_price"] == 1200
-    before = env.value_of(["abd.com"])["abd.com"]["score"]
-    env.fr.store.set("premium_devalue", "1")
-    env.refresh_settings()
-    after = env.value_of(["abd.com"])["abd.com"]
-    assert after["score"] == before // 2 and "premium probable" in after["reasons"]
+    # Pas de prix sans réponse de Gandi : seul son prix s'affiche.
+    assert shown and env.search("com", q="abd", mode="exact", premium=True)["items"][0]["premium_price"] is None
     # Tri par libération : la plus proche d'abord.
     now = datetime.now(timezone.utc)
     env.drops.record("com", ["maison"], [], now)
@@ -790,7 +784,7 @@ def test_hyphen_facet_counts_only_hyphenated_names(env):
 
 def test_all_status_keeps_premiums_when_asked(env):
     zone(env, [], ["maison"])
-    env.fr.store.set("premium_off", "[]")
+    env.premium_tlds_off = lambda: frozenset()
     env.invalidate("com")
     assert env.search("com", q="abd", mode="exact", status="all")["items"] == []
     assert [i["label"] for i in env.search("com", q="abd", mode="exact", status="all", premium=True)["items"]] == ["abd"]

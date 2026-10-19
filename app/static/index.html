@@ -1259,31 +1259,6 @@
       </div>
 
       <div>
-        <h3>Premiums probables</h3>
-        <template x-if="cfg && cfg.premium">
-          <div class="setting-lines">
-            <p class="muted small">Noms de 3 caractères libres hors .fr : souvent vendus au prix premium par le registre. Gandi confirme ou dément (carte Gandi) ; sans réponse de Gandi, rien ne le confirme. Visibles par défaut ; la case « Masquer les premiums » les retire. Décocher « Premium possible » pour une extension sans premium : .com et .net le sont (prix unique imposé au registre).</p>
-            <label class="check"><input type="checkbox" x-model="cfg.premium.devalue" @change="savePremium()"> Diviser leur score par deux</label>
-            <p class="muted small">Prix relevés chez le registrar (euros par an), affichés sur ces noms. Laisser vide si inconnu.</p>
-            <p class="muted small" x-show="!cfg.premium.tlds.length">Aucune zone ICANN lue pour l'instant.</p>
-            <table class="premium-table" x-show="cfg.premium.tlds.length">
-              <thead><tr><th>Extension</th><th title="Premium possible">Premium</th><th title="Prix 2 caractères, euros par an">2 car. €</th><th title="Prix 3 caractères, euros par an">3 car. €</th></tr></thead>
-              <tbody>
-                <template x-for="tld in cfg.premium.tlds" :key="tld">
-                  <tr>
-                    <td class="mono" x-text="'.' + tld"></td>
-                    <td><input type="checkbox" :checked="!(cfg.premium.off || []).includes(tld)" @change="togglePremiumTld(tld, $event.target.checked)" :aria-label="'Premium possible en .' + tld"></td>
-                    <td><input type="number" min="0" step="10" class="filter-input num-input" :value="premiumPrice(tld, '2')" @change="setPremiumPrice(tld, '2', $event.target.value)" :aria-label="'Prix 2 caractères .' + tld"></td>
-                    <td><input type="number" min="0" step="10" class="filter-input num-input" :value="premiumPrice(tld, '3')" @change="setPremiumPrice(tld, '3', $event.target.value)" :aria-label="'Prix 3 caractères .' + tld"></td>
-                  </tr>
-                </template>
-              </tbody>
-            </table>
-          </div>
-        </template>
-      </div>
-
-      <div>
         <h3>Noms réservés (.fr)</h3>
         <template x-if="cfg">
           <div class="setting-lines">

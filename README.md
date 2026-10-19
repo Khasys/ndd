@@ -140,7 +140,7 @@ appareils.
 En tête, le bloc **Démarrer en 3 étapes** (le même que sur Aujourd'hui) tant qu'une étape manque. Puis,
 dans l'ordre : les sources (Extension .fr, Zones ICANN, Sources et lectures), Telegram, Alertes, Avis IA.
 Le reste est replié sous « Afficher les réglages avancés » : Écran
-Veille, Premiums probables, Noms réservés, Prénoms récents (Insee), SEO, Score de l'Explorer, Lien « Réserver »,
+Veille, Noms réservés, Prénoms récents (Insee), SEO, Score de l'Explorer, Lien « Réserver »,
 Calendrier, Apparence. La carte Version est en bas. Sur téléphone, Paramètres s'ouvre par l'icône en haut à droite de
 chaque écran.
 
@@ -626,8 +626,8 @@ DNS change de version à la fin de chaque passe : l'Explorer se recalcule alors.
 - **Premiums probables** : noms de 3 caractères libres hors .fr, souvent vendus au prix premium
   par le registre ; Gandi confirme ou dément (voir Gandi plus bas). Visibles par défaut, comme les premiums vus
   chez Gandi ; case « Masquer les premiums » pour les retirer (la carte compte les premiums, comme la puce
-  « Libres »). Paramètres : case pour diviser leur score par deux, et prix relevés à la main par extension pour 2
-  et 3 caractères, affichés sur ces noms tant que Gandi n'a pas donné le sien.
+  « Libres »). Pas de prix tant que Gandi n'a pas répondu : le prix affiché est toujours celui de Gandi.
+  .com et .net n'ont jamais de premium chez le registre (prix unique imposé à Verisign) : la règle ne s'y applique pas.
 - **Carte** : extension × catégorie (1 à 3 caractères, 4 lettres, mots, formes fléchies, noms,
   prénoms), nombre de noms réservables par case, le même compte que la puce « Libres » de la liste
   (libération à venir exclue). Une case ouvre la liste filtrée et referme la carte.

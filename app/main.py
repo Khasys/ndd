@@ -1104,9 +1104,6 @@ async def get_settings(request: Request):
         "fr": {"enabled": state.fr.enabled, "url": state.store.get("fr_url"), "rate": state.fr.rate,
                "dns": state.store.get("fr_dns_enabled", "1") == "1"},
         "drops": {"keep_days": state.drops.keep_days, "min_score": _drops_min_score(state.store)},
-        "premium": {"devalue": state.explorer.premium_devalue(), "prices": state.explorer.premium_prices(),
-                    "off": sorted(state.explorer.premium_tlds_off()),
-                    "tlds": [t for t in state.explorer.tlds() if t != "fr"]},
         "seo": {"key_set": bool(state.seo.key)},
         "gandi": {**state.gandi.status(), "pass": state.gandi_pass.status(), "live": state.gandi_live.status()},
         "reserved": state.reserved.status(),
@@ -1267,40 +1264,6 @@ async def set_drops(request: Request, payload: DropsSettings):
     return {"keep_days": payload.keep_days, "min_score": payload.min_score}
 
 
-class PremiumSettings(BaseModel):
-    devalue: bool
-    prices: dict[str, dict[str, int | None]]
-    off: list[str] | None = None  # extensions sans premium chez le registre
-
-
-@app.put("/api/settings/premium")
-async def set_premium(request: Request, payload: PremiumSettings):
-    """Premiums probables : dévaluation du score (case), prix saisis par extension pour 2 et 3 caractères."""
-    clean = {}
-    for tld, by_len in payload.prices.items():
-        tld = tld.strip().lower().lstrip(".")
-        if not re.fullmatch(r"[a-z]{2,20}", tld):
-            continue
-        kept = {k: int(v) for k, v in by_len.items() if k in ("2", "3") and v and 0 < int(v) <= 10_000_000}
-        if kept:
-            clean[tld] = kept
-    store = request.app.state.store
-    store.set("premium_devalue", "1" if payload.devalue else "0")
-    store.set("premium_prices", json.dumps(clean))
-    explorer = request.app.state.explorer
-    recount = False
-    if payload.off is not None:
-        off = sorted({t.strip().lower().lstrip(".") for t in payload.off if re.fullmatch(r"\.?[a-z]{2,20}", t.strip().lower())})
-        if set(off) != explorer.premium_tlds_off():
-            store.set("premium_off", json.dumps(off))
-            explorer.invalidate()  # l'état « premium probable » change : états recalculés
-            request.app.state.explorer_warm = asyncio.create_task(_off(explorer.warm))
-            recount = True
-    if not recount:
-        explorer.refresh_settings()  # dévaluation cochée ou non : scores mis à jour sans recompter
-    return {"devalue": payload.devalue, "prices": clean, "off": sorted(explorer.premium_tlds_off())}
-
-
 class DropNames(BaseModel):
     names: list[str]
 
@@ -1380,10 +1343,9 @@ def _drop_gandi(state, rows) -> dict[str, dict]:
     """Réponse de Gandi pour chaque nom de la Veille, et ce qu'elle change, par la même règle que l'Explorer
     (explore.gandi_effect) : « available » fait d'un nom à confirmer un nom libre, « premium » un premium, un
     indisponible revu au registre n'est plus affiché libre ; rien sur un nom en rédemption ou repris. Premium :
-    Gandi, sinon l'estimation des 3 caractères libres hors .fr (explore.PREMIUM), avec le prix des réglages."""
+    Gandi, avec son prix, sinon l'estimation des 3 caractères libres hors .fr (explore.PREMIUM), sans prix."""
     explorer = state.explorer
     checks = gandi.load(state.conn, [r["name"] for r in rows])
-    prices = explorer.premium_prices()
     premium_off = explorer.premium_tlds_off()
     listed = state.reserved.names()
     found = {}
@@ -1397,7 +1359,7 @@ def _drop_gandi(state, rows) -> dict[str, dict]:
         price = round(check["price"]) if kind == "premium" and check["price"] is not None else None
         found[r["name"]] = {
             "check": check, "since": since, "checked": checked, "kind": kind, "premium": kind == "premium" or guess,
-            "premium_price": price if kind == "premium" else prices.get(r["tld"], {}).get(length) if guess else None,
+            "premium_price": price,
             "blocked": kind in gandi.BLOCKED, "free": kind == "available",
         }
     return found

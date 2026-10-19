@@ -970,17 +970,12 @@ button:disabled { cursor: default; opacity: .55; }
 .drops-sources { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; margin: 0 0 10px; color: var(--muted); }
 .drops-sources.error { color: var(--danger, #b42318); }
 .ex-reason.new { border-color: var(--accent); color: var(--accent); }
-.premium-table { border-collapse: collapse; display: block; max-width: 100%; overflow-x: auto; }
-.premium-table th, .premium-table td { padding: 4px 8px 4px 0; text-align: left; font-weight: normal; }
 
 /* Historique des lectures sur téléphone : cartes compactes. */
 @media (max-width: 899px) {
   .drops-table tr { position: relative; grid-template-columns: 1fr 1fr; gap: 4px 10px; padding: 10px 12px; margin-bottom: 8px; }
   .drops-table td[data-label] { font-size: 13px; }
   .drops-table td[data-label]::before { font-size: 10.5px; }
-  .premium-table { font-size: 13px; }
-  .premium-table th, .premium-table td { padding-right: 6px; }
-  .premium-table .num-input { width: 72px !important; }
 }
 
 
@@ -1469,9 +1464,6 @@ button:disabled { cursor: default; opacity: .55; }
 @media (min-width: 900px) and (max-width: 1023px) {
   .domains th.col-days, .domains td.col-days { display: none; }
 }
-/* Premiums : en-têtes courts sur une ligne, champs de prix étroits ; la table tient dans sa carte. */
-.premium-table th { white-space: nowrap; font-size: 12px; color: var(--muted); }
-.premium-table .num-input { width: 76px !important; }
 /* Totaux du Portefeuille : rangées pleines (4 puis 8 colonnes), libellés sur une ligne. */
 @media (min-width: 900px) {
   .pf-totals { grid-template-columns: repeat(4, minmax(0, 1fr)); }

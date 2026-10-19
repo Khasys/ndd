@@ -796,17 +796,6 @@ def test_bad_inputs_get_422_or_404_not_500(logged):
     assert hidden == 1
 
 
-def test_premium_devalue_toggle_applies_even_when_tlds_are_sent(logged):
-    client = logged()
-    explorer = client.app.state.explorer
-    calls = []
-    explorer.refresh_settings = lambda: calls.append(1)
-    off = sorted(explorer.premium_tlds_off())
-    client.put("/api/settings/premium", json={"devalue": True, "prices": {}, "off": off})
-    client.put("/api/settings/premium", json={"devalue": False, "prices": {}, "off": off})
-    assert len(calls) == 2
-
-
 # --- Corrections de l'audit serveur ------------------------------------------------------
 
 
@@ -898,8 +887,7 @@ def test_late_portfolio_entry_gets_a_single_reminder(logged):
 
 def test_out_of_range_number_in_a_setting_is_a_422(logged):
     client = logged()
-    for path, body in (("/api/settings/drops", '{"keep_days": 1e400}'),
-                       ("/api/settings/premium", '{"devalue": true, "prices": {"com": {"2": 1e400}}}')):
+    for path, body in (("/api/settings/drops", '{"keep_days": 1e400}'),):
         response = client.put(path, content=body, headers={"content-type": "application/json"})
         assert response.status_code == 422 and '"input"' not in response.text, path
     client.__exit__(None, None, None)
