@@ -621,6 +621,8 @@ en erreur ne remplace pas un résultat connu : elle est notée à côté.
 - **À la demande** : Vérifier d'une fiche (après le RDAP, pour un nom libre, à confirmer ou en rédemption ; une panne
   de Gandi est dite dans `gandi_note` sans faire échouer la vérification) et la vérification d'un domaine suivi
   libre, en rédemption ou en suppression (une fois par jour au plus, toujours à la main ou à un changement d'état).
+  Nom tout juste vu libre au registre (Veille, domaine suivi) : son prix est demandé une minute après, sans attendre
+  la nuit, sauf réponse de Gandi de moins de dix minutes (`drops.on_freed`).
 - **Effet sur l'état** : une seule règle pour tous les écrans (Explorer et fiche, Veille, Aujourd'hui, Domaines),
   `explore.gandi_effect`, détaillée et testée combinaison par combinaison dans `tests/test_state_rules.py`. Premium
   (statut available avec un prix premium) : « Premium » et son prix ; libre au prix standard : « Libre (vérifié) », le

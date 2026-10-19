@@ -454,3 +454,37 @@ def test_watched_domain_check_asks_gandi_once_a_day(logged):
     found = client.post(f"/api/domains/{domain_id}/check").json()
     assert calls == ["libre-test.com"] * 2 and found["gandi"]["price"] == 13.2  # à la main : toujours
     client.__exit__(None, None, None)
+
+
+def test_a_name_just_freed_gets_its_price_without_waiting_for_the_night(logged, monkeypatch):
+    from app import main
+
+    monkeypatch.setattr(main, "FREED_GANDI_DELAY", 0)
+    client = logged()
+    st = client.app.state
+    asked = []
+
+    def handler(request):
+        asked.append(request.url.params["name"])
+        return httpx.Response(200, json=answer("available", [STANDARD], request.url.params["name"]))
+
+    st.gandi._http_factory = lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    st.store.set("gandi_pat", "pat_test")
+    _com_zone(st)
+    now = utcnow()
+    st.drops.record("com", ["lune", "ciel"], [], now)
+    st.conn.execute("UPDATE drops SET state = 'redemption', state_since = ? WHERE name IN ('lune.com', 'ciel.com')", (iso(now),))
+    st.conn.execute("UPDATE drops SET origin = 'gandi' WHERE name = 'ciel.com'")
+
+    async def free():
+        for name in ("lune.com", "ciel.com"):
+            st.drops.apply(st.drops.row(name), LookupResult(available=True), utcnow())
+        await asyncio.sleep(0.2)
+        st.drops.apply(st.drops.row("lune.com"), LookupResult(available=True), utcnow())  # toujours libre : rien de plus
+        await asyncio.sleep(0.2)
+
+    asyncio.run(free())
+    # Libéré : prix demandé une fois ; revérification après un refus d'achat (ciel.com) : pas de nouvelle demande.
+    assert asked == ["lune.com"]
+    assert gandi.load(st.conn, ["lune.com"])["lune.com"]["kind"] == "available"
+    client.__exit__(None, None, None)

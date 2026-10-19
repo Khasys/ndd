@@ -378,6 +378,7 @@ async def _prefetch(chunks: AsyncIterator[bytes], queue: asyncio.Queue) -> None:
 class DropWatcher:
     on_change = None  # appelé avec le nom après chaque vérification (Explorer)
     on_fr_taken = None  # .fr de nouveau à quelqu'un : retour dans les dates anniversaire (frdata)
+    on_freed = None  # nom tout juste vu libre au registre : son prix est demandé sans attendre la nuit (main)
 
     def __init__(self, conn, store: Store, data_dir: Path, rdap, delays: dict, http_factory=None):
         self.conn = conn
@@ -775,6 +776,10 @@ class DropWatcher:
                error = NULL, checked_at = ?, next_check_at = ? WHERE id = ?""",
             (state, iso(since), iso(release), available_since, iso(now), iso(self._next(state, now, release)), row["id"]),
         )
+        if (state in (states.AVAILABLE, UNCONFIRMED) and state != row["state"] and self.on_freed
+                and row["origin"] != "gandi"):
+            # Pas pour une revérification après un refus d'achat : Gandi vient de répondre pour ce nom.
+            self.on_freed(row["name"])
         if state in (TAKEN, states.RENEWED) and row["tld"] == "fr" and self.on_fr_taken:
             # Repris ou renouvelé : de nouveau à quelqu'un, le suivi repart sur les dates anniversaire.
             self.on_fr_taken(row["label"], result)

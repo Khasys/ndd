@@ -51,6 +51,8 @@ from .telegram import Telegram, TelegramError
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("domain-watch")
 STARTED_AT = datetime.now(timezone.utc)
+# Nom tout juste libre : son prix est demandé à Gandi après ce délai (secondes), sauf réponse récente.
+FREED_GANDI_DELAY = 60
 
 
 # Jetons possibles dans un message d'erreur (URL de bot Telegram, en-têtes, paramètres) : masqués,
@@ -357,6 +359,29 @@ async def lifespan(app: FastAPI):
     app.state.gandi_pass = gandi.NightPass(app.state.gandi, conn, store, app.state.explorer, digest.local_zone(),
                                            notify=telegram.send)
     app.state.start_gandi = start_gandi
+
+    async def gandi_freed(name: str) -> None:
+        """Nom tout juste libre : son prix (standard, premium, indisponible) sans attendre la passe de nuit. Une
+        minute d'attente : Vérifier interroge déjà Gandi, une réponse de moins de dix minutes suffit."""
+        await asyncio.sleep(FREED_GANDI_DELAY)
+        client = app.state.gandi
+        last = gandi.load(conn, [name]).get(name)
+        if not client.key or (last and last["checked_at"] > iso(utcnow() - timedelta(minutes=10))):
+            return
+        try:
+            await client.refresh(name)
+        except gandi.GandiError as exc:
+            log.info("%s : prix non demandé (%s)", name, exc)
+
+    def on_freed(name: str) -> None:
+        try:
+            task = asyncio.get_running_loop().create_task(gandi_freed(name))
+        except RuntimeError:
+            return  # hors de la boucle (fil de calcul) : la passe de nuit s'en charge
+        passes.add(task)
+        task.add_done_callback(passes.discard)
+
+    watcher.on_freed = on_freed
 
     async def gandi_domain(name: str, forced: bool) -> None:
         """Domaine suivi non pris, vérifié : Gandi aussi, une fois par jour au plus sauf à la main ou à un changement d'état."""
