@@ -605,6 +605,35 @@ def test_live_pass_order_lists_first_then_score_with_revisits(env):
     assert "maison.com" in live.plan(10**7, now)[0]
 
 
+def test_empty_answers_never_drop_com(env):
+    """Vu sur le NAS le 19/10/2026 : 5 réponses sans ligne de création d'affilée (Gandi chargé) avaient écarté le .com
+    30 jours, et la passe continue s'était arrêtée en disant « zone lue »."""
+    calls = []
+
+    def handler(request):
+        name = request.url.params["name"]
+        calls.append(name)
+        if name.startswith("vide"):
+            return httpx.Response(200, json={"currency": "EUR", "products": []})
+        return httpx.Response(200, json=answer("available", [STANDARD], name))
+
+    client = gandi_only(env, handler)
+    live = gandi.LivePass(client, env.conn, env.fr.store, env, timezone.utc)
+
+    async def sleep(seconds):
+        pass
+
+    live.sleep = sleep
+    names = [f"vide{n}.com" for n in range(8)] + ["a.com"]
+    live.plan = lambda limit, now=None: (names, {"total": 10, "due": 9, "planned_at": iso(utcnow())})
+    stats = asyncio.run(live.run(tours=1))
+    assert calls == names and stats["failures"] == 8 and stats["stopped"] == "fin des tours demandés"
+    assert gandi.unsold(env.fr.store) == set() and live.tlds() == ["com"]
+    # Marque laissée par l'ancienne version : ignorée pour une extension par Gandi seul.
+    env.fr.store.set("gandi_unsold", json.dumps({"com": "2099-01-01", "xyz": "2099-01-01"}))
+    assert gandi.unsold(env.fr.store) == {"xyz"} and live.tlds() == ["com"] and live.due()
+
+
 def test_live_pass_paces_waits_and_stops_on_refused_token(env):
     calls = []
     limited = {"b.com": 2}

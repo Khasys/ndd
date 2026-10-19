@@ -157,16 +157,19 @@ def only_tlds(store) -> list[str]:
 
 
 def unsold(store) -> set[str]:
-    """Extensions que Gandi ne vend pas (réponses invalides d'affilée), écartées 30 jours."""
+    """Extensions que Gandi ne vend pas (réponses invalides d'affilée), écartées 30 jours. Jamais une extension par
+    Gandi seul (.com) : Gandi la vend, une série d'erreurs y est passagère (ancienne marque ignorée)."""
     try:
         found = json.loads(store.get("gandi_unsold") or "{}")
     except ValueError:
         return set()
     today = utcnow().date().isoformat()
-    return {t for t, until in found.items() if until > today}
+    return {t for t, until in found.items() if until > today} - set(only_tlds(store))
 
 
 def mark_unsold(store, tld: str) -> None:
+    if tld in only_tlds(store):
+        return
     try:
         found = json.loads(store.get("gandi_unsold") or "{}")
     except ValueError:
@@ -322,6 +325,9 @@ class Gandi:
             except ValueError:
                 wait = None
             raise GandiError("Limite de requêtes Gandi atteinte", "limit", wait)
+        if response.status_code in (400, 422):
+            # Requête refusée comme invalide : nom ou extension que Gandi ne traite pas.
+            raise GandiError(f"Réponse Gandi inattendue ({response.status_code})", "invalid")
         if response.status_code != 200:
             raise GandiError(f"Réponse Gandi inattendue ({response.status_code})", "http")
         try:
@@ -581,19 +587,27 @@ class NightPass:
                             continue
                         stats["failures"] += 1
                         fails += 1
-                        if exc.code == "http":
+                        if exc.code == "invalid":
                             invalid[tld] = invalid.get(tld, 0) + 1
                         if fails >= FAIL_STOP:
                             halted = f"{FAIL_STOP} échecs d'affilée ({exc})"
                             break
                         index += 1
                     else:
-                        fails = limited = 0
+                        limited = 0
                         found = read(raw)
-                        if found["kind"] == "error" and found["status"] in ("", "error_invalid"):
+                        # Réponse sans ligne de création : passagère (charge de Gandi), comptée comme un échec, jamais
+                        # comme « extension pas vendue » ; seul un refus explicite (error_invalid, 400) l'est.
+                        fails = fails + 1 if found["status"] == "" else 0
+                        if found["status"] == "":
+                            stats["failures"] += 1
+                        if found["status"] == "error_invalid":
                             invalid[tld] = invalid.get(tld, 0) + 1
-                        else:
+                        elif found["status"]:
                             invalid[tld] = 0
+                        if fails >= FAIL_STOP:
+                            halted = f"{FAIL_STOP} échecs d'affilée (réponses vides)"
+                            break
                         if self.gandi.record(name, found):
                             stats["changed"] += 1
                         stats["checked"] += 1
@@ -680,6 +694,11 @@ class LivePass:
     def tlds(self) -> list[str]:
         """Extensions concernées en ce moment : par Gandi seul, jeton enregistré, vendues par Gandi."""
         return [t for t in self.explorer.gandi_tlds() if t not in unsold(self.store)]
+
+    def _idle_reason(self) -> str:
+        if self.explorer.gandi_tlds():
+            return "extension écartée : Gandi ne la vend pas"
+        return "zone lue : fonctionnement normal"
 
     def halted(self) -> str | None:
         """Jeton refusé il y a moins de LIVE_HALT_HOURS : la passe attend (un nouveau jeton la relance)."""
@@ -820,7 +839,7 @@ class LivePass:
                 stats["stopped"] = stats["error"] = halted
             elif "error" not in stats:
                 stats["stopped"] = ("arrêtée dans Paramètres" if not self.enabled else "jeton retiré" if not self.gandi.key
-                                    else "zone lue : fonctionnement normal" if not self.tlds() else "fin des tours demandés")
+                                    else self._idle_reason() if not self.tlds() else "fin des tours demandés")
             self._save(stats)
         log.info("Gandi, passe continue : %s noms vérifiés, %s changements, arrêt : %s", stats["checked"], stats["changed"],
                  stats.get("stopped") or stats.get("error"))
@@ -869,7 +888,7 @@ class LivePass:
                     continue
                 stats["failures"] += 1
                 fails += 1
-                if exc.code == "http":
+                if exc.code == "invalid":
                     invalid[tld] = invalid.get(tld, 0) + 1
                 if fails >= FAIL_STOP:
                     fails = 0
@@ -878,12 +897,22 @@ class LivePass:
                     await self._wait(LIVE_FAIL_PAUSE)
                 index += 1
             else:
-                fails = limited = 0
+                limited = 0
                 found = read(raw)
-                if found["kind"] == "error" and found["status"] in ("", "error_invalid"):
+                # Réponse sans ligne de création : passagère, comptée comme un échec (pause au bout de FAIL_STOP), jamais
+                # comme « extension pas vendue » ; seul un refus explicite (error_invalid, 400) l'est.
+                fails = fails + 1 if found["status"] == "" else 0
+                if found["status"] == "":
+                    stats["failures"] += 1
+                if found["status"] == "error_invalid":
                     invalid[tld] = invalid.get(tld, 0) + 1
-                else:
+                elif found["status"]:
                     invalid[tld] = 0
+                if fails >= FAIL_STOP:
+                    fails = 0
+                    stats["paused_at"] = iso(utcnow())
+                    log.info("Gandi, passe continue : %s réponses vides d'affilée, pause", FAIL_STOP)
+                    await self._wait(LIVE_FAIL_PAUSE)
                 if self.gandi.record(name, found):
                     stats["changed"] += 1
                 stats["checked"] += 1
