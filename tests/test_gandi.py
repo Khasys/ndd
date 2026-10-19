@@ -617,8 +617,13 @@ def test_com_without_zone_uses_the_registry_dns_before_gandi(env, monkeypatch):
     # Gandi : les absents du DNS d'abord, les délégués jamais.
     live = gandi.LivePass(client, env.conn, env.fr.store, env, timezone.utc)
     names, info = live.plan(10**7)
-    assert set(names[:2]) == {"jardin.com", "velo.com"} and "maison.com" not in names and "credit.com" not in names
-    assert info["total"] == len(names)
+    # Seulement les absents : un délégué est pris, un nom pas encore interrogé attend la passe DNS.
+    assert sorted(names) == ["jardin.com", "velo.com"] and info["total"] == info["due"] == 2
+    # Libre d'après Gandi il y a deux jours, pas encore interrogé dans le DNS : revu chaque jour quand même, en tête.
+    env.conn.execute("INSERT INTO gandi_checks (name, status, kind, checked_at) VALUES ('soleil.com', 'available', "
+                     "'available', ?)", (iso(utcnow() - timedelta(days=2)),))
+    env.touch("soleil.com")
+    assert live.plan(10**7)[0] == ["soleil.com", *names]
     # Absent du DNS et pris d'après Gandi (enregistré sans serveurs) : pris ; libre : libre.
     client.record("velo.com", gandi.read(answer("unavailable")))
     client.record("jardin.com", gandi.read(answer("available", [STANDARD])))

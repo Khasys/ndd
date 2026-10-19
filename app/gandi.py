@@ -782,9 +782,10 @@ class LivePass:
 
     def plan(self, limit: int, now: datetime | None = None) -> tuple[list[str], dict]:
         """(noms à demander, dans l'ordre ; compte des noms concernés et de ceux à revoir). Ordre : libres et premiums
-        à revoir (revus chaque jour), puis les absents du DNS du registre (ccdns.ComDns), par score de base, puis les
-        listes fournies (termes stars, mots-clés et marques mêlés par rang, puis métier + ville), puis le reste par score
-        de base. Noms qui ont un sens seulement ; pas un terme réservé, ni un nom délégué dans le DNS (pris), ni un nom
+        à revoir (revus chaque jour), puis les absents du DNS du registre (ccdns.ComDns), par score de base. Avec des
+        données DNS, rien d'autre : un nom délégué est pris, un nom pas encore interrogé attend la passe DNS. Sans données
+        DNS (passe arrêtée) : les listes fournies (termes stars, mots-clés et marques mêlés par rang, puis métier +
+        ville), puis le reste par score de base. Noms qui ont un sens seulement ; pas un terme réservé, ni un nom
         enregistré ou bientôt libre d'après le registre (Vérifier), sauf « enregistré » revu après N jours."""
         from .explore import FREE, PREMIUM, REGISTERED, TAKEN_GANDI, UNCHECKED  # import local : explore importe ce module
 
@@ -801,20 +802,26 @@ class LivePass:
         recent_after = iso(now - timedelta(days=CHANGED_DAYS) + timedelta(hours=2))
         wanted = (UNCHECKED, FREE, PREMIUM, TAKEN_GANDI, REGISTERED)
         table = bytes(1 if c in wanted else 0 for c in range(256))
-        data, fresh, daily, delegated, absent = {}, {}, [], {}, []
+        data, fresh, daily, skip, absent = {}, {}, [], {}, []
         for tld in tlds:
             data[tld] = ex.status_bytes(tld)
-            # DNS du registre (ccdns.ComDns) : délégué, pris, rien à demander ; absent, demandé en premier.
-            seen = bytearray(u.size)
-            for name, present in self.conn.execute("SELECT name, present FROM cc_dns WHERE name LIKE ?", (f"%.{tld}",)):
+            # DNS du registre (ccdns.ComDns) : seuls les absents (libres possibles) sont demandés à Gandi ; un nom
+            # délégué est pris, un nom pas encore interrogé attend la passe DNS (en .com, 8 sur 10 sont pris : le
+            # demander à Gandi gâcherait sa limite). Sans aucune donnée DNS (passe arrêtée) : tous, comme avant.
+            rows = self.conn.execute("SELECT name, present FROM cc_dns WHERE name LIKE ?", (f"%.{tld}",)).fetchall()
+            out = bytearray([1 if rows else 0]) * u.size
+            delegated = set()
+            for name, present in rows:
                 i = u.index(name[: -len(tld) - 1])
                 if i is None:
                     continue
                 if present:
-                    seen[i] = 1
-                elif u.good[i]:
-                    absent.append((-(u.base_table[i] & 127), i, tld))
-            delegated[tld] = seen
+                    delegated.add(i)
+                else:
+                    out[i] = 0
+                    if u.good[i]:
+                        absent.append((-(u.base_table[i] & 127), i, tld))
+            skip[tld] = out
             since = dict(self.conn.execute("SELECT label, state_since FROM drops WHERE tld = ? AND state_since IS NOT NULL",
                                            (tld,)).fetchall())
             done = bytearray(u.size)
@@ -828,17 +835,18 @@ class LivePass:
                 again = kind in DAILY_KINDS or bool(error) or (since.get(label) or "") > at
                 if at > (recent_after if again else fresh_after):
                     done[i] = 1
-                elif kind in ("available", "premium") and u.good[i]:
+                elif kind in ("available", "premium") and u.good[i] and i not in delegated:
                     daily.append((-(u.base_table[i] & 127), i, tld))
+                    skip[tld][i] = 0  # libre ou premium revu chaque jour, même pas encore interrogé dans le DNS
             fresh[tld] = done
-            eligible = int.from_bytes(data[tld].translate(table), "big") & u.good_int & ~int.from_bytes(delegated[tld], "big")
+            eligible = int.from_bytes(data[tld].translate(table), "big") & u.good_int & ~int.from_bytes(skip[tld], "big")
             info["total"] += eligible.bit_count()
             info["due"] += (eligible & ~int.from_bytes(done, "big")).bit_count()
         picked: list[str] = []
         chosen = {t: bytearray(u.size) for t in tlds}
 
         def take(i: int, tld: str) -> bool:
-            if chosen[tld][i] or fresh[tld][i] or delegated[tld][i] or not u.good[i] or data[tld][i] not in wanted:
+            if chosen[tld][i] or fresh[tld][i] or skip[tld][i] or not u.good[i] or data[tld][i] not in wanted:
                 return False
             name = f"{u.label(i)}.{tld}"
             if name in listed:

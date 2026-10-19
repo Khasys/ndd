@@ -767,7 +767,9 @@ en erreur ne remplace pas un résultat connu : elle est notée à côté.
   seulement). DNS du registre d'abord (`ccdns.ComDns`, en attendant l'accès CZDS) : chaque jour, la passe DNS des
   .co, .ai, .io interroge aussi les serveurs du .com pour tous les noms qui ont un sens (environ 207 000, 150 000 par
   jour au plus, même moteur et mêmes garde-fous) ; délégué, « Enregistré » (pris, jamais demandé à Gandi) ; absent,
-  il reste à vérifier et passe en tête de la file Gandi ; sorti du DNS, dans la Veille comme un .co. Gandi limite les
+  il reste à vérifier et passe en tête de la file Gandi ; pas encore interrogé, il attend la passe DNS (Gandi ne
+  demande que les absents, et les libres et premiums revus chaque jour ; tous les noms seulement sans aucune donnée DNS) ;
+  sorti du DNS, dans la Veille comme un .co. Gandi limite les
   vérifications .com (environ 150 par quart d'heure, mesuré le 19/10), le DNS non : le tri se fait surtout par le DNS.
   Réponse de Gandi : libre, « Libre (vérifié) » et son prix ; premium, « Premium » et son prix ;
   indisponible, réservé ou restreint, « Enregistré » comme tout nom pris (un seul statut à l'écran ; code interne 11,
