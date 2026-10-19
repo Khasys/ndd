@@ -92,3 +92,17 @@ def test_migration_024_resets_stale_redemption_dates(tmp_path):
     rows = {r["name"]: r for r in conn.execute("SELECT * FROM domains")}
     assert rows["vieux.com"]["state"] is None and rows["vieux.com"]["next_check_at"] == "2026-10-12T08:00:00+00:00"
     assert rows["recent.com"]["state"] == "redemption"
+
+
+def test_com_opinions_go_back_to_the_rating_queue(tmp_path):
+    """Consigne corrigée sur les .com : leurs avis repassent dans la file, les autres ne bougent pas."""
+    conn = db.connect(tmp_path / "t.db")
+    db.migrate(conn, tmp_path / "backups")
+    for name in ("motfrancais.com", "velo.fr"):
+        conn.execute("INSERT INTO domain_ai (name, exploit, resale, quick_low, quick_high, final_low, final_high, comment, "
+                     "rated_at, version) VALUES (?, 40, 40, 0, 100, 500, 2000, 'À laisser. X. Acheteur type : y.', 'x', 5)",
+                     (name,))
+    conn.execute("PRAGMA user_version = 34")
+    db.migrate(conn, tmp_path / "backups")
+    versions = dict(conn.execute("SELECT name, version FROM domain_ai").fetchall())
+    assert versions == {"motfrancais.com": 4, "velo.fr": 5}

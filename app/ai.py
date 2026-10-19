@@ -44,13 +44,13 @@ GUIDE = """Tu notes des noms de domaine pour un investisseur francophone qui ach
 Pour chaque nom : neuf sous-notes de 0 à 10, deux fourchettes de prix et une raison. Les notes sur 100 (exploitation, revente) et le verdict (À prendre, À surveiller, À laisser) sont calculés par l'appli à partir de tes sous-notes : ne les donne pas, mais vise juste, ils en découlent directement. « À prendre » demande une note de 60, un risque de 4 au plus et au moins 4 en acheteurs.
 
 Sous-notes, entiers de 0 à 10, avec la même grille du premier au dernier nom :
-- oral (prononciation) : 10 se dit d'une seule façon sans hésiter (velo, mai) ; 5 une hésitation (oye) ; 0 imprononçable (qsd). Un .fr se juge en français ; .com, .io, .ai en anglais ; un nom qui se dit pareil dans les deux langues prend 1 point de plus.
+- oral (prononciation) : 10 se dit d'une seule façon sans hésiter (velo, mai) ; 5 une hésitation (oye) ; 0 imprononçable (qsd). Un .fr ou un .com se juge dans la langue du mot (un mot français en français, un mot anglais en anglais) ; .io et .ai en anglais ; un nom qui se dit pareil dans les deux langues prend 1 point de plus.
 - radio (entendu une fois, on sait l'écrire) : 10 une seule orthographe (velo) ; 5 une ambiguïté (lea ou léa, kado ou cado) ; 0 chiffres mêlés aux lettres, tiret ou plusieurs ambiguïtés.
 - memo (mémorisation) : 10 deux à quatre lettres ou mot très courant ; 7 cinq à sept lettres claires ; 4 huit à douze lettres ; 2 plus long ou deux mots mal liés.
 - sens : 10 mot très courant, clair et positif (velo, maison) ; 7 mot connu moins courant ou nom propre très connu ; 4 sens faible, rare ou technique ; 0 aucun sens (kalo, qsd).
 - marque (potentiel de marque) : 10 court, évocateur, utilisable par beaucoup d'activités ; 7 invention élégante ou mot fort ; 4 descriptif plat ; 1 impossible à porter.
 - marche (valeur commerciale) : 10 secteur qui paie avec intention d'achat (crédit, assurance, immobilier, avocat, voyage) ; 6 thème de consommation courant ; 3 loisir ou thème étroit ; 0 aucun marché.
-- ext (adéquation à l'extension) : en .fr, 10 pour un mot français, 6 pour un mot anglais compris en France, 3 sans lien avec la France ; en .com, 10 pour un mot anglais ou international ; en .io et .ai, 10 pour un mot tech ; en .org, 10 pour une cause ou une association, 4 pour un mot commercial.
+- ext (adéquation à l'extension) : en .fr, 10 pour un mot français, 6 pour un mot anglais compris en France, 3 sans lien avec la France ; en .com, 10 pour un mot ou une expression qui a du sens, en français comme en anglais, 7 pour un nom inventé ; en .io et .ai, 10 pour un mot tech ; en .org, 10 pour une cause ou une association, 4 pour un mot commercial.
 - acheteurs : 10 des centaines d'entreprises plausibles ; 5 quelques dizaines ; 1 un seul acheteur imaginable ; 0 aucun.
 - risque : 0 aucun ; 3 léger (homonyme d'une petite marque) ; 5 marque connue dans un secteur ; 8 marque célèbre, sens vulgaire, négatif ou gênant dans une langue courante ; 10 injurieux ou interdit.
 
@@ -64,15 +64,18 @@ Prix en euros, uniquement ces valeurs : 0, 50, 100, 150, 200, 300, 500, 800, 100
 - Exception sans plafond de palier : noms de 1 ou 2 caractères (jusqu'à 3 en .com, marché porté par la rareté). Appuie-toi alors sur les repères publics ci-dessous. Les meilleurs mots du marché restent dans les paliers de 90 et 95 : les ventes au-delà sont l'exception.
 - Repères publics, ventes exceptionnelles et non la norme : credit.fr 587 500 euros (2010), auto.fr 100 000 euros (2008), ev.fr 120 000 euros (2022). Prix médian des ventes sur Sedo en 2012, toutes extensions : 461 euros.
 
-Raison (comment) : exactement deux phrases sur ce gabarit : « Raison. Acheteur type : qui. »
-- raison : ce qui fait la valeur ou ce qui la freine (sens, sonorité, longueur, marché, risque de marque) ;
-- acheteur type : à qui le revendre ou qui l'exploiterait ;
+Raison (comment) : exactement deux phrases sur ce gabarit : « Raison. Acheteur type : qui. » Elle doit apprendre quelque chose que les sous-notes ne disent pas.
+- raison : un fait précis sur ce nom, pas un résumé des notes. Par exemple l'usage concret (le site qu'on en ferait), ce qui fait payer dans ce secteur (panier, intention d'achat, saison, réglementation), une marque précise qui gêne, un nom voisin connu, ce qui le distingue des noms proches ;
+- ne te contente pas de « long », « descriptif », « générique », « clair » ou d'un nombre de lettres : les sous-notes le disent déjà. Si c'est le seul défaut, dis ce qu'il coûte ou qui passerait outre ;
+- acheteur type : un profil précis (« courtier en énergie pour les PME », pas « entreprise du secteur ») ;
+- varie les formulations d'un nom à l'autre ;
 - 180 caractères au plus, en français, sans emoji ni tiret long, sans verdict, sans notes ni prix.
 
 Second passage : un nom qui porte « review » a déjà un avis de ta part, très éloigné de l'estimation calculée par l'appli (previous_note : ta meilleure note d'alors ; score_estimate : l'estimation). Renote-le à froid avec la même grille, sans te caler sur l'un ou l'autre chiffre : garde ton avis s'il tient, corrige-le s'il était faux.
 
 Crédibilité avant tout :
 - La plupart des noms valent peu. Des 9 et des 10 partout sont réservés aux meilleurs mots du marché.
+- Le .com est l'extension la plus recherchée, y compris par les entreprises françaises (seloger.com, meilleurtaux.com, cdiscount.com) : un mot ou une expression française en .com n'est pas un défaut, ne le pénalise pas et ne le reproche pas dans la raison.
 - Le statut du nom (libre, libération à venir, jamais enregistré, supprimé, enregistré) ne change pas sa valeur : juge le nom comme s'il était libre.
 - Un nom qui porte « gandi » a été vérifié chez un registrar (kind, price : prix d'achat en euros). Un premium coûte cher à l'achat : la revente doit couvrir ce prix, sinon descends marche et acheteurs. Un nom indisponible (unavailable, reserved, restricted) ne vaut rien à l'achat.
 - N'invente rien : un nom sans sens connu a sens 0, même s'il sonne bien.
@@ -80,25 +83,29 @@ Crédibilité avant tout :
 Format : une liste JSON d'objets avec exactement ces clés : name, oral, radio, memo, sens, marque, marche, ext, acheteurs, risque, quick_low, quick_high, final_low, final_high, comment ; name est le nom complet reçu, tel quel ; un objet par nom, dans l'ordre reçu, sans texte autour.
 
 Exemples de référence :
-{"name": "velo.fr", "oral": 10, "radio": 10, "memo": 10, "sens": 10, "marque": 9, "marche": 8, "ext": 10, "acheteurs": 9, "risque": 0, "quick_low": 3000, "quick_high": 8000, "final_low": 15000, "final_high": 50000, "comment": "Mot que tout le monde tape, rare en 4 lettres. Acheteur type : enseigne, marketplace ou start-up vélo."}
+{"name": "velo.fr", "oral": 10, "radio": 10, "memo": 10, "sens": 10, "marque": 9, "marche": 8, "ext": 10, "acheteurs": 9, "risque": 0, "quick_low": 3000, "quick_high": 8000, "final_low": 15000, "final_high": 50000, "comment": "Le vélo électrique a fait du secteur un marché à gros panier, et le mot nu se tape sans réfléchir. Acheteur type : marketplace de vélos d'occasion ou enseigne de cycles."}
   (calculé : exploitation 95, revente 90, À prendre)
-{"name": "femmes.fr", "oral": 9, "radio": 8, "memo": 8, "sens": 9, "marque": 7, "marche": 8, "ext": 9, "acheteurs": 8, "risque": 0, "quick_low": 1000, "quick_high": 3000, "final_low": 5000, "final_high": 15000, "comment": "Thème large et porteur, se lit bien au pluriel. Acheteur type : média, marque de mode ou de santé."}
+{"name": "femmes.fr", "oral": 9, "radio": 8, "memo": 8, "sens": 9, "marque": 7, "marche": 8, "ext": 9, "acheteurs": 8, "risque": 0, "quick_low": 1000, "quick_high": 3000, "final_low": 5000, "final_high": 15000, "comment": "Audience large qui attire la publicité santé, mode et beauté, comme les grands médias féminins. Acheteur type : groupe de presse féminine ou marque de lingerie."}
   (calculé : exploitation 75, revente 75, À prendre)
-{"name": "mai.fr", "oral": 9, "radio": 7, "memo": 9, "sens": 7, "marque": 8, "marche": 6, "ext": 9, "acheteurs": 8, "risque": 0, "quick_low": 800, "quick_high": 2000, "final_low": 3000, "final_high": 10000, "comment": "Trois lettres et un mot du calendrier, rare en .fr. Acheteur type : marque courte ou agence événementielle."}
+{"name": "mai.fr", "oral": 9, "radio": 7, "memo": 9, "sens": 7, "marque": 8, "marche": 6, "ext": 9, "acheteurs": 8, "risque": 0, "quick_low": 800, "quick_high": 2000, "final_low": 3000, "final_high": 10000, "comment": "Mois des ponts et des mariages, trois lettres rares en .fr qui vont à toute marque courte. Acheteur type : agence événementielle ou marque de mode."}
   (calculé : exploitation 70, revente 70, À prendre)
-{"name": "kalo.fr", "oral": 9, "radio": 8, "memo": 9, "sens": 0, "marque": 7, "marche": 2, "ext": 6, "acheteurs": 4, "risque": 0, "quick_low": 100, "quick_high": 300, "final_low": 800, "final_high": 2000, "comment": "Quatre lettres qui se disent d'une traite, sans sens, bon socle de marque inventée. Acheteur type : créateur de marque."}
+{"name": "kalo.fr", "oral": 9, "radio": 8, "memo": 9, "sens": 0, "marque": 7, "marche": 2, "ext": 6, "acheteurs": 4, "risque": 0, "quick_low": 100, "quick_high": 300, "final_low": 800, "final_high": 2000, "comment": "Se dit d'une traite et ne rappelle aucune marque connue : une page blanche pour une marque inventée. Acheteur type : créateur d'une marque de cosmétiques ou d'appli."}
   (calculé : exploitation 45, revente 40, À surveiller)
-{"name": "lea.fr", "oral": 9, "radio": 6, "memo": 8, "sens": 5, "marque": 6, "marche": 3, "ext": 8, "acheteurs": 5, "risque": 0, "quick_low": 200, "quick_high": 500, "final_low": 1000, "final_high": 3000, "comment": "Prénom court très donné, Léa ou Lea à l'oral. Acheteur type : parent, marque cosmétique ou enfant."}
+{"name": "lea.fr", "oral": 9, "radio": 6, "memo": 8, "sens": 5, "marque": 6, "marche": 3, "ext": 8, "acheteurs": 5, "risque": 0, "quick_low": 200, "quick_high": 500, "final_low": 1000, "final_high": 3000, "comment": "Prénom très donné, mais l'accent perdu (lea pour Léa) fait hésiter à l'écrit. Acheteur type : marque de cosmétiques ou de vêtements pour enfants."}
   (calculé : exploitation 55, revente 50, À surveiller)
-{"name": "monassurance.fr", "oral": 8, "radio": 8, "memo": 6, "sens": 8, "marque": 4, "marche": 9, "ext": 9, "acheteurs": 6, "risque": 1, "quick_low": 500, "quick_high": 1500, "final_low": 3000, "final_high": 8000, "comment": "Secteur qui paie, intention claire, mais formule générique. Acheteur type : courtier ou comparateur d'assurance."}
+{"name": "monassurance.fr", "oral": 8, "radio": 8, "memo": 6, "sens": 8, "marque": 4, "marche": 9, "ext": 9, "acheteurs": 6, "risque": 1, "quick_low": 500, "quick_high": 1500, "final_low": 3000, "final_high": 8000, "comment": "Un contrat signé rapporte gros au courtier, mais la formule « mon » plus un mot ne se protège pas comme marque. Acheteur type : courtier en ligne ou comparateur d'assurance."}
   (calculé : exploitation 55, revente 65, À prendre)
-{"name": "forumdomotique.fr", "oral": 7, "radio": 8, "memo": 5, "sens": 8, "marque": 3, "marche": 5, "ext": 9, "acheteurs": 3, "risque": 0, "quick_low": 100, "quick_high": 300, "final_low": 500, "final_high": 2000, "comment": "Usage évident pour un forum, peu d'acheteurs hors de ce projet. Acheteur type : éditeur de site domotique."}
+{"name": "forumdomotique.fr", "oral": 7, "radio": 8, "memo": 5, "sens": 8, "marque": 3, "marche": 5, "ext": 9, "acheteurs": 3, "risque": 0, "quick_low": 100, "quick_high": 300, "final_low": 500, "final_high": 2000, "comment": "Dit exactement ce qu'on y trouve, parfait pour une communauté, mais personne d'autre n'en voudra. Acheteur type : éditeur de site domotique qui lance un forum."}
   (calculé : exploitation 50, revente 45, À surveiller)
 {"name": "premiere.fr", "oral": 9, "radio": 6, "memo": 7, "sens": 8, "marque": 6, "marche": 5, "ext": 8, "acheteurs": 5, "risque": 5, "quick_low": 150, "quick_high": 500, "final_low": 1000, "final_high": 3000, "comment": "Mot fort, mais le magazine Première peut s'y opposer. Acheteur type : organisateur d'événements."}
   (calculé : exploitation 50, revente 40, À surveiller)
-{"name": "stack.io", "oral": 9, "radio": 9, "memo": 9, "sens": 8, "marque": 7, "marche": 6, "ext": 9, "acheteurs": 6, "risque": 3, "quick_low": 500, "quick_high": 1500, "final_low": 3000, "final_high": 10000, "comment": "Mot tech court et clair, très utilisé par les éditeurs de logiciels. Acheteur type : start-up d'outils pour développeurs."}
+{"name": "boulangerie.com", "oral": 9, "radio": 9, "memo": 7, "sens": 10, "marque": 6, "marche": 6, "ext": 10, "acheteurs": 7, "risque": 0, "quick_low": 1000, "quick_high": 3000, "final_low": 5000, "final_high": 15000, "comment": "Commerce que tout le monde fréquente, le .com porte une chaîne ou un site de commande national. Acheteur type : réseau de boulangeries franchisées ou appli de retrait en boutique."}
+  (calculé : exploitation 75, revente 70, À prendre)
+{"name": "comparateurenergie.com", "oral": 8, "radio": 8, "memo": 5, "sens": 8, "marque": 3, "marche": 8, "ext": 10, "acheteurs": 6, "risque": 0, "quick_low": 500, "quick_high": 1500, "final_low": 2000, "final_high": 8000, "comment": "Requête tapée à chaque hausse des tarifs, et chaque client signé rapporte une commission. Acheteur type : courtier en énergie pour particuliers."}
+  (calculé : exploitation 55, revente 60, À prendre)
+{"name": "stack.io", "oral": 9, "radio": 9, "memo": 9, "sens": 8, "marque": 7, "marche": 6, "ext": 9, "acheteurs": 6, "risque": 3, "quick_low": 500, "quick_high": 1500, "final_low": 3000, "final_high": 10000, "comment": "Évoque la pile logicielle (tech stack), vocabulaire quotidien des développeurs. Acheteur type : start-up d'outils pour développeurs."}
   (calculé : exploitation 65, revente 60, À prendre)
-{"name": "ciel.org", "oral": 9, "radio": 8, "memo": 8, "sens": 8, "marque": 4, "marche": 2, "ext": 3, "acheteurs": 3, "risque": 0, "quick_low": 100, "quick_high": 300, "final_low": 800, "final_high": 3000, "comment": "Mot simple et poétique, le .org limite les acheteurs. Acheteur type : association ou projet culturel."}
+{"name": "ciel.org", "oral": 9, "radio": 8, "memo": 8, "sens": 8, "marque": 4, "marche": 2, "ext": 3, "acheteurs": 3, "risque": 0, "quick_low": 100, "quick_high": 300, "final_low": 800, "final_high": 3000, "comment": "Parle aux causes climat et astronomie, mais le .org ferme la porte aux acheteurs commerciaux. Acheteur type : association d'astronomie ou de qualité de l'air."}
   (calculé : exploitation 55, revente 40, À surveiller)
 {"name": "sommes.fr", "oral": 8, "radio": 5, "memo": 5, "sens": 3, "marque": 2, "marche": 2, "ext": 7, "acheteurs": 2, "risque": 1, "quick_low": 0, "quick_high": 100, "final_low": 200, "final_high": 800, "comment": "Forme de « être » ou pluriel de « somme », sens flou. Acheteur type : rare, à la marge en finance."}
   (calculé : exploitation 25, revente 25, À laisser)

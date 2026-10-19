@@ -872,7 +872,11 @@ tolérance de chaque côté). Paliers pour un .fr : 95 et plus, 20 000 à 300 00
 les noms de 1 ou 2 caractères (3 en .com). Pour un verdict « À laisser » ou « À surveiller »,
 l'avis dit pourquoi en mots simples (`why`) : risque fort (marque connue, sens négatif ou gênant),
 sinon la sous-note la plus faible parmi sens, marque, marché et acheteurs ; un avis à l'ancienne
-grille (`version` 4) n'en a pas et sera renoté. Validation de
+grille (`version` 4) n'en a pas et sera renoté. Un mot ou une expression française en .com n'est pas un
+défaut : la prononciation se juge dans la langue du mot et l'adéquation à l'extension vaut 10 en
+français comme en anglais (les avis .com donnés avant cette règle repassent dans la file). La raison
+doit apprendre ce que les sous-notes ne disent pas (usage concret, ce qui fait payer le secteur,
+marque précise qui gêne) plutôt que « long » ou « descriptif ». Validation de
 la grille : 50 noms témoins notés par plusieurs agents indépendants, écart-type moyen de 3 points,
 même verdict dans 94 % des cas.
 

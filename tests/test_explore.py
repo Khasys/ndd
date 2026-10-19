@@ -959,6 +959,24 @@ def test_price_tiers_are_smooth_above_80():
         euros = lambda n: f"{n:,}".replace(",", " ")  # noqa: E731
         assert f"{floor}{' et plus' if floor == ai_format.PRICE_TIERS[0][0] else ''}, {euros(low)} à {euros(high)}" in ai.GUIDE
 
+def test_guide_examples_match_the_computed_notes():
+    """Les exemples de la consigne passent le contrôle et annoncent les notes que l'appli calcule."""
+    import json
+    import re
+
+    from app import ai, ai_format
+
+    examples = re.findall(r'^(\{"name".*\})\n  \(calculé : exploitation (\d+), revente (\d+), (.*?)\)$', ai.GUIDE, re.M)
+    assert len(examples) >= 10
+    for raw, exploit, resale, verdict in examples:
+        item = json.loads(raw)
+        assert ai_format.check_v5(item, lambda n: True) is None, item["name"]
+        assert ai_format.derive(item) == {"exploit": int(exploit), "resale": int(resale), "verdict": verdict}, item["name"]
+    # Un mot français en .com n'est pas un défaut : la consigne le dit et l'illustre.
+    assert any(json.loads(raw)["name"].endswith(".com") for raw, *_ in examples)
+    assert "en français comme en anglais" in ai.GUIDE
+
+
 def _opinion(conn, name, verdict, resale, rated_at="2026-10-01T00:00:00+00:00", status_at=None):
     conn.execute(
         "INSERT INTO domain_ai (name, exploit, resale, quick_low, quick_high, final_low, final_high, comment, rated_at, version, status_at) "
