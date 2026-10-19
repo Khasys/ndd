@@ -928,3 +928,28 @@ def test_price_grid_one_call_per_extension_a_day(env):
     assert asyncio.run(client.refresh_grid(["com"], now + timedelta(days=1))) == {"com": 15.6}
     found = gandi.load(env.conn, ["jardin.com", "abe.com", "velo.xyz"])
     assert found["jardin.com"]["price"] == 15.6 and found["abe.com"]["price"] == 878.4 and found["velo.xyz"]["price"] == 13.2
+
+
+def test_a_free_name_taken_since_loses_its_price(env):
+    """Un nom dit libre (prix d'achat) puis enregistré : « Enregistré » partout, plus de prix, plus dans le filtre
+    « prix d'achat au plus » ; la ligne de Gandi est effacée (au fil de la passe DNS, et chaque heure pour la zone et
+    le registre). Libéré de nouveau, il est redemandé à Gandi."""
+    client = gandi_only(env)
+    client.record("jardin.com", gandi.read(answer("available", [STANDARD])))
+    client.record("velo.com", gandi.read(answer("available", [STANDARD])))
+
+    def one(label, **k):
+        return env.search("com", q=label, mode="exact", status="all", premium=True, **k)["items"]
+
+    assert one("jardin", gprice=20)[0]["status"] == explore.FREE
+    # Repris, vu par la seule règle d'état (ligne de Gandi encore là) : plus achetable, même au filtre de prix.
+    env.conn.execute("INSERT INTO cc_dns (name, present, checked_at, seen_at) VALUES ('velo.com', 1, ?, ?)",
+                     (iso(utcnow()),) * 2)
+    env.touch("velo.com")
+    velo = one("velo")[0]
+    assert velo["status"] == explore.REGISTERED and not velo.get("gandi_state") and one("velo", gprice=20) == []
+    assert env.forget_taken_prices() == 1 and "velo.com" not in gandi.load(env.conn, ["velo.com"])
+    # Vu délégué par la passe DNS : effacé tout de suite.
+    from app import ccdns
+    ccdns.ComDns(env.conn, env.fr.store, env, timezone.utc).save("jardin", True, iso(utcnow()))
+    assert gandi.load(env.conn, ["jardin.com"]) == {}

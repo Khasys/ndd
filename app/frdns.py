@@ -154,6 +154,8 @@ class FrDns:
             "ON CONFLICT(label) DO UPDATE SET present = excluded.present, checked_at = excluded.checked_at",
             (label, int(present), at),
         )
+        if present:  # délégué : enregistré, un prix d'achat gardé ne vaut plus (Explorer.forget_taken_prices)
+            self.conn.execute("DELETE FROM gandi_checks WHERE name = ? AND kind IN ('available', 'premium')", (f"{label}.fr",))
 
     def changed(self, label: str, present: bool) -> None:
         if present:

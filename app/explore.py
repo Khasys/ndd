@@ -910,12 +910,37 @@ class Explorer:
                WHERE d.tld = ? AND g.kind IN ('available', 'premium')""", (tld,))}
 
     def _gandi_indices(self, tld: str, gprice: int) -> list[int]:
-        """Noms de l'extension vérifiés chez Gandi, achetables au plus à ce prix (TTC), dans l'ordre de l'univers."""
+        """Noms de l'extension vérifiés chez Gandi, achetables au plus à ce prix (TTC), dans l'ordre de l'univers.
+        Seulement ceux que l'état dit encore libres ou premiums : un nom repris depuis la réponse (zone, DNS, registre)
+        n'est plus achetable, même avec un prix en base."""
+        data = self.status_bytes(tld)
         cut = len(tld) + 1
         found = (self.universe.index(name[:-cut]) for name, _, at, since, _ in self._gandi_rows(
             tld, "AND g.kind IN ('available', 'premium') AND g.price IS NOT NULL AND g.price <= ?", (gprice,))
             if not (since and since > at))
-        return sorted(i for i in found if i is not None)
+        return sorted(i for i in found if i is not None and data[i] in (FREE, PREMIUM))
+
+    def forget_taken_prices(self) -> int:
+        """Prix d'achat devenus faux : un nom dit libre ou premium par Gandi, enregistré depuis (zone, DNS, registre).
+        La ligne est effacée ; s'il se libère de nouveau, Gandi est redemandé (libération : drops.on_freed). Chaque
+        heure (tâche gandi_grid) ; aussi au fil de l'eau quand une passe DNS voit le nom délégué (ccdns, frdns)."""
+        taken = (REGISTERED, SUSPENDED, COMING, TAKEN_GANDI)
+        u = self.universe
+        gone = []
+        for tld in self.tlds():
+            data = self.status_bytes(tld)
+            cut = len(tld) + 1
+            for (name,) in self.conn.execute("SELECT name FROM gandi_checks WHERE tld = ? AND kind IN ('available', 'premium')",
+                                             (tld,)):
+                i = u.index(name[:-cut])
+                if i is not None and data[i] in taken:
+                    gone.append(name)
+        for start in range(0, len(gone), 500):
+            part = gone[start:start + 500]
+            self.conn.execute(f"DELETE FROM gandi_checks WHERE name IN ({','.join('?' * len(part))})", part)
+        if gone:
+            self.invalidate()
+        return len(gone)
 
     def gandi_premiums(self, tld: str) -> list[int]:
         """Noms de l'extension premium d'après Gandi (file de notation IA : un premium s'achète)."""

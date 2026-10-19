@@ -116,6 +116,9 @@ class CcDns(FrDns):
                  seen_at = COALESCE(excluded.seen_at, cc_dns.seen_at)""",
             (f"{label}.{self.tld}", int(present), at, at if present else None),
         )
+        if present:  # délégué : enregistré, un prix d'achat gardé ne vaut plus (Explorer.forget_taken_prices)
+            self.conn.execute("DELETE FROM gandi_checks WHERE name = ? AND kind IN ('available', 'premium')",
+                              (f"{label}.{self.tld}",))
 
     def changed(self, label: str, present: bool) -> None:
         """Sorti du DNS : confié à la Veille, vérifié auprès du registre au prochain passage (check_due).

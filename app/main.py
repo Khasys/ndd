@@ -279,6 +279,10 @@ async def lifespan(app: FastAPI):
         if tlds and state.gandi.key:
             if await state.gandi.refresh_grid(tlds):
                 state.explorer.invalidate()  # prix normal changé : reporté sur les libres de l'extension
+        # Prix d'achat de noms repris depuis (zone lue, registre) : effacés, ils ne valent plus.
+        forgotten = await _off(state.explorer.forget_taken_prices)
+        if forgotten:
+            log.info("Prix d'achat effacés : %s noms enregistrés depuis la réponse de Gandi", forgotten)
 
     async def check_gandi() -> None:
         """Passe Gandi : de 3 h 30 à 4 h 45, après les lectures et les passes DNS, avant la notation IA de 5 h."""

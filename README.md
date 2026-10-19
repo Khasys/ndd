@@ -765,6 +765,9 @@ en erreur ne remplace pas un résultat connu : elle est notée à côté.
     l'extension (`gandi_grid` dans les réglages), sans les redemander.
   - DNS .co, .ai, .io, .com sans zone (`ccdns.pending`) : comme le .fr, fort score de base (40 et plus) et Mes ajouts
     chaque jour, les autres chaque semaine ; jamais interrogés d'abord. Avant : la même liste entière chaque jour.
+  - Nom libre ou premium d'après Gandi, enregistré depuis : « Enregistré » (règle d'état), hors du filtre « prix
+    d'achat au plus », et sa ligne Gandi effacée (`Explorer.forget_taken_prices`) : tout de suite quand une passe DNS
+    le voit délégué, chaque heure pour la zone et le registre. Libéré de nouveau, Gandi est redemandé (`on_freed`).
   - Registre (RDAP, WHOIS) : déjà sur échéance (dates anniversaire et suppressions .fr, Veille, domaines suivis) ou à
     la demande ; inchangé.
 - **À la demande** : Vérifier d'une fiche (après le RDAP, pour un nom libre, à confirmer ou en rédemption ; une panne
