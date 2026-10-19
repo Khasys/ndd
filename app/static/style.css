@@ -1154,6 +1154,16 @@ button:disabled { cursor: default; opacity: .55; }
 .period-label { color: var(--muted); font-size: 13px; }
 .today-period { margin: 0 0 12px; }
 .today-more { margin: 12px 0 0; }
+/* Pépites : rubrique en tête des noms, un groupe par moment (devenues libres, libération à venir). */
+.today-gems { margin: 4px 0 18px; }
+.today-gems-head { display: flex; align-items: center; gap: 8px; }
+.today-gems h3, .today-best-title { margin: 0; font-size: 15px; font-weight: 600; }
+.today-gems > p.small { margin: 2px 0 8px; }
+.today-gems-group h4 { margin: 10px 0 4px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.today-gems-all { margin: 6px 0 0; }
+.today-gems .today-empty { padding: 6px 0; }
+.today-best-title { margin: 0 0 8px; }
+.today-count.gem strong { color: var(--s-available-fg); }
 @media (max-width: 899px) {
   /* Compteurs en tuiles, deux par ligne ; cartes pleine largeur. */
   .today-counts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
@@ -1446,3 +1456,12 @@ button:disabled { cursor: default; opacity: .55; }
 .gandi-pass-fields { display: flex; flex-wrap: wrap; gap: 8px 14px; }
 .gandi-pass-fields label { display: inline-flex; align-items: center; gap: 6px; }
 .gandi-pass .btn-ghost { justify-self: start; }
+
+/* Carte Alertes : un type par ligne, sa case, son rythme en petite pastille, sa description. */
+.alert-types { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 6px; }
+.alert-types .check { align-items: flex-start; margin: 0; }
+.alert-types .check input { margin-top: 3px; flex: none; }
+.alert-types .check > span { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; }
+.alert-types small { flex-basis: 100%; font-size: 12px; }
+.alert-types .rhythm { font-size: 11px; padding: 0 6px; border-radius: 999px; background: var(--hover); color: var(--muted); white-space: nowrap; }
+.alert-types .rhythm.immediate { background: var(--s-available-bg); color: var(--s-available-fg); }

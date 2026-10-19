@@ -5,7 +5,6 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from . import states
 from .checker import Checker, parse_iso
-from .store import Store
 
 FIELDS = {"state": "État", "registrar": "Registrar", "nameservers": "DNS", "expires_at": "Expiration"}
 
@@ -76,12 +75,3 @@ def build(checker: Checker, now: datetime, app_url: str = "") -> str:
         lines.append(f"\n{app_url}")
     text = "\n".join(lines)
     return text if len(text) < 4000 else text[:3990] + "\n[tronqué]"
-
-
-def due(store: Store, now_local: datetime) -> bool:
-    if store.get("digest_enabled", "1") != "1":
-        return False
-    day = int(store.get("digest_day", "0"))
-    hour = int(store.get("digest_hour", "9"))
-    today = now_local.date().isoformat()
-    return now_local.weekday() == day and now_local.hour >= hour and store.get("digest_last_sent") != today

@@ -31,7 +31,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import ai, bot, calendar_ics, ccdns, db, decisions, morning, notify, portfolio, digest, drops, explore, frdata, frdns, gandi, prenoms, reserved, seo, signals, states, updates, value, wordlists
+from . import ai, bot, calendar_ics, ccdns, db, decisions, morning, notify, pepites, portfolio, digest, drops, explore, frdata, frdns, gandi, prenoms, reserved, seo, signals, states, updates, value, wordlists
 from .auth import (
     COOKIE_NAME,
     LoginGuard,
@@ -131,7 +131,16 @@ async def lifespan(app: FastAPI):
     store = Store(conn, {"telegram_token": settings.telegram_token, "telegram_chat_id": settings.telegram_chat_id})
     rdap.whois_store = store  # serveurs WHOIS gardés en base, 7 jours
     telegram = Telegram(store, http)
-    checker = Checker(conn, settings, rdap, http, notify=telegram.send)
+
+    async def notify_domain(text: str) -> str | None:
+        """Changement d'un domaine suivi : alerte immédiate, sauf type décoché (Paramètres, carte Alertes)."""
+        return await telegram.send(text) if notify.enabled(store, "domain_change") else None
+
+    async def note_health(text: str) -> None:
+        """Passe DNS ou Gandi arrêtée : dite une fois dans la rubrique Santé du quotidien, plus de message à part."""
+        morning.note(store, text, utcnow())
+
+    checker = Checker(conn, settings, rdap, http, notify=notify_domain)
     checker.link_base = lambda: settings.app_url or store.get("public_url") or ""
     telegram.handler = bot.build_handler(checker, VERSION)
 
@@ -166,49 +175,42 @@ async def lifespan(app: FastAPI):
             app.state.latest_version = found
             app.state.version_checked_at = iso(utcnow())
 
-    async def send_digest() -> None:
+    async def send_daily() -> None:
+        """Quotidien (notify.daily) : un message à l'heure réglée. Noté fait une fois parti : un redémarrage ou une
+        exécution rattrapée ne le renvoie pas. Rien à dire : le jour compte aussi comme fait."""
         now_local = datetime.now(digest.local_zone())
-        if telegram.configured and digest.due(store, now_local):
-            if await telegram.send(digest.build(checker, utcnow(), settings.app_url or store.get("public_url") or "")) is None:
-                store.set("digest_last_sent", now_local.date().isoformat())
-
-    async def send_morning() -> None:
-        now_local = datetime.now(digest.local_zone())
-        if telegram.configured and morning.due(store, now_local):
-            text = await _morning_text(app.state)
-            # Rien à signaler : pas de message, mais le jour compte comme fait.
-            if text is None or await telegram.send(text) is None:
-                store.set("morning_last_sent", now_local.date().isoformat())
-
-    async def remind_renewals() -> None:
-        if telegram.configured:
-            for item_id, key, text in portfolio.due_reminders(conn, utcnow()):
-                if await telegram.send("Renouvellement : " + text) is None:
-                    portfolio.mark_reminded(conn, item_id, key)
+        if not telegram.configured or not notify.daily_due(store, now_local):
+            return
+        await _off(morning.record_health, store, await _off(morning.problems, app.state, utcnow()), utcnow())
+        messages, marks = await _daily(app.state, now_local)
+        sent = 0
+        for text in messages:
+            if await telegram.send(text) is not None:
+                break
+            sent += 1
+        # Premier message refusé : rien n'est parti, nouvel essai au passage suivant. Refus plus loin : le début est
+        # parti, le jour est noté pour ne pas le renvoyer en double.
+        if sent or not messages:
+            notify.commit_daily(app.state.explorer, store, marks, utcnow())
 
     async def check_health() -> None:
-        if not telegram.configured:
-            return
-        text = morning.health_message(store, await _off(morning.problems, app.state, utcnow()))
-        if text:
-            await telegram.send(text)
+        """Contrôle horaire : les pannes apparues ou réglées sont notées pour la rubrique Santé du quotidien."""
+        await _off(morning.record_health, store, await _off(morning.problems, app.state, utcnow()), utcnow())
 
     async def refresh_signals() -> None:
         await signals.update_due(conn, limit=20)
 
+    alert_lock = asyncio.Lock()
+
     async def send_alerts() -> None:
-        """Alertes immédiates (notify) : « À prendre » qui se libère, puis vues enregistrées en alerte."""
-        if not telegram.configured:
-            return
-        state, now = app.state, utcnow()
-        text, pairs = await _off(notify.take_message, conn, state.explorer, store, _public_url(state), _order_url(store), now)
-        if text and await telegram.send(text) is None:
-            notify.mark_sent(conn, pairs, now)
-        if notify.views_due(store, now):
-            for view in await _off(notify.view_messages, conn, state.explorer, store, _public_url(state), now,
-                                   lambda filters: _view_params(state.explorer, filters)):
-                if view["text"] is None or await telegram.send(view["text"]) is None:
-                    notify.mark_view(store, view["view"], now)
+        """Immédiat (notify.pepite_tick), chaque minute : les pépites libres du passage, dans un seul message. Le verrou
+        et les marques en base empêchent tout envoi en double (redémarrage, rattrapage d'une exécution manquée)."""
+        async with alert_lock:
+            state, now = app.state, utcnow()
+            text, names = await _off(notify.pepite_tick, state.explorer, store, now, _public_url(state), _order_url(store),
+                                     telegram.configured, bool(state.gandi.key))
+            if text and await telegram.send(text) is None:
+                pepites.mark_alerted(conn, names, now)
 
     async def update_outcomes() -> None:
         """Nuit : les avis d'il y a 30 jours sur des noms libres, revus à l'état d'aujourd'hui (ai_outcomes)."""
@@ -319,14 +321,12 @@ async def lifespan(app: FastAPI):
 
     now = datetime.now(timezone.utc)
     scheduler.add_job(refresh_latest, "interval", hours=24, next_run_time=now, max_instances=1, id="latest")
-    scheduler.add_job(send_digest, "interval", minutes=15, max_instances=1)
     # Messages Telegram en file de rejeu (429, panne, réseau) : renvoyés quand leur heure est venue.
     scheduler.add_job(telegram.flush, "interval", minutes=5, next_run_time=now + timedelta(minutes=7), max_instances=1, id="telegram_flush")
-    scheduler.add_job(send_morning, "interval", minutes=15, next_run_time=now + timedelta(minutes=5), max_instances=1)
+    scheduler.add_job(send_daily, "interval", minutes=5, next_run_time=now + timedelta(minutes=5), max_instances=1, id="send_daily")
     scheduler.add_job(check_health, "interval", hours=1, next_run_time=now + timedelta(minutes=20), max_instances=1)
-    scheduler.add_job(remind_renewals, "interval", hours=6, next_run_time=now + timedelta(minutes=25), max_instances=1)
     scheduler.add_job(refresh_signals, "interval", hours=1, next_run_time=now + timedelta(minutes=2), max_instances=1)
-    scheduler.add_job(send_alerts, "interval", minutes=10, next_run_time=now + timedelta(minutes=7), max_instances=1)
+    scheduler.add_job(send_alerts, "interval", minutes=1, next_run_time=now + timedelta(minutes=7), max_instances=1, id="send_alerts")
     scheduler.add_job(update_outcomes, "cron", hour=4, minute=40, max_instances=1, id="ai_outcomes")
     scheduler.add_job(scan_zones, "interval", minutes=15, next_run_time=now + timedelta(minutes=1), max_instances=1)
     scheduler.add_job(check_drops, "interval", minutes=5, next_run_time=now + timedelta(minutes=3), max_instances=1)
@@ -353,6 +353,8 @@ async def lifespan(app: FastAPI):
 
     app.state.refresh_latest = refresh_latest
     app.state.send_alerts = send_alerts
+    app.state.send_daily = send_daily
+    app.state.check_health = check_health
     app.state.update_outcomes = update_outcomes
     app.state.scheduler = scheduler
     app.state.drops = watcher
@@ -361,10 +363,10 @@ async def lifespan(app: FastAPI):
     app.state.explorer = explore.Explorer(conn, watcher, fr, app.state.reserved)
     app.state.prenoms = prenoms.RecentNames(store, settings.data_dir)
     app.state.explorer.recent = app.state.prenoms
-    fr_dns = frdns.FrDns(conn, store, app.state.explorer, digest.local_zone(), notify=telegram.send)
+    fr_dns = frdns.FrDns(conn, store, app.state.explorer, digest.local_zone(), notify=note_health)
     app.state.fr_dns = fr_dns
     # .co, .ai, .io : une passe par extension, en même temps que le .fr (registres différents).
-    app.state.cc_dns = {t: ccdns.CcDns(t, conn, store, app.state.explorer, digest.local_zone(), notify=telegram.send)
+    app.state.cc_dns = {t: ccdns.CcDns(t, conn, store, app.state.explorer, digest.local_zone(), notify=note_health)
                         for t in ccdns.TLDS}
     # Libres sur la seule foi d'un WHOIS, fausses sorties du DNS : corrigés une fois, sans migration.
     if any(watcher.repair().values()):
@@ -380,10 +382,10 @@ async def lifespan(app: FastAPI):
     app.state.gandi.on_blocked = app.state.explorer.recheck
     app.state.explorer.gandi = app.state.gandi
     app.state.gandi_pass = gandi.NightPass(app.state.gandi, conn, store, app.state.explorer, digest.local_zone(),
-                                           notify=telegram.send)
+                                           notify=note_health)
     app.state.start_gandi = start_gandi
     app.state.gandi_live = gandi.LivePass(app.state.gandi, conn, store, app.state.explorer, digest.local_zone(),
-                                          notify=telegram.send)
+                                          notify=note_health)
     app.state.start_gandi_live = start_gandi_live
 
     async def gandi_freed(name: str) -> None:
@@ -533,10 +535,10 @@ def _public_url(state) -> str:
     return state.settings.app_url or state.store.get("public_url") or ""
 
 
-async def _morning_text(state) -> str | None:
-    min_score = int(state.store.get("morning_min", "40"))
+async def _daily(state, now_local: datetime) -> tuple[list[str], dict]:
     status = {tld: c.status() for tld, c in state.cc_dns.items()}
-    return await _off(morning.build, state.conn, state.explorer, status, _public_url(state), utcnow(), min_score)
+    return await _off(notify.daily, state.explorer, state.store, state.checker, status, _public_url(state), utcnow(),
+                      now_local, lambda filters: _view_params(state.explorer, filters))
 
 
 @app.middleware("http")
@@ -992,13 +994,11 @@ async def check_version(request: Request):
 
 @app.post("/api/alerts/test")
 async def test_alert(request: Request):
+    """« Envoyer un essai » (carte Alertes) : types activés, rythmes et la meilleure pépite du moment. Rien n'est
+    noté (ni pépite annoncée, ni quotidien fait) ; pas de rejeu, le bouton doit dire tout de suite si ça passe."""
     state = request.app.state
-    settings = state.settings
-    lines = ["domain-watch : alerte test", f"Version {VERSION}"]
-    if _public_url(state):
-        lines.append(_public_url(state))
-    # Message de test : pas de rejeu, le bouton doit dire tout de suite si ça passe.
-    error = await state.telegram.send("\n".join(lines), retry=False)
+    text = await _off(notify.trial, state.explorer, state.store, utcnow(), _public_url(state), _order_url(state.store), VERSION)
+    error = await state.telegram.send(text, retry=False)
     if error:
         raise HTTPException(502, error)
     return {"sent": True}
@@ -1071,18 +1071,6 @@ async def get_settings(request: Request):
             "bot_name": telegram.bot_name,
             "chat_set": bool(telegram.chat_id),
             "pairing": telegram.pairing_active,
-        },
-        "digest": {
-            "enabled": store.get("digest_enabled", "1") == "1",
-            "day": int(store.get("digest_day", "0")),
-            "hour": int(store.get("digest_hour", "9")),
-            "last_sent": store.get("digest_last_sent") or None,
-        },
-        "morning": {
-            "enabled": store.get("morning_enabled", "1") == "1",
-            "hour": int(store.get("morning_hour", "8")),
-            "min_score": int(store.get("morning_min", "40")),
-            "last_sent": store.get("morning_last_sent") or None,
         },
         "calendar_url": _calendar_url(request),
         "czds": _czds_settings(state.drops),
@@ -1495,7 +1483,7 @@ def _setup_steps(state) -> list[dict]:
     return [
         {"key": "sources", "title": "Sources", "text": ".fr (Afnic) ou zones ICANN : les noms qui se libèrent",
          "done": bool(state.drops.configured or state.fr.enabled)},
-        {"key": "telegram", "title": "Telegram", "text": "alertes et résumé du matin", "done": bool(state.telegram.configured)},
+        {"key": "telegram", "title": "Telegram", "text": "alertes immédiates et message du jour", "done": bool(state.telegram.configured)},
         {"key": "ai", "title": "Avis IA", "text": "notes et prix, facultatif", "done": bool(state.store.get("ai_token_hash"))},
     ]
 
@@ -1568,13 +1556,19 @@ def _today(state, sort: str, now: datetime, period: str = "24h", nopremium: bool
         return (-tier, -value, -v.get("score", 0), r["name"])
 
     best = sorted((r for r in candidates if strong(values[r["name"]])), key=rank)[:TODAY_ITEMS]
+    # Pépites : Veille et Explorer, toutes extensions ; le compteur et la rubrique sont la même liste.
+    minimum = notify.pepite_min(state.store)
+    gems = pepites.today(state.conn, pepites.scan(state.explorer, now, minimum), now, TODAY_PERIODS[period], nopremium)
     return {
         "counts": {
             "freed": len(freed),
             "coming": len(near),
             "new_take": len(sets["new_take"]),
             "regrets": decisions.listing(state.conn, state.explorer)["regrets"],
+            "pepites": len(gems["free"]) + len(gems["coming"]),
         },
+        "pepites": {"min": minimum, "free": pepites.items(state.explorer, gems["free"], now),
+                    "coming": pepites.items(state.explorer, gems["coming"], now)},
         "sort": sort,
         "period": period,
         "nopremium": nopremium,
@@ -1993,10 +1987,15 @@ async def ai_results(request: Request, payload: AiResults):
 
 async def _notify_ai_done(request: Request, name: str) -> None:
     """Analyse demandée prête : message Telegram avec le lien direct vers la fiche."""
+    if not notify.enabled(request.app.state.store, "ai_ready"):
+        return
     opinion = ai.load(request.app.state.conn, [name]).get(name) or {}
     base = _public_url(request.app.state)
     link = f"{base}/?{urlencode({'fiche': name, 'ai': '1'})}" if base else ""
-    text = "\n".join(x for x in (f"Analyse IA prête : {name}", opinion.get("comment", ""), link) if x)
+    verdict, _, reason = (opinion.get("comment") or "").partition(". ")
+    summary = (f"Avis IA : {verdict.rstrip('.')}, revente {opinion['resale']}, exploitation {opinion['exploit']}, "
+               f"prix final {pepites.price_range(opinion['final_low'], opinion['final_high'])}") if opinion else ""
+    text = "\n".join(x for x in (f"Analyse IA prête : {name}", summary, reason, "Fiche : " + link if link else "") if x)
     try:
         await request.app.state.telegram.send(text)
     except Exception as exc:  # noqa: BLE001  la notification dans l'appli reste
@@ -2600,60 +2599,6 @@ async def pair_telegram(request: Request):
     return {"code": telegram.start_pairing(), "bot_name": telegram.bot_name}
 
 
-class DigestSettings(BaseModel):
-    enabled: bool
-    day: int
-    hour: int
-
-
-@app.put("/api/settings/digest")
-async def set_digest(request: Request, payload: DigestSettings):
-    if not 0 <= payload.day <= 6 or not 0 <= payload.hour <= 23:
-        raise HTTPException(422, "Jour ou heure invalide.")
-    store = request.app.state.store
-    store.set("digest_enabled", "1" if payload.enabled else "0")
-    store.set("digest_day", str(payload.day))
-    store.set("digest_hour", str(payload.hour))
-    return await get_settings(request)
-
-
-class MorningSettings(BaseModel):
-    enabled: bool
-    hour: int
-    min_score: int
-
-
-@app.put("/api/settings/morning")
-async def set_morning(request: Request, payload: MorningSettings):
-    if not 0 <= payload.hour <= 23 or not 0 <= payload.min_score <= 100:
-        raise HTTPException(422, "Heure ou score invalide.")
-    store = request.app.state.store
-    store.set("morning_enabled", "1" if payload.enabled else "0")
-    store.set("morning_hour", str(payload.hour))
-    store.set("morning_min", str(payload.min_score))
-    return await get_settings(request)
-
-
-@app.post("/api/morning/send")
-async def send_morning_now(request: Request):
-    text = await _morning_text(request.app.state)
-    if text is None:
-        return {"sent": False, "detail": "Rien à signaler sur les dernières 24 h."}
-    error = await request.app.state.telegram.send(text)
-    if error:
-        raise HTTPException(502, error)
-    return {"sent": True}
-
-
-@app.post("/api/digest/send")
-async def send_digest_now(request: Request):
-    state = request.app.state
-    error = await state.telegram.send(digest.build(state.checker, utcnow(), _public_url(state)))
-    if error:
-        raise HTTPException(502, error)
-    return {"sent": True}
-
-
 @app.post("/api/settings/calendar")
 async def regenerate_calendar(request: Request):
     request.app.state.store.set("calendar_token", secrets.token_urlsafe(24))
@@ -2716,7 +2661,7 @@ async def delete_logo(request: Request):
 # --- Alertes immédiates, mesure a posteriori des avis, décisions gardées ------------------
 
 def _alert_settings(store) -> dict:
-    return {"take_enabled": notify.enabled(store), "take_min": notify.min_resale(store)}
+    return notify.settings(store)
 
 
 def _view_params(explorer, filters: dict) -> dict | None:
@@ -2728,8 +2673,11 @@ def _view_params(explorer, filters: dict) -> dict | None:
 
 
 class AlertSettings(BaseModel):
-    take_enabled: bool
-    take_min: int
+    enabled: dict[str, bool] | None = None
+    pepite_min: int | None = None
+    daily_hour: int | None = None
+    weekly_day: int | None = None
+    morning_min: int | None = None
 
 
 @app.get("/api/settings/alerts")
@@ -2739,11 +2687,19 @@ async def get_alert_settings(request: Request):
 
 @app.put("/api/settings/alerts")
 async def set_alert_settings(request: Request, payload: AlertSettings):
-    if not 0 <= payload.take_min <= 100:
-        raise HTTPException(422, "Seuil de revente entre 0 et 100 attendu.")
+    """Carte Alertes : cases par type, seuil des pépites, heure du quotidien, jour du résumé de la semaine,
+    score minimum des bons noms du jour. Champs absents : inchangés."""
+    limits = {"pepite_min": (0, 100, "Seuil de revente"), "daily_hour": (0, 23, "Heure du quotidien"),
+              "weekly_day": (0, 6, "Jour du résumé de la semaine"), "morning_min": (0, 100, "Score minimum")}
+    for key, (lo, hi, label) in limits.items():
+        value = getattr(payload, key)
+        if value is not None and not lo <= value <= hi:
+            raise HTTPException(422, f"{label} : entre {lo} et {hi}.")
+    unknown = sorted(set(payload.enabled or {}) - set(notify.KEYS))
+    if unknown:
+        raise HTTPException(422, f"Type d'alerte inconnu : {', '.join(unknown)}.")
     store = request.app.state.store
-    store.set("alert_take_enabled", "1" if payload.take_enabled else "0")
-    store.set("alert_take_min", str(payload.take_min))
+    notify.save(store, payload.enabled, **{k: getattr(payload, k) for k in limits})
     return _alert_settings(store)
 
 

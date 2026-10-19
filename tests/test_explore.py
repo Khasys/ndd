@@ -589,16 +589,6 @@ def test_morning_summary_lists_good_names_with_links(env):
     assert morning.build(env.conn, env, {}, "", now, min_score=100) is None
 
 
-def test_health_alerts_open_and_close_once(env):
-    from app import morning
-
-    store = env.fr.store
-    assert morning.health_message(store, {"zone:org": "Zone .org en erreur"}).startswith("Problème :")
-    assert morning.health_message(store, {"zone:org": "Zone .org en erreur"}) is None  # déjà signalé
-    closed = morning.health_message(store, {})
-    assert closed.startswith("Réglé :") and "Zone .org" in closed
-    assert morning.health_message(store, {}) is None
-
 
 def test_premium_probable_bookable_and_release_sort(env):
     zone(env, [], ["maison"])
@@ -975,46 +965,6 @@ def _opinion(conn, name, verdict, resale, rated_at="2026-10-01T00:00:00+00:00", 
         "VALUES (?, 80, ?, 500, 1000, 3000, 8000, ?, ?, 5, ?)",
         (name, resale, f"{verdict}. Mot courant, rare en 4 lettres. Acheteur type : enseigne.", rated_at, status_at))
 
-
-def test_take_alert_once_per_state_grouped_and_thresholded(env):
-    from app import notify
-
-    store = env.fr.store
-    now = datetime.now(timezone.utc)
-    labels = ["velo", "mai"] + [f"v{n:03d}" for n in range(12)]
-    env.drops.record("fr", labels, [], now)
-    env.conn.execute("UPDATE drops SET state = 'available', available_since = ? WHERE name != 'mai.fr'", (now.isoformat(),))
-    env.conn.execute("UPDATE drops SET state = 'redemption', state_since = ?, release_at = ? WHERE name = 'mai.fr'",
-                     (now.isoformat(), (now + timedelta(days=30)).isoformat()))
-    _opinion(env.conn, "velo.fr", "À prendre", 90)
-    _opinion(env.conn, "mai.fr", "À prendre", 75)
-    for n in range(12):
-        _opinion(env.conn, f"v{n:03d}.fr", "À prendre" if n < 10 else "À surveiller", 70)
-    args = (env.conn, env, store, "https://nas.exemple", "https://shop/?s={domain}")
-    # Seuil : 80 ne garde que velo.fr.
-    store.set("alert_take_min", "80")
-    text, pairs = notify.take_message(*args, now)
-    assert pairs == [("velo.fr", "free")] and text.startswith("À prendre : 1 nom")
-    assert "velo.fr : libre" in text and "Exploitation 80, revente 90" in text and "3000 à 8000 €" in text
-    assert "https://nas.exemple/?fiche=velo.fr" in text and "Réserver : https://shop/?s=velo.fr" in text
-    assert "Acheteur type : enseigne." in text and "mai.fr" not in text
-    # Seuil par défaut (70) : 12 noms, les 10 meilleurs détaillés, puis « et 2 autres » ; la rédemption est datée.
-    store.delete("alert_take_min")
-    text, pairs = notify.take_message(*args, now)
-    assert len(pairs) == 12 and ("mai.fr", "coming") in pairs and "et 2 autres" in text and "v010.fr" not in text
-    assert text.count("Réserver : ") == 10 and "mai.fr : libre ~" in text
-    # Une fois envoyée, plus jamais pour le même état ; un nom masqué ne part pas.
-    notify.mark_sent(env.conn, pairs, now)
-    assert notify.take_message(*args, now) == (None, [])
-    env.conn.execute("UPDATE drops SET state = 'available', available_since = ? WHERE name = 'mai.fr'", (now.isoformat(),))
-    env.conn.execute("INSERT INTO drop_hidden (name, hidden_at) VALUES ('mai.fr', 'x')")
-    assert notify.take_message(*args, now) == (None, [])
-    env.conn.execute("DELETE FROM drop_hidden")
-    text, pairs = notify.take_message(*args, now)
-    assert pairs == [("mai.fr", "free")] and "mai.fr : libre\n" in text
-    # Désactivée : rien.
-    store.set("alert_take_enabled", "0")
-    assert notify.take_message(*args, now) == (None, [])
 
 
 def test_ai_outcomes_measure_names_taken_after_rating(env):
@@ -1441,9 +1391,12 @@ def test_ai_queue_new_lists_first_after_free_names(env):
                      (iso(now),) * 2)
     env.invalidate()
     data = env.status_bytes("com")
-    first = [u.label(i) for i in u.frequency("premium,keyword,brand") if u.good[i] and data[i] == explore.ABSENT]
+    # 1 ou 2 caractères jamais vus : réservés par les registres, jamais dans la file (« ia », terme premium par dérivation).
+    first = [u.label(i) for i in u.frequency("premium,keyword,brand")
+             if u.good[i] and data[i] == explore.ABSENT and len(u.label(i)) > 2]
     seen = set(first)
-    local = [u.label(i) for i in u.frequency("local") if u.good[i] and data[i] == explore.ABSENT and u.label(i) not in seen]
+    local = [u.label(i) for i in u.frequency("local")
+             if u.good[i] and data[i] == explore.ABSENT and u.label(i) not in seen and len(u.label(i)) > 2]
     assert len(first) > 1000 and len(local) > 1000
     picked, _ = ai._queue(env, 1 + len(first) + len(local) + 50)
     names = [label for _, label, tld in picked]

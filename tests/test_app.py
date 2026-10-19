@@ -135,10 +135,8 @@ def test_settings_without_telegram(logged):
     client = logged()
     cfg = client.get("/api/settings").json()
     assert cfg["telegram"] == {"token_set": False, "bot_name": None, "chat_set": False, "pairing": False}
-    assert cfg["digest"]["enabled"] is True and cfg["digest"]["day"] == 0
+    assert cfg["alerts"]["weekly_day"] == 0 and "digest" not in cfg and "morning" not in cfg
     assert client.post("/api/settings/telegram/pair").status_code == 409
-    assert client.put("/api/settings/digest", json={"enabled": True, "day": 9, "hour": 9}).status_code == 422
-    assert client.put("/api/settings/digest", json={"enabled": False, "day": 4, "hour": 18}).json()["digest"]["day"] == 4
     client.__exit__(None, None, None)
 
 
@@ -1027,48 +1025,6 @@ def _opinion(conn, name, verdict, resale, exploit=80):
         (name, exploit, resale, f"{verdict}. Mot courant, rare en 4 lettres. Acheteur type : enseigne."))
 
 
-def test_alert_settings_take_alert_and_view_alerts(logged):
-    client = logged()
-    st = client.app.state
-    sent = []
-
-    async def send(text, chat_id=None):
-        sent.append(text)
-
-    st.telegram.send = send
-    st.store.set("telegram_token", "123:abc")
-    st.store.set("telegram_chat_id", "1")
-    st.store.set("public_url", "https://nas.exemple")
-    # Réglages : seuil entre 0 et 100, activation.
-    assert client.get("/api/settings/alerts").json() == {"take_enabled": True, "take_min": 70}
-    assert client.put("/api/settings/alerts", json={"take_enabled": True, "take_min": 101}).status_code == 422
-    assert client.put("/api/settings/alerts", json={"take_enabled": True, "take_min": 80}).json() == {"take_enabled": True, "take_min": 80}
-    assert client.get("/api/settings").json()["alerts"] == {"take_enabled": True, "take_min": 80}
-    now = datetime.now(timezone.utc)
-    st.conn.execute("INSERT INTO fr_names (label, created_on) VALUES ('mot', '2010-01-01')")  # le .fr a des données
-    st.drops.record("fr", ["velo", "mai"], [], now)
-    st.conn.execute("UPDATE drops SET state = 'available', available_since = ?", (now.isoformat(),))
-    _opinion(st.conn, "velo.fr", "À prendre", 90)
-    _opinion(st.conn, "mai.fr", "À prendre", 60)  # sous le seuil
-    for name in ("velo.fr", "mai.fr"):
-        st.explorer.touch(name)
-    views = [{"name": "Quatre lettres", "filters": {"len": "4"}, "alert": True},
-             {"name": "Prénoms", "filters": {"cat": "firstname", "min": "99"}, "alert": True},
-             {"name": "Sans alerte", "filters": {}}]
-    assert [v["alert"] for v in client.put("/api/explore/views", json={"views": views}).json()] == [True, True, False]
-    client.portal.call(st.send_alerts)
-    # Un message « À prendre » (velo.fr seul), puis un par vue qui a du nouveau (« Prénoms » n'a rien).
-    assert len(sent) == 2 and sent[0].startswith("À prendre : 1 nom")
-    assert "velo.fr : libre" in sent[0] and "revente 90" in sent[0] and "3000 à 8000 €" in sent[0]
-    assert "https://nas.exemple/?fiche=velo.fr" in sent[0] and "Réserver : https://shop.gandi.net" in sent[0] and "mai.fr" not in sent[0]
-    assert sent[1].startswith("Vue « Quatre lettres » : 1 nouveau nom") and "velo.fr (libre)" in sent[1] and "mai.fr" not in sent[1]
-    assert set(json.loads(st.store.get("view_alert_last"))) == {"Quatre lettres", "Prénoms"}
-    # Second passage : rien de nouveau, et les vues attendent une heure.
-    client.portal.call(st.send_alerts)
-    assert len(sent) == 2
-    assert client.get("/api/ai/outcomes").json()["total"] == 0  # tâche de nuit : avis trop récents
-    client.__exit__(None, None, None)
-
 
 def test_decisions_regrets_and_targeted_unhide(logged):
     client = logged()
@@ -1265,16 +1221,19 @@ def test_today_counts_best_names_and_setup(logged):
     # Libérés depuis 24 h : velo et chat (terre est ignoré, mai libéré il y a 3 jours) ; sous 24 h : ciel.
     # Nouveaux « À prendre » : velo (libre) et lune (bientôt libre), avis reçus depuis 24 h.
     assert data["period"] == "24h"
-    assert data["counts"] == {"freed": 2, "coming": 1, "new_take": 2, "regrets": 0}
+    assert data["counts"] == {"freed": 2, "coming": 1, "new_take": 2, "regrets": 0, "pepites": 1}
+    # Pépites (À prendre, revente 70 ou plus) : velo, libre depuis 24 h ; lune se libère dans 10 jours.
+    assert [i["name"] for i in data["pepites"]["free"]] == ["velo.fr"] and data["pepites"]["coming"] == []
     names = [i["name"] for i in data["items"]]
     assert names[0] == "velo.fr" and not {"mai.fr", "chat.fr", "terre.fr", "lune.fr"} & set(names)
     # Sur 7 jours, mai (libéré il y a 3 jours) entre ; sur 30 jours, lune (libération dans 10 jours) aussi.
     week = client.get("/api/today", params={"period": "7d"}).json()
-    assert week["period"] == "7d" and week["counts"] == {"freed": 3, "coming": 1, "new_take": 2, "regrets": 0}
+    assert week["period"] == "7d" and week["counts"] == {"freed": 3, "coming": 1, "new_take": 2, "regrets": 0, "pepites": 1}
     names = [i["name"] for i in week["items"]]
     assert names[:2] == ["velo.fr", "mai.fr"] and "lune.fr" not in names
     month = client.get("/api/today", params={"period": "30d"}).json()
     assert month["counts"]["coming"] == 2 and "lune.fr" in [i["name"] for i in month["items"]]
+    assert month["counts"]["pepites"] == 2 and [i["name"] for i in month["pepites"]["coming"]] == ["lune.fr"]
     assert client.get("/api/today", params={"period": "1y"}).status_code == 422
     score = {i["name"]: i["score"] for i in client.get("/api/drops").json()["items"]}
     assert ("ciel.fr" in names) == (score["ciel.fr"] >= 30)

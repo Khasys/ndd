@@ -104,6 +104,7 @@
       <div>
         <!-- Les chiffres de la période : chaque compteur ouvre l'écran qui le détaille. -->
         <div class="today-counts">
+          <button type="button" class="today-count gem" @click="showGems()"><strong class="num" x-text="fmt(today.counts.pepites)"></strong> <span x-text="plural(today.counts.pepites, 'pépite', 'pépites') + ' sur ' + periodLong(todayPeriod)"></span></button>
           <button type="button" class="today-count" @click="openVeille('free', 'freed')"><strong class="num" x-text="fmt(today.counts.freed)"></strong> <span x-text="plural(today.counts.freed, 'libéré', 'libérés') + ' depuis ' + periodLong(todayPeriod)"></span></button>
           <button type="button" class="today-count" @click="openVeille('coming', 'coming')"><strong class="num" x-text="fmt(today.counts.coming)"></strong> <span x-text="plural(today.counts.coming, 'libération', 'libérations') + ' sous ' + periodLong(todayPeriod)"></span></button>
           <button type="button" class="today-count" @click="openVeille('free', 'new_take')"><strong class="num" x-text="fmt(today.counts.new_take)"></strong> <span x-text="plural(today.counts.new_take, 'nouveau', 'nouveaux') + ' À prendre depuis ' + periodLong(todayPeriod)"></span></button>
@@ -122,6 +123,28 @@
             <span>Masquer les premiums</span>
           </label>
         </div>
+        <!-- Pépites : avis « À prendre » au seuil des alertes, libres ou bientôt libres, Veille et Explorer ; le compteur
+             d'en haut est cette même liste. -->
+        <section class="today-gems" id="today-gems" x-show="today.pepites" aria-labelledby="today-gems-title">
+          <div class="today-gems-head">
+            <h3 id="today-gems-title">Pépites</h3>
+            <button type="button" class="help-btn" aria-label="Aide : les pépites" title="Ce qu'est une pépite, voir l'Aide" @click="helpAt('help-alerts')">?</button>
+          </div>
+          <p class="muted small" x-text="'Avis « À prendre », revente ' + (today.pepites ? today.pepites.min : 70) + ' ou plus, sur un nom libre ou bientôt libre, toutes extensions, sorti d\'une zone ou jamais enregistré.'"></p>
+          <template x-for="g in gemGroups()" :key="g.key">
+            <div class="today-gems-group">
+              <h4 x-text="g.title"></h4>
+              <ol class="ex-list today-list">
+                <template x-for="d in g.shown" :key="d.name">
+                  <li class="ex-row" x-tpl="['name-card', { c: nameCard(d, 'pepite') }]"></li>
+                </template>
+              </ol>
+              <button type="button" class="btn-ghost sm today-gems-all" x-show="g.items.length > g.shown.length" @click="gemsAll = true" x-text="'Tout afficher (' + fmt(g.items.length) + ')'"></button>
+            </div>
+          </template>
+          <p class="muted today-empty" x-show="!today.counts.pepites" x-text="'Aucune pépite sur ' + periodLong(todayPeriod) + '. Le seuil se règle dans Paramètres, carte Alertes.'"></p>
+        </section>
+        <h3 class="today-best-title">Les meilleurs noms de la Veille</h3>
         <p class="muted today-empty" x-show="!today.items.length" x-text="todayPeriod === '24h' ? 'Rien à prendre aujourd\'hui. Les prochaines libérations sont dans la Veille.' : 'Rien à prendre sur ' + periodLong(todayPeriod) + '. Les autres libérations sont dans la Veille.'"></p>
         <ol class="ex-list today-list" x-show="today.items.length">
           <template x-for="d in today.items" :key="d.name">
@@ -143,12 +166,13 @@
       <a href="#help-gandi">Prix d'achat</a>
       <a href="#help-score">Score</a>
       <a href="#help-ai">Avis IA</a>
+      <a href="#help-alerts">Alertes</a>
       <a href="#help-lists">Listes de noms</a>
       <a href="#help-words">Vocabulaire</a>
     </nav>
     <h3 id="help-screens">Par écran</h3>
     <dl class="help-dl">
-      <dt>Aujourd'hui</dt><dd>L'accueil, sur la période choisie en tête (24 h, 7 j ou 30 j, 24 h par défaut, choix gardé) : les chiffres (libérés depuis la période, libération sous la période, nouveaux « À prendre », regrets) et les 20 meilleurs noms libérés depuis ou libérés dans la période ; chaque chiffre ouvre exactement ses noms, même période, puce de filtre effaçable ; Réserver ce qui vaut le coup.</dd>
+      <dt>Aujourd'hui</dt><dd>L'accueil, sur la période choisie en tête (24 h, 7 j ou 30 j, 24 h par défaut, choix gardé) : les chiffres (pépites, libérés depuis la période, libération sous la période, nouveaux « À prendre », regrets), la rubrique Pépites (voir Alertes) et les 20 meilleurs noms libérés depuis ou libérés dans la période ; chaque chiffre ouvre exactement ses noms, même période, puce de filtre effaçable ; Réserver ce qui vaut le coup.</dd>
       <dt>Domaines</dt><dd>Les noms surveillés, revérifiés au registre selon leur état ; saisir un nom pour le suivre, un clic sur un nom ouvre sa fiche.</dd>
       <dt>Veille</dt><dd>Les noms sortis des zones (et, pour .co, .ai, .io, du DNS) : Libérés (réservables) et Bientôt libres (date estimée) ; Période « Tout » par défaut, ou 24 h, 7 j, 30 j (libres depuis, libération dans) ; trier par usage, puis Réserver, Surveiller ou Ignorer.</dd>
       <dt>Explorer</dt><dd>Tous les noms suivis, pris ou non, extension par extension ; taper un mot pour voir son état partout et le vérifier.</dd>
@@ -189,7 +213,7 @@
       <dt>Absent du DNS, à vérifier</dt><dd>.co, .ai, .io : le registre ne délègue pas le nom. Pas forcément libre : il peut être enregistré sans serveurs DNS, réservé ou premium du registre ; Vérifier tranche. Seuls les 50 000 meilleurs noms par extension sont interrogés chaque nuit, les autres sont « pas interrogé ».</dd>
       <dt>Libération à venir</dt><dd>Expiré, en rédemption ou en suppression imminente.</dd>
       <dt>Libre (vérifié)</dt><dd>Libre à la dernière vérification auprès du registre (RDAP).</dd>
-      <dt>Libre selon le WHOIS, à confirmer</dt><dd>Extension sans RDAP (.co) ou RDAP en panne : le WHOIS ne connaît pas le nom. Il ignore souvent les noms réservés ou premium du registre (.co, .io, .ai) : à confirmer chez un registrar. Réserver reste possible ; pas compté dans les libérés d'Aujourd'hui, pas d'alerte « libre » ; le résumé du matin les liste à part. Refusé par le registrar : « Plus », Réservé par registre.</dd>
+      <dt>Libre selon le WHOIS, à confirmer</dt><dd>Extension sans RDAP (.co) ou RDAP en panne : le WHOIS ne connaît pas le nom. Il ignore souvent les noms réservés ou premium du registre (.co, .io, .ai) : à confirmer chez un registrar. Réserver reste possible ; pas compté dans les libérés d'Aujourd'hui ; une pépite à confirmer est annoncée avec la mention « à confirmer chez un registrar », et les bons noms du jour les listent à part. Refusé par le registrar : « Plus », Réservé par registre.</dd>
       <dt>Réservé</dt><dd>Bloqué par le registre (termes soumis à examen, communes), ou indisponible à l'achat alors que le registre le dit libre (raison « Indisponible à l'achat »). Un nom qu'on croit libre et indisponible à l'achat est d'abord revérifié au registre : souvent, il vient d'être enregistré. Enregistrable sous conditions, ou pas du tout.</dd>
       <dt>Libre (vérifié), avec un prix</dt><dd>Vendu au prix standard : un nom probablement libre ou à confirmer devient libre. Le prix (« 13 € », création un an, TTC) est indicatif.</dd>
       <dt>Premium probable</dt><dd>3 caractères libres hors .fr, .com et .net : souvent vendus au prix premium par le registre, sans confirmation.</dd>
@@ -222,7 +246,7 @@
       <dt>Ce qui est vérifié</dt><dd>La nuit, les noms non pris de toutes les extensions lues (.fr, zones ICANN, .co, .ai, .io) : libres et bientôt libres d'abord, puis probablement libres et libres selon le WHOIS, du meilleur score au moins bon. Un nom vérifié depuis moins de 7 jours est sauté (1 jour s'il a changé d'état depuis).</dd>
       <dt>Quand</dt><dd>Chaque nuit de 3 h 30 à 4 h 45, après les lectures et les passes DNS, avant la notation IA de 5 h : l'IA tient compte du prix. 3 requêtes par seconde au plus, 8 000 noms par nuit au plus (réglables) ; « Lancer maintenant » à côté de Tester. Aussi à chaque Vérifier d'une fiche et à chaque vérification d'un domaine suivi libre, en rédemption ou en suppression (une fois par jour au plus).</dd>
       <dt>Effet sur l'état</dt><dd>Premium : « Premium » et son prix. Libre au prix standard : « Libre (vérifié) », le prix en petit (« achat 10 € » dans Domaines). Indisponible, réservé ou restreint : d'abord une revérification au registre (souvent, le nom vient d'être enregistré), puis « Réservé » si le registre le dit toujours libre, jamais affiché libre (sauf une vérification plus récente, après un changement d'état). Erreur : aucun changement, l'erreur est dans la fiche (Registre et SEO, ligne « Prix d'achat »).</dd>
-      <dt>Arrêts</dt><dd>Jeton refusé : la passe s'arrête, l'erreur s'affiche dans Paramètres, une alerte Telegram part (une par jour au plus). Trop de requêtes : attente demandée, puis reprise ; au troisième refus d'affilée, arrêt.</dd>
+      <dt>Arrêts</dt><dd>Jeton refusé : la passe s'arrête, l'erreur s'affiche dans Paramètres et dans la rubrique Santé du message du jour. Trop de requêtes : attente demandée, puis reprise ; au troisième refus d'affilée, arrêt.</dd>
       <dt>Sans zone .com</dt><dd>Sans accès CZDS au .com (ou tant que sa zone n'a pas été lue), le .com est quand même dans l'Explorer, vérifié par Gandi seul : chaque nom est « pas encore vérifié », puis « libre (vérifié) », « premium » ou « pris (d'après Gandi) » selon sa réponse. Pris d'après Gandi : presque toujours enregistré, sans requête au registre ; « Vérifier » interroge le registre, et un nom noté « À prendre » par l'IA y est revu automatiquement (50 par jour au plus). Une passe continue, jour et nuit (5 requêtes par seconde par défaut, réglable, case pour l'arrêter dans Paramètres), demande chaque nom qui a un sens, les listes fournies d'abord ; libres revus chaque jour, les autres après 7 jours. Toutes les requêtes vers Gandi restent sous 900 par minute, sous la limite de Gandi. Dès que la zone .com est lue, le fonctionnement normal reprend tout seul.</dd>
     </dl>
 
@@ -246,9 +270,19 @@
       <dt>Pourquoi</dt><dd>Pour « À laisser » ou « À surveiller », la cause principale : risque fort, sinon la sous-note la plus faible (sens, marque, marché, acheteurs). Un avis à l'ancienne grille sera renoté.</dd>
       <dt>Comparables</dt><dd>Dans la fiche, jusqu'à trois noms déjà notés de la même liste (ou de même forme et longueur pour un nom court), de longueur proche, les plus proches par note de revente ; et trois ventes ou offres reçues du portefeuille.</dd>
       <dt>Mesure a posteriori</dt><dd>Chaque nuit, les avis d'il y a 30 jours au moins sur des noms alors libres sont confrontés à l'état du jour : part des noms repris par quelqu'un d'autre, par verdict et par tranche de note de revente. Paramètres, carte Avis IA, « Fiabilité des verdicts ».</dd>
-      <dt>Alertes</dt><dd>Un nom « À prendre » dont la note de revente atteint le seuil réglé (70 par défaut, Paramètres, carte Alertes) part sur Telegram dès qu'il se libère ou entre en rédemption, une fois par état ; une vue enregistrée marquée « alerte » (Explorer, panneau Avancé) signale ses nouveaux noms libres, une fois par heure au plus.</dd>
+      <dt>Alertes</dt><dd>Un avis « À prendre » au seuil des alertes sur un nom libre ou bientôt libre en fait une pépite : voir Alertes.</dd>
     </dl>
     <p class="small muted">La fiche montre aussi les dates clés du nom (création, expiration, rédemption, libération, avis IA, surveillance, achat, vente, puis les dates à venir : expiration, libération estimée, prochaine vérification ; au-delà de six, les trois dernières passées et l'avenir, « Tout afficher » pour le reste), et le résumé de l'avis IA des autres extensions. Portefeuille : bilan par année, liens de mise en vente (Sedo, Dan, Afternic : liens de recherche, pas une mise en vente automatique), export CSV, confirmation de chaque changement.</p>
+
+    <h3 id="help-alerts">Alertes</h3>
+    <p>Sur Telegram, deux rythmes : immédiat, et un message par jour à l'heure choisie (8 h par défaut). Chaque type a sa case dans Paramètres, carte Alertes, avec le seuil des pépites, l'heure et « Envoyer un essai ». Messages sur un même gabarit : quoi et le nom, l'état, le prix d'achat s'il est connu, l'avis IA, le lien vers la fiche et, pour un nom libre, Réserver.</p>
+    <dl class="help-dl">
+      <dt>Pépite</dt><dd>Avis IA « À prendre » avec une note de revente au moins égale au seuil (70 par défaut) sur un nom libre (vérifié au registre ou chez Gandi ; libre selon le WHOIS, signalé « à confirmer » ; premium vu chez Gandi, à son prix) ou bientôt libre (expiré, en rédemption, en suppression). Toutes extensions, qu'il sorte d'une zone (Veille) ou n'ait jamais été enregistré (Explorer). L'état est celui de l'Explorer : un nom indisponible à l'achat n'est jamais une pépite libre. Un nom ignoré n'en est plus une.</dd>
+      <dt>Pépites d'Aujourd'hui</dt><dd>Sur la période choisie : devenues libres (libération constatée, première confirmation de libre ou avis reçu sur un nom libre), puis libération estimée dans la période ; triées par note de revente puis prix final. Le compteur est cette liste.</dd>
+      <dt>Immédiat</dt><dd>Pépite libre : une fois par nom et par libération, les pépites d'une même minute dans un seul message (10 détaillées, puis « et N autres ») ; un nom suivi dans Domaines a déjà son alerte. Domaine suivi : changement d'état, de registrar ou de libération estimée. Analyse IA demandée prête.</dd>
+      <dt>Chaque jour</dt><dd>Un seul message : pépites bientôt libres (nouvelles, libération sous 48 h ou date revue, jamais la même liste), bons noms des dernières 24 h (sans les pépites), vues enregistrées en alerte (sans les pépites), renouvellements du portefeuille (30 et 7 jours avant), santé (pannes apparues ou réglées, puis une ligne pour celles qui durent), et le jour choisi le résumé de la semaine des domaines suivis. Rien à dire : pas de message.</dd>
+      <dt>Jamais en double</dt><dd>Chaque envoi est noté en base : un redémarrage, une tâche rattrapée ou l'essai ne renvoient rien. Un message que Telegram refuse passagèrement repart de la file de rejeu.</dd>
+    </dl>
 
     <h3 id="help-lists">Listes de noms</h3>
     <dl class="help-dl">
@@ -627,7 +661,7 @@
               </template>
               <button type="button" class="tag" @click="exSaveView()">+ Enregistrer la vue actuelle</button>
             </div>
-            <p class="muted small ex-field-help" x-show="exViews.length">Case « alerte » : un message Telegram, une fois par heure au plus, quand de nouveaux noms libres ou bientôt libres répondent à la vue.</p>
+            <p class="muted small ex-field-help" x-show="exViews.length">Case « alerte » : les nouveaux noms libres ou bientôt libres qui répondent à la vue, dans le message du jour (Paramètres, carte Alertes).</p>
           </div>
           <h4 class="ex-group-title">Le nom</h4>
           <div class="ex-field"><span>Forme</span>
@@ -1079,7 +1113,7 @@
               <span x-show="!cfg.telegram.bot_name">Jeton enregistré, Telegram injoignable pour le moment.</span>
               <button type="button" class="btn-ghost sm" @click="editingToken = !editingToken" x-text="editingToken ? 'Annuler' : 'Changer de bot'"></button>
             </p>
-            <p x-show="cfg.telegram.chat_set">Chat associé. Les alertes et le résumé y sont envoyés.</p>
+            <p x-show="cfg.telegram.chat_set">Chat associé. Les alertes y sont envoyées ; types, rythmes et essai : carte Alertes.</p>
             <template x-if="!cfg.telegram.chat_set && !pairing">
               <div>
                 <p>Aucun chat associé.</p>
@@ -1094,7 +1128,6 @@
               </div>
             </template>
             <p class="setting-actions">
-              <button type="button" class="btn-ghost" @click="testAlert()" :disabled="sendingTest || !cfg.telegram.chat_set">Envoyer une alerte test</button>
               <button type="button" class="btn-ghost" x-show="cfg.telegram.chat_set" @click="startPairing()">Associer un autre chat</button>
               <button type="button" class="btn-ghost danger" @click="removeTelegram()">Retirer le bot</button>
             </p>
@@ -1109,13 +1142,40 @@
         <h3>Alertes</h3>
         <template x-if="cfg && cfg.alerts">
           <form class="setting-lines" @submit.prevent="saveAlerts()">
-            <label class="check"><input type="checkbox" x-model="cfg.alerts.take_enabled"> Alerte Telegram dès qu'un nom À prendre se libère</label>
+            <p class="muted small">Immédiat : dès que ça arrive. Chaque jour : un seul message à l'heure choisie, rien s'il n'y a rien à dire. Un nom annoncé comme pépite ne revient ni dans les bons noms du jour ni dans une vue.</p>
+            <ul class="alert-types">
+              <template x-for="t in cfg.alerts.types" :key="t.key">
+                <li>
+                  <label class="check">
+                    <input type="checkbox" x-model="t.enabled">
+                    <span><strong x-text="t.label"></strong> <span class="rhythm" :class="t.rhythm" x-text="t.rhythm_label"></span><small class="muted" x-text="t.text"></small></span>
+                  </label>
+                </li>
+              </template>
+            </ul>
             <p class="inline-form">
-              <label class="small" for="alert-min">Note de revente au moins</label>
-              <input id="alert-min" type="number" min="0" max="100" step="5" class="filter-input num-input" x-model.number="cfg.alerts.take_min" :disabled="!cfg.alerts.take_enabled">
-              <button type="submit" class="btn-ghost" :disabled="savingAlerts" x-text="savingAlerts ? 'Enregistrement' : 'Enregistrer'"></button>
+              <label class="small" for="alert-min">Pépites : note de revente au moins</label>
+              <input id="alert-min" type="number" min="0" max="100" step="5" class="filter-input num-input" x-model.number="cfg.alerts.pepite_min">
             </p>
-            <p class="muted small">Un nom de la Veille qui passe libre ou entre en rédemption avec un avis « À prendre » et une note de revente au seuil : verdict, notes, prix utilisateur final, lien vers la fiche et lien Réserver. Une alerte par nom et par état, dans les 10 minutes. Les vues enregistrées ont leur propre case « alerte » (Explorer, panneau Avancé).</p>
+            <p class="inline-form">
+              <label class="small" for="alert-hour">Message du jour à</label>
+              <select id="alert-hour" x-model.number="cfg.alerts.daily_hour">
+                <template x-for="h in 24" :key="h"><option :value="h - 1" x-text="(h - 1) + ' h'" :selected="h - 1 === cfg.alerts.daily_hour"></option></template>
+              </select>
+              <label class="small" for="alert-day">résumé de la semaine le</label>
+              <select id="alert-day" x-model.number="cfg.alerts.weekly_day">
+                <template x-for="(name, i) in days" :key="i"><option :value="i" x-text="name" :selected="i === cfg.alerts.weekly_day"></option></template>
+              </select>
+            </p>
+            <p class="inline-form">
+              <label class="small" for="alert-morning-min">Bons noms du jour : score au moins</label>
+              <input id="alert-morning-min" type="number" min="0" max="100" step="5" class="filter-input num-input" x-model.number="cfg.alerts.morning_min">
+            </p>
+            <p class="setting-actions">
+              <button type="submit" class="btn-ghost primary" :disabled="savingAlerts" x-text="savingAlerts ? 'Enregistrement' : 'Enregistrer'"></button>
+              <button type="button" class="btn-ghost" @click="testAlert()" :disabled="sendingTest || !cfg.telegram.chat_set">Envoyer un essai</button>
+              <span class="muted small" x-show="cfg.alerts.daily_last" x-text="'Dernier message du jour : ' + cfg.alerts.daily_last"></span>
+            </p>
             <p class="muted small" x-show="!cfg.telegram.chat_set">Aucun chat Telegram associé : les alertes ne partent pas. Carte Telegram ci-dessus.</p>
           </form>
         </template>
@@ -1167,50 +1227,6 @@
               x-text="settingsAdvanced ? 'Masquer les réglages avancés' : 'Afficher les réglages avancés'"></button>
     </p>
     <div class="settings-grid settings-advanced" x-show="settingsAdvanced" x-cloak>
-      <div>
-        <h3>Résumé du matin</h3>
-        <template x-if="cfg && cfg.morning">
-          <div class="setting-lines">
-            <label class="check"><input type="checkbox" x-model="cfg.morning.enabled" @change="saveMorning()"> Envoyer chaque matin les bons noms des dernières 24 h</label>
-            <p class="inline-form">
-              <select x-model.number="cfg.morning.hour" @change="saveMorning()" :disabled="!cfg.morning.enabled" aria-label="Heure">
-                <template x-for="h in 24" :key="h"><option :value="h - 1" x-text="(h - 1) + ' h'" :selected="h - 1 === cfg.morning.hour"></option></template>
-              </select>
-              <label class="small" for="morning-min">Score minimum</label>
-              <input id="morning-min" type="number" min="0" max="100" step="5" class="filter-input num-input" x-model.number="cfg.morning.min_score" @change="saveMorning()" :disabled="!cfg.morning.enabled">
-            </p>
-            <p class="muted small">Noms libérés, noms entrés en rédemption ou en suppression, noms .co / .ai / .io sortis du DNS. Score minimum ou avis IA « À prendre » / « À surveiller ». Lien direct vers chaque fiche. Rien de bon : pas de message.</p>
-            <p class="muted small">Alertes de panne, sans réglage : zone en erreur ou pas lue depuis 36 h, fichier .fr en erreur, vérifications .fr en pause plus d'une heure, notation IA de nuit muette depuis 36 h. Un message quand le problème apparaît, un autre quand il est réglé.</p>
-            <p class="setting-actions">
-              <button type="button" class="btn-ghost" @click="sendMorning()" :disabled="!cfg.telegram.chat_set">Envoyer maintenant</button>
-              <span class="muted small" x-show="cfg.morning.last_sent" x-text="'Dernier envoi : ' + cfg.morning.last_sent"></span>
-            </p>
-          </div>
-        </template>
-      </div>
-
-      <div>
-        <h3>Résumé hebdomadaire</h3>
-        <template x-if="cfg">
-          <div class="setting-lines">
-            <label class="check"><input type="checkbox" x-model="cfg.digest.enabled" @change="saveDigest()"> Envoyer un résumé sur Telegram</label>
-            <p class="inline-form">
-              <select x-model.number="cfg.digest.day" @change="saveDigest()" :disabled="!cfg.digest.enabled" aria-label="Jour">
-                <template x-for="(name, i) in days" :key="i"><option :value="i" x-text="name" :selected="i === cfg.digest.day"></option></template>
-              </select>
-              <select x-model.number="cfg.digest.hour" @change="saveDigest()" :disabled="!cfg.digest.enabled" aria-label="Heure">
-                <template x-for="h in 24" :key="h"><option :value="h - 1" x-text="(h - 1) + ' h'" :selected="h - 1 === cfg.digest.hour"></option></template>
-              </select>
-            </p>
-            <p class="muted small">Changements de la semaine, expirations et libérations des 30 prochains jours, domaines en erreur.</p>
-            <p class="setting-actions">
-              <button type="button" class="btn-ghost" @click="sendDigest()" :disabled="!cfg.telegram.chat_set">Envoyer maintenant</button>
-              <span class="muted small" x-show="cfg.digest.last_sent" x-text="'Dernier envoi : ' + cfg.digest.last_sent"></span>
-            </p>
-          </div>
-        </template>
-      </div>
-
       <div>
         <h3>Écran Veille</h3>
         <template x-if="cfg">

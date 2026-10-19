@@ -228,6 +228,7 @@ document.addEventListener("alpine:init", () => {
     decisions: null,
     aiOutcomes: null,
     savingAlerts: false,
+    gemsAll: false,
     // Domaines : sélection multiple, actions groupées.
     domSelected: [],
     domBulkRunning: false,
@@ -547,9 +548,27 @@ document.addEventListener("alpine:init", () => {
       }
     },
 
+    // Rubrique Pépites d'Aujourd'hui : devenues libres sur la période, puis libération dans la période ; 10 par groupe
+    // tant que « Tout afficher » n'est pas demandé (le compteur ouvre tout).
+    gemGroups() {
+      const p = this.today && this.today.pepites;
+      if (!p) return [];
+      const span = this.periodLong(this.todayPeriod);
+      return [
+        { key: "free", title: `Devenues libres depuis ${span}`, items: p.free },
+        { key: "coming", title: `Libération sous ${span}`, items: p.coming },
+      ].filter((g) => g.items.length).map((g) => ({ ...g, shown: this.gemsAll ? g.items : g.items.slice(0, 10) }));
+    },
+
+    showGems() {
+      this.gemsAll = true;
+      this.$nextTick(() => document.getElementById("today-gems")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    },
+
     setTodayPeriod(k) {
       if (k === this.todayPeriod) return;
       this.todayPeriod = k;
+      this.gemsAll = false;
       try { localStorage.setItem("today.period", k); } catch (_) {}
       return this.loadToday();
     },
@@ -673,7 +692,7 @@ document.addEventListener("alpine:init", () => {
     // Carte de nom : la même dans Aujourd'hui, la Veille, l'Explorer et la recherche (gabarit #name-card).
     // Tout ce que la carte affiche vient d'ici.
     // list : « veille » (élément de /api/drops), « today » (élément de /api/today, même format),
-    // « explore » (élément de /api/explore/rank), « card »
+    // « explore » (élément de /api/explore/rank), « pepite » (pépite d'Aujourd'hui, format de l'Explorer), « card »
     // (élément de /api/explore/name) ou « probe » (nom tapé hors des listes, avant et après /api/explore/check).
     nameCard(i, list) {
       const ai = i.ai;
@@ -713,7 +732,7 @@ document.addEventListener("alpine:init", () => {
         pickable: list === "veille" || list === "explore",
         picked: list === "veille" ? this.dropSelected.includes(i.name) : list === "explore" && this.exSelected.includes(i.name),
         // « Ignorer » : le nom quitte la Veille, la décision est gardée (Portefeuille, Décisions).
-        canIgnore: veilleLike,
+        canIgnore: veilleLike || list === "pepite",
       };
     },
 
@@ -778,7 +797,7 @@ document.addEventListener("alpine:init", () => {
       if (!item) return;
       this.exReplace(item);
       if (c.list === "veille") await this.loadDrops();
-      else if (c.list === "today") await this.loadToday();
+      else if (c.list === "today" || c.list === "pepite") await this.loadToday();
       else this.exLoadMap();
     },
 
@@ -2128,7 +2147,16 @@ document.addEventListener("alpine:init", () => {
           this.dropsData.items = (this.dropsData.items || []).filter((d) => !names.includes(d.name));
           this.dropsData.hidden = r.hidden;
         }
-        if (this.today) this.today.items = this.today.items.filter((d) => !names.includes(d.name));
+        if (this.today) {
+          this.today.items = this.today.items.filter((d) => !names.includes(d.name));
+          // Un nom ignoré n'est plus une pépite : la rubrique et son compteur le perdent ensemble.
+          const gems = this.today.pepites;
+          if (gems) {
+            gems.free = gems.free.filter((d) => !names.includes(d.name));
+            gems.coming = gems.coming.filter((d) => !names.includes(d.name));
+            this.today.counts.pepites = gems.free.length + gems.coming.length;
+          }
+        }
         this.dropSelected = this.dropSelected.filter((n) => !names.includes(n));
         this._dropsVer = (this._dropsVer || 0) + 1;
         this.say(names.length > 1 ? `${names.length} noms ignorés.` : `${names[0]} ignoré.`, "info", { label: "Annuler", run: () => this.unhideDrops(names) });
@@ -2898,13 +2926,18 @@ document.addEventListener("alpine:init", () => {
       }
     },
 
-    // Alerte « À prendre » : case et seuil de note de revente, enregistrés d'un bouton.
+    // Carte Alertes : une case par type, seuil des pépites, heure du message du jour, jour du résumé de la semaine.
     async saveAlerts() {
       this.savingAlerts = true;
       try {
         const a = this.cfg.alerts;
-        this.cfg.alerts = await this.api("PUT", "/api/settings/alerts", { take_enabled: !!a.take_enabled, take_min: Number(a.take_min) || 0 });
-        this.say(this.cfg.alerts.take_enabled ? `Alerte « À prendre » activée dès une note de revente de ${this.cfg.alerts.take_min}.` : "Alerte « À prendre » désactivée.");
+        this.cfg.alerts = await this.api("PUT", "/api/settings/alerts", {
+          enabled: Object.fromEntries(a.types.map((t) => [t.key, !!t.enabled])),
+          pepite_min: Number(a.pepite_min) || 0, daily_hour: Number(a.daily_hour) || 0,
+          weekly_day: Number(a.weekly_day) || 0, morning_min: Number(a.morning_min) || 0,
+        });
+        const on = this.cfg.alerts.types.filter((t) => t.enabled).length;
+        this.say(`Alertes enregistrées : ${on} type${on > 1 ? "s" : ""} sur ${this.cfg.alerts.types.length}, pépites dès une note de revente de ${this.cfg.alerts.pepite_min}.`);
       } catch (e) {
         this.sayError(e, "Alertes");
       }
@@ -2972,43 +3005,6 @@ document.addEventListener("alpine:init", () => {
         this.say("Bot retiré.");
       } catch (e) {
         this.say(e.message, "error");
-      }
-    },
-
-    async saveDigest() {
-      try {
-        this.cfg = await this.api("PUT", "/api/settings/digest", {
-          enabled: this.cfg.digest.enabled, day: this.cfg.digest.day, hour: this.cfg.digest.hour,
-        });
-      } catch (e) {
-        this.say(e.message, "error");
-      }
-    },
-
-    async saveMorning() {
-      try {
-        const m = this.cfg.morning;
-        this.cfg = await this.api("PUT", "/api/settings/morning", { enabled: m.enabled, hour: m.hour, min_score: Number(m.min_score) || 0 });
-      } catch (e) {
-        this.say(e.message, "error");
-      }
-    },
-
-    async sendMorning() {
-      try {
-        const r = await this.api("POST", "/api/morning/send");
-        this.say(r.sent ? "Résumé du matin envoyé sur Telegram." : r.detail);
-      } catch (e) {
-        this.say(`Résumé non envoyé : ${e.message}`, "error");
-      }
-    },
-
-    async sendDigest() {
-      try {
-        await this.api("POST", "/api/digest/send");
-        this.say("Résumé envoyé sur Telegram.");
-      } catch (e) {
-        this.say(`Résumé non envoyé : ${e.message}`, "error");
       }
     },
 
@@ -3151,9 +3147,9 @@ document.addEventListener("alpine:init", () => {
       this.sendingTest = true;
       try {
         await this.api("POST", "/api/alerts/test");
-        this.say("Alerte test envoyée sur Telegram.");
+        this.say("Essai envoyé sur Telegram.");
       } catch (e) {
-        this.say(`Alerte test non envoyée : ${e.message}`, "error");
+        this.say(`Essai non envoyé : ${e.message}`, "error");
       }
       this.sendingTest = false;
     },

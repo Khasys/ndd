@@ -193,10 +193,10 @@ def test_transition_records_history_and_alerts(env):
     assert [tuple(h) for h in history] == [("state", "redemption", "pending_delete")]
     assert len(sent) == 1
     lines = sent[0].splitlines()
-    assert lines[0] == "exemple-test.com"
-    assert lines[1] == "En rédemption → Suppression imminente"
+    assert lines[0] == "Domaine suivi : exemple-test.com"
+    assert lines[1] == "État : En rédemption → Suppression imminente"
     assert lines[2].startswith("Libération estimée : ~")
-    assert lines[3] == "http://nas:8080/?fiche=exemple-test.com"
+    assert lines[3] == "Fiche : http://nas:8080/?fiche=exemple-test.com"
 
 
 def test_registrar_change_alerts(env):

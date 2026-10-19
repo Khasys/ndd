@@ -116,20 +116,6 @@ def test_digest_lists_changes_and_upcoming(env):
     assert text.endswith("http://nas:8111")
 
 
-def test_digest_due_once_per_day(env):
-    _, conn, _, _ = env
-    store = Store(conn)
-    monday_10 = datetime(2026, 10, 12, 10, 0)
-    assert digest.due(store, monday_10)
-    store.set("digest_last_sent", "2026-10-12")
-    assert not digest.due(store, monday_10)
-    assert not digest.due(store, datetime(2026, 10, 13, 10, 0))
-    assert not digest.due(Store(conn, {}), datetime(2026, 10, 19, 8, 0))
-    store.set("digest_enabled", "0")
-    assert not digest.due(store, datetime(2026, 10, 19, 10, 0))
-
-
-# Signaux -----------------------------------------------------------------
 
 def test_suspicious_rules():
     assert not signals.suspicious(None)

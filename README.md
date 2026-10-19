@@ -63,22 +63,60 @@ Tout se règle dans l'appli, menu Paramètres, sans redémarrage :
 Commandes du bot : `/liste`, `/urgent`, `/ajouter nom.fr`, `/supprimer nom.fr`, `/verifier nom.fr`,
 `/statut`, `/aide`. Le bot interroge Telegram lui-même : aucun port à ouvrir.
 
-Le résumé hebdomadaire (changements de la semaine, expirations et libérations des 30 jours à venir,
-domaines en erreur) se règle au même endroit : jour, heure, activation. L'heure suit la variable `TZ`.
+### Alertes
 
-Messages envoyés :
+Paramètres, carte **Alertes** : la seule où se règlent les messages. Une ligne par type, avec son rythme et sa case ;
+le seuil des pépites (note de revente, 70 par défaut) ; l'heure du message du jour (8 h par défaut, heure `TZ`) et le
+jour du résumé de la semaine ; le score minimum des bons noms du jour (40) ; « Envoyer un essai ». Les réglages
+d'avant (alerte « À prendre », résumé du matin, résumé hebdomadaire) sont repris à la mise à jour (migration 034).
 
-| Message | Quand |
-|---|---|
-| Changement d'un domaine surveillé (état, registrar, libération estimée), lien vers sa fiche | à chaque changement ; vérification toutes les 5 min en suppression |
-| Résumé du matin : libérés, entrés en rédemption ou en suppression, .co / .ai / .io sortis du DNS, bons noms seulement, lien vers chaque fiche | chaque jour à l'heure choisie (8 h par défaut), rien s'il n'y a rien de bon |
-| « À prendre » : nom de la Veille qui passe libre ou entre en rédemption avec un avis IA « À prendre » et une note de revente au seuil réglé (70 par défaut, Paramètres) ; verdict, notes, prix utilisateur final, raison, lien vers la fiche et lien Réserver | dans les 10 minutes, une fois par nom et par état ; les noms d'un même passage dans un seul message (10 détaillés, puis « et N autres ») |
-| Vue enregistrée en alerte : « Vue « X » : N nouveaux noms », les noms devenus libres ou bientôt libres depuis le dernier passage qui répondent aux filtres de la vue, lien vers chaque fiche | une fois par heure au plus, après les lectures de la nuit comme en journée |
-| Résumé hebdomadaire | jour et heure choisis |
-| Analyse IA demandée prête, lien vers la fiche | dans l'heure qui suit la demande |
-| Panne : zone en erreur ou pas lue depuis 36 h (ou aucune zone lue avec succès depuis 36 h), fichier .fr en erreur, pause .fr de plus d'une heure, notation IA muette depuis 36 h, passe DNS (.fr, .co, .ai, .io) en erreur ou finie sans aucun nom vérifié, plus de 3 exécutions manquées du planificateur en 24 h | à l'apparition, puis « Réglé » à la disparition |
-| Passe DNS arrêtée (refus ou silence du registre) | à l'arrêt |
-| Passe Gandi arrêtée : de nuit (jeton refusé, trop de requêtes, réseau) ou continue (jeton refusé) | à l'arrêt, une fois par jour au plus, toutes passes confondues |
+Deux rythmes. **Immédiat** : ce qui demande d'agir tout de suite. **Chaque jour** : un seul message à l'heure choisie
+(en plusieurs parts au-delà de 4 000 caractères, sans couper une rubrique), rien s'il n'y a rien à dire.
+
+| Type | Rythme | Contenu | Une seule fois |
+|---|---|---|---|
+| Pépite libre | immédiat, vu chaque minute | nom, état (libre vérifié au registre ou chez Gandi, libre selon le WHOIS « à confirmer chez un registrar », premium), prix d'achat Gandi s'il est connu, avis IA (revente, exploitation, prix final), raison, lien vers la fiche, lien Réserver ; les pépites d'un même passage dans un seul message, 10 détaillées puis « et N autres » | par nom et par libération (table `pepites`) |
+| Domaine suivi | immédiat | nom de l'écran Domaines : état avant → après, registrar, libération estimée, lien vers la fiche ; vérification toutes les 5 min en suppression | à chaque changement |
+| Analyse IA prête | immédiat, dans l'heure qui suit la demande | avis IA, raison, lien vers la fiche | par demande |
+| Pépites bientôt libres | chaque jour | même gabarit, avec la libération estimée et la raison du rappel : nouvelle, libération sous 48 h, date revue | jamais la même liste deux jours de suite |
+| Bons noms du jour | chaque jour | libérés, entrés en rédemption ou en suppression, libres selon le WHOIS à confirmer, .co / .ai / .io sortis du DNS, en 24 h ; score minimum ou avis « À prendre » / « À surveiller » ; sans les pépites | fenêtre de 24 h |
+| Vues enregistrées | chaque jour | « Vue « X » : N nouveaux noms », les noms devenus libres ou bientôt libres depuis le message précédent qui répondent aux filtres de la vue (case « alerte » de la vue, Explorer) ; sans les pépites | depuis le passage précédent de la vue |
+| Renouvellements | chaque jour | noms du portefeuille 30 puis 7 jours avant l'échéance | par échéance et par rappel |
+| Santé | chaque jour | apparu, réglé, signalé : zone en erreur ou pas lue depuis 36 h (ou aucune zone lue avec succès depuis 36 h), fichier .fr en erreur, pause .fr de plus d'une heure, notation IA muette depuis 36 h, passe DNS (.fr, .co, .ai, .io) en erreur, à vide ou arrêtée, Gandi en erreur ou passe arrêtée, plus de 3 exécutions manquées du planificateur en 24 h ; puis « Toujours en cours » pour ce qui dure | chaque événement une fois |
+| Résumé de la semaine | le jour choisi, dans le message du jour | domaines suivis : changements de la semaine, expirations et libérations des 30 jours à venir, domaines en erreur (rien sans domaine suivi) | une fois par semaine |
+
+**Pépite** : un avis IA « À prendre » avec une note de revente au moins égale au seuil, sur un nom libre (vérifié au
+registre ou chez Gandi ; libre selon le WHOIS, compris mais signalé ; premium vu chez Gandi, à son prix) ou bientôt
+libre (expiré en délai de grâce, rédemption, suppression imminente). Toutes extensions, qu'il soit sorti d'une zone
+(Veille) ou n'ait jamais été enregistré (Explorer : libre au registre après Vérifier, ou libre chez Gandi après sa
+passe de nuit). L'état est celui de l'Explorer (`explore.gandi_effect`, règle unique) : un nom indisponible à l'achat,
+réservé, premium probable non vérifié ou seulement « probablement libre » n'en est pas une. Un nom ignoré (Veille,
+Ignorer) non plus.
+
+Règles de l'immédiat : un nom suivi dans Domaines n'a que son alerte de changement d'état ; un nom que Gandi vient de
+dire indisponible attend la revérification au registre ; un nom tout juste libre attend son prix Gandi cinq minutes
+au plus (jeton Gandi configuré) ; un événement vu plus de 48 h après coup (seuil baissé, par exemple) n'est pas
+annoncé, le nom reste dans Aujourd'hui. Au premier passage après la mise à jour, les pépites déjà libres servent de
+référence, sans message. Type décoché ou Telegram pas configuré : les nouvelles pépites sont notées sans message, rien
+ne part en rafale ensuite. Bientôt libre puis libre : deux événements (le quotidien, puis l'immédiat). Repris puis
+libéré de nouveau après plus de 7 jours : nouvel événement.
+
+Jamais en double : chaque envoi est noté en base une fois parti (ou mis en file de rejeu) ; un redémarrage, une tâche
+planifiée rattrapée, « Envoyer un essai » ne renvoient rien. Le message du jour est noté fait pour la date ; s'il n'a
+pas pu partir à l'heure (appli arrêtée), il part au premier passage suivant, une fois. Un nom annoncé comme pépite ne
+revient ni dans les bons noms du jour ni dans une vue.
+
+« Envoyer un essai » (`POST /api/alerts/test`) : les types activés avec leur rythme et, en exemple, la meilleure
+pépite du moment, au gabarit des alertes. Ni rejoué ni noté.
+
+`GET /api/settings/alerts` (aussi `alerts` de `GET /api/settings`) : `types` (`key`, `label`, `rhythm` `immediate`,
+`daily` ou `weekly`, `rhythm_label`, `text`, `enabled`), `pepite_min`, `daily_hour`, `weekly_day` (0 lundi),
+`morning_min`, `daily_last`. `PUT /api/settings/alerts` : `{"enabled": {"views": false}, "pepite_min": 80,
+"daily_hour": 7}`, champs facultatifs, hors bornes ou type inconnu : 422. Clés des types : `pepite_free`,
+`domain_change`, `ai_ready`, `pepite_coming`, `morning`, `views`, `renewals`, `health`, `weekly`. Session seulement.
+
+Autres messages : la confirmation de l'association (« Associé. Ce chat recevra les alertes ») et les réponses du bot
+à ses commandes.
 
 Les liens utilisent `APP_URL`, sinon l'adresse vue par le navigateur à la dernière ouverture de l'appli.
 
@@ -86,8 +124,9 @@ Rejeu : un message que Telegram refuse passagèrement (trop de requêtes, panne 
 part pas (réseau coupé) est mis en file dans la base au lieu d'être perdu. Toutes les 5 minutes, l'appli
 renvoie ce qui est dû, plusieurs messages en attente regroupés en un seul (4 000 caractères au plus) ;
 après un nouvel échec, l'essai suivant attend deux fois plus longtemps (6 h au plus) ; après 48 h, le
-message est abandonné avec une ligne de journal. Le message du bouton « Tester » n'est jamais rejoué,
-ni un message refusé pour de bon (jeton invalide, chat inconnu). `/api/diag` donne la taille de la file.
+message est abandonné avec une ligne de journal. Le message d'« Envoyer un essai » n'est jamais rejoué,
+ni un message refusé pour de bon (jeton invalide, chat inconnu) : une pépite dont l'alerte est refusée ainsi est
+reprise au passage suivant, comme le message du jour dont la première part est refusée. `/api/diag` donne la taille de la file.
 
 ### Apparence
 
@@ -99,7 +138,7 @@ appareils.
 
 En tête, le bloc **Démarrer en 3 étapes** (le même que sur Aujourd'hui) tant qu'une étape manque. Puis,
 dans l'ordre : les sources (Extension .fr, Zones ICANN, Sources et lectures), Telegram, Alertes, Avis IA.
-Le reste est replié sous « Afficher les réglages avancés » : Résumé du matin, Résumé hebdomadaire, Écran
+Le reste est replié sous « Afficher les réglages avancés » : Écran
 Veille, Premiums probables, Noms réservés, Prénoms récents (Insee), SEO, Score de l'Explorer, Lien « Réserver »,
 Calendrier, Apparence. La carte Version est en bas. Sur téléphone, Paramètres s'ouvre par l'icône en haut à droite de
 chaque écran.
@@ -130,16 +169,21 @@ tout reste dans la fiche. Sur téléphone, chaque domaine est une carte.
 #### Aujourd'hui
 
 L'écran d'accueil. En tête, la **période** : 24 h, 7 j ou 30 j en puces (24 h par défaut, choix gardé par le
-navigateur). Puis les chiffres de la période : noms libérés depuis la période, libération estimée dans la période
+navigateur). Puis les chiffres de la période : pépites (voir Alertes), noms libérés depuis la période, libération estimée dans la période
 à venir, nouveaux avis « À prendre » reçus depuis la période sur un nom libre ou bientôt libre, regrets (noms
 ignorés repris depuis par quelqu'un d'autre) ; les libellés disent la période (« libérés depuis 7 jours »,
 « libérations sous 7 jours »). Avec 24 h, la libération à venir est sous 24 h (48 h auparavant) : même fenêtre
-dans les deux sens. Chaque chiffre ouvre exactement ses noms, même compte : les trois
+dans les deux sens. Chaque chiffre ouvre exactement ses noms, même compte : les pépites descendent à leur rubrique, dépliée ; les trois
 premiers ouvrent la Veille sur cette liste seule, pour la même période (puce « Libérés depuis 7 jours »,
 « Libération sous 7 jours » ou « Nouveaux « À prendre » depuis 7 jours », sans onglets ni filtres de la Veille,
 noms faibles compris ; la puce efface le filtre et rend la Veille complète), les regrets ouvrent les Décisions du
 Portefeuille filtrées sur « Repris seulement » (puce effaçable, aussi disponible à la main). Puis le bloc
 **Démarrer en 3 étapes** (sources, Telegram, avis IA, avec « Configurer »), tant qu'une étape manque.
+Puis la rubrique **Pépites** : celles devenues libres depuis la période (libération constatée, première
+confirmation de libre, ou avis « À prendre » reçu sur un nom libre ; date gardée dans la table `pepites` une fois le
+nom vu), puis celles dont la libération estimée tombe dans la période ; triées par note de revente puis prix
+utilisateur final ; 10 par groupe, « Tout afficher » pour le reste ; cartes de nom de l'Explorer (état, prix Gandi,
+Réserver, Ignorer) ; « Masquer les premiums » vaut aussi pour elles. Rien : « Aucune pépite sur 24 h ».
 Enfin les 20 meilleurs noms libérés depuis la période ou libérés dans la période, non ignorés, sur la carte de la Veille, dans
 l'ordre de la Veille pour l'usage choisi (Pour revendre / Pour exploiter, réglage commun) et avec ses
 réglages par défaut (noms faibles et suites imprononçables masqués), et le bouton « Voir toute la Veille ».
@@ -147,7 +191,9 @@ Rien à prendre : « Rien à prendre aujourd'hui. Les prochaines libérations so
 30 jours : « Rien à prendre sur 7 jours. Les autres libérations sont dans la Veille. »).
 
 `GET /api/today?sort=resale|exploit&period=24h|7d|30d` (défauts `resale` et `24h`, autre période : 422, calcul
-hors de la boucle) : `period`, `counts` (`freed`, `coming`, `new_take`, `regrets`), `items` (format des éléments de
+hors de la boucle) : `period`, `counts` (`pepites`, `freed`, `coming`, `new_take`, `regrets`), `pepites` (`min` : le seuil ; `free` et
+`coming` : éléments au format de l'Explorer, avec `pepite` : `state` `free`, `unconfirmed`, `premium` ou `coming`,
+`since`, `release_at`, `price`), `items` (format des éléments de
 `/api/drops`), `setup` (les trois
 étapes : `key` `sources`, `telegram` ou `ai`, `title`, `text`, `done`). `/api/meta` donne les mêmes étapes
 dans `steps`. Lisible avec le jeton en lecture seule, comme les autres écrans.
@@ -469,7 +515,7 @@ L'appli fonctionne alors en trois temps :
    Chaque échec est journalisé avec sa cause (délai dépassé, réponse tronquée, refusé, code
    d'erreur, erreur réseau) et le serveur interrogé ; les 30 derniers sont visibles dans
    Paramètres, carte « Sources et lectures ». Un refus du serveur ou 20 échecs d'affilée arrêtent la passe, divisent par deux
-   le plafond de rythme des nuits suivantes et envoient une alerte Telegram. Le plafond remonte
+   le plafond de rythme des nuits suivantes et sont signalés dans la rubrique Santé du message du jour. Le plafond remonte
    de 25 % par nuit sans incident.
    Désactivable : case « Interroger le DNS du .fr chaque nuit ».
 5. .co, .ai et .io : ces extensions de pays ne publient pas leur zone. Chaque jour, en même temps
@@ -485,8 +531,8 @@ L'appli fonctionne alors en trois temps :
    sorti d'une zone : vérifié auprès du registre (RDAP, sinon WHOIS), puis Libérés ou Bientôt libres
    selon son état ; revenu dans le DNS, il en sort. Un nom absent dès sa première interrogation n'y
    entre pas, et une vérification à la main n'en fait pas un nom « sorti du DNS » (la date de sortie
-   n'apparaît que pour un nom vu délégué puis absent). Les noms sortis avant cette version sont repris au démarrage et à chaque passe. Le résumé
-   Telegram du matin les liste sous « Sortis du DNS », sauf ceux déjà listés avec leur état dans une
+   n'apparaît que pour un nom vu délégué puis absent). Les noms sortis avant cette version sont repris au démarrage et à chaque passe. Le message
+   du jour les liste sous « Sortis du DNS », sauf ceux déjà listés avec leur état dans une
    autre rubrique. Pas de date de libération estimée (délais de ces registres non relevés). Paramètres,
    « Sources et lectures » : une ligne par extension, noms interrogés, présents et absents, date de la
    dernière passe.
@@ -534,7 +580,7 @@ meilleure offre, statut (possédé, en exploitation, pas à vendre, en vente, ve
 investi, renouvellements par an, ventes, bénéfice. Un nom s'ajoute à la main, avec le formulaire
 de l'écran. Un nom ajouté est aussi surveillé : la vérification RDAP part en arrière-plan, la
 réponse n'attend pas (`checking`), et l'échéance réelle remplace la date saisie dès qu'elle est lue ;
-rappel Telegram 30 puis 7 jours avant. Les ventes et les offres reçues sont ajoutées à
+rappel dans le message du jour 30 puis 7 jours avant. Les ventes et les offres reçues sont ajoutées à
 la consigne de notation IA comme repères de prix réels, et l'estimation IA s'affiche à côté du prix
 obtenu. Bilan par année (`years` de `GET /api/portfolio`) : investi (achats), renouvellements (un par an
 après l'année d'achat, jusqu'à la vente ou l'année en cours ; rien pour un nom abandonné, sa date
@@ -618,8 +664,8 @@ DNS change de version à la fin de chaque passe : l'Explorer se recalcule alors.
   fusionnées dans l'ordre du tri choisi, les compteurs additionnés.
 - **Vues enregistrées** : un jeu de filtres nommé, rappelé d'un geste. La vue en cours est
   surlignée ; sa suppression demande confirmation et laisse les filtres affichés en place. Case
-  « alerte » par vue (`alert` de `PUT /api/explore/views`) : Telegram signale ses nouveaux noms, une fois
-  par heure au plus.
+  « alerte » par vue (`alert` de `PUT /api/explore/views`) : ses nouveaux noms, dans le message du jour (voir
+  Alertes).
 - **Sélection multiple** : Vérifier, SEO, Surveiller ou Réservé en lot, bilan en un message.
 - Recherche : le nom tapé sur toutes les extensions, puis les noms qui commencent pareil. Un nom
   absent de toutes les listes (monsuperprojet) s'affiche quand même, une ligne par extension suivie
@@ -697,7 +743,7 @@ en erreur ne remplace pas un résultat connu : elle est notée à côté.
   ont un sens seulement. Bientôt libres (rédemption, suppression) : pas demandés, Gandi les dit toujours
   indisponibles. Sautés : vérifiés depuis moins de 7 jours (réglable), 1 jour pour un nom qui a changé d'état
   depuis ou une réponse en erreur. 3 requêtes par seconde au plus et 8 000 noms par nuit au plus (réglables). Jeton
-  refusé (401, 403) : arrêt, erreur dans Paramètres, alerte Telegram une fois par jour au plus. Trop de requêtes
+  refusé (401, 403) : arrêt, erreur dans Paramètres et dans la rubrique Santé du message du jour. Trop de requêtes
   (429) : attente demandée par Gandi (60 s par défaut), puis reprise au même nom ; au troisième refus d'affilée,
   arrêt. 20 échecs réseau d'affilée : arrêt. Une extension qui répond 5 fois de suite « invalide » est écartée 30 jours
   (Gandi ne la vend pas). Sans jeton ou case décochée : rien. « Lancer maintenant » (`POST /api/settings/gandi/run`,
@@ -758,7 +804,7 @@ en erreur ne remplace pas un résultat connu : elle est notée à côté.
   repris. Une ligne de Veille créée sans sortie constatée (`origin` : `manual` pour Vérifier ou un domaine suivi,
   `gandi` pour une revérification après un refus d'achat) dit « Vu libre au registre » ou « Vu enregistré au
   registre », jamais « Libération constatée » ni « Repris » ; celles d'un refus d'achat restent hors de la Veille,
-  d'Aujourd'hui, des alertes et du résumé du matin. Contrôle sur des données réelles : `tests/fixtures/state_cases.json`
+  d'Aujourd'hui et des alertes. Contrôle sur des données réelles : `tests/fixtures/state_cases.json`
   (combinaisons relevées sur un NAS, sans les noms), rejouées dans tous les écrans.
 - **Données** : `gandi` dans les éléments de l'Explorer, de la fiche (et `fiche.gandi`), de `/api/drops`,
   `/api/today` et `/api/domains` (`kind`, `status`, `label`, `price`, `price_ht`, `currency`, `checked_at`, `error`
@@ -813,11 +859,8 @@ et la part reprise : si les « À prendre » partent vraiment, la grille tient. 
 bloc « Fiabilité des verdicts » : le tableau par verdict et par tranche, avec le nombre de noms mesurés ;
 tant qu'aucun avis n'a 30 jours, une phrase l'explique.
 
-Alerte « À prendre » : dès qu'un nom de la Veille passe libre ou entre en rédemption avec un avis « À
-prendre » et une note de revente au seuil réglé (70 par défaut, désactivable ; Paramètres, carte
-« Alertes » : case et seuil, `GET/PUT /api/settings/alerts`), un message Telegram
-part avec le verdict, les notes, le prix utilisateur final, la raison, le lien vers la fiche et le lien
-Réserver. Une alerte par nom et par état ; le résumé du matin reste, lui récapitule.
+Pépites : un avis « À prendre » au seuil des alertes sur un nom libre ou bientôt libre, de la Veille comme de
+l'Explorer ; rubrique d'Aujourd'hui et alertes Telegram, voir « Alertes ».
 
 Le NAS publie la liste à noter (`GET /api/ai/pending`) : noms libres ou bientôt libres d'abord (score complet ; la
 borne du score range d'abord, un nom n'est noté en entier que s'il peut sortir), puis les noms probablement libres ou
@@ -960,9 +1003,9 @@ Les durées acceptent `30s`, `5m`, `6h`, `7d`, ou un nombre de secondes.
   registre (.co, .io, .ai). Un nom libre d'après le seul WHOIS est « Libre selon le WHOIS, à confirmer »
   (Explorer, code d'état 9, parmi « À réserver » et « Probablement libres », pas parmi « Libres vérifiés » ;
   Veille, état `unconfirmed`, onglet Libérés avec ce libellé ; Domaines, « Disponible selon le WHOIS, à
-  confirmer »). Pas de « Libération constatée », pas compté dans Aujourd'hui, pas d'alerte « À prendre » ;
-  le résumé du matin les liste à part, « à confirmer chez un registrar », et l'alerte d'un nom surveillé le
-  dit. Réserver reste possible ; refusé par le registrar, « Plus », Réservé par registre, le sort des noms
+  confirmer »). Pas de « Libération constatée », pas compté dans les libérés d'Aujourd'hui ; une pépite à confirmer
+  est annoncée avec la mention « à confirmer chez un registrar », les bons noms du jour les listent à part, et
+  l'alerte d'un nom surveillé le dit. Réserver reste possible ; refusé par le registrar, « Plus », Réservé par registre, le sort des noms
   à prendre. Au démarrage, les noms marqués libres par une version précédente sur cette seule base sont
   corrigés (sans migration).
 - RDAP d'une extension en panne (erreur réseau ou TLS, délai, 5xx à chaque essai) : repli sur son WHOIS,

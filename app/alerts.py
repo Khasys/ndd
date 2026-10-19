@@ -20,12 +20,13 @@ def format_change(
     app_url: str,
     unconfirmed: bool = False,
 ) -> str:
-    """unconfirmed : « disponible » sur la seule foi d'un WHOIS, qui ne connaît pas les noms réservés ou
+    """Alerte immédiate d'un domaine suivi, au gabarit commun des alertes (quoi et nom, état, détail, lien).
+    unconfirmed : « disponible » sur la seule foi d'un WHOIS, qui ne connaît pas les noms réservés ou
     premium du registre ; l'alerte le dit, à confirmer chez un registrar."""
-    lines = [domain]
+    lines = [f"Domaine suivi : {domain}"]
     if old_state != new_state:
         new_label = UNCONFIRMED_LABEL if unconfirmed and new_state == AVAILABLE else LABELS.get(new_state, "Inconnu")
-        lines.append(f"{LABELS.get(old_state, 'Inconnu')} → {new_label}")
+        lines.append(f"État : {LABELS.get(old_state, 'Inconnu')} → {new_label}")
     if old_registrar != new_registrar:
         lines.append(f"Registrar : {old_registrar or 'aucun'} → {new_registrar or 'aucun'}")
     if release is not None:
@@ -33,7 +34,7 @@ def format_change(
 
         lines.append(f"Libération estimée : ~{release.astimezone(local_zone()).strftime('%d/%m/%Y')}")
     if app_url:
-        lines.append(app_url)
+        lines.append("Fiche : " + app_url)
     return "\n".join(lines)
 
 
