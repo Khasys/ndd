@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import time
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -605,6 +606,29 @@ def test_live_pass_order_lists_first_then_score_with_revisits(env):
     assert "maison.com" in live.plan(10**7, now)[0]
 
 
+def test_live_pass_keeps_its_rate_when_gandi_is_slow(env):
+    """Gandi met environ 1 s à répondre depuis le NAS : une à une, la passe tombait à 1 nom par seconde. Ici 0,3 s
+    par réponse et 10 noms par seconde réglés : 20 noms en 2 s environ, pas 6 s ; aucun nom sauté ni doublé."""
+    async def handler(request):
+        await asyncio.sleep(0.3)
+        return httpx.Response(200, json=answer("available", [STANDARD], request.url.params["name"]))
+
+    client = gandi_only(env, handler)
+    live = gandi.LivePass(client, env.conn, env.fr.store, env, timezone.utc)
+    live.store.set("gandi_live_rate", "10")
+    names = [f"lent{n}.com" for n in range(20)]
+    live.plan = lambda limit, now=None: (names, {"total": 20, "due": 20, "planned_at": iso(utcnow())})
+    # Premier passage (Explorer et client prêts) hors chrono : seule la passe est mesurée.
+    live.plan = lambda limit, now=None: (["chauffe.com"], {"total": 1, "due": 1, "planned_at": iso(utcnow())})
+    asyncio.run(live.run(tours=1))
+    live.plan = lambda limit, now=None: (names, {"total": 20, "due": 20, "planned_at": iso(utcnow())})
+    started = time.monotonic()
+    stats = asyncio.run(live.run(tours=1))
+    elapsed = time.monotonic() - started
+    assert stats["checked"] == 20 and stats["kinds"] == {"available": 20} and 1.8 <= elapsed < 3.5, elapsed
+    assert {r[0] for r in env.conn.execute("SELECT name FROM gandi_checks WHERE name LIKE 'lent%'")} == set(names)
+
+
 def test_empty_answers_never_drop_com(env):
     """Vu sur le NAS le 19/10/2026 : 5 réponses sans ligne de création d'affilée (Gandi chargé) avaient écarté le .com
     30 jours, et la passe continue s'était arrêtée en disant « zone lue »."""
@@ -665,8 +689,10 @@ def test_live_pass_paces_waits_and_stops_on_refused_token(env):
     assert live.due() and live.status()["tlds"] == ["com"] and live.status()["rate"] == 5.0
     live.plan = lambda limit, now=None: (["a.com", "b.com", "c.com"], {"total": 10, "due": 3, "planned_at": iso(utcnow())})
     stats = asyncio.run(live.run(tours=1))
-    # 429 : attente demandée (7 s), doublée au refus suivant, puis reprise au même nom ; 5 requêtes par seconde au plus.
-    assert calls == ["a.com", "b.com", "b.com", "b.com", "c.com"] and stats["checked"] == 3 and stats["limited"] == 2
+    # 429 : attente demandée (7 s), doublée au refus suivant, puis reprise au même nom ; 5 requêtes par seconde au plus,
+    # plusieurs en vol (c.com part avant que b.com soit réglé).
+    assert calls[:3] == ["a.com", "b.com", "c.com"] and sorted(calls) == ["a.com", "b.com", "b.com", "b.com", "c.com"]
+    assert stats["checked"] == 3 and stats["limited"] == 2
     assert sum(w for w in waits if w > 1) == 7 + 14
     assert all(w <= 0.2 + 0.01 for w in waits if w < 1)
     assert stats["stopped"] == "fin des tours demandés" and env.status_bytes("com")[env.universe.index("b")] == explore.TAKEN_GANDI

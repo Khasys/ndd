@@ -770,8 +770,10 @@ en erreur ne remplace pas un résultat connu : elle est notée à côté.
   Gandi, il a été supprimé depuis : la réponse de Gandi l'emporte (`drop_open_code`, argument `offered`).
 - **Passe continue** (`gandi.LivePass`), jour et nuit, pour ces extensions seulement : chaque nom qui a un sens
   (environ 207 000 en .com), d'abord les libres et premiums à revoir (chaque jour), puis les listes fournies (termes
-  premium, mots-clés et marques mêlés par rang, puis métier + ville), puis le reste par score de base ; les autres
-  revus après 7 jours (réglable), une réponse en erreur le lendemain. 5 requêtes par seconde par défaut (0,2 à 15) :
+  stars, mots-clés et marques mêlés par rang, puis métier + ville), puis le reste par score de base ; les autres
+  revus après 7 jours (réglable), une réponse en erreur le lendemain. 5 requêtes par seconde par défaut (0,2 à 15),
+  départs espacés de 1 / rythme et jusqu'à 8 en vol (Gandi met environ 1 s à répondre : une à une, la passe tombait
+  à 1 nom par seconde) ; réponse sans ligne de création comptée comme un échec, jamais comme « .com pas vendu » :
   première passe complète en une douzaine d'heures, puis environ 30 000 requêtes par jour plus les libres. File refaite
   toutes les 30 minutes de travail (moins d'une seconde) ; rien à revoir, tour suivant 15 minutes plus tard. Trop de
   requêtes (429) : attente demandée (60 s sans indication), doublée à chaque refus d'affilée (une heure au plus), puis
