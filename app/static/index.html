@@ -1948,9 +1948,12 @@
           </template>
         </div>
       </div>
-      <div class="ex-chips" aria-label="Nouveautés et extensions">
+      <div class="ex-chips" aria-label="Nouveautés">
         <button type="button" class="tag" :class="{ on: dropNewOnly }" :aria-pressed="dropNewOnly" @click="dropNewOnly = !dropNewOnly; dropShow = 100"
                 x-text="'Nouveaux depuis ma dernière visite (' + fmt(dropNewCount()) + ')'"></button>
+      </div>
+      <!-- Extensions sur leur propre ligne, à la ligne si besoin : derrière « Nouveaux… », elles sortaient de l'écran. -->
+      <div class="ex-chips wrap" aria-label="Extensions" x-show="dropTlds.length > 1">
         <button type="button" class="tag" x-show="dropTlds.length > 1" :class="{ on: !dropTld.length }" :aria-pressed="!dropTld.length" @click="dropTld = []; dropShow = 100">Toutes</button>
         <template x-for="t in dropTlds" :key="t">
           <button type="button" class="tag tag-check" :class="{ on: dropTld.includes(t) }" :aria-pressed="dropTld.includes(t)" @click="toggleDropTld(t)" x-text="'.' + t"></button>

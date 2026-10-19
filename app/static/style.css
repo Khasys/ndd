@@ -729,6 +729,7 @@ button:disabled { cursor: default; opacity: .55; }
 .ex-chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 1px 0 3px; }
 .ex-chips::-webkit-scrollbar { display: none; }
 .ex-chips .tag { flex: none; white-space: nowrap; }
+.ex-chips.wrap { flex-wrap: wrap; overflow: visible; }
 .ex-chips .num { margin-left: 4px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .ex-chips .tag.on .num { color: inherit; }
 .ex-view { display: inline-flex; align-items: center; gap: 0; padding: 0; }
@@ -913,6 +914,20 @@ button:disabled { cursor: default; opacity: .55; }
 /* Mobile : rien ne déborde à droite, la page ne se décale plus. */
 @media (max-width: 899px) {
   .page { overflow-x: clip; }
+}
+
+/* Mobile : la page défile dans son propre cadre, au-dessus de la barre du bas, comme les autres écrans. Quand
+   tout le document défilait (Domaines), Safari sur iPhone laissait parfois la barre fixe au milieu de l'écran. */
+@media (max-width: 899px) {
+  html, body { height: 100%; overflow: hidden; }
+  .page {
+    position: fixed; top: 0; left: 0; right: 0; bottom: var(--tabbar);
+    overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 24px;
+  }
+  body.sheet-open .page { overflow-y: hidden; }
+}
+
+@media (max-width: 899px) {
   .ex-card, .ex-list, .drops-table { max-width: 100%; }
   .details dd { overflow-wrap: anywhere; min-width: 0; }
 }

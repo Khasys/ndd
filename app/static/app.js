@@ -438,6 +438,7 @@ document.addEventListener("alpine:init", () => {
       this.exploreOpen = false;
       this.portfolioOpen = false;
       window.scrollTo({ top: 0, behavior: "smooth" });
+      document.querySelector(".page")?.scrollTo({ top: 0, behavior: "smooth" });  // téléphone : la page défile dans son cadre
     },
 
     // Accueil (nom de l'appli en haut à gauche) : Aujourd'hui.
