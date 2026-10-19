@@ -91,7 +91,7 @@ def sections(conn, explorer, cc_status: dict, base: str, now: datetime, min_scor
         found.append("\n".join([f"Libres selon le WHOIS, à confirmer chez un registrar ({len(best_unsure)} sur {len(unsure)}) :"]
                                + [_line(n, values[n], base) for n in best_unsure[:MAX_LINES]]))
     if lost:
-        found.append(f"Sortis du DNS (.co, .ai, .io), à vérifier : {', '.join(lost[:20])}"
+        found.append(f"Sortis du DNS, à vérifier : {', '.join(lost[:20])}"
                      + (f" et {len(lost) - 20} autres" if len(lost) > 20 else ""))
     return found
 

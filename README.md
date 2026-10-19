@@ -764,7 +764,12 @@ en erreur ne remplace pas un résultat connu : elle est notée à côté.
 - **Extension par Gandi seul** (.com par défaut, réglage `gandi_only_tlds`) : une extension sans zone lisible (pas
   d'accès CZDS, fichier trop gros, ou zone pas encore lue), avec un jeton, est dans l'Explorer quand même
   (`Explorer.gandi_tlds`). État de base de chaque nom : « Pas encore vérifié » (code 10, dans « Tous, même pris »
-  seulement). Réponse de Gandi : libre, « Libre (vérifié) » et son prix ; premium, « Premium » et son prix ;
+  seulement). DNS du registre d'abord (`ccdns.ComDns`, en attendant l'accès CZDS) : chaque jour, la passe DNS des
+  .co, .ai, .io interroge aussi les serveurs du .com pour tous les noms qui ont un sens (environ 207 000, 150 000 par
+  jour au plus, même moteur et mêmes garde-fous) ; délégué, « Enregistré » (pris, jamais demandé à Gandi) ; absent,
+  il reste à vérifier et passe en tête de la file Gandi ; sorti du DNS, dans la Veille comme un .co. Gandi limite les
+  vérifications .com (environ 150 par quart d'heure, mesuré le 19/10), le DNS non : le tri se fait surtout par le DNS.
+  Réponse de Gandi : libre, « Libre (vérifié) » et son prix ; premium, « Premium » et son prix ;
   indisponible, réservé ou restreint, « Enregistré » comme tout nom pris (un seul statut à l'écran ; code interne 11,
   compté pris partout : compteurs, demande « pris ailleurs », filtre « pris sur une autre extension », mesure a
   posteriori des avis IA) : en .com, presque toujours enregistré ; erreur, rien ne change. Pas de revérification au registre de chaque indisponible

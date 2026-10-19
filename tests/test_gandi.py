@@ -590,6 +590,56 @@ def test_com_without_zone_is_known_through_gandi_alone(env, monkeypatch):
     assert fiche["item"]["status"] == explore.TAKEN_GANDI and fiche["gandi"]["kind"] == "unavailable"
 
 
+def test_com_without_zone_uses_the_registry_dns_before_gandi(env, monkeypatch):
+    """En attendant l'accès CZDS : le DNS du .com fait le gros du tri. Délégué : pris, jamais demandé à Gandi ;
+    absent : demandé à Gandi en premier, qui le dit libre, premium ou pris (enregistré sans serveurs). Sorti du DNS :
+    dans la Veille, comme un .co. La zone lue, la passe DNS .com s'arrête."""
+    from app import ccdns, frdns
+
+    monkeypatch.setattr(frdns, "RATE", 1_000_000.0)
+    client = gandi_only(env)
+    dns = ccdns.ComDns(env.conn, env.fr.store, env, timezone.utc)
+    assert dns.ready() and dns.tld == "com" and dns.key == "com_dns"
+    assert len(dns.pending(10**6)) > 150_000  # tous les noms qui ont un sens, pas seulement les 50 000 meilleurs
+    dns.servers = ["192.0.2.1"]
+    state = {"maison": True, "jardin": False, "velo": False, "credit": True}
+    dns.pending = lambda limit, now=None: list(state)
+
+    async def query(label):
+        return state[label]
+
+    dns.query = query
+    asyncio.run(dns.run(limit=4))
+    u = env.universe
+    data = env.status_bytes("com")
+    assert data[u.index("maison")] == explore.REGISTERED and data[u.index("credit")] == explore.REGISTERED
+    assert data[u.index("jardin")] == explore.UNCHECKED and data[u.index("soleil")] == explore.UNCHECKED
+    # Gandi : les absents du DNS d'abord, les délégués jamais.
+    live = gandi.LivePass(client, env.conn, env.fr.store, env, timezone.utc)
+    names, info = live.plan(10**7)
+    assert set(names[:2]) == {"jardin.com", "velo.com"} and "maison.com" not in names and "credit.com" not in names
+    assert info["total"] == len(names)
+    # Absent du DNS et pris d'après Gandi (enregistré sans serveurs) : pris ; libre : libre.
+    client.record("velo.com", gandi.read(answer("unavailable")))
+    client.record("jardin.com", gandi.read(answer("available", [STANDARD])))
+    data = env.status_bytes("com")
+    assert data[u.index("velo")] == explore.TAKEN_GANDI and data[u.index("jardin")] == explore.FREE
+    # Corrigé nom par nom = calcul d'ensemble.
+    touched = bytes(data)
+    env.invalidate("com")
+    assert bytes(env.status_bytes("com")) == touched
+    # Sorti du DNS : dans la Veille (vérifié au registre ensuite), « Sorti du DNS » dans la ligne de temps.
+    state["maison"] = False
+    asyncio.run(dns.run(limit=4))
+    row = env.drops.row("maison.com")
+    assert row is not None and row["next_check_at"] and row["removed_on"]
+    assert env.status_bytes("com")[u.index("maison")] == explore.UNCHECKED
+    assert any(k == "dns_out" for _, k, _ in [(t["at"], t["kind"], t["label"]) for t in env.fiche("maison.com")["timeline"]])
+    # Zone .com lue : fonctionnement normal, la passe DNS .com n'a plus lieu d'être.
+    zone(env, [], ["maison"])
+    assert env.gandi_tlds() == [] and not dns.ready()
+
+
 def test_verify_a_com_without_zone_reads_the_registry(env):
     """Vérifier interroge toujours le registre (RDAP), sans plafond : sa lecture fait l'état, Gandi précise le prix."""
     gandi_only(env)

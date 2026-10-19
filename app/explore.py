@@ -755,7 +755,7 @@ class Explorer:
         if cached and cached[1] == version and time.monotonic() - cached[0] < CACHE_SECONDS:
             return cached[2]
         status = (self._build_fr() if tld == "fr" else self._build_dns(tld) if tld in ccdns.TLDS
-                  else self._build_gandi() if version == GANDI_VERSION else self._build_zone(tld))
+                  else self._build_gandi(tld) if version == GANDI_VERSION else self._build_zone(tld))
         self._cache[tld] = (time.monotonic(), version, status)
         return status
 
@@ -771,10 +771,18 @@ class Explorer:
                 status[i] = REGISTERED if present else ABSENT
         return status
 
-    def _build_gandi(self) -> bytearray:
-        """Extension par Gandi seul : tous les noms valides « pas encore vérifiés » ; Gandi fait l'état (_status_bytes)."""
-        status = bytearray([UNCHECKED]) * self.universe.size
-        self.universe.apply_valid(status)
+    def _build_gandi(self, tld: str) -> bytearray:
+        """Extension par Gandi seul : tous les noms valides « pas encore vérifiés » ; Gandi fait l'état (_status_bytes).
+        Un nom délégué dans le DNS du registre (ccdns.ComDns, .com) est pris : rien à demander à Gandi. Absent du
+        DNS, il reste à vérifier : Gandi le dit libre, premium ou pris (enregistré sans serveurs, bloqué)."""
+        u = self.universe
+        status = bytearray([UNCHECKED]) * u.size
+        u.apply_valid(status)
+        for name, present in self.conn.execute("SELECT name, present FROM cc_dns WHERE name LIKE ? AND present = 1",
+                                               (f"%.{tld}",)):
+            i = u.index(name[: -len(tld) - 1])
+            if i is not None and status[i] == UNCHECKED:
+                status[i] = REGISTERED
         return status
 
     def _build_zone(self, tld: str) -> bytearray:
@@ -1815,6 +1823,10 @@ class Explorer:
             base = INVALID if row is None else REGISTERED if row["present"] else ABSENT
         else:
             base = self._base(tld)[i]
+            if base in (UNCHECKED, REGISTERED) and tld in self.gandi_tlds():
+                # Par Gandi seul, DNS du registre relu pour ce nom : la passe DNS vient peut-être de le voir.
+                row = self.conn.execute("SELECT present FROM cc_dns WHERE name = ?", (f"{label}.{tld}",)).fetchone()
+                base = REGISTERED if row is not None and row["present"] else UNCHECKED
         code = base
         if tld == "fr" and (code in (GONE, ABSENT) or i in self.unread("fr")):
             seen = self.conn.execute("SELECT present FROM name_dns WHERE label = ?", (label,)).fetchone()
@@ -2291,7 +2303,7 @@ class Explorer:
         if rdap.get("expires_at") and not rdap.get("available"):
             add(rdap["expires_at"], "expires", "Expiration")
         drop = self.conn.execute("SELECT * FROM drops WHERE name = ?", (name,)).fetchone()
-        if tld in ccdns.TLDS:
+        if tld in ccdns.TLDS or tld in self.gandi_tlds():
             # Sorti du DNS : seulement un nom vu délégué puis absent. Un nom absent dès la première nuit
             # (réservé, premium, enregistré sans serveurs) n'est jamais « sorti », même vérifié à la main.
             dns = ccdns.load_names(self.conn, [name]).get(name)

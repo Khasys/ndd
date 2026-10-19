@@ -10,6 +10,11 @@ puis Libérés ou Bientôt libres selon son état réel. Un nom qui revient dans
 absent dès sa première interrogation n'y entre pas : rien ne dit qu'il vient d'expirer (enregistré
 sans serveurs, réservé ou premium du registre) ; l'Explorer l'affiche « Absent du DNS, à vérifier ».
 Pas de date de libération : les délais de ces registres ne sont pas relevés.
+
+.com sans zone (ComDns) : en attendant l'accès CZDS, même passe sur les serveurs du .com, tant que le .com est
+« par Gandi seul ». Délégué : pris, sans rien demander à Gandi ; absent : Gandi confirme et donne le prix, en
+premier (gandi.LivePass). Gandi limite les vérifications .com (environ 150 par quart d'heure, mesuré le 19/10) ;
+le DNS, non. La zone lue, la passe s'arrête d'elle-même (ready).
 """
 
 import json
@@ -43,6 +48,7 @@ def load_names(conn, names: list[str]) -> dict[str, dict]:
 
 class CcDns(FrDns):
     count_first = False  # première nuit : tout est nouveau, rien n'est un changement
+    per_tld = PER_TLD
 
     def __init__(self, tld, conn, store, explorer, local_zone, notify=None):
         super().__init__(conn, store, explorer, local_zone, notify)
@@ -69,9 +75,9 @@ class CcDns(FrDns):
                 label = u.label(i)
                 if len(label) > 2 and label in wanted and label not in mine:  # 1 ou 2 caractères : réservés ou premium
                     chosen.append(label)
-                    if len(chosen) >= PER_TLD:
+                    if len(chosen) >= self.per_tld:
                         break
-            if len(chosen) >= PER_TLD:
+            if len(chosen) >= self.per_tld:
                 break
         seen = {r[0]: r[1] for r in self.conn.execute(
             "SELECT name, checked_at FROM cc_dns WHERE name LIKE ?", (f"%.{self.tld}",))}
@@ -138,3 +144,15 @@ class CcDns(FrDns):
 
     def position(self, label: str):
         return None
+
+
+class ComDns(CcDns):
+    """.com sans zone, en attendant l'accès CZDS : tous les noms qui ont un sens des listes (environ 207 000), tant
+    que le .com est par Gandi seul (Explorer.gandi_tlds) ; ensuite, la zone fait l'état."""
+    per_tld = 250_000
+
+    def __init__(self, conn, store, explorer, local_zone, notify=None):
+        super().__init__("com", conn, store, explorer, local_zone, notify)
+
+    def ready(self) -> bool:
+        return "com" in self.explorer.gandi_tlds()

@@ -1221,7 +1221,7 @@ def test_morning_summary_does_not_repeat_a_name_lost_from_the_dns(env):
     status = {"io": {"finished_at": now.isoformat(), "freed_names": ["cloud.io", "maison.io"]}}
     text = morning.build(env.conn, env, status, "", now, min_score=0)
     assert text.count("cloud.io") == 1 and "Entrés en rédemption" in text
-    assert "Sortis du DNS (.co, .ai, .io), à vérifier : maison.io" in text
+    assert "Sortis du DNS, à vérifier : maison.io" in text
 
 
 def test_scores_are_kept_until_the_name_changes(env):

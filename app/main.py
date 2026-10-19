@@ -260,8 +260,8 @@ async def lifespan(app: FastAPI):
             passes.discard(t)
             if not t.cancelled() and t.exception() is not None:
                 log.error("Passe DNS .%s interrompue", checker.tld, exc_info=t.exception())
-            elif not t.cancelled() and checker.tld in ccdns.TLDS and t.result().get("checked"):
-                # .co, .ai, .io : nouvelles données de l'Explorer, préparées avant qu'on l'ouvre.
+            elif not t.cancelled() and checker.tld in app.state.cc_dns and t.result().get("checked"):
+                # .co, .ai, .io, .com sans zone : nouvelles données de l'Explorer, préparées avant qu'on l'ouvre.
                 app.state.explorer_warm = asyncio.create_task(_off(app.state.explorer.warm))
         task.add_done_callback(done)
 
@@ -342,8 +342,8 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(tick_fr, "interval", minutes=1, next_run_time=now + timedelta(minutes=6), max_instances=1)
     # DNS .fr : une passe par jour, lancée à minuit, étalée sur la journée.
     scheduler.add_job(check_fr_dns, "interval", minutes=10, next_run_time=now + timedelta(minutes=8), max_instances=1)
-    # DNS .co, .ai, .io : même passe du jour, une par extension en parallèle.
-    for n, tld in enumerate(ccdns.TLDS):
+    # DNS .co, .ai, .io (et .com tant qu'il est sans zone) : même passe du jour, une par extension en parallèle.
+    for n, tld in enumerate((*ccdns.TLDS, "com")):
         scheduler.add_job(cc_job(tld), "interval", minutes=10, next_run_time=now + timedelta(minutes=9 + n),
                           max_instances=1, id=f"check_{tld}_dns", name=f"check_{tld}_dns")
     # Gandi : une passe par nuit, dans sa fenêtre ; la tâche rend la main tout de suite (passe à part).
@@ -372,6 +372,9 @@ async def lifespan(app: FastAPI):
     # .co, .ai, .io : une passe par extension, en même temps que le .fr (registres différents).
     app.state.cc_dns = {t: ccdns.CcDns(t, conn, store, app.state.explorer, digest.local_zone(), notify=note_health)
                         for t in ccdns.TLDS}
+    # .com sans zone (en attendant l'accès CZDS) : délégué, pris ; absent, demandé à Gandi en premier. Passe
+    # inactive dès que la zone est lue (ComDns.ready).
+    app.state.cc_dns["com"] = ccdns.ComDns(conn, store, app.state.explorer, digest.local_zone(), notify=note_health)
     # Libres sur la seule foi d'un WHOIS, fausses sorties du DNS : corrigés une fois, sans migration.
     if any(watcher.repair().values()):
         app.state.explorer.invalidate()
@@ -535,12 +538,18 @@ def _remember_public_url(request: Request) -> None:
             request.app.state.store.set("public_url", url)
 
 
+def _cc_status(state) -> dict:
+    """Passes DNS sans zone, pour l'écran et le quotidien : .co, .ai, .io toujours ; .com seulement tant qu'il est sans
+    zone (ou si sa passe tourne encore)."""
+    return {tld: c.status() for tld, c in state.cc_dns.items() if tld in ccdns.TLDS or c.running or c.ready()}
+
+
 def _public_url(state) -> str:
     return state.settings.app_url or state.store.get("public_url") or ""
 
 
 async def _daily(state, now_local: datetime) -> tuple[list[str], dict]:
-    status = {tld: c.status() for tld, c in state.cc_dns.items()}
+    status = _cc_status(state)
     return await _off(notify.daily, state.explorer, state.store, state.checker, status, _public_url(state), utcnow(),
                       now_local, lambda filters: _view_params(state.explorer, filters))
 
@@ -1452,7 +1461,7 @@ async def list_drops(request: Request):
         "history": watcher.history(),
         "fr": {"enabled": state.fr.enabled, "running": state.fr.running, **state.fr.status(),
                "dns": state.fr_dns.status()},
-        "cc_dns": {tld: c.status() for tld, c in state.cc_dns.items()},
+        "cc_dns": _cc_status(state),
         "gandi": _gandi_line(state.gandi_pass.status()),
         "workers": watcher.workers,
         "pending_checks": pending,
@@ -2161,7 +2170,7 @@ async def diag(request: Request):
         "czds_error": state.store.get("czds_error") or None,
         "fr": {"enabled": state.fr.enabled, **state.fr.status()},
         "fr_dns": state.fr_dns.status(),
-        "cc_dns": {tld: c.status() for tld, c in state.cc_dns.items()},
+        "cc_dns": _cc_status(state),
         "ai": ai.stats(explorer),
         "reserved": state.reserved.status(),
         # Sans l'adresse saisie : le jeton en lecture seule ne voit aucun réglage.
@@ -2456,7 +2465,7 @@ async def explore_fiche(request: Request):
     found["ai_eta"] = await _ai_eta(explorer, found)
     found["ai_request"] = ai.request_state(request.app.state.conn, name)
     found["in_portfolio"] = request.app.state.conn.execute("SELECT 1 FROM portfolio WHERE name = ?", (name,)).fetchone() is not None
-    if found.get("tld") in ccdns.TLDS:
+    if found.get("tld") in request.app.state.cc_dns:
         found["cc_dns"] = ccdns.load_names(request.app.state.conn, [name]).get(name)
     if found.get("tld") == "fr":
         found["dns_eta"] = await _dns_eta(request.app.state.fr_dns, found)

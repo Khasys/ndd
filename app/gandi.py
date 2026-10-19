@@ -782,9 +782,10 @@ class LivePass:
 
     def plan(self, limit: int, now: datetime | None = None) -> tuple[list[str], dict]:
         """(noms à demander, dans l'ordre ; compte des noms concernés et de ceux à revoir). Ordre : libres et premiums
-        à revoir (revus chaque jour), puis les listes fournies (termes stars, mots-clés et marques mêlés par rang,
-        puis métier + ville), puis le reste par score de base. Noms qui ont un sens seulement ; pas un terme réservé,
-        ni un nom enregistré ou bientôt libre d'après le registre (Vérifier), sauf « enregistré » revu après N jours."""
+        à revoir (revus chaque jour), puis les absents du DNS du registre (ccdns.ComDns), par score de base, puis les
+        listes fournies (termes stars, mots-clés et marques mêlés par rang, puis métier + ville), puis le reste par score
+        de base. Noms qui ont un sens seulement ; pas un terme réservé, ni un nom délégué dans le DNS (pris), ni un nom
+        enregistré ou bientôt libre d'après le registre (Vérifier), sauf « enregistré » revu après N jours."""
         from .explore import FREE, PREMIUM, REGISTERED, TAKEN_GANDI, UNCHECKED  # import local : explore importe ce module
 
         now = now or utcnow()
@@ -800,9 +801,20 @@ class LivePass:
         recent_after = iso(now - timedelta(days=CHANGED_DAYS) + timedelta(hours=2))
         wanted = (UNCHECKED, FREE, PREMIUM, TAKEN_GANDI, REGISTERED)
         table = bytes(1 if c in wanted else 0 for c in range(256))
-        data, fresh, daily = {}, {}, []
+        data, fresh, daily, delegated, absent = {}, {}, [], {}, []
         for tld in tlds:
             data[tld] = ex.status_bytes(tld)
+            # DNS du registre (ccdns.ComDns) : délégué, pris, rien à demander ; absent, demandé en premier.
+            seen = bytearray(u.size)
+            for name, present in self.conn.execute("SELECT name, present FROM cc_dns WHERE name LIKE ?", (f"%.{tld}",)):
+                i = u.index(name[: -len(tld) - 1])
+                if i is None:
+                    continue
+                if present:
+                    seen[i] = 1
+                elif u.good[i]:
+                    absent.append((-(u.base_table[i] & 127), i, tld))
+            delegated[tld] = seen
             since = dict(self.conn.execute("SELECT label, state_since FROM drops WHERE tld = ? AND state_since IS NOT NULL",
                                            (tld,)).fetchall())
             done = bytearray(u.size)
@@ -819,14 +831,14 @@ class LivePass:
                 elif kind in ("available", "premium") and u.good[i]:
                     daily.append((-(u.base_table[i] & 127), i, tld))
             fresh[tld] = done
-            eligible = int.from_bytes(data[tld].translate(table), "big") & u.good_int
+            eligible = int.from_bytes(data[tld].translate(table), "big") & u.good_int & ~int.from_bytes(delegated[tld], "big")
             info["total"] += eligible.bit_count()
             info["due"] += (eligible & ~int.from_bytes(done, "big")).bit_count()
         picked: list[str] = []
         chosen = {t: bytearray(u.size) for t in tlds}
 
         def take(i: int, tld: str) -> bool:
-            if chosen[tld][i] or fresh[tld][i] or not u.good[i] or data[tld][i] not in wanted:
+            if chosen[tld][i] or fresh[tld][i] or delegated[tld][i] or not u.good[i] or data[tld][i] not in wanted:
                 return False
             name = f"{u.label(i)}.{tld}"
             if name in listed:
@@ -836,6 +848,9 @@ class LivePass:
             return len(picked) >= limit
 
         for _, i, tld in sorted(daily):
+            if take(i, tld):
+                return picked, info
+        for _, i, tld in sorted(absent):
             if take(i, tld):
                 return picked, info
         ranks = wordlists.ranks()
