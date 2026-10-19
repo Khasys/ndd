@@ -269,7 +269,9 @@ def test_night_pass_paces_records_and_stops_on_refused_token(env):
 
     night.notify = notify
     stats = asyncio.run(night.run(manual=True))
-    assert calls == ["abd.com", "abe.com", "stop.com"]
+    # Plusieurs requêtes en vol : abf.com part avant le refus de stop.com, sa réponse n'est pas gardée.
+    assert calls[:3] == ["abd.com", "abe.com", "stop.com"] and set(calls) <= {"abd.com", "abe.com", "stop.com", "abf.com"}
+    assert "abf.com" not in gandi.load(env.conn, ["abf.com"])
     assert stats["checked"] == 2 and stats["kinds"] == {"available": 1, "premium": 1} and "refusé" in stats["stopped"]
     assert waits and all(0 < w <= 1 / 3 + 0.01 for w in waits)  # 3 requêtes par seconde au plus
     assert "refusé" in night.store.get("gandi_error") and len(sent) == 1 and "Gandi" in sent[0]
@@ -299,12 +301,33 @@ def test_night_pass_waits_on_rate_limit_and_skips_unsold_extensions(env):
     night, waits = make_pass(env, handler)
     night.pending = lambda limit, now=None: [f"a{n}.xyz" for n in range(7)] + ["abd.com"]
     stats = asyncio.run(night.run(manual=True))
-    # 429 : attente demandée par Gandi, puis reprise au même nom ; .xyz écartée après 5 réponses invalides.
-    assert calls == [f"a{n}.xyz" for n in range(5)] + ["abd.com", "abd.com"] and 7 in waits
+    # 429 : attente demandée par Gandi, puis reprise au même nom ; .xyz écartée après 5 réponses invalides (les deux
+    # suivantes, déjà parties, ne comptent pas : leur réponse arrive après l'écart et n'est pas lue).
+    assert calls[:5] == [f"a{n}.xyz" for n in range(5)] and calls.count("abd.com") == 2 and 7 in waits
+    assert set(calls) == {f"a{n}.xyz" for n in range(7)} | {"abd.com"}
     assert stats["checked"] == 1 and stats["unsold"] == ["xyz"] and night.unsold() == {"xyz"}
     night.pending = lambda limit, now=None: ["abe.com", "abf.com"]
     stats = asyncio.run(night.run(manual=True))
     assert "trop de requêtes" in stats["stopped"] and stats["checked"] == 0
+
+
+def test_night_pass_overlaps_slow_answers(env):
+    """Passe de nuit, même mécanique que la passe continue : 0,3 s par réponse, 16 noms. Une à une, 4,8 s ; ici
+    plusieurs en vol (attente de rythme simulée), chaque nom une fois, tous gardés dans l'ordre."""
+    zone(env, [], [])
+
+    async def handler(request):
+        await asyncio.sleep(0.3)
+        return httpx.Response(200, json=answer("available", [STANDARD], request.url.params["name"]))
+
+    night, _ = make_pass(env, handler)
+    names = [f"nuit{n}.com" for n in range(16)]
+    night.pending = lambda limit, now=None: names
+    started = time.monotonic()
+    stats = asyncio.run(night.run(manual=True))
+    elapsed = time.monotonic() - started
+    assert stats["checked"] == 16 and elapsed < 2.5, elapsed
+    assert set(gandi.load(env.conn, names)) == set(names)
 
 
 def test_night_pass_window_switch_and_token(env, monkeypatch):

@@ -743,11 +743,14 @@ en erreur ne remplace pas un résultat connu : elle est notée à côté.
   libres selon le WHOIS, premiums et noms déjà dits indisponibles par Gandi, par score de base décroissant ; noms qui
   ont un sens seulement. Bientôt libres (rédemption, suppression) : pas demandés, Gandi les dit toujours
   indisponibles. Sautés : vérifiés depuis moins de 7 jours (réglable), 1 jour pour un nom qui a changé d'état
-  depuis ou une réponse en erreur. 3 requêtes par seconde au plus et 8 000 noms par nuit au plus (réglables). Jeton
+  depuis ou une réponse en erreur. 3 requêtes par seconde au plus et 8 000 noms par nuit au plus (réglables) ;
+  jusqu'à 8 requêtes en vol (`gandi.Inflight`, comme la passe continue) : une à une, la passe tombait à 1 nom par
+  seconde (4 384 noms la nuit du 19/10) et n'atteignait pas son plafond dans la fenêtre. Jeton
   refusé (401, 403) : arrêt, erreur dans Paramètres et dans la rubrique Santé du message du jour. Trop de requêtes
   (429) : attente demandée par Gandi (60 s par défaut), puis reprise au même nom ; au troisième refus d'affilée,
-  arrêt. 20 échecs réseau d'affilée : arrêt. Une extension qui répond 5 fois de suite « invalide » est écartée 30 jours
-  (Gandi ne la vend pas). Sans jeton ou case décochée : rien. « Lancer maintenant » (`POST /api/settings/gandi/run`,
+  arrêt. 20 échecs réseau ou réponses vides d'affilée : arrêt. Une extension qui répond 5 fois de suite « invalide »
+  (error_invalid, HTTP 400 ou 422 ; jamais une réponse vide ni une erreur 5xx) est écartée 30 jours (Gandi ne la
+  vend pas) ; jamais une extension par Gandi seul (.com). Sans jeton ou case décochée : rien. « Lancer maintenant » (`POST /api/settings/gandi/run`,
   202, 409 sans jeton) lance la passe tout de suite, hors fenêtre, jusqu'au plafond. Réglages :
   `PUT /api/settings/gandi/pass` (`enabled`, `rate` de 0,2 à 10, `nightly` de 1 à 50 000, `days` de 1 à 90). État :
   `gandi.pass` de `GET /api/settings`, `gandi_pass` de `/api/diag` (sans le jeton ni sa présence), `gandi` de

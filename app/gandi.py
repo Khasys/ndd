@@ -84,9 +84,9 @@ LIVE_IDLE = 900           # rien à revoir : tour suivant dans 15 minutes
 LIVE_FAIL_PAUSE = 900     # FAIL_STOP échecs réseau d'affilée : pause de 15 minutes, puis reprise
 LIVE_LIMIT_MAX = 3600     # « trop de requêtes » répétés : attente doublée à chaque refus, une heure au plus
 LIVE_HALT_HOURS = 24      # jeton refusé : nouvel essai le lendemain, ou dès qu'un jeton est enregistré
-# Requêtes en vol à la fois : Gandi met environ 1 s à répondre depuis le NAS ; une à une, la passe plafonnait à
-# 1 nom par seconde quel que soit le rythme réglé. Les départs restent espacés de 1 / rythme.
-LIVE_PARALLEL = 8
+# Requêtes en vol à la fois (passe de nuit et passe continue) : Gandi met environ 1 s à répondre depuis le NAS ; une
+# à une, une passe plafonnait à 1 nom par seconde quel que soit le rythme réglé. Les départs restent espacés de 1 / rythme.
+PARALLEL = 8
 # Ordre de la file : listes fournies d'abord, termes stars, mots-clés et marques mêlés par rang, puis métier + ville.
 FIRST_LISTS = (("premium", "keyword", "brand"), ("local",))
 DAILY_KINDS = ("available", "premium", "error")  # revus chaque jour : un nom à prendre, ou sans réponse exploitable
@@ -267,6 +267,56 @@ def totals(conn, tlds: list[str] | None = None) -> dict:
     by_kind = dict(conn.execute(f"SELECT kind, COUNT(*) FROM gandi_checks {where} GROUP BY kind", args).fetchall())
     last = conn.execute(f"SELECT MAX(checked_at) FROM gandi_checks {where}", args).fetchone()[0]
     return {"known": sum(by_kind.values()), "by_kind": by_kind, "last": last}
+
+
+# --- Requêtes en vol ------------------------------------------------------------------------
+
+class Inflight:
+    """Requêtes d'une file de noms, PARALLEL en vol au plus, départs espacés de interval secondes ; chaque réponse est
+    rendue à son tour (get), dans l'ordre de la file. Un nom sauté par la passe est abandonné (drop) ; close annule
+    ce qui reste en vol (arrêt, fin de fenêtre, jeton refusé)."""
+
+    def __init__(self, check, sleep, loop, names: list[str], size: int = PARALLEL):
+        self.check, self.sleep, self.loop, self.names, self.size = check, sleep, loop, names, size
+        self.tasks: dict[int, asyncio.Task] = {}
+        self.ahead = 0
+        self.next_at = 0.0
+        self.interval = 1.0
+
+    async def _ask(self, name: str):
+        try:
+            return await self.check(name), None
+        except GandiError as exc:
+            return None, exc
+
+    async def _launch(self, i: int) -> None:
+        wait = self.next_at - self.loop.time()
+        if wait > 0:
+            await self.sleep(wait)
+        self.next_at = self.loop.time() + self.interval
+        self.tasks[i] = asyncio.create_task(self._ask(self.names[i]))
+
+    async def get(self, i: int, wanted, stop: int):
+        """(réponse brute, None) ou (None, GandiError) du nom i. Lance d'avance les suivants que wanted(index) garde,
+        jusqu'à stop exclu ; un nom à redemander (après « trop de requêtes ») repart ici."""
+        if i not in self.tasks:
+            await self._launch(i)
+        self.ahead = max(self.ahead, i + 1)
+        while len(self.tasks) < self.size and self.ahead < stop:
+            if wanted(self.ahead) and self.ahead not in self.tasks:
+                await self._launch(self.ahead)
+            self.ahead += 1
+        return await self.tasks.pop(i)
+
+    def drop(self, i: int) -> None:
+        task = self.tasks.pop(i, None)
+        if task is not None:
+            task.cancel()
+
+    def close(self) -> None:
+        for task in self.tasks.values():
+            task.cancel()
+        self.tasks.clear()
 
 
 # --- Client ---------------------------------------------------------------------------------
@@ -557,73 +607,77 @@ class NightPass:
         try:
             names = await loop.run_in_executor(None, self.pending, limit or self.nightly)
             stats["queued"] = len(names)
-            interval = 1 / self.rate
             fails = limited = 0
             invalid: dict[str, int] = {}
             skipped_tlds: set[str] = set()
             async with self.gandi._http_factory() as http:
                 index = 0
-                while index < len(names):
-                    name = names[index]
-                    tld = name.rpartition(".")[2]
-                    if tld in skipped_tlds:
-                        index += 1
-                        continue
-                    if not manual and not self._in_window(datetime.now(self.local_zone)):
-                        stats["stopped"] = "heure de fin atteinte"
-                        break
-                    started = loop.time()
-                    try:
-                        raw = await self.gandi.check(name, http)
-                    except GandiError as exc:
-                        if exc.code in ("refused", "missing"):
-                            halted = str(exc)
-                            self.store.set("gandi_error", str(exc))
-                            break
-                        if exc.code == "limit":
-                            limited += 1
-                            if limited >= LIMIT_STOP:
-                                halted = f"{LIMIT_STOP} refus d'affilée pour trop de requêtes"
-                                break
-                            # Gandi demande d'attendre : on attend, puis on reprend au même nom.
-                            await self.sleep(min(600.0, exc.retry_after or LIMIT_WAIT))
+                flight = Inflight(lambda n: self.gandi.check(n, http), self.sleep, loop, names)
+                flight.interval = 1 / self.rate
+
+                def wanted(i: int) -> bool:
+                    return names[i].rpartition(".")[2] not in skipped_tlds
+
+                try:
+                    while index < len(names):
+                        name = names[index]
+                        tld = name.rpartition(".")[2]
+                        if tld in skipped_tlds:
+                            flight.drop(index)
+                            index += 1
                             continue
-                        stats["failures"] += 1
-                        fails += 1
-                        if exc.code == "invalid":
-                            invalid[tld] = invalid.get(tld, 0) + 1
-                        if fails >= FAIL_STOP:
-                            halted = f"{FAIL_STOP} échecs d'affilée ({exc})"
+                        if not manual and not self._in_window(datetime.now(self.local_zone)):
+                            stats["stopped"] = "heure de fin atteinte"
                             break
-                        index += 1
-                    else:
-                        limited = 0
-                        found = read(raw)
-                        # Réponse sans ligne de création : passagère (charge de Gandi), comptée comme un échec, jamais
-                        # comme « extension pas vendue » ; seul un refus explicite (error_invalid, 400) l'est.
-                        fails = fails + 1 if found["status"] == "" else 0
-                        if found["status"] == "":
+                        raw, exc = await flight.get(index, wanted, len(names))
+                        if exc is not None:
+                            if exc.code in ("refused", "missing"):
+                                halted = str(exc)
+                                self.store.set("gandi_error", str(exc))
+                                break
+                            if exc.code == "limit":
+                                limited += 1
+                                if limited >= LIMIT_STOP:
+                                    halted = f"{LIMIT_STOP} refus d'affilée pour trop de requêtes"
+                                    break
+                                # Gandi demande d'attendre : on attend, puis on reprend au même nom.
+                                await self.sleep(min(600.0, exc.retry_after or LIMIT_WAIT))
+                                continue
                             stats["failures"] += 1
-                        if found["status"] == "error_invalid":
-                            invalid[tld] = invalid.get(tld, 0) + 1
-                        elif found["status"]:
-                            invalid[tld] = 0
-                        if fails >= FAIL_STOP:
-                            halted = f"{FAIL_STOP} échecs d'affilée (réponses vides)"
-                            break
-                        if self.gandi.record(name, found):
-                            stats["changed"] += 1
-                        stats["checked"] += 1
-                        stats["kinds"][found["kind"]] = stats["kinds"].get(found["kind"], 0) + 1
-                        index += 1
-                    if invalid.get(tld, 0) >= UNSOLD_STOP:
-                        # Extension que Gandi ne vend pas : écartée de cette passe et des 30 prochains jours.
-                        skipped_tlds.add(tld)
-                        self._mark_unsold(tld)
-                        log.info("Gandi : .%s écartée (%s réponses invalides d'affilée)", tld, UNSOLD_STOP)
-                    wait = interval - (loop.time() - started)
-                    if wait > 0:
-                        await self.sleep(wait)
+                            fails += 1
+                            if exc.code == "invalid":
+                                invalid[tld] = invalid.get(tld, 0) + 1
+                            if fails >= FAIL_STOP:
+                                halted = f"{FAIL_STOP} échecs d'affilée ({exc})"
+                                break
+                            index += 1
+                        else:
+                            limited = 0
+                            found = read(raw)
+                            # Réponse sans ligne de création : passagère (charge de Gandi), comptée comme un échec,
+                            # jamais comme « extension pas vendue » ; seul un refus explicite (error_invalid, 400) l'est.
+                            fails = fails + 1 if found["status"] == "" else 0
+                            if found["status"] == "":
+                                stats["failures"] += 1
+                            if found["status"] == "error_invalid":
+                                invalid[tld] = invalid.get(tld, 0) + 1
+                            elif found["status"]:
+                                invalid[tld] = 0
+                            if fails >= FAIL_STOP:
+                                halted = f"{FAIL_STOP} échecs d'affilée (réponses vides)"
+                                break
+                            if self.gandi.record(name, found):
+                                stats["changed"] += 1
+                            stats["checked"] += 1
+                            stats["kinds"][found["kind"]] = stats["kinds"].get(found["kind"], 0) + 1
+                            index += 1
+                        if invalid.get(tld, 0) >= UNSOLD_STOP:
+                            # Extension que Gandi ne vend pas : écartée de cette passe et des 30 prochains jours.
+                            skipped_tlds.add(tld)
+                            self._mark_unsold(tld)
+                            log.info("Gandi : .%s écartée (%s réponses invalides d'affilée)", tld, UNSOLD_STOP)
+                finally:
+                    flight.close()
             if skipped_tlds:
                 stats["unsold"] = sorted(skipped_tlds)
             if stats["checked"] and not halted:
@@ -852,30 +906,16 @@ class LivePass:
         return stats
 
     async def _tour(self, names: list[str], http, stats: dict, loop) -> str | None:
-        """Un tour : chaque nom au rythme réglé, LIVE_PARALLEL requêtes en vol au plus, réponses traitées dans l'ordre
-        de la file. Renvoie le motif d'un arrêt définitif (jeton refusé), sinon None."""
+        """Un tour : chaque nom au rythme réglé, PARALLEL requêtes en vol au plus (Inflight), réponses traitées dans
+        l'ordre de la file. Renvoie le motif d'un arrêt définitif (jeton refusé), sinon None."""
         fails = limited = 0
         invalid: dict[str, int] = {}
-        index = ahead = 0
+        index = 0
         tlds: set[str] = set()
-        interval = 1.0
-        inflight: dict[int, asyncio.Task] = {}
-        next_at = 0.0
+        flight = Inflight(lambda n: self.gandi.check(n, http), self.sleep, loop, names)
 
-        async def ask(name: str):
-            try:
-                return await self.gandi.check(name, http), None
-            except GandiError as exc:
-                return None, exc
-
-        async def launch(i: int) -> None:
-            # Départs espacés de 1 / rythme : le rythme réglé tient, quelle que soit la durée des réponses.
-            nonlocal next_at
-            wait = next_at - loop.time()
-            if wait > 0:
-                await self.sleep(wait)
-            next_at = loop.time() + interval
-            inflight[i] = asyncio.create_task(ask(names[i]))
+        def wanted(i: int) -> bool:
+            return names[i].rpartition(".")[2] in tlds
 
         try:
             while index < len(names):
@@ -885,7 +925,7 @@ class LivePass:
                     # Jeton, rythme et extensions relus tous les 100 noms : une zone lue entre-temps sort de la passe.
                     if not self.gandi.key:
                         return None
-                    tlds, interval = set(self.tlds()), 1 / self.rate
+                    tlds, flight.interval = set(self.tlds()), 1 / self.rate
                     if not tlds:
                         return None
                     if index:
@@ -893,17 +933,11 @@ class LivePass:
                 name = names[index]
                 tld = name.rpartition(".")[2]
                 if tld not in tlds:
+                    flight.drop(index)
                     index += 1
                     continue
-                if index not in inflight:
-                    await launch(index)  # nom à redemander (après « trop de requêtes »), ou premier de la file
-                ahead = max(ahead, index + 1)
                 # Pas d'avance au-delà de la prochaine relecture (tous les 100 noms) : une zone lue arrête net.
-                while len(inflight) < LIVE_PARALLEL and ahead < min(len(names), (index // 100 + 1) * 100):
-                    if names[ahead].rpartition(".")[2] in tlds and ahead not in inflight:
-                        await launch(ahead)
-                    ahead += 1
-                raw, exc = await inflight.pop(index)
+                raw, exc = await flight.get(index, wanted, min(len(names), (index // 100 + 1) * 100))
                 if exc is not None:
                     if exc.code in ("refused", "missing"):
                         self.store.set("gandi_error", str(exc))
@@ -954,8 +988,7 @@ class LivePass:
                     tlds.discard(tld)
                     log.info("Gandi : .%s écartée (%s réponses invalides d'affilée)", tld, UNSOLD_STOP)
         finally:
-            for task in inflight.values():
-                task.cancel()
+            flight.close()
         if stats["tour_checked"]:
             self.store.set("gandi_error", "")
         return None
