@@ -1799,6 +1799,7 @@ class Explorer:
                                  else DROP_LABELS.get(drop["state"], LABELS[code]) if code == COMING and drop
                                  else FREE_GANDI if seen and code == FREE and not (drop and drop["state"] == states.AVAILABLE)
                                  else gandi.KIND_LABELS["premium"] if seen and code == PREMIUM
+                                 else gandi.KIND_LABELS[check["kind"]] if seen and code == RESERVED
                                  else self._status_label(tld, code)),
                 "created_on": fr["created_on"] if fr else None,
                 # Une sortie de zone repérée puis démentie (nom repris) n'est pas une suppression.
@@ -2191,7 +2192,8 @@ class Explorer:
             "label": label, "name": name, "tld": tld, "length": len(label), "categories": [], "known": False,
             "status": code, "status_label": (DROP_LABELS.get(state, LABELS[code]) if code == COMING
                                              else FREE_GANDI if seen and code == FREE and state != states.AVAILABLE
-                                             else gandi.KIND_LABELS["premium"] if seen and code == PREMIUM else LABELS[code]),
+                                             else gandi.KIND_LABELS["premium"] if seen and code == PREMIUM
+                                             else gandi.KIND_LABELS[check["kind"]] if seen and code == RESERVED else LABELS[code]),
             "drop_state": state, "release_at": drop["release_at"] if drop else None,
             "available_since": drop["available_since"] if drop else None,
             "checked_at": iso(now), "watched": watched, "in_portfolio": owned, "rdap": rdap,

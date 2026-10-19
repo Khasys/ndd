@@ -112,7 +112,7 @@ def test_gandi_answers_set_the_state_of_names_thought_free(env):
     abd, abe, jardin, velo = one("abd"), one("abe"), one("jardin"), one("velo")
     assert abd["status_label"] == "Libre (vérifié)" and abd["premium_price"] is None and abd["gandi"]["price"] == 13.2
     assert abe["status_label"] == "Premium" and abe["premium_price"] == 878 and abe["gandi"]["kind"] == "premium"
-    assert jardin["reserved"] == ["Indisponible à l'achat"]
+    assert jardin["reserved"] == ["Indisponible à l'achat"] and jardin["status_label"] == "Indisponible à l'achat"
     assert velo["status_label"] == explore.ABSENT_ZONE and velo["gandi"]["error"] == "le registre n'a pas répondu à temps"
     # Une erreur ne remplace pas un résultat connu : le prix reste, l'erreur est notée.
     client.record("abd.com", gandi.read(answer("error_timeout")), now)
@@ -162,7 +162,7 @@ def test_unavailable_on_a_free_drop_rechecks_the_registry_first(env):
     env.conn.execute("UPDATE drops SET checked_at = ? WHERE name = 'jardin.com'", (iso(now + timedelta(minutes=2)),))
     env.touch("jardin.com")
     found = one()
-    assert found["status"] == explore.RESERVED and found["reserved"] == ["Indisponible à l'achat"]
+    assert found["status"] == explore.RESERVED and found["reserved"] == ["Indisponible à l'achat"] and found["status_label"] == "Indisponible à l'achat"
     assert found["gandi"]["pending"] is False
     # prunes.com : absent de la zone d'hier, acheté depuis. Gandi indisponible, le registre revu le dit pris.
     client.record("prunes.com", gandi.read(answer("unavailable")), now)

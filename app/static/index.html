@@ -1587,7 +1587,7 @@
           <h2 class="mono fiche-name" :class="{ long: fiche.name.length > 16 }" x-html="ficheNameHtml(fiche.name)"></h2>
           <div class="fiche-line">
             <span class="badge" :class="ficheBadge(fiche).cls" :title="ficheBadge(fiche).title" x-text="ficheBadge(fiche).text"></span>
-            <template x-for="r in (fiche.item ? fiche.item.reserved : [])" :key="r"><span class="ex-reason warn" x-text="r"></span></template>
+            <template x-for="r in (fiche.item ? fiche.item.reserved.filter((x) => x !== fiche.item.status_label) : [])" :key="r"><span class="ex-reason warn" x-text="r"></span></template>
             <span class="fiche-when" x-show="ficheWhen(fiche)" x-text="ficheWhen(fiche)"></span>
             <template x-if="gandiPill(fiche.item, 'explore', true)">
               <span class="gpill" :class="gandiPill(fiche.item, 'explore', true).cls" :title="gandiPill(fiche.item, 'explore', true).title" x-text="gandiPill(fiche.item, 'explore', true).text"></span>

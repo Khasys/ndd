@@ -32,6 +32,9 @@ const VERDICT_CLASSES = { "À prendre": "take", "À surveiller": "watch", "À la
 const DROP_FILTER_DEFAULTS = { q: "", nat: "", lang: "", len: "", rank: "", min: 0, junk: false, ai: [], quick: "", nopremium: false, gprice: "", period: "" };
 // Réponses de Gandi qui disent qu'on ne peut pas acheter le nom (gandi.BLOCKED).
 const GANDI_BLOCKED = ["unavailable", "reserved", "restricted"];
+// Ce que ça veut dire, le registre le disant libre (sinon la revérification l'aurait fait passer « pris ») :
+// prunes.xyz, libre au registre, vendu 1 271 € HT par un tiers chez OVH.
+const BLOCKED_WHY = "libre au registre, mais pas au prix normal : premium ou vente par un tiers";
 // Tris de la Veille ; « release » ne vaut que pour Bientôt libres.
 const DROP_SORTS = ["best", "recent", "release", "freq"];
 // Périodes d'Aujourd'hui et de la Veille (paramètre period de /api/today et /api/drops?focus=…) : libérés depuis,
@@ -721,7 +724,7 @@ document.addEventListener("alpine:init", () => {
       if (list === "veille" || list === "today") {
         // Indisponible chez Gandi : plus jamais « libre » (Veille avec les réservés affichés, Paramètres).
         if (GANDI_BLOCKED.includes(kind)) {
-          return { badge: { text: "réservé", cls: "x-7" }, when: g.label, canReserve: false, canCheck: false };
+          return { badge: { text: g.label.toLowerCase(), cls: "x-7" }, when: BLOCKED_WHY, canReserve: false, canCheck: false };
         }
         if (i.state === "unconfirmed" && kind === "available") {
           return { badge: { text: "libre", cls: "x-5" }, when: `prix vérifié ${this.relative(g.checked_at)}`, canReserve: true, canCheck: false };
@@ -747,7 +750,9 @@ document.addEventListener("alpine:init", () => {
                          when: i.release_at ? `libération ~${this.shortDate(i.release_at)}` : "libération à venir", canReserve: false, canCheck: false };
         case 1: return { badge: { text: "pris", cls: "x-1" }, when: detail || checked, canReserve: false, canCheck: false };
         case 6: return { badge: { text: "pris, suspendu", cls: "x-6" }, when: detail || checked, canReserve: false, canCheck: false };
-        case 7: return { badge: { text: "réservé", cls: "x-7" }, when: (i.reserved || []).join(", "), canReserve: false, canCheck: false };
+        case 7: return GANDI_BLOCKED.includes(kind)
+          ? { badge: { text: g.label.toLowerCase(), cls: "x-7" }, when: BLOCKED_WHY, canReserve: false, canCheck: false }
+          : { badge: { text: "réservé", cls: "x-7" }, when: (i.reserved || []).join(", "), canReserve: false, canCheck: false };
         // Premium vu chez Gandi : il s'achète, au prix de la pastille ; premium probable : rien n'est confirmé.
         case 8: return kind === "premium"
           ? { badge: { text: g.price ? `Premium ${this.gandiEuros(g.price)}` : "premium", cls: "x-8 gandi" }, when: `prix vérifié ${this.relative(g.checked_at)}`, canReserve: true, canCheck: false }
@@ -960,7 +965,7 @@ document.addEventListener("alpine:init", () => {
       if (kind === "premium") {
         k.premium = "Premium : prix d'achat fixé par le registre, bien au-dessus du prix courant. La revente doit le couvrir.";
       } else if (GANDI_BLOCKED.includes(kind)) {
-        k.premium = `${g.label} : pas achetable pour l'instant.`;
+        k.premium = `${g.label} : ${BLOCKED_WHY}.`;
       } else if (item && item.status === 8) {
         k.premium = item.premium_price ? `Premium probable : ~${this.fmt(item.premium_price)} € chez le registre` : "Premium probable : le registre peut demander bien plus que le prix courant";
       }
@@ -1003,7 +1008,8 @@ document.addEventListener("alpine:init", () => {
         return Math.abs(when - this.now) < 300 * 864e5 ? when.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }) : this.shortDate(when);
       };
       if (item.status === 9 || (d && d.state === "available" && d.source === "whois")) return "à confirmer chez un registrar";
-      if (item.status === 5 || (d && d.state === "available")) {
+      // Indisponible à l'achat ou réservé : pas « libre depuis », même si le suivi le voit libre au registre.
+      if ((item.status === 5 || (d && d.state === "available")) && item.status !== 7) {
         const seen = [...tl].reverse().find((t) => !t.future && t.kind === "available");
         const since = item.available_since || (seen && seen.at);
         return since ? `libre depuis le ${day(since)}` : "";
