@@ -321,12 +321,14 @@ def test_night_pass_overlaps_slow_answers(env):
         return httpx.Response(200, json=answer("available", [STANDARD], request.url.params["name"]))
 
     night, _ = make_pass(env, handler)
+    night.pending = lambda limit, now=None: ["chauffe.com"]
+    asyncio.run(night.run(manual=True))  # premier passage hors chrono : seule la passe est mesurée
     names = [f"nuit{n}.com" for n in range(16)]
     night.pending = lambda limit, now=None: names
     started = time.monotonic()
     stats = asyncio.run(night.run(manual=True))
     elapsed = time.monotonic() - started
-    assert stats["checked"] == 16 and elapsed < 2.5, elapsed
+    assert stats["checked"] == 16 and elapsed < 3.0, elapsed  # une à une : 4,8 s au moins
     assert set(gandi.load(env.conn, names)) == set(names)
 
 
@@ -652,29 +654,37 @@ def test_live_pass_keeps_its_rate_when_gandi_is_slow(env):
     assert {r[0] for r in env.conn.execute("SELECT name FROM gandi_checks WHERE name LIKE 'lent%'")} == set(names)
 
 
-def test_empty_answers_never_drop_com(env):
-    """Vu sur le NAS le 19/10/2026 : 5 réponses sans ligne de création d'affilée (Gandi chargé) avaient écarté le .com
-    30 jours, et la passe continue s'était arrêtée en disant « zone lue »."""
-    calls = []
+def test_empty_answers_wait_and_never_drop_com(env):
+    """Vu sur le NAS le 19/10/2026 : environ 150 vérifications .com, puis des réponses sans ligne de création (Gandi
+    limite), de nouveau 150 quinze minutes plus tard. Elles avaient écarté le .com 30 jours (« zone lue » affiché), puis
+    été notées en erreur. Ici : 5 réponses, puis vides jusqu'à une attente d'une minute ; aucun nom noté en erreur, tous
+    vérifiés, le .com reste."""
+    quota = {"left": 5}
 
     def handler(request):
         name = request.url.params["name"]
-        calls.append(name)
-        if name.startswith("vide"):
+        if quota["left"] <= 0:
             return httpx.Response(200, json={"currency": "EUR", "products": []})
+        quota["left"] -= 1
         return httpx.Response(200, json=answer("available", [STANDARD], name))
 
     client = gandi_only(env, handler)
     live = gandi.LivePass(client, env.conn, env.fr.store, env, timezone.utc)
+    waits = []
 
     async def sleep(seconds):
-        pass
+        waits.append(seconds)
+        if seconds >= 1:
+            quota["left"] = 5  # la limite de Gandi se recharge pendant l'attente (par tranches de 5 s)
 
     live.sleep = sleep
-    names = [f"vide{n}.com" for n in range(8)] + ["a.com"]
-    live.plan = lambda limit, now=None: (names, {"total": 10, "due": 9, "planned_at": iso(utcnow())})
+    names = [f"quota{n}.com" for n in range(12)]
+    live.plan = lambda limit, now=None: (names, {"total": 12, "due": 12, "planned_at": iso(utcnow())})
     stats = asyncio.run(live.run(tours=1))
-    assert calls == names and stats["failures"] == 8 and stats["stopped"] == "fin des tours demandés"
+    found = gandi.load(env.conn, names)
+    assert set(found) == set(names) and {r["kind"] for r in found.values()} == {"available"}
+    assert stats["checked"] == 12 and stats["throttled"] >= 2 and stats["stopped"] == "fin des tours demandés"
+    assert sum(w for w in waits if w >= 1) >= 2 * gandi.EMPTY_WAIT
     assert gandi.unsold(env.fr.store) == set() and live.tlds() == ["com"]
     # Marque laissée par l'ancienne version : ignorée pour une extension par Gandi seul.
     env.fr.store.set("gandi_unsold", json.dumps({"com": "2099-01-01", "xyz": "2099-01-01"}))
@@ -714,7 +724,8 @@ def test_live_pass_paces_waits_and_stops_on_refused_token(env):
     stats = asyncio.run(live.run(tours=1))
     # 429 : attente demandée (7 s), doublée au refus suivant, puis reprise au même nom ; 5 requêtes par seconde au plus,
     # plusieurs en vol (c.com part avant que b.com soit réglé).
-    assert calls[:3] == ["a.com", "b.com", "c.com"] and sorted(calls) == ["a.com", "b.com", "b.com", "b.com", "c.com"]
+    # (une réponse déjà partie au moment d'un refus est jetée et redemandée après l'attente : c.com peut repartir).
+    assert calls[:3] == ["a.com", "b.com", "c.com"] and calls.count("b.com") == 3 and set(calls) == {"a.com", "b.com", "c.com"}
     assert stats["checked"] == 3 and stats["limited"] == 2
     assert sum(w for w in waits if w > 1) == 7 + 14
     assert all(w <= 0.2 + 0.01 for w in waits if w < 1)

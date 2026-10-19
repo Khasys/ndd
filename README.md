@@ -748,7 +748,8 @@ en erreur ne remplace pas un résultat connu : elle est notée à côté.
   seconde (4 384 noms la nuit du 19/10) et n'atteignait pas son plafond dans la fenêtre. Jeton
   refusé (401, 403) : arrêt, erreur dans Paramètres et dans la rubrique Santé du message du jour. Trop de requêtes
   (429) : attente demandée par Gandi (60 s par défaut), puis reprise au même nom ; au troisième refus d'affilée,
-  arrêt. 20 échecs réseau ou réponses vides d'affilée : arrêt. Une extension qui répond 5 fois de suite « invalide »
+  arrêt. 20 échecs réseau d'affilée : arrêt. Réponse vide (Gandi limite) : nom pas noté, attente d'une minute
+  doublée à chaque réponse vide d'affilée (10 min au plus), reprise au même nom ; 6 d'affilée : arrêt. Une extension qui répond 5 fois de suite « invalide »
   (error_invalid, HTTP 400 ou 422 ; jamais une réponse vide ni une erreur 5xx) est écartée 30 jours (Gandi ne la
   vend pas) ; jamais une extension par Gandi seul (.com). Sans jeton ou case décochée : rien. « Lancer maintenant » (`POST /api/settings/gandi/run`,
   202, 409 sans jeton) lance la passe tout de suite, hors fenêtre, jusqu'au plafond. Réglages :
@@ -776,7 +777,9 @@ en erreur ne remplace pas un résultat connu : elle est notée à côté.
   stars, mots-clés et marques mêlés par rang, puis métier + ville), puis le reste par score de base ; les autres
   revus après 7 jours (réglable), une réponse en erreur le lendemain. 5 requêtes par seconde par défaut (0,2 à 15),
   départs espacés de 1 / rythme et jusqu'à 8 en vol (Gandi met environ 1 s à répondre : une à une, la passe tombait
-  à 1 nom par seconde) ; réponse sans ligne de création comptée comme un échec, jamais comme « .com pas vendu » :
+  à 1 nom par seconde) ; réponse vide (sans ligne de création) : Gandi limite (mesuré le 19/10 sur le .com : environ 150 vérifications, puis
+  des réponses vides, de nouveau 150 un quart d'heure plus tard) ; le nom n'est pas noté, attente d'une minute doublée
+  à chaque réponse vide d'affilée (une heure au plus), reprise au même nom, jamais « .com pas vendu » :
   première passe complète en une douzaine d'heures, puis environ 30 000 requêtes par jour plus les libres. File refaite
   toutes les 30 minutes de travail (moins d'une seconde) ; rien à revoir, tour suivant 15 minutes plus tard. Trop de
   requêtes (429) : attente demandée (60 s sans indication), doublée à chaque refus d'affilée (une heure au plus), puis

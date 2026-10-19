@@ -69,6 +69,11 @@ CHANGED_DAYS = 1          # nom qui a changé d'état depuis sa vérification, o
 FAIL_STOP = 20            # échecs d'affilée (réseau, réponse illisible) avant d'arrêter la passe
 LIMIT_STOP = 3            # « trop de requêtes » d'affilée avant d'arrêter la passe
 LIMIT_WAIT = 60           # attente par défaut après un « trop de requêtes », en secondes
+# Réponse vide (sans ligne de création) : Gandi limite les vérifications (vu sur le .com le 19/10 : environ 150, puis
+# des réponses vides, de nouveau 150 quinze minutes plus tard). Le nom n'est pas noté : attente doublée à chaque
+# réponse vide d'affilée (1 min, 2, 4…), puis reprise au même nom.
+EMPTY_WAIT = 60
+EMPTY_STOP = 6            # passe de nuit : 6 attentes d'affilée sans réponse (25 min environ), arrêt
 UNSOLD_STOP = 5           # réponses invalides d'affilée sur une extension : Gandi ne la vend pas
 UNSOLD_DAYS = 30
 # Plafond commun à toutes les requêtes de l'appli (passes, Vérifier, domaines suivis), sur 60 s glissantes :
@@ -314,9 +319,12 @@ class Inflight:
             task.cancel()
 
     def close(self) -> None:
+        """Annule ce qui est en vol (arrêt, ou attente demandée par Gandi : les réponses déjà parties seraient vides
+        elles aussi) ; la file repart du nom en cours."""
         for task in self.tasks.values():
             task.cancel()
         self.tasks.clear()
+        self.ahead = 0
 
 
 # --- Client ---------------------------------------------------------------------------------
@@ -607,7 +615,7 @@ class NightPass:
         try:
             names = await loop.run_in_executor(None, self.pending, limit or self.nightly)
             stats["queued"] = len(names)
-            fails = limited = 0
+            fails = limited = empty = 0
             invalid: dict[str, int] = {}
             skipped_tlds: set[str] = set()
             async with self.gandi._http_factory() as http:
@@ -641,6 +649,7 @@ class NightPass:
                                     halted = f"{LIMIT_STOP} refus d'affilée pour trop de requêtes"
                                     break
                                 # Gandi demande d'attendre : on attend, puis on reprend au même nom.
+                                flight.close()
                                 await self.sleep(min(600.0, exc.retry_after or LIMIT_WAIT))
                                 continue
                             stats["failures"] += 1
@@ -654,18 +663,22 @@ class NightPass:
                         else:
                             limited = 0
                             found = read(raw)
-                            # Réponse sans ligne de création : passagère (charge de Gandi), comptée comme un échec,
-                            # jamais comme « extension pas vendue » ; seul un refus explicite (error_invalid, 400) l'est.
-                            fails = fails + 1 if found["status"] == "" else 0
                             if found["status"] == "":
-                                stats["failures"] += 1
+                                # Réponse vide : Gandi limite. Nom pas noté, attente, reprise au même nom ; jamais
+                                # « extension pas vendue » (seul un refus explicite, error_invalid ou 400, l'est).
+                                empty += 1
+                                stats["throttled"] = stats.get("throttled", 0) + 1
+                                if empty >= EMPTY_STOP:
+                                    halted = f"Gandi ne répond plus ({EMPTY_STOP} attentes d'affilée sur réponse vide)"
+                                    break
+                                flight.close()
+                                await self.sleep(min(600.0, EMPTY_WAIT * 2 ** (empty - 1)))
+                                continue
+                            fails = empty = 0
                             if found["status"] == "error_invalid":
                                 invalid[tld] = invalid.get(tld, 0) + 1
-                            elif found["status"]:
+                            else:
                                 invalid[tld] = 0
-                            if fails >= FAIL_STOP:
-                                halted = f"{FAIL_STOP} échecs d'affilée (réponses vides)"
-                                break
                             if self.gandi.record(name, found):
                                 stats["changed"] += 1
                             stats["checked"] += 1
@@ -908,7 +921,7 @@ class LivePass:
     async def _tour(self, names: list[str], http, stats: dict, loop) -> str | None:
         """Un tour : chaque nom au rythme réglé, PARALLEL requêtes en vol au plus (Inflight), réponses traitées dans
         l'ordre de la file. Renvoie le motif d'un arrêt définitif (jeton refusé), sinon None."""
-        fails = limited = 0
+        fails = limited = empty = 0
         invalid: dict[str, int] = {}
         index = 0
         tlds: set[str] = set()
@@ -948,6 +961,7 @@ class LivePass:
                         # au même nom (les requêtes déjà parties suivent la même règle).
                         limited += 1
                         stats["limited"] = stats.get("limited", 0) + 1
+                        flight.close()
                         await self._wait(min(LIVE_LIMIT_MAX, (exc.retry_after or LIMIT_WAIT) * 2 ** (limited - 1)))
                         continue
                     stats["failures"] += 1
@@ -963,20 +977,20 @@ class LivePass:
                 else:
                     limited = 0
                     found = read(raw)
-                    # Réponse sans ligne de création : passagère, comptée comme un échec (pause au bout de FAIL_STOP),
-                    # jamais comme « extension pas vendue » ; seul un refus explicite (error_invalid, 400) l'est.
-                    fails = fails + 1 if found["status"] == "" else 0
                     if found["status"] == "":
-                        stats["failures"] += 1
+                        # Réponse vide : Gandi limite. Nom pas noté ; attente doublée à chaque réponse vide d'affilée
+                        # (une heure au plus), puis reprise au même nom. Jamais « extension pas vendue ».
+                        empty += 1
+                        stats["throttled"] = stats.get("throttled", 0) + 1
+                        stats["paused_at"] = iso(utcnow())
+                        flight.close()
+                        await self._wait(min(LIVE_LIMIT_MAX, EMPTY_WAIT * 2 ** (empty - 1)))
+                        continue
+                    fails = empty = 0
                     if found["status"] == "error_invalid":
                         invalid[tld] = invalid.get(tld, 0) + 1
-                    elif found["status"]:
+                    else:
                         invalid[tld] = 0
-                    if fails >= FAIL_STOP:
-                        fails = 0
-                        stats["paused_at"] = iso(utcnow())
-                        log.info("Gandi, passe continue : %s réponses vides d'affilée, pause", FAIL_STOP)
-                        await self._wait(LIVE_FAIL_PAUSE)
                     if self.gandi.record(name, found):
                         stats["changed"] += 1
                     stats["checked"] += 1
