@@ -302,7 +302,7 @@ le filtre de langue (langue relevée dans `app/data/langues.txt` pour les listes
 | premium | Termes premium | `premium.txt`, fourni |
 | keyword | Mots-clés à forte valeur | `motscles.txt`, fourni (réunion de listes françaises et anglaises) |
 | local | Métier + ville | `local.txt`, fourni (plombierparis) |
-| brand | Marques inventées | `marques_inventees.txt`, fourni : mots inventés, la sonorité compte, pas le sens |
+| brand | Noms de marque | `marques_inventees.txt`, fourni : lieux et légendes, mots étrangers, mots réels détournés, noms inventés, composés rythmés, mots-valises ; la sonorité compte, pas le sens |
 | mine | Mes ajouts | `data/mes_ajouts.txt`, dans le dossier de données : les noms ajoutés depuis l'Explorer |
 
 **Listes fournies** (premium, keyword, local, brand) : rédigées ailleurs, une entrée par ligne, en `[a-z0-9]`, de

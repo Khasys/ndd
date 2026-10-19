@@ -27,7 +27,7 @@ def mine_dir(tmp_path):
 def test_provided_lists_are_loaded_with_labels_and_languages():
     lists = wordlists.lists()
     for key, label in (("premium", "Termes premium"), ("keyword", "Mots-clés à forte valeur"),
-                       ("local", "Métier + ville"), ("brand", "Marques inventées"), ("mine", "Mes ajouts")):
+                       ("local", "Métier + ville"), ("brand", "Noms de marque"), ("mine", "Mes ajouts")):
         assert wordlists.LABELS[key] == label and key in explore.KINDS and key in explore.MAP_ROWS
     assert {"cryptomonnaie", "refinancing"} <= lists["premium"] and "rachatcredit" in lists["keyword"]
     assert "courtiercreditparis" in lists["local"] and "kinia" in lists["brand"]
@@ -73,7 +73,7 @@ def test_provided_lists_count_in_the_score():
     assert value.quality("vexio") != "word"
     for tld in ("fr", "com"):
         found = value.score("kinia", [], tld=tld)
-        assert found["score"] >= explore.LEVEL_GOOD and "1er nom de marque inventé" in found["reasons"]
+        assert found["score"] >= explore.LEVEL_GOOD and "4e nom de marque" in found["reasons"]
         # Mieux placé dans sa liste, mieux noté qu'un même mot inventé hors liste.
         assert found["score"] > value.score("zovanu", [], tld=tld)["score"]
 

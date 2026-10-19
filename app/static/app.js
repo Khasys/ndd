@@ -16,7 +16,7 @@ const KIND_LABELS = {
   form: "Formes fléchies", surname: "Noms de famille", firstname: "Prénoms", english: "Mots anglais",
   sector: "Secteurs porteurs", trend: "Tendances", combo: "Combinaisons", niche: "Sites de niche", expr: "Expressions",
   media: "Médias et marques", startup: "Tech et startups", job: "Métiers", sport: "Sport", animal: "Animaux", food: "Cuisine",
-  premium: "Termes premium", keyword: "Mots-clés à forte valeur", local: "Métier + ville", brand: "Marques inventées", mine: "Mes ajouts",
+  premium: "Termes premium", keyword: "Mots-clés à forte valeur", local: "Métier + ville", brand: "Noms de marque", mine: "Mes ajouts",
 };
 const NATURE_LABELS = { noun: "nom commun", verb: "verbe", adj: "adjectif", adv: "adverbe", other: "mot outil" };
 // Rang dans une liste, en clair : « 12e prénom le plus donné » (mêmes mots que les raisons du score, value.py).
@@ -59,7 +59,7 @@ const EX_TYPES = [
   { k: "media", label: "Médias et marques" }, { k: "sector", label: "Secteurs" }, { k: "job", label: "Métiers" },
   { k: "sport", label: "Sport" }, { k: "animal", label: "Animaux" }, { k: "food", label: "Cuisine" }, { k: "trend", label: "Tendances" },
   { k: "niche", label: "Sites de niche" }, { k: "expr", label: "Expressions" }, { k: "premium", label: "Termes premium" },
-  { k: "keyword", label: "Mots-clés à forte valeur" }, { k: "local", label: "Métier + ville" }, { k: "brand", label: "Marques inventées" },
+  { k: "keyword", label: "Mots-clés à forte valeur" }, { k: "local", label: "Métier + ville" }, { k: "brand", label: "Noms de marque" },
   { k: "mine", label: "Mes ajouts" }, { k: "short", label: "Courts (1 à 4)" },
 ];
 // Listes du Top (Classements), dans l'ordre des puces de type ; firstname_recent : « Prénoms <année> » (Insee), si lus.

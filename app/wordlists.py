@@ -20,7 +20,7 @@ LABELS = {"word": "Mots", "form": "Formes fléchies", "surname": "Noms de famill
           "niche": "Sites de niche", "expr": "Expressions", "media": "Médias et marques",
           "startup": "Tech et startups", "job": "Métiers", "sport": "Sport", "animal": "Animaux",
           "food": "Cuisine", "premium": "Termes premium", "keyword": "Mots-clés à forte valeur",
-          "local": "Métier + ville", "brand": "Marques inventées", "mine": "Mes ajouts"}
+          "local": "Métier + ville", "brand": "Noms de marque", "mine": "Mes ajouts"}
 # Nature des mots et des formes, tirée du Lexique.
 NATURES = {"verb": "Verbes", "noun": "Noms communs", "adj": "Adjectifs", "adv": "Adverbes", "other": "Mots outils"}
 

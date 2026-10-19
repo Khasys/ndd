@@ -168,25 +168,28 @@ mesure « marque » du score (un nom identique ne se revend pas sans risque).
 
 Termes premium : mots et expressions génériques à forte valeur de revente, du plus au moins précieux, une
 entrée par ligne, en lettres minuscules et chiffres. Liste rédigée par IA, relue, 2026-10. Fichier fourni :
-scripts/build_lists.py ne l'écrit pas. Le fichier livré avec l'appli n'est qu'un échantillon d'une dizaine
-d'entrées, à remplacer par la liste complète.
+scripts/build_lists.py ne l'écrit pas. 4 800 entrées, 26 secteurs, termes absents des autres listes.
 
 ## motscles.txt
 
 Mots-clés à forte valeur (assurance, crédit, santé, énergie, droit…), réunion de plusieurs listes françaises
 et anglaises, du plus au moins précieux, une entrée par ligne, mots collés. Liste rédigée par IA, relue,
-2026-10. Fichier fourni, échantillon d'une dizaine d'entrées en attendant la liste complète.
+2026-10. Fichier fourni : 24 271 entrées, six blocs (finance, maison et énergie, santé, consommation en
+français ; finance et santé, tech et services en anglais) entremêlés par rang, sans doublon.
 
 ## local.txt
 
-Métier + ville, collés (plombierparis, serrurierlyon), du plus au moins précieux. Liste rédigée par IA, relue,
-2026-10. Fichier fourni, échantillon d'une dizaine d'entrées en attendant la liste complète.
+Métier + ville, collés (agenceimmobiliereparis, courtiercreditlyon), du plus au moins précieux : 191 métiers
+et services locaux, 165 villes, départements et régions. Liste rédigée par IA, relue, 2026-10. Fichier fourni :
+15 831 entrées.
 
 ## marques_inventees.txt
 
-Marques inventées : mots sans sens, choisis pour leur sonorité (zovano, kelora), du plus au moins réussi. Pas
-de langue. Liste rédigée par IA, relue, 2026-10. Fichier fourni, échantillon d'une dizaine d'entrées en
-attendant la liste complète.
+Noms de marque (7 567) : six styles relus un à un et mêlés par rang, du plus au moins réussi : lieux et
+légendes hors de France (1 125 : zanzibar, cervin), mots étrangers et diminutifs (865 : bellina, hanabi), mots réels
+peu courants détournés (1 289 : colibri, toucan), noms inventés par syllabes (3 000 : kinia, vilio), composés
+rythmés (771 : boumboum, kirakira), mots-valises (517 : boulango, cloudio). Marques connues, communes françaises
+(de mémoire, sans liste officielle) et sens négatifs écartés. Pas de langue. Liste rédigée par IA, relue, 2026-10.
 
 ## Mes ajouts (hors de ce dossier)
 
