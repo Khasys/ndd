@@ -1180,6 +1180,29 @@ def test_cc_dns_lost_name_goes_to_the_veille_and_leaves_when_back(env, monkeypat
     assert checker.status()["totals"] == {"known": 3, "present": 2, "absent": 1, "lost": 0}
 
 
+def test_dns_pass_shows_its_progress_live(env, monkeypatch):
+    """Paramètres et /api/diag : une passe DNS en cours dit où elle en est (noms interrogés, présents, rythme), pas
+    seulement « en cours » ; finie, le compteur disparaît et l'état de la passe prend le relais."""
+    from app import ccdns, frdns
+
+    monkeypatch.setattr(frdns, "RATE", 1_000_000.0)
+    checker = ccdns.CcDns("io", env.conn, env.fr.store, env, timezone.utc)
+    checker.servers = ["192.0.2.1"]
+    checker.pending = lambda limit, now=None: ["cloud", "maison", "insurance", "velo"]
+    seen = []
+
+    async def query(label):
+        seen.append(dict(checker.status()["current"]))
+        return label != "maison"
+
+    checker.query = query
+    asyncio.run(checker.run(limit=4))
+    assert [c["checked"] for c in seen] == [0, 1, 2, 3] and seen[-1]["present"] == 2 and seen[-1]["queued"] == 4
+    assert seen[0]["started_at"] and seen[-1]["rate"]
+    status = checker.status()
+    assert "current" not in status and status["checked"] == 4 and status["present"] == 3
+
+
 def test_cc_dns_names_lost_before_the_veille_are_resumed_once(env):
     from app import ccdns
 

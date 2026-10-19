@@ -99,6 +99,7 @@ class FrDns:
         self.running = False
         self.servers: list[str] = []
         self.query = self._query  # remplaçable dans les tests
+        self.progress: dict | None = None  # passe en cours : ses chiffres, lus en direct (status)
         self._queue_lock = threading.Lock()  # un seul recalcul de la file à la fois (position)
 
     # --- File ---------------------------------------------------------------------
@@ -231,6 +232,7 @@ class FrDns:
                  "taken_names": [], "freed_names": [], "failures": {}, "failure_log": []}
         cap = self.cap()
         stats["cap"] = cap
+        self.progress = stats
         halted = None
         try:
             # Parcours de l'univers hors de la boucle : l'appli reste réactive.
@@ -271,6 +273,7 @@ class FrDns:
                         stats["stopped"] = halted
                         break
                     rate = max(MIN_RATE, rate * 0.7)
+                    stats["rate"] = round(rate, 1)
                     streak = 0
                 else:
                     fails = 0
@@ -278,6 +281,7 @@ class FrDns:
                     if streak >= RECOVER_AFTER and rate < cap:
                         rate = min(cap, rate * 1.25)
                         streak = 0
+                    stats["rate"] = round(rate, 1)
                     self.save(label, present, iso(utcnow()))
                     stats["checked"] += 1
                     stats["present"] += int(present)
@@ -298,6 +302,7 @@ class FrDns:
             stats["error"] = str(exc)
         finally:
             self.running = False
+            self.progress = None
             stats["finished_at"] = iso(utcnow())
             stats["rate"] = round(rate, 1) if "rate" in locals() else None
             if halted:
@@ -346,6 +351,11 @@ class FrDns:
 
     def status(self) -> dict:
         info = json.loads(self.store.get(f"{self.key}_status") or "{}")
+        live = self.progress
+        if live is not None:
+            # Passe en cours : ses chiffres du moment (les totaux de la passe d'avant restent dans info).
+            info["current"] = {k: live.get(k) for k in ("started_at", "queued", "checked", "present", "skipped", "rate",
+                                                         "newly_taken", "failures")}
         info["running"] = self.running
         info["enabled"] = self.store.get(f"{self.key}_enabled", "1") == "1"
         return info

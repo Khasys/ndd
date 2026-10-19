@@ -2254,9 +2254,21 @@ document.addEventListener("alpine:init", () => {
     },
 
     // .co, .ai, .io : noms interrogés, présents et absents à la dernière passe, avec sa date ; puis les totaux.
+    // Passe DNS en cours : où elle en est, en direct (status().current).
+    dnsLive(d) {
+      const c = d.current;
+      if (!c) return "passe en cours.";
+      const checked = c.checked || 0, present = c.present || 0;
+      const parts = [`passe en cours depuis ${this.relative(c.started_at).replace(/^il y a /, "")} : ${this.fmt(checked)} nom(s) interrogé(s)`
+        + (c.queued ? ` sur ${this.fmt(c.queued)} prévus` : ""), `${this.fmt(present)} présent(s), ${this.fmt(checked - present)} absent(s)`];
+      if (c.skipped) parts.push(`${this.fmt(c.skipped)} sans réponse`);
+      if (c.rate) parts.push(`rythme ${this.perSecond(c.rate)} par seconde`);
+      return parts.join(", ") + ".";
+    },
+
     ccDnsLine(d) {
       if (!d || !d.enabled) return "désactivé.";
-      if (d.running) return "passe en cours.";
+      if (d.running) return this.dnsLive(d);
       if (d.error) return `erreur à la dernière passe : ${d.error}`;
       if (!d.finished_at) return "première passe à minuit, étalée sur la journée.";
       const checked = d.checked || 0;
@@ -2273,7 +2285,7 @@ document.addEventListener("alpine:init", () => {
 
     frDns(d) {
       if (!d || !d.enabled) return "désactivé.";
-      if (d.running) return "passe en cours.";
+      if (d.running) return this.dnsLive(d);
       if (d.error) return `erreur à la dernière passe : ${d.error}`;
       if (!d.finished_at) return "première passe à minuit, étalée sur la journée.";
       const parts = [`dernière passe ${this.relative(d.finished_at)} : ${this.fmt(d.checked)} nom(s) interrogé(s)` + (d.queued ? ` sur ${this.fmt(d.queued)} prévus` : "")];
