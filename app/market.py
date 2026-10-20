@@ -9,6 +9,7 @@ Une source qui casse (page injoignable, mise en page changée, plus de rapport d
 signalée tout de suite sur Telegram (morning.BLOCKING, clé « market »).
 """
 
+import asyncio
 import html
 import json
 import logging
@@ -27,7 +28,8 @@ log = logging.getLogger(__name__)
 SITE = "https://dnjournal.com/archive/"
 ARCHIVES = ("domainsales-archive.htm", "domainsales-archive-{year}.htm")  # année en cours, puis les précédentes
 FIRST_YEAR = 2025          # historique gardé : de 2025 à aujourd'hui
-PER_RUN = 12               # rapports lus au plus par passage (rattrapage de l'historique en quelques jours)
+PER_RUN = 60               # rapports lus au plus par passage : tout l'historique depuis 2025 d'un coup
+PAUSE = 3                  # secondes entre deux rapports (pages de 5 Mo environ) : poli avec le site
 REPORT_LATE = timedelta(days=35)   # DNJournal publie toutes les deux semaines : 5 semaines sans rapport, c'est cassé
 CHECK_LATE = timedelta(days=8)     # plus de lecture réussie depuis 8 jours (passage quotidien)
 HEADERS = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) domain-watch"}
@@ -144,8 +146,10 @@ class Market:
         return {**info, "sales": count, "latest_sale": last, "reports": reports, "running": self.running}
 
     def due(self, now: datetime) -> bool:
-        last = parse_iso(json.loads(self.store.get("market_status") or "{}").get("at"))
-        return not self.running and (last is None or now - last >= timedelta(hours=20))
+        info = json.loads(self.store.get("market_status") or "{}")
+        last = parse_iso(info.get("at"))
+        wait = timedelta(hours=1) if info.get("left") or info.get("error") else timedelta(hours=20)
+        return not self.running and (last is None or now - last >= wait)
 
     def problem(self, now: datetime) -> str | None:
         """Panne de la source, pour la rubrique Santé (et l'alerte Telegram immédiate) ; None si tout va bien."""
@@ -188,7 +192,9 @@ class Market:
             done = {r[0] for r in self.conn.execute("SELECT url FROM market_reports")}
             todo = [u for u in links if u not in done][:PER_RUN]
             added = 0
-            for url in todo:
+            for n, url in enumerate(todo):
+                if n:
+                    await asyncio.sleep(PAUSE)
                 response = await client.get(url)
                 if response.status_code != 200:
                     raise MarketError(f"rapport injoignable (HTTP {response.status_code}) : {url}")

@@ -891,7 +891,7 @@ et avec le potentiel (×2 tous les 15 points de note de revente au-dessus de 50)
 fiche montre « rapporte ~X €/an (vente ~Y %/an, 1 chance sur 2 en ~Z ans) ».
 
 Ventes comparables : le NAS lit les rapports de ventes de DNJournal (toutes les deux semaines, archive de
-l'année et des précédentes depuis 2025 ; `app/market.py`, table `market_sales`, données gardées sur le NAS seulement).
+l'année et des précédentes depuis 2025, tout l'historique au premier passage, 3 s entre deux rapports ; `app/market.py`, table `market_sales`, données gardées sur le NAS seulement).
 Pour chaque nom, les 4 ventes réelles les plus proches (un mot courant en commun, puis même extension, même
 nombre de mots, même langue, longueur voisine, ventes récentes d'abord) sont jointes au lot de notation
 (`ventes_comparables`) : l'IA ancre son prix utilisateur final dessus, plus bas pour un nom plus faible, car

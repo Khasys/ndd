@@ -47,7 +47,8 @@ def test_a_report_is_read_and_feeds_comparables(tmp_path):
     assert market.median_price([{"price": 1000}, {"price": 4000}]) == 2000
 
 
-def test_refresh_reads_new_reports_and_reports_a_broken_source(tmp_path):
+def test_refresh_reads_new_reports_and_reports_a_broken_source(tmp_path, monkeypatch):
+    monkeypatch.setattr(market, "PAUSE", 0)
     m = make(tmp_path)
     pages = {"domainsales-archive.htm": ARCHIVE, "domainsales/2026/1007.htm": REPORT, "domainsales/2026/0923.htm": REPORT}
 
