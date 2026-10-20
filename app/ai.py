@@ -262,8 +262,11 @@ def to_confirm(explorer, limit: int = CONFIRM_PER_LOT) -> list[str]:
     return [r[0] for r in rows if known(r[0])][:limit]
 
 
-def pending(explorer, limit: int) -> list[dict]:
-    """Noms complets sans avis à jour, dans l'ordre où ils servent ; les avis à revoir et à contre-noter d'abord."""
+def pending(explorer, limit: int, offset: int = 0) -> list[dict]:
+    """Noms complets sans avis à jour, dans l'ordre où ils servent ; les avis à revoir et à contre-noter d'abord.
+    `offset` : tranche de la file pour des sessions en parallèle ; seuls les noms rendus sont décrits (ventes
+    comparables comprises), la file elle-même est vite calculée."""
+    limit += offset
     review = to_review(explorer, min(REVIEW_PER_NIGHT, limit))
     confirm = [n for n in to_confirm(explorer, min(CONFIRM_PER_LOT, max(0, limit - len(review))))
                if n not in {r[0] for r in review}]
@@ -277,8 +280,10 @@ def pending(explorer, limit: int) -> list[dict]:
     for name in confirm:  # à l'aveugle : rien ne dit au correcteur qu'un premier avis existe
         label, _, tld = name.rpartition(".")
         head.append(((u.index(label), label, tld), None))
-    items = _describe(explorer, [p for p, _ in head] + picked, data)
-    for item, (_, review_info) in zip(items, head):
+    infos = [info for _, info in head] + [None] * len(picked)
+    chosen = ([p for p, _ in head] + picked)[offset:]
+    items = _describe(explorer, chosen, data)
+    for item, review_info in zip(items, infos[offset:]):
         if review_info:
             item["review"] = review_info
     return items

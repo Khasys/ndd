@@ -1962,7 +1962,11 @@ async def ai_pending(request: Request):
         # Tâche horaire : seulement les analyses demandées depuis une fiche (souvent aucune).
         names = await _off(ai.requested, explorer)
     else:
-        names = await _off(ai.pending, explorer, _limit(request, ai.MAX_PENDING))
+        try:
+            offset = max(0, min(int(request.query_params.get("offset") or 0), 20 * ai.MAX_PENDING))
+        except ValueError:
+            raise HTTPException(422, "Paramètre numérique invalide.") from None
+        names = await _off(ai.pending, explorer, _limit(request, ai.MAX_PENDING), offset)
     # Ventes et offres réelles du portefeuille : repères de prix ajoutés à la consigne.
     guide = ai.GUIDE + portfolio.guide_addendum(portfolio.market_examples(request.app.state.conn))
     return {"version": ai.VERSION, "guide": guide, "format": ai.FORMAT, "names": names}

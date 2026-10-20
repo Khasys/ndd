@@ -1,6 +1,7 @@
 """Échange avec le NAS pour la notation IA (utilisé par la tâche planifiée).
 
   python scripts/ai_exchange.py pull 1000 lot.json      # liste à noter + consigne + format
+  python scripts/ai_exchange.py pull 1000 lot.json 2000 # tranche suivante (noms 2000 à 2999), sessions en parallèle
   python scripts/ai_exchange.py requested lot.json      # analyses demandées depuis l'appli (tâche horaire)
   python scripts/ai_exchange.py guide lot.json          # la consigne seule, à lire une fois
   python scripts/ai_exchange.py show lot.json 0 250     # noms 0 à 249, une ligne par nom (format compact)
@@ -146,7 +147,8 @@ def main() -> None:
     action = sys.argv[1] if len(sys.argv) > 1 else ""
     if action == "pull":
         limit, target = int(sys.argv[2]), sys.argv[3]
-        found = call("GET", f"/api/ai/pending?limit={limit}")
+        offset = int(sys.argv[4]) if len(sys.argv) > 4 else 0  # tranche de la file, pour des sessions en parallèle
+        found = call("GET", f"/api/ai/pending?limit={limit}&offset={offset}")
         with open(target, "w", encoding="utf-8") as f:
             json.dump(found, f, ensure_ascii=False, indent=1)
         print(f"{len(found['names'])} noms à noter (consigne v{found['version']}) dans {target}")

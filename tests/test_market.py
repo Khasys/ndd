@@ -8,6 +8,7 @@ from pathlib import Path
 import httpx
 
 from app import ai_format, db, market, morning
+from tests.test_explore import env  # noqa: F401  (fixture env)
 
 REPORT = """<html><head><title>x</title><script>var a = "Highest Reported";</script></head><body>
 <p>Highest Reported Domain Sales - Mon. Sep. 21 - Sun. Oct. 4, 2026</p>
@@ -96,3 +97,12 @@ def test_yield_decides_the_verdict():
     notes = ai_format.derive(good)
     assert notes["verdict"] == "À prendre" and notes["yield_"] >= 2 * 13
     assert "yield_" not in ai_format.derive({k: v for k, v in good.items() if k != "taken"})  # sans demande mesurée
+
+
+def test_pending_offset_returns_the_next_slice(env):
+    """Sessions en parallèle : chaque tranche de la file est demandée au NAS, seuls ses noms sont décrits."""
+    from app import ai
+
+    first = [n["name"] for n in ai.pending(env, 10)]
+    second = [n["name"] for n in ai.pending(env, 5, offset=5)]
+    assert second == first[5:10]
