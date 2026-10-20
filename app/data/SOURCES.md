@@ -46,8 +46,9 @@ github.com/cnovel/prenoms (fichiers dist.prenoms.f.all.txt et dist.prenoms.m.all
 
 Les 10 000 prénoms les plus donnés aux États-Unis entre 1880 et 2017, filles et garçons réunis
 (naissances additionnées, prénom en minuscules), du plus au moins donné ; le dernier l'a été
-1 088 fois. Réunis aux prénoms français dans la catégorie Prénoms : 3 001 sont dans les deux
-listes (thomas, marie), 6 999 seulement ici (bernice, katelyn).
+1 059 fois. Sans les prénoms de 1 ou 2 lettres, ni ceux de 3 lettres hors des 2 000 premiers (un nom court
+rare passerait pour un vrai mot court). Réunis aux prénoms français dans la catégorie Prénoms : 2 972
+sont dans les deux listes (thomas, marie), 7 028 seulement ici (bernice, katelyn).
 
 Source : Social Security Administration (cartes de sécurité sociale, prénoms donnés au moins
 5 fois une année), données publiques du gouvernement américain. Lu dans le jeu babynames de
@@ -57,10 +58,11 @@ github.com/hadley/babynames (table babynames, total par prénom sur toutes les a
 
 Les 21 689 noms de famille les plus portés aux États-Unis au recensement de 2010, autant que
 noms.txt, du plus au moins porté (à égalité, l'ordre du fichier) ; le dernier l'est par
-1 120 personnes. En minuscules, sans accents, espaces et apostrophes retirés ; une ligne qui n'est
+1 093 personnes. En minuscules, sans accents, espaces et apostrophes retirés ; une ligne qui n'est
 pas un nom (« ALL OTHER NAMES » dans d'autres éditions) ou un libellé invalide pour l'appli serait
-écartée. Réunis aux noms français dans la catégorie Noms de famille : 3 144 sont dans les deux
-listes (martin, thomas), 18 545 seulement ici (smith, ford).
+écartée, comme les noms de 1 ou 2 lettres et ceux de 3 lettres hors des 2 000 premiers (abt, eck).
+Réunis aux noms français dans la catégorie Noms de famille : 3 088 sont dans les deux listes
+(martin, thomas), 18 601 seulement ici (smith, ford).
 
 Source : U.S. Census Bureau, noms de famille du recensement de 2010 (noms portés par 100
 personnes au moins), données publiques du gouvernement américain. Lu dans le dépôt

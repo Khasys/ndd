@@ -25,6 +25,9 @@ DATA = ROOT / "app" / "data"
 FIRST_NAMES = 10_000
 # Lignes du recensement qui ne sont pas un nom (absentes du fichier de 2010, présentes dans d'autres éditions).
 NOT_NAMES = {"all other names"}
+# Noms courts : un nom de 1 ou 2 lettres (de, ng) n'a pas de sens comme nom de domaine, et un nom rare de 3 lettres
+# (abt, eck) passerait pour un vrai mot court, très valorisé. 3 lettres : seulement parmi les plus portés.
+SHORT_TOP = 2_000
 
 
 def ranked(path: Path, count: str, size: int) -> list[str]:
@@ -39,6 +42,8 @@ def ranked(path: Path, count: str, size: int) -> list[str]:
         try:
             label = wordlists.normalize(name.replace(" ", "").replace("'", ""))
         except wordlists.InvalidLabel:
+            continue
+        if len(label) <= 2 or (len(label) == 3 and len(found) >= SHORT_TOP):
             continue
         found.setdefault(label, None)
         if len(found) >= size:
