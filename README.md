@@ -152,6 +152,23 @@ estimées, avec un rappel la veille. Elle s'ouvre sans mot de passe : la changer
 Les lignes du fichier sont pliées à 75 octets, comme le demande la RFC 5545 : les agendas stricts
 (Apple, Thunderbird) lisent les longs noms et descriptions sans rien tronquer.
 
+### Connecteur ChatGPT / Claude (MCP)
+
+Paramètres, Connecteur ChatGPT / Claude, « Créer l'adresse » : une adresse MCP secrète,
+`https://<appli>/mcp/<jeton>`, montrée une seule fois. Un assistant compatible MCP (ChatGPT en mode
+développeur, Claude avec un connecteur personnalisé) lit alors l'appli avec sept outils :
+`search` (Explorer), `fetch` (fiche d'un nom), `today` (Aujourd'hui), `drops` (Veille), `top_list`
+(top d'une liste), `ai_rated` (avis IA) et `watched` (noms surveillés).
+
+- **Lecture seule** : chaque outil lit un écran déjà ouvert à l'API en lecture ; rien n'écrit, aucun
+  réglage ni secret ne sort.
+- **Jeton** : seule son empreinte est gardée ; il est distinct de celui de la tâche de notation.
+  « Nouvelle adresse » coupe l'ancienne, « Couper l'accès » ferme le connecteur.
+- **Journal** : le jeton de l'adresse est masqué dans le journal d'accès et dans le diagnostic.
+- **Sans en-tête possible** (ChatGPT) : l'adresse secrète suffit, en « sans authentification ». Un
+  client qui envoie des en-têtes peut aussi appeler `/mcp` avec `Authorization: Bearer <jeton>`.
+- **Protocole** : JSON-RPC sur HTTP, réponses JSON simples, sans flux ni session.
+
 ### Écrans
 
 Navigation, dans l'ordre : **Aujourd'hui** (l'appli s'ouvre toujours dessus), **Domaines**, **Veille**,

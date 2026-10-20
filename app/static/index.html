@@ -1382,6 +1382,30 @@
         <p class="muted small">{domain} est remplacé par le nom.</p>
       </div>
 
+      <div id="set-mcp">
+        <h3>Connecteur ChatGPT / Claude</h3>
+        <template x-if="cfg">
+          <div class="setting-lines">
+            <p class="muted small">Adresse MCP en lecture seule : ChatGPT (mode développeur) ou Claude lisent les fiches, l'Explorer, Aujourd'hui, la Veille, les listes, les avis IA et les noms surveillés. Rien ne peut être modifié par ce biais, aucun réglage ne sort.</p>
+            <p class="small" x-text="cfg.mcp && cfg.mcp.enabled ? 'Accès ouvert.' : 'Accès fermé.'"></p>
+            <template x-if="mcpUrl">
+              <div>
+                <p class="small">Copie-la maintenant : elle ne sera plus affichée.</p>
+                <p class="inline-form">
+                  <input type="text" readonly :value="mcpUrl" class="mono" @focus="$event.target.select()" aria-label="Adresse du connecteur">
+                  <button type="button" class="btn-ghost" @click="copy(mcpUrl)">Copier</button>
+                </p>
+              </div>
+            </template>
+            <p class="setting-actions">
+              <button type="button" class="btn-ghost" @click="newMcpUrl()" x-text="cfg.mcp && cfg.mcp.enabled ? 'Nouvelle adresse' : 'Créer l\'adresse'"></button>
+              <button type="button" class="btn-ghost" x-show="cfg.mcp && cfg.mcp.enabled" @click="revokeMcp()">Couper l'accès</button>
+            </p>
+            <p class="muted small">L'adresse contient un jeton secret : ne pas la partager. Dans ChatGPT : active le mode développeur (Paramètres, Connecteurs, Avancé), puis crée un connecteur avec cette adresse, sans authentification. Dans Claude : connecteur personnalisé avec cette adresse.</p>
+          </div>
+        </template>
+      </div>
+
       <div>
         <h3>Calendrier</h3>
         <template x-if="cfg">

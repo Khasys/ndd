@@ -287,6 +287,8 @@ document.addEventListener("alpine:init", () => {
     dropBulkDone: 0,
     dropsSeenBefore: "",
     aiToken: "",
+    // Adresse du connecteur MCP, montrée une seule fois après création.
+    mcpUrl: "",
     aiStatus: null,
     df: { ...DROP_FILTER_DEFAULTS },
     dfOpen: false,
@@ -3204,6 +3206,28 @@ document.addEventListener("alpine:init", () => {
       try {
         const res = await this.api("POST", "/api/settings/calendar");
         this.cfg.calendar_url = res.calendar_url;
+      } catch (e) {
+        this.say(e.message, "error");
+      }
+    },
+
+    async newMcpUrl() {
+      if (this.cfg.mcp && this.cfg.mcp.enabled && !confirm("Nouvelle adresse ? L'ancienne cessera de fonctionner : le connecteur devra être mis à jour.")) return;
+      try {
+        this.mcpUrl = (await this.api("POST", "/api/settings/mcp-token")).url;
+        this.cfg.mcp = { enabled: true };
+      } catch (e) {
+        this.say(e.message, "error");
+      }
+    },
+
+    async revokeMcp() {
+      if (!confirm("Couper l'accès ? ChatGPT ou Claude ne pourront plus lire l'appli.")) return;
+      try {
+        await this.api("DELETE", "/api/settings/mcp-token");
+        this.cfg.mcp = { enabled: false };
+        this.mcpUrl = "";
+        this.say("Accès du connecteur coupé.");
       } catch (e) {
         this.say(e.message, "error");
       }

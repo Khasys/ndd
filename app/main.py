@@ -31,7 +31,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import ai, bot, calendar_ics, ccdns, db, decisions, market, morning, notify, pepites, portfolio, digest, drops, explore, frdata, frdns, gandi, prenoms, reserved, seo, signals, states, updates, value, wordlists
+from . import ai, bot, mcp, calendar_ics, ccdns, db, decisions, market, morning, notify, pepites, portfolio, digest, drops, explore, frdata, frdns, gandi, prenoms, reserved, seo, signals, states, updates, value, wordlists
 from .auth import (
     COOKIE_NAME,
     LoginGuard,
@@ -57,11 +57,11 @@ FREED_GANDI_DELAY = 60
 
 # Jetons possibles dans un message d'erreur (URL de bot Telegram, en-têtes, paramètres) : masqués,
 # le diagnostic est lisible avec le jeton en lecture seule.
-_SECRETS = re.compile(r"(bot)\d+:[\w-]+|(Bearer\s+)\S+|((?:token|key|password|secret)=)[^&\s]+", re.I)
+_SECRETS = re.compile(r"(bot)\d+:[\w-]+|(Bearer\s+)\S+|((?:token|key|password|secret)=)[^&\s]+|(/mcp/)[^/?\s\"]+", re.I)
 
 
 def _redact(text: str) -> str:
-    return _SECRETS.sub(lambda m: (m.group(1) or m.group(2) or m.group(3)) + "<masqué>", text)
+    return _SECRETS.sub(lambda m: (m.group(1) or m.group(2) or m.group(3) or m.group(4)) + "<masqué>", text)
 
 
 def _exception_line(exc: BaseException) -> str:
@@ -98,6 +98,18 @@ class _Recent(logging.Handler):
 
 RECENT = _Recent()
 logging.getLogger().addHandler(RECENT)
+
+
+class _MaskMcp(logging.Filter):
+    """Journal d'accès d'uvicorn : l'adresse du connecteur MCP contient son jeton, masqué avant écriture."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple) and any(isinstance(a, str) and "/mcp/" in a for a in record.args):
+            record.args = tuple(_redact(a) if isinstance(a, str) else a for a in record.args)
+        return True
+
+
+logging.getLogger("uvicorn.access").addFilter(_MaskMcp())
 
 STATIC = Path(__file__).parent / "static"
 PWA_PATHS = {"/manifest.webmanifest", "/sw.js", "/offline"}
@@ -591,7 +603,8 @@ async def require_session(request: Request, call_next):
         if path.startswith("/api/"):
             return JSONResponse({"detail": "Configuration initiale à terminer."}, status_code=503)
         return RedirectResponse("/setup", status_code=303)
-    if path in PUBLIC_PATHS or path.startswith(("/static/", "/calendar/")):
+    # Connecteur MCP : son jeton est vérifié par la route elle-même (adresse secrète ou en-tête).
+    if path in PUBLIC_PATHS or path == "/mcp" or path.startswith(("/static/", "/calendar/", "/mcp/")):
         return await call_next(request)
     if state.sessions.valid(request.cookies.get(COOKIE_NAME), state.settings.username):
         if path == "/" and not state.settings.app_url:
@@ -1124,6 +1137,7 @@ async def get_settings(request: Request):
         "market": state.market.status(),
         "weights": {"values": value.weights_from(store.get("score_weights")), "labels": value.CRITERIA},
         "order_url": _order_url(store),
+        "mcp": {"enabled": mcp.enabled(store)},
         "alerts": _alert_settings(store),
         "appearance": {
             "app_name": store.get("app_name") or DEFAULT_NAME,
@@ -2194,6 +2208,20 @@ async def ai_token(request: Request):
     return {"token": ai.new_token(request.app.state.store)}
 
 
+@app.post("/api/settings/mcp-token")
+async def mcp_token(request: Request):
+    """Nouvelle adresse du connecteur MCP (ChatGPT, Claude) ; l'ancienne cesse de marcher. Montrée une seule fois."""
+    token = mcp.new_token(request.app.state.store)
+    base = _public_url(request.app.state) or str(request.base_url).rstrip("/")
+    return {"token": token, "url": f"{base.rstrip('/')}/mcp/{token}"}
+
+
+@app.delete("/api/settings/mcp-token")
+async def mcp_token_off(request: Request):
+    mcp.revoke(request.app.state.store)
+    return Response(status_code=204)
+
+
 @app.get("/api/explore/views")
 async def get_views(request: Request):
     return json.loads(request.app.state.store.get("explore_views") or "[]")
@@ -2750,3 +2778,57 @@ async def delete_decision(request: Request, name: str):
     if not decisions.delete(request.app.state.conn, _decision_name(name)):
         raise HTTPException(404, "Aucune décision pour ce nom.")
     return Response(status_code=204)
+
+
+# Outils MCP : chaque chemin est un écran en lecture seule (READ_PATHS), appelé directement, sans passer par le réseau.
+MCP_READS = {"/api/explore/rank": explore_rank, "/api/explore/fiche": explore_fiche, "/api/today": today_screen,
+             "/api/drops": list_drops, "/api/explore/top": explore_top, "/api/ai/rated": ai_rated,
+             "/api/domains": list_domains}
+
+
+async def _mcp_read(app_, path: str, params: dict):
+    if path not in MCP_READS or not READ_PATHS.match(path):
+        raise ValueError("Lecture non autorisée.")
+    scope = {"type": "http", "method": "GET", "path": path, "query_string": urlencode(params).encode(),
+             "headers": [], "app": app_}
+    try:
+        result = await MCP_READS[path](Request(scope))
+    except HTTPException as exc:
+        raise ValueError(str(exc.detail)) from None
+    if isinstance(result, Response):
+        return json.loads(result.body)
+    return result
+
+
+async def _mcp(request: Request, token: str | None):
+    state = request.app.state
+    if not mcp.token_ok(state.store, token):
+        return JSONResponse({"detail": "Jeton du connecteur absent, faux ou révoqué."}, status_code=401)
+    try:
+        message = json.loads(await request.body())
+    except ValueError:
+        return JSONResponse({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "JSON illisible."}},
+                            status_code=400)
+    reply = await mcp.handle(message, lambda path, params: _mcp_read(request.app, path, params), VERSION,
+                             _public_url(state))
+    if reply is None:
+        return Response(status_code=202)
+    return JSONResponse(reply)
+
+
+@app.post("/mcp/{token}")
+async def mcp_secret_url(request: Request, token: str):
+    return await _mcp(request, token)
+
+
+@app.post("/mcp")
+async def mcp_bearer(request: Request):
+    header = request.headers.get("authorization") or ""
+    return await _mcp(request, header[7:] if header.startswith("Bearer ") else None)
+
+
+# Pas de flux serveur (SSE) ni de session à fermer : le client se contente des réponses JSON.
+@app.api_route("/mcp/{token}", methods=["GET", "DELETE"])
+@app.api_route("/mcp", methods=["GET", "DELETE"])
+async def mcp_no_stream():
+    return Response(status_code=405, headers={"Allow": "POST"})
