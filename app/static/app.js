@@ -718,7 +718,7 @@ document.addEventListener("alpine:init", () => {
         // Verdict en pastille (classe .verdict), le prix et les raisons en texte normal.
         verdict, verdictClass: this.aiClass(ai),
         // Le rang affiché à part (tri par fréquence) n'est pas répété dans les raisons.
-        line: ai ? `utilisateur final ${this.priceRange(ai.final_low, ai.final_high)}${this.delayText(ai.final_months)}` : (i.reasons || []).filter((r) => r !== freq).slice(0, 2).join(" · "),
+        line: ai ? `utilisateur final ${this.priceRange(ai.final_low, ai.final_high)}${ai.yield != null ? " · " + this.yieldText(ai) : ""}` : (i.reasons || []).filter((r) => r !== freq).slice(0, 2).join(" · "),
         freq,
         // Pourquoi « À laisser » ou « À surveiller », en fin de phrase, discret.
         why: ai && ai.why && verdict !== "À prendre" ? ai.why : "",
@@ -991,8 +991,9 @@ document.addEventListener("alpine:init", () => {
             title: key === main ? `Note IA de ${use} sur 100 : la valeur qui trie pour cet usage` : `Note IA de ${use} sur 100` }));
         k.notes = notes.sort((a, b) => b.main - a.main);
         k.verdict = { text: this.aiVerdict(opinion), cls: "verdict " + this.aiClass(opinion) };
-        k.prices = [["revente rapide", this.priceRange(opinion.quick_low, opinion.quick_high) + this.delayText(opinion.quick_months)],
-          ["utilisateur final", this.priceRange(opinion.final_low, opinion.final_high) + this.delayText(opinion.final_months)]].filter(([, v]) => v);
+        k.prices = [["revente rapide", this.priceRange(opinion.quick_low, opinion.quick_high)],
+          ["utilisateur final", this.priceRange(opinion.final_low, opinion.final_high)],
+          ["rendement", this.yieldText(opinion, true)]].filter(([, v]) => v);
         k.why = opinion.why || "";
         k.comment = (opinion.comment || "").slice(k.verdict.text.length).replace(/^\.\s*/, "");
         k.old = (opinion.version || 0) < 5;
@@ -1352,7 +1353,7 @@ document.addEventListener("alpine:init", () => {
     },
 
     ficheCompSum(f) {
-      const n = ((f && f.comparables) || []).length + ((f && f.references) || []).length;
+      const n = ((f && f.comparables) || []).length + ((f && f.references) || []).length + ((f && f.sales) || []).length;
       return `${n} nom${n > 1 ? "s" : ""}`;
     },
 
@@ -1389,10 +1390,15 @@ document.addEventListener("alpine:init", () => {
     },
 
     // Fourchette de prix d'un avis IA : « 2 000 à 6 000 € », « 0 € » quand rien.
-    // Délai de vente médian estimé par l'IA (avis récents) : « en ~6 mois », « en ~2 ans ».
-    delayText(months) {
-      if (!months) return "";
-      return months < 12 ? ` en ~${months}\u00a0mois` : ` en ~${Math.round(months / 12)}\u00a0an${months >= 24 ? "s" : ""}`;
+    // Rendement attendu (avis récents) : chance de vente réelle × prix bas, commission et renouvellement ôtés.
+    yieldText(o, long) {
+      if (!o || o.yield == null) return "";
+      const v = Math.round(Math.abs(o.yield));
+      const head = o.yield >= 0 ? `rapporte ~${v}\u00a0€/an` : `coûte ~${v}\u00a0€/an`;
+      if (!long || !o.sell_rate) return head;
+      const pct = (o.sell_rate * 100).toLocaleString("fr-FR", { maximumFractionDigits: 1 });
+      const years = o.median_years != null ? `, 1 chance sur 2 en ~${Math.round(o.median_years)}\u00a0ans` : "";
+      return `${head} (vente ~${pct}\u00a0%/an${years})`;
     },
 
     priceRange(low, high) {

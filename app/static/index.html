@@ -1785,7 +1785,7 @@
         <div class="fsec-body" x-html="ficheDl(ficheParts(fiche).name)"></div>
       </details>
       <!-- Comparables (noms déjà notés, même liste, longueur proche) puis repères du portefeuille ; un nom ouvre sa fiche. -->
-      <details class="fsec" x-show="(fiche.comparables || []).length || (fiche.references || []).length">
+      <details class="fsec" x-show="(fiche.comparables || []).length || (fiche.references || []).length || (fiche.sales || []).length">
         <summary><span class="fsec-title">Comparables et repères</span><span class="fsec-sum" x-text="ficheCompSum(fiche)"></span></summary>
         <div class="fsec-body">
           <h4 class="fsub" x-show="(fiche.comparables || []).length">Comparables</h4>
@@ -1797,6 +1797,17 @@
                 <span class="muted" x-text="'revente ' + c.resale"></span>
                 <span class="muted" x-text="priceRange(c.final_low, c.final_high)"></span>
                 <span class="muted small" x-text="c.status_label"></span>
+              </li>
+            </template>
+          </ol>
+          <h4 class="fsub" x-show="(fiche.sales || []).length">Ventes réelles proches</h4>
+          <p class="muted small" x-show="(fiche.sales || []).length">DNJournal : ventes publiées d'au moins 1 000 à 2 000 $. Elles disent ce que vaut ce genre de nom quand il se vend, pas s'il se vendra.</p>
+          <ol class="flist" x-show="(fiche.sales || []).length">
+            <template x-for="s in fiche.sales || []" :key="s.name + s.date">
+              <li class="fiche-comp">
+                <span class="mono" x-text="s.name"></span>
+                <span x-text="Number(s.price).toLocaleString('fr-FR') + '\u00a0$'"></span>
+                <span class="muted small" x-text="s.venue + ', ' + shortDate(s.date)"></span>
               </li>
             </template>
           </ol>

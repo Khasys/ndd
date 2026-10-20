@@ -440,7 +440,7 @@ def test_ai_opinions_round_trip_with_a_token(logged):
     client.app.state.explorer.touch("ciel.fr")
     client.app.state.explorer.touch("mai.fr")
     pending = client.get("/api/ai/pending", params={"limit": 20}).json()
-    assert pending["version"] == 6 and "revente rapide" in pending["guide"] and "final_months" in pending["guide"] and len(pending["names"]) == 20
+    assert pending["version"] == 7 and "revente rapide" in pending["guide"] and "ventes_comparables" in pending["guide"] and len(pending["names"]) == 20
     assert "oral" in pending["format"]["required"] and "radio (entendu une fois" in pending["guide"]
     assert pending["format"]["required"][0] == "name" and pending["format"]["additionalProperties"] is False
     # Les deux libres vérifiés d'abord (entre eux, le meilleur score ; ici presque à égalité).
@@ -505,17 +505,17 @@ def test_ai_opinions_round_trip_with_a_token(logged):
     # Grille v5 : sous-notes ; notes et verdict calculés par le NAS, prix dans le palier de la note.
     v5 = {"name": "velo.fr", "oral": 10, "radio": 10, "memo": 10, "sens": 10, "marque": 9, "marche": 8, "ext": 10,
           "acheteurs": 9, "risque": 0, "quick_low": 3000, "quick_high": 8000, "final_low": 15000, "final_high": 50000,
-          "quick_months": 3, "final_months": 12,
           "comment": "Mot que tout le monde tape, rare en 4 lettres. Acheteur type : enseigne vélo."}
     sent = client.post("/api/ai/results", headers=headers, json={"results": [
-        v5, {**v5, "name": "mot.fr", "quick_low": 0, "quick_high": 0, "quick_months": 0, "final_low": 50, "final_high": 100}, {**v5, "name": "mot.fr", "comment": "À prendre. Bon. Acheteur type : x."}]}).json()
+        v5, {**v5, "name": "mot.fr", "quick_low": 0, "quick_high": 0, "final_low": 50, "final_high": 100}, {**v5, "name": "mot.fr", "comment": "À prendre. Bon. Acheteur type : x."}]}).json()
     assert sent["saved"] == 1
     assert sent["rejected"][0]["reason"].startswith("prix utilisateur final hors palier")
     assert sent["rejected"][1]["reason"].startswith("commentaire")
     row = client.app.state.conn.execute("SELECT * FROM domain_ai WHERE name = 'velo.fr'").fetchone()
-    # Un an d'attente au prix final : la note de revente perd 5 %.
-    assert row["version"] == 6 and row["exploit"] == 95 and row["resale"] == 85 and row["comment"].startswith("À prendre. Mot")
-    assert (row["quick_months"], row["final_months"]) == (3, 12)
+    # Rendement : chance de vente réelle (velo.fr pris nulle part ailleurs ici) × prix bas, moins le renouvellement.
+    assert row["version"] == 7 and row["exploit"] == 95 and row["resale"] == 90 and row["comment"].startswith("À prendre. Mot")
+    from app.ai_format import sell_rate
+    assert row["taken"] == 0 and row["sell_rate"] == round(sell_rate(90, 0), 4) and row["yield"] > 1000
     assert json.loads(row["grid"])["oral"] == 10 and row["reviewed_at"] is None
     assert row["status_at"] == 2  # supprimé non repris au moment de l'avis : la mesure a posteriori s'en sert
     # Second passage : le même nom renoté en v5 est marqué revu.
@@ -538,7 +538,7 @@ def test_ai_opinions_round_trip_with_a_token(logged):
     assert rated(ai_v="take")[0] == ["velo.fr"]
     assert rated(ai_v="take", ai_quick_high_min="5000", ai_final_high_max="50000", sort="freq")[0] == ["velo.fr"]
     assert rated(ai_v="skip")[0] == [] and rated(ai_exploit_max="50")[0] == []
-    assert rated(ai_quick_low_min="5000")[0] == [] and rated(ai_resale_min="85", sort="length")[0] == ["velo.fr"]
+    assert rated(ai_quick_low_min="5000")[0] == [] and rated(ai_resale_min="90", sort="length")[0] == ["velo.fr"]
     assert client.get("/api/explore/rank", params={"ai_v": "peut-etre"}).status_code == 422
     assert client.get("/api/explore/rank", params={"ai_exploit_min": "beaucoup"}).status_code == 422
     status = client.get("/api/ai/status").json()
@@ -586,10 +586,10 @@ def test_exchange_script_compact_format_keeps_every_field_and_the_rules(tmp_path
     assert run("guide", str(lot)).strip() == "Consigne."
     txt = tmp_path / "avis-1.txt"
     txt.write_text("# tranche 1\n"
-                   "velo.fr|10,10,10,10,9,8,10,9,0|-|3,12|Mot que tout le monde tape.|enseigne vélo\n"
-                   "mai.fr|8,8,8,6,5,4,8,3,0|100,300,500,1000|6,24|Mois court.|agence événementielle.\n"
-                   "inconnu.fr|1,1,1,1,1,1,1,1,1|-|0,120|x|y\n"
-                   "mai.fr|8,8|-|6,24|trop court|y\n", encoding="utf-8")
+                   "velo.fr|10,10,10,10,9,8,10,9,0|-|Mot que tout le monde tape.|enseigne vélo\n"
+                   "mai.fr|8,8,8,6,5,4,8,3,0|100,300,500,1000|Mois court.|agence événementielle.\n"
+                   "inconnu.fr|1,1,1,1,1,1,1,1,1|-|x|y\n"
+                   "mai.fr|8,8|-|trop court|y\n", encoding="utf-8")
     avis = tmp_path / "avis.json"
     out = run("pack", str(lot), str(avis), str(txt))
     assert "2 ligne(s) illisible(s)" in out and "inconnu.fr : nom absent du lot" in out and "9 sous-notes attendues" in out
@@ -597,7 +597,6 @@ def test_exchange_script_compact_format_keeps_every_field_and_the_rules(tmp_path
     velo_item = items[0]
     assert velo_item["comment"] == "Mot que tout le monde tape. Acheteur type : enseigne vélo."
     assert {k: velo_item[k] for k in ("quick_low", "quick_high", "final_low", "final_high")} == default_prices(velo_item)
-    assert (velo_item["quick_months"], velo_item["final_months"]) == (3, 12)
     assert items[1]["final_high"] == 1000 and items[1]["comment"].endswith("Acheteur type : agence événementielle.")
     assert all(check_v5(i, lambda n: True) is None for i in items) and derive(velo_item)["verdict"] == "À prendre"
     assert "2 avis conformes, 0 problèmes" in run("check", str(lot), str(avis))

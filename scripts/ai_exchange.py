@@ -9,10 +9,9 @@
   python scripts/ai_exchange.py push lot.json avis.json  # contrôle puis envoie les avis conformes
 
 Format compact (moins de texte à lire et à écrire, mêmes informations, même grille) : une ligne par nom,
-  nom|oral,radio,memo,sens,marque,marche,ext,acheteurs,risque|prix|délais|raison|acheteur type
+  nom|oral,radio,memo,sens,marque,marche,ext,acheteurs,risque|prix|raison|acheteur type
 prix : « - » pour le palier standard de la note de revente (calculé comme au NAS), ou
 « revente rapide basse,haute,utilisateur final bas,haut » quand le nom s'écarte du palier.
-délais : « revente rapide,utilisateur final » en mois (ex. 6,24 ; 0 en premier si prix rapides à 0).
 Le verdict et les notes sur 100 sont calculés depuis les sous-notes.
 
 Variables d'environnement : DW_URL (ex. https://domaines.exemple.fr) et DW_AI_TOKEN (jeton créé
@@ -90,10 +89,13 @@ def line(n: dict) -> str:
         parts.append(f".fr créé {h.get('created_on') or '?'}" + (f", supprimé {h['removed_on']}" if h.get("removed_on") else ""))
     if n.get("requested"):
         parts.append("analyse demandée")
+    if n.get("ventes_comparables"):
+        parts.append("ventes comparables " + ", ".join(n["ventes_comparables"]))
     r = n.get("review")
     if r:
         parts.append(f"second passage : ancienne note {r.get('previous_note')}, estimation du score {r.get('score_estimate')}")
-    known = {"name", "status", "categories", "ranks", "natures", "taken_elsewhere", "base", "fr_history", "review", "requested"}
+    known = {"name", "status", "categories", "ranks", "natures", "taken_elsewhere", "base", "fr_history", "review", "requested",
+             "ventes_comparables"}
     parts += [f"{k} {json.dumps(v, ensure_ascii=False)}" for k, v in n.items() if k not in known]  # rien de perdu
     return " | ".join(parts)
 
@@ -109,10 +111,10 @@ def pack(lot_path: str, out_path: str, sources: list[str]) -> list[tuple[str, st
         for row in rows:
             cells = [c.strip() for c in row.split("|")]
             name = cells[0]
-            if len(cells) != 6:
-                problems.append((name, "6 champs séparés par | attendus : nom|9 sous-notes|prix|délais|raison|acheteur type"))
+            if len(cells) != 5:
+                problems.append((name, "5 champs séparés par | attendus : nom|9 sous-notes|prix|raison|acheteur type"))
                 continue
-            name, notes, prices, months, reason, buyer = cells
+            name, notes, prices, reason, buyer = cells
             try:
                 values = [int(v) for v in notes.split(",")]
             except ValueError:
@@ -131,16 +133,8 @@ def pack(lot_path: str, out_path: str, sources: list[str]) -> list[tuple[str, st
                     problems.append((name, "prix : « - » ou quatre nombres séparés par des virgules"))
                     continue
                 item.update(quick_low=ql, quick_high=qh, final_low=fl, final_high=fh)
-            try:
-                quick_months, final_months = (int(v) for v in months.split(","))
-            except ValueError:
-                problems.append((name, "délais : deux nombres de mois séparés par une virgule (revente rapide,utilisateur final)"))
-                continue
-            item.update(quick_months=quick_months, final_months=final_months)
             if prices in ("-", ""):
-                item.update(default_prices(item))  # le délai change la note de revente, donc le palier
-                if item["quick_high"] == 0:
-                    item["quick_months"] = 0
+                item.update(default_prices(item))
             item["comment"] = f"{reason.rstrip('. ')}. Acheteur type : {buyer.rstrip('. ')}."
             items.append(item)
     with open(out_path, "w", encoding="utf-8") as f:

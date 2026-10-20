@@ -2,6 +2,7 @@
 (avant l'envoi). Aucune dépendance hors de la bibliothèque standard : le script de notation
 l'importe dans une session qui n'a pas les paquets de l'appli."""
 
+import math
 import re
 from functools import lru_cache
 from pathlib import Path
@@ -80,15 +81,39 @@ CRITERIA_V5 = {
     "acheteurs": "Acheteurs possibles : beaucoup d'entreprises plausibles (10) ou un seul acheteur imaginable (1)",
     "risque": "Risque : marque déposée connue, sens négatif, vulgaire ou gênant dans une autre langue (0 aucun, 10 fort)",
 }
-FIELDS_V5 = ("name", *CRITERIA_V5, "quick_low", "quick_high", "final_low", "final_high", "quick_months", "final_months",
-             "comment")
-# Délai de vente médian estimé (une chance sur deux d'avoir vendu avant), en mois : revente rapide à un
-# investisseur (enchère, offre directe) et achat immédiat d'un utilisateur final sur une place de marché type
-# Afternic. 0 pour la revente rapide quand personne ne l'achèterait vite (prix rapides à 0).
+FIELDS_V5 = ("name", *CRITERIA_V5, "quick_low", "quick_high", "final_low", "final_high", "comment")
+# Délais estimés par l'IA (version 6) : plus demandés, la chance de vente vient des données réelles (sell_rate).
+# Encore acceptés à l'envoi le temps qu'une tâche à jour remplace l'ancienne, puis ignorés.
 MONTH_STEPS = (1, 3, 6, 12, 24, 36, 60, 120)
-# Un nom qui dort vaut moins : renouvellements payés pendant l'attente, argent immobilisé. La note de revente
-# garde toute sa valeur jusqu'à 6 mois d'attente au prix final, puis baisse jusqu'à 40 % à 10 ans.
-DELAY_FACTOR = {1: 1.0, 3: 1.0, 6: 1.0, 12: 0.95, 24: 0.88, 36: 0.82, 60: 0.72, 120: 0.6}
+OPTIONAL_V5 = ("quick_months", "final_months")
+
+# --- Chance de vente et rendement : repères réels (étalonnage du 20/10/2026, sources dans le README) ----------
+# Un portefeuille passif vend 1 à 2 % de ses noms par an (Allemann, DomainNameWire, 2022-2024 ; Afternic juge 1 %
+# « ambitieux » pour un débutant, 2026). Chez Squadhelp (2021), la part vendue par an monte avec le nombre
+# d'extensions où le nom est déjà pris : 2,84 % (une), 5,59 %, 9,46 %, 11,61 %, 14,66 % (cinq et plus), sur des noms
+# triés à l'entrée ; divisée par deux ici pour des noms non triés. Le potentiel du nom (note de revente) la
+# multiplie (×2 tous les 15 points au-dessus de 50, ÷2 tous les 15 points en dessous), entre 0,5 % et 15 % par an.
+SELL_RATE_TAKEN = (0.014, 0.028, 0.047, 0.058, 0.073)  # pris dans 0, 1, 2, 3, 4 autres extensions et plus
+SELL_RATE_MIN, SELL_RATE_MAX = 0.005, 0.15
+COMMISSION = 0.20        # commission de la place de marché : hypothèse prudente
+DEFAULT_RENEWAL = 15.0   # euros par an, quand le prix Gandi de l'extension n'est pas connu
+TAKE_YIELD = 2.0         # « À prendre » : rapporte au moins deux fois son renouvellement chaque année
+
+
+def sell_rate(resale: int, taken: int) -> float:
+    """Part de chance de vendre dans l'année au prix utilisateur final."""
+    base = SELL_RATE_TAKEN[max(0, min(taken, len(SELL_RATE_TAKEN) - 1))]
+    return max(SELL_RATE_MIN, min(SELL_RATE_MAX, base * 2 ** ((resale - 50) / 15)))
+
+
+def annual_yield(final_low: int, rate: float, renewal: float) -> float:
+    """Rendement attendu par an, en euros : vente probable au prix bas, commission ôtée, moins le renouvellement."""
+    return rate * final_low * (1 - COMMISSION) - renewal
+
+
+def median_years(rate: float) -> float:
+    """Années pour avoir une chance sur deux d'avoir vendu."""
+    return math.log(0.5) / math.log(1 - rate)
 COMMENT_V5_MAX = 180
 # « Raison. Acheteur type : qui. » Le verdict n'est plus écrit par l'IA : il est calculé.
 COMMENT_V5_SHAPE = re.compile(r"^[^\s].{5,}?\. Acheteur type : .{3,}?\.$")
@@ -174,22 +199,34 @@ def length_factor(name: str) -> float:
 
 
 def derive(item: dict) -> dict:
-    """Notes sur 100 et verdict, calculés depuis les sous-notes : même règle partout. La revente décide : une
-    note d'exploitation seule ne fait ni un « À prendre » ni un « À surveiller ». Le délai de vente au prix final
-    (final_months, absent des avis d'avant) baisse la note de revente au-delà de 6 mois."""
+    """Notes sur 100 et verdict, calculés depuis les sous-notes : même règle partout. La note de revente est le
+    potentiel du nom. Avec la demande mesurée (taken : autres extensions où il est pris) et le prix utilisateur final,
+    l'appli en tire une chance de vente par an et un rendement attendu (euros par an, renouvellement ôté), qui
+    décident du verdict. Sans ces données (avis d'avant, essais), le verdict suit la note de revente."""
     item = normalized(item)
     risk = item["risque"]
     form = (FORM_FLOOR + (1 - FORM_FLOOR) * (item["oral"] + item["radio"]) / 20) * length_factor(item.get("name") or "")
-    delay = DELAY_FACTOR.get(item.get("final_months"), 1.0)
     exploit = _round5(10 * sum(item[k] * w for k, w in EXPLOIT_WEIGHTS.items()) * form - RISK_COST * risk)
-    resale = _round5(10 * sum(item[k] * w for k, w in RESALE_WEIGHTS.items()) * form * delay - RISK_COST * risk)
-    if resale >= TAKE_MIN and risk <= 4 and item["acheteurs"] >= TAKE_BUYERS:
+    resale = _round5(10 * sum(item[k] * w for k, w in RESALE_WEIGHTS.items()) * form - RISK_COST * risk)
+    found = {"exploit": exploit, "resale": resale}
+    if item.get("taken") is not None and item.get("final_low") is not None:
+        renewal = item.get("renewal") or DEFAULT_RENEWAL
+        rate = sell_rate(resale, item["taken"])
+        gain = annual_yield(item["final_low"], rate, renewal)
+        found.update(sell_rate=round(rate, 4), yield_=round(gain, 1))
+        if risk >= 8 or gain <= 0:
+            verdict = "À laisser"
+        elif gain >= TAKE_YIELD * renewal and risk <= 4 and item["acheteurs"] >= TAKE_BUYERS:
+            verdict = "À prendre"
+        else:
+            verdict = "À surveiller"
+    elif resale >= TAKE_MIN and risk <= 4 and item["acheteurs"] >= TAKE_BUYERS:
         verdict = "À prendre"
     elif resale <= LEAVE_MAX or risk >= 8:
         verdict = "À laisser"
     else:
         verdict = "À surveiller"
-    return {"exploit": exploit, "resale": resale, "verdict": verdict}
+    return {**found, "verdict": verdict}
 
 
 def _step_down(x: float) -> int:
@@ -256,7 +293,7 @@ def check_v5(item, known) -> str | None:
     """Raison du refus d'un avis v5, ou None. Même règle pour la tâche de notation et pour le NAS."""
     if not isinstance(item, dict):
         return "pas un objet"
-    keys = set(item)
+    keys = set(item) - set(OPTIONAL_V5)
     if keys != set(FIELDS_V5):
         missing, extra = set(FIELDS_V5) - keys, keys - set(FIELDS_V5)
         return "clés attendues : " + ", ".join(FIELDS_V5) + (f" (manque {', '.join(sorted(missing))})" if missing else "") + \
@@ -277,15 +314,6 @@ def check_v5(item, known) -> str | None:
         return "revente rapide plus chère que l'utilisateur final"
     if quick_high > _step_up(final_high * QUICK_SHARE):
         return f"revente rapide : {int(QUICK_SHARE * 100)} % du prix utilisateur final au plus"
-    quick_months, final_months = item["quick_months"], item["final_months"]
-    steps = ", ".join(map(str, MONTH_STEPS))
-    if final_months not in MONTH_STEPS or isinstance(final_months, bool):
-        return f"délai utilisateur final : un de {steps} mois"
-    if quick_high == 0:
-        if quick_months != 0:
-            return "délai de revente rapide : 0 quand personne ne l'achèterait vite"
-    elif quick_months not in MONTH_STEPS or isinstance(quick_months, bool):
-        return f"délai de revente rapide : un de {steps} mois"
     # Le prix suit la note de revente : elle tient compte du marché et des acheteurs, l'exploitation non.
     resale = derive(item)["resale"]
     label, _, tld = name.rpartition(".")
@@ -315,10 +343,6 @@ FORMAT_V5 = {
         "quick_high": {"type": "integer", "enum": list(PRICE_STEPS)},
         "final_low": {"type": "integer", "enum": list(PRICE_STEPS)},
         "final_high": {"type": "integer", "enum": list(PRICE_STEPS)},
-        "quick_months": {"type": "integer", "enum": [0, *MONTH_STEPS],
-                         "description": "délai médian de revente rapide à un investisseur, en mois (0 si prix rapides à 0)"},
-        "final_months": {"type": "integer", "enum": list(MONTH_STEPS),
-                         "description": "délai médian de vente au prix utilisateur final, en achat immédiat (type Afternic), en mois"},
         "comment": {"type": "string", "maxLength": COMMENT_V5_MAX, "pattern": "Raison en une phrase. Acheteur type : qui."},
     },
 }

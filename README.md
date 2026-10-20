@@ -879,11 +879,26 @@ doit apprendre ce que les sous-notes ne disent pas (usage concret, ce qui fait p
 marque précise qui gêne) plutôt que « long » ou « descriptif ». La mémorisation est calculée par l'appli (10
 jusqu'à 4 lettres ou mot très courant, 7 de 5 à 7 lettres ou mot courant, 4 de 8 à 12, 2 au-delà) ; au-delà de
 12 lettres la note perd 3 % par lettre (30 % au plus). « À prendre » exige une note de revente d'au moins 60.
-Délais (version 6) : pour chaque prix, l'IA donne un délai de vente médian en mois (1, 3, 6, 12, 24, 36, 60
-ou 120) : revente rapide à un investisseur, achat immédiat au prix final sur une place de marché type Afternic.
-Au-delà de 6 mois au prix final, la note de revente baisse (−5 % à 1 an, −12 % à 2 ans, −28 % à 5 ans, −40 % à
-10 ans) et les prix suivent. La revente décide de tout : « À prendre » et « À laisser » se jugent sur elle. Les
-avis de la version 5 « À prendre » ou « À surveiller » sont renotés ; les « À laisser » restent.
+Rendement (version 7) : la note de revente est le potentiel du nom ; le verdict vient du rendement attendu, en
+euros par an : chance de vente dans l'année × prix utilisateur final bas × (1 − 20 % de commission), moins le
+renouvellement de l'extension chez Gandi. « À prendre » rapporte au moins deux fois son renouvellement, « À
+laisser » coûte plus qu'il ne rapporte (ou risque de 8 et plus), « À surveiller » entre les deux. La chance de
+vente n'est pas estimée par l'IA : elle part des taux publiés (un portefeuille passif vend 1 à 2 % de ses noms par
+an, Allemann/DomainNameWire 2022-2024 ; Afternic juge 1 % « ambitieux » pour un débutant, 2026), monte avec la
+demande mesurée (nombre d'autres extensions où le nom est pris ; courbe Squadhelp 2021 : 2,84 % à 14,66 % selon 1 à
+5 extensions prises, divisée par deux pour des noms non triés ; pour un nom hors .com, un .com pris ne compte pas)
+et avec le potentiel (×2 tous les 15 points de note de revente au-dessus de 50), entre 0,5 % et 15 % par an. La
+fiche montre « rapporte ~X €/an (vente ~Y %/an, 1 chance sur 2 en ~Z ans) ».
+
+Ventes comparables : le NAS lit les rapports de ventes de DNJournal (toutes les deux semaines, archive de
+l'année et des précédentes depuis 2025 ; `app/market.py`, table `market_sales`, données gardées sur le NAS seulement).
+Pour chaque nom, les 4 ventes réelles les plus proches (un mot courant en commun, puis même extension, même
+nombre de mots, même langue, longueur voisine, ventes récentes d'abord) sont jointes au lot de notation
+(`ventes_comparables`) : l'IA ancre son prix utilisateur final dessus, plus bas pour un nom plus faible, car
+DNJournal ne publie que des ventes d'au moins 1 000 à 2 000 $ (médiane de toutes les ventes Sedo : 600 à 800 $).
+La fiche les montre (section « Comparables et repères »). Source cassée (archive ou rapport injoignable, rapport
+sans vente lisible, plus de nouveau rapport depuis 5 semaines) : panne bloquante, alerte Telegram immédiate.
+Les avis v5 et v6 « À prendre » ou « À surveiller » sont renotés (v7) ; les « À laisser » restent.
 Contre-notation : chaque « À prendre » repasse à l'aveugle chez un second correcteur, en tête de lot (200 au
 plus), et la note la plus basse reste (`confirmed_at`). Validation de
 la grille : 50 noms témoins notés par plusieurs agents indépendants, écart-type moyen de 3 points,

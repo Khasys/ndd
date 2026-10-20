@@ -19,7 +19,7 @@ from . import gandi, rdapinfo, value, wordlists
 from .checker import iso, utcnow
 
 # Version de la consigne : la monter fait renoter tous les noms, petit à petit.
-VERSION = 6  # 5 : grille détaillée (sous-notes), notes et verdict calculés, prix par paliers ; 6 : délais de vente
+VERSION = 7  # 5 : grille détaillée, notes et verdict calculés ; 6 : délais ; 7 : ventes comparables et rendement
 MAX_PENDING = 5000
 MAX_RESULTS = 5000
 
@@ -34,11 +34,11 @@ UNCHECKED = 10            # extension par Gandi seul, pas encore demandé : rien
 FIRST_LISTS = (("premium", "keyword", "brand"), ("local",))
 
 from .ai_format import (COMMENT_MAX, CRITERIA_V5, FIELDS, FIELDS_V5, FORMAT_V5, PRICE_STEPS, check,  # noqa: F401  (réexportés)
-                        VERDICTS, check_any, default_prices, derive, is_v5, normalized)
+                        VERDICTS, check_any, default_prices, derive, is_v5, median_years, normalized)
 
 # Règle de calcul des notes (ai_format.derive) : la monter recalcule les avis gardés depuis leurs sous-notes, sans
 # renoter. 2 : pénalité de longueur au-delà de 12 lettres.
-DERIVE_VERSION = "3"  # 3 : mémorisation calculée par l'appli, « À prendre » sur la note de revente
+DERIVE_VERSION = "4"  # 4 : verdict sur le rendement attendu (chance de vente réelle, renouvellement), plus de délai IA
 
 FORMAT = FORMAT_V5
 
@@ -47,7 +47,7 @@ GUIDE = """Tu notes des noms de domaine pour un investisseur francophone qui ach
 
 Pour chaque nom, pose-toi d'abord la vraie question : un acheteur réel paiera-t-il ce prix, et en combien de temps ? Un nom qui sonne bien mais que personne n'achète ne vaut rien pour lui.
 
-Pour chaque nom : neuf sous-notes de 0 à 10, deux fourchettes de prix, deux délais de vente et une raison. Les notes sur 100 (exploitation, revente) et le verdict (À prendre, À surveiller, À laisser) sont calculés par l'appli à partir de tes sous-notes : ne les donne pas, mais vise juste, ils en découlent directement. « À prendre » demande une note de revente de 60, un risque de 4 au plus et au moins 4 en acheteurs.
+Pour chaque nom : neuf sous-notes de 0 à 10, deux fourchettes de prix et une raison. L'appli en tire elle-même la chance de vente par an et le rendement attendu, avec des données réelles (taux de vente publiés, demande mesurée, renouvellement) : ne les estime pas. Les notes sur 100 (exploitation, revente) et le verdict (À prendre, À surveiller, À laisser) sont calculés par l'appli à partir de tes sous-notes : ne les donne pas, mais vise juste, ils en découlent directement. Le verdict vient du rendement attendu (le nom doit rapporter au moins deux fois son renouvellement par an pour « À prendre ») : ta note de revente fixe le potentiel du nom et ton prix final, le reste est mesuré.
 
 Sous-notes, entiers de 0 à 10, avec la même grille du premier au dernier nom :
 - oral (prononciation) : 10 se dit d'une seule façon sans hésiter (velo, mai) ; 5 une hésitation (oye) ; 0 imprononçable (qsd). Un .fr ou un .com se juge dans la langue du mot (un mot français en français, un mot anglais en anglais) ; .io et .ai en anglais ; un nom qui se dit pareil dans les deux langues prend 1 point de plus.
@@ -64,9 +64,8 @@ Prix en euros, uniquement ces valeurs : 0, 50, 100, 150, 200, 300, 500, 800, 100
 - final_low, final_high : prix pour un utilisateur final, avec de la patience (mois ou années).
 - quick_low, quick_high : revente rapide à un investisseur, 40 % du prix final au plus ; 0 et 0 si personne ne l'achèterait vite.
 - Bas inférieur ou égal au haut.
-- quick_months : délai médian (une chance sur deux d'avoir vendu avant), en mois, pour la revente rapide à un investisseur (enchère, offre directe) ; 0 si les prix rapides sont à 0.
-- final_months : délai médian, en mois, pour vendre au prix utilisateur final en achat immédiat sur une place de marché type Afternic, nom bien présenté.
-- Délais, uniquement ces valeurs : 1, 3, 6, 12, 24, 36, 60, 120. Repères : un mot court très demandé part en quelques mois ; un mot-clé descriptif attend souvent deux à cinq ans son acheteur ; un nom sans marché, dix ans ou jamais (120). L'appli baisse la note de revente au-delà de 6 mois : sois réaliste, pas optimiste.
+- Prix utilisateur final : prix d'achat immédiat réaliste sur une place de marché (Afternic, Sedo), celui auquel un acheteur réel signerait.
+- Ventes comparables : un nom qui porte « ventes_comparables » a des ventes réelles proches (DNJournal : un mot en commun, ou même extension et même forme). Appuie ton prix final dessus, plus bas si ton nom est plus faible. Attention : DNJournal ne publie que des ventes d'au moins 1 000 à 2 000 dollars et seulement celles qui ont eu lieu ; la médiane de toutes les ventes Sedo est de 600 à 800 dollars (2024-2025). Un nom ordinaire vaut moins que ces comparables, pas autant.
 - Grille : le prix final suit la note de revente calculée (elle tient compte du marché et des acheteurs). Pour un .fr : 95 et plus, 20 000 à 300 000 ; 90, 10 000 à 150 000 ; 85, 8 000 à 80 000 ; 80, 5 000 à 30 000 ; 70, 3 000 à 15 000 ; 60, 1 500 à 8 000 ; 50, 1 000 à 5 000 ; 40, 500 à 2 000 ; 30, 200 à 1 000 ; 20, 100 à 800 ; 10, 50 à 300 ; en dessous, 0 à 100.
 - Autres extensions, mêmes paliers multipliés par : .com 1,5 ; .io et .ai 0,8 ; .co 0,6 ; .org, .app et .dev 0,5 ; .net 0,4 ; .info, .biz et .xyz 0,25 ; autres 0,4.
 - Un palier de tolérance au-dessus ou au-dessous est accepté. Dans le palier, monte si marche et acheteurs sont forts, descends sinon.
@@ -91,41 +90,41 @@ Crédibilité avant tout :
 - Orthographe et grammaire : relis le nom mot à mot. Une lettre qui manque ou un accord faux (comptabilitenligne pour comptabiliteenligne, droitdufamille pour droitdelafamille) : radio 2 au plus, sens 3 au plus, marque 1, et la raison commence par « Faute : » suivi de la bonne forme.
 - Longueur : l'appli retire elle-même des points au-delà de 12 lettres. Juge le reste sans t'en soucier.
 
-Format : une liste JSON d'objets avec exactement ces clés : name, oral, radio, memo, sens, marque, marche, ext, acheteurs, risque, quick_low, quick_high, final_low, final_high, quick_months, final_months, comment ; name est le nom complet reçu, tel quel ; un objet par nom, dans l'ordre reçu, sans texte autour.
+Format : une liste JSON d'objets avec exactement ces clés : name, oral, radio, memo, sens, marque, marche, ext, acheteurs, risque, quick_low, quick_high, final_low, final_high, comment ; name est le nom complet reçu, tel quel ; un objet par nom, dans l'ordre reçu, sans texte autour.
 
 Exemples de référence :
-{"name": "velo.fr", "oral": 10, "radio": 10, "memo": 10, "sens": 10, "marque": 9, "marche": 8, "ext": 10, "acheteurs": 9, "risque": 0, "quick_low": 3000, "quick_high": 8000, "final_low": 15000, "final_high": 50000, "quick_months": 3, "final_months": 12, "comment": "Le vélo électrique a fait du secteur un marché à gros panier, et le mot nu se tape sans réfléchir. Acheteur type : marketplace de vélos d'occasion ou enseigne de cycles."}
-  (calculé : exploitation 95, revente 85, À prendre)
-{"name": "femmes.fr", "oral": 9, "radio": 8, "memo": 7, "sens": 9, "marque": 7, "marche": 8, "ext": 9, "acheteurs": 8, "risque": 0, "quick_low": 1000, "quick_high": 3000, "final_low": 5000, "final_high": 15000, "quick_months": 6, "final_months": 24, "comment": "Audience large qui attire la publicité santé, mode et beauté, comme les grands médias féminins. Acheteur type : groupe de presse féminine ou marque de lingerie."}
-  (calculé : exploitation 75, revente 65, À prendre)
-{"name": "mai.fr", "oral": 9, "radio": 7, "memo": 10, "sens": 7, "marque": 8, "marche": 6, "ext": 9, "acheteurs": 8, "risque": 0, "quick_low": 800, "quick_high": 2000, "final_low": 3000, "final_high": 10000, "quick_months": 6, "final_months": 24, "comment": "Mois des ponts et des mariages, trois lettres rares en .fr qui vont à toute marque courte. Acheteur type : agence événementielle ou marque de mode."}
-  (calculé : exploitation 75, revente 65, À prendre)
-{"name": "kalo.fr", "oral": 9, "radio": 8, "memo": 10, "sens": 0, "marque": 7, "marche": 2, "ext": 6, "acheteurs": 4, "risque": 0, "quick_low": 100, "quick_high": 300, "final_low": 800, "final_high": 2000, "quick_months": 12, "final_months": 60, "comment": "Se dit d'une traite et ne rappelle aucune marque connue : une page blanche pour une marque inventée. Acheteur type : créateur d'une marque de cosmétiques ou d'appli."}
-  (calculé : exploitation 45, revente 30, À laisser)
-{"name": "lea.fr", "oral": 9, "radio": 6, "memo": 10, "sens": 5, "marque": 6, "marche": 3, "ext": 8, "acheteurs": 5, "risque": 0, "quick_low": 200, "quick_high": 500, "final_low": 1000, "final_high": 3000, "quick_months": 12, "final_months": 36, "comment": "Prénom très donné, mais l'accent perdu (lea pour Léa) fait hésiter à l'écrit. Acheteur type : marque de cosmétiques ou de vêtements pour enfants."}
-  (calculé : exploitation 60, revente 40, À laisser)
-{"name": "monassurance.fr", "oral": 8, "radio": 8, "memo": 4, "sens": 8, "marque": 4, "marche": 9, "ext": 9, "acheteurs": 6, "risque": 1, "quick_low": 500, "quick_high": 1500, "final_low": 3000, "final_high": 8000, "quick_months": 6, "final_months": 24, "comment": "Un contrat signé rapporte gros au courtier, mais la formule « mon » plus un mot ne se protège pas comme marque. Acheteur type : courtier en ligne ou comparateur d'assurance."}
-  (calculé : exploitation 50, revente 50, À surveiller)
-{"name": "forumdomotique.fr", "oral": 7, "radio": 8, "memo": 2, "sens": 8, "marque": 3, "marche": 5, "ext": 9, "acheteurs": 3, "risque": 0, "quick_low": 100, "quick_high": 300, "final_low": 500, "final_high": 2000, "quick_months": 24, "final_months": 60, "comment": "Dit exactement ce qu'on y trouve, parfait pour une communauté, mais personne d'autre n'en voudra. Acheteur type : éditeur de site domotique qui lance un forum."}
-  (calculé : exploitation 45, revente 30, À laisser)
-{"name": "premiere.fr", "oral": 9, "radio": 6, "memo": 7, "sens": 8, "marque": 6, "marche": 5, "ext": 8, "acheteurs": 5, "risque": 5, "quick_low": 0, "quick_high": 100, "final_low": 100, "final_high": 300, "quick_months": 12, "final_months": 60, "comment": "Mot fort, mais le magazine Première peut s'y opposer. Acheteur type : organisateur d'événements."}
-  (calculé : exploitation 50, revente 25, À laisser)
-{"name": "boulangerie.com", "oral": 9, "radio": 9, "memo": 7, "sens": 10, "marque": 6, "marche": 6, "ext": 10, "acheteurs": 7, "risque": 0, "quick_low": 1000, "quick_high": 3000, "final_low": 5000, "final_high": 15000, "quick_months": 6, "final_months": 24, "comment": "Commerce que tout le monde fréquente, le .com porte une chaîne ou un site de commande national. Acheteur type : réseau de boulangeries franchisées ou appli de retrait en boutique."}
-  (calculé : exploitation 75, revente 65, À prendre)
-{"name": "comparateurenergie.com", "oral": 8, "radio": 8, "memo": 2, "sens": 8, "marque": 3, "marche": 8, "ext": 10, "acheteurs": 6, "risque": 0, "quick_low": 500, "quick_high": 1500, "final_low": 2000, "final_high": 8000, "quick_months": 12, "final_months": 36, "comment": "Requête tapée à chaque hausse des tarifs, et chaque client signé rapporte une commission. Acheteur type : courtier en énergie pour particuliers."}
-  (calculé : exploitation 40, revente 40, À laisser)
-{"name": "stack.io", "oral": 9, "radio": 9, "memo": 7, "sens": 8, "marque": 7, "marche": 6, "ext": 9, "acheteurs": 6, "risque": 3, "quick_low": 300, "quick_high": 1000, "final_low": 800, "final_high": 3000, "quick_months": 6, "final_months": 24, "comment": "Évoque la pile logicielle (tech stack), vocabulaire quotidien des développeurs. Acheteur type : start-up d'outils pour développeurs."}
-  (calculé : exploitation 65, revente 50, À surveiller)
-{"name": "ciel.org", "oral": 9, "radio": 8, "memo": 10, "sens": 8, "marque": 4, "marche": 2, "ext": 3, "acheteurs": 3, "risque": 0, "quick_low": 0, "quick_high": 100, "final_low": 100, "final_high": 300, "quick_months": 12, "final_months": 60, "comment": "Parle aux causes climat et astronomie, mais le .org ferme la porte aux acheteurs commerciaux. Acheteur type : association d'astronomie ou de qualité de l'air."}
-  (calculé : exploitation 60, revente 30, À laisser)
-{"name": "sommes.fr", "oral": 8, "radio": 5, "memo": 7, "sens": 3, "marque": 2, "marche": 2, "ext": 7, "acheteurs": 2, "risque": 1, "quick_low": 0, "quick_high": 100, "final_low": 200, "final_high": 800, "quick_months": 36, "final_months": 120, "comment": "Forme de « être » ou pluriel de « somme », sens flou. Acheteur type : rare, à la marge en finance."}
-  (calculé : exploitation 30, revente 15, À laisser)
-{"name": "382.fr", "oral": 3, "radio": 6, "memo": 10, "sens": 0, "marque": 1, "marche": 1, "ext": 5, "acheteurs": 2, "risque": 0, "quick_low": 0, "quick_high": 0, "final_low": 100, "final_high": 300, "quick_months": 0, "final_months": 120, "comment": "Trois chiffres sans motif, se dit mal et s'oublie. Acheteur type : entreprise qui porte ce numéro."}
-  (calculé : exploitation 20, revente 15, À laisser)
-{"name": "qsd.fr", "oral": 1, "radio": 4, "memo": 10, "sens": 0, "marque": 1, "marche": 1, "ext": 5, "acheteurs": 3, "risque": 0, "quick_low": 0, "quick_high": 0, "final_low": 100, "final_high": 300, "quick_months": 0, "final_months": 120, "comment": "Suite imprononçable sans sens, seule la brièveté compte. Acheteur type : entreprise au sigle QSD."}
-  (calculé : exploitation 15, revente 15, À laisser)
-{"name": "puer.fr", "oral": 8, "radio": 7, "memo": 10, "sens": 6, "marque": 1, "marche": 1, "ext": 6, "acheteurs": 1, "risque": 8, "quick_low": 0, "quick_high": 0, "final_low": 50, "final_high": 200, "quick_months": 0, "final_months": 120, "comment": "Verbe à l'image repoussante, aucune marque ne voudra s'y associer. Acheteur type : aucun crédible."}
-  (calculé : exploitation 20, revente 0, À laisser)"""
+{"name": "velo.fr", "oral": 10, "radio": 10, "memo": 10, "sens": 10, "marque": 9, "marche": 8, "ext": 10, "acheteurs": 9, "risque": 0, "quick_low": 3000, "quick_high": 8000, "final_low": 15000, "final_high": 50000, "comment": "Le vélo électrique a fait du secteur un marché à gros panier, et le mot nu se tape sans réfléchir. Acheteur type : marketplace de vélos d'occasion ou enseigne de cycles."}
+  (calculé : exploitation 95, revente 90, À prendre)
+{"name": "femmes.fr", "oral": 9, "radio": 8, "memo": 7, "sens": 9, "marque": 7, "marche": 8, "ext": 9, "acheteurs": 8, "risque": 0, "quick_low": 1000, "quick_high": 3000, "final_low": 5000, "final_high": 15000, "comment": "Audience large qui attire la publicité santé, mode et beauté, comme les grands médias féminins. Acheteur type : groupe de presse féminine ou marque de lingerie."}
+  (calculé : exploitation 75, revente 75, À prendre)
+{"name": "mai.fr", "oral": 9, "radio": 7, "memo": 10, "sens": 7, "marque": 8, "marche": 6, "ext": 9, "acheteurs": 8, "risque": 0, "quick_low": 800, "quick_high": 2000, "final_low": 3000, "final_high": 10000, "comment": "Mois des ponts et des mariages, trois lettres rares en .fr qui vont à toute marque courte. Acheteur type : agence événementielle ou marque de mode."}
+  (calculé : exploitation 75, revente 70, À prendre)
+{"name": "kalo.fr", "oral": 9, "radio": 8, "memo": 10, "sens": 0, "marque": 7, "marche": 2, "ext": 6, "acheteurs": 4, "risque": 0, "quick_low": 100, "quick_high": 300, "final_low": 800, "final_high": 2000, "comment": "Se dit d'une traite et ne rappelle aucune marque connue : une page blanche pour une marque inventée. Acheteur type : créateur d'une marque de cosmétiques ou d'appli."}
+  (calculé : exploitation 45, revente 40, À laisser)
+{"name": "lea.fr", "oral": 9, "radio": 6, "memo": 10, "sens": 5, "marque": 6, "marche": 3, "ext": 8, "acheteurs": 5, "risque": 0, "quick_low": 200, "quick_high": 500, "final_low": 1000, "final_high": 3000, "comment": "Prénom très donné, mais l'accent perdu (lea pour Léa) fait hésiter à l'écrit. Acheteur type : marque de cosmétiques ou de vêtements pour enfants."}
+  (calculé : exploitation 60, revente 50, À surveiller)
+{"name": "monassurance.fr", "oral": 8, "radio": 8, "memo": 4, "sens": 8, "marque": 4, "marche": 9, "ext": 9, "acheteurs": 6, "risque": 1, "quick_low": 500, "quick_high": 1500, "final_low": 3000, "final_high": 8000, "comment": "Un contrat signé rapporte gros au courtier, mais la formule « mon » plus un mot ne se protège pas comme marque. Acheteur type : courtier en ligne ou comparateur d'assurance."}
+  (calculé : exploitation 50, revente 60, À prendre)
+{"name": "forumdomotique.fr", "oral": 7, "radio": 8, "memo": 2, "sens": 8, "marque": 3, "marche": 5, "ext": 9, "acheteurs": 3, "risque": 0, "quick_low": 100, "quick_high": 300, "final_low": 500, "final_high": 2000, "comment": "Dit exactement ce qu'on y trouve, parfait pour une communauté, mais personne d'autre n'en voudra. Acheteur type : éditeur de site domotique qui lance un forum."}
+  (calculé : exploitation 45, revente 40, À laisser)
+{"name": "premiere.fr", "oral": 9, "radio": 6, "memo": 7, "sens": 8, "marque": 6, "marche": 5, "ext": 8, "acheteurs": 5, "risque": 5, "quick_low": 100, "quick_high": 300, "final_low": 500, "final_high": 1000, "comment": "Mot fort, mais le magazine Première peut s'y opposer. Acheteur type : organisateur d'événements."}
+  (calculé : exploitation 50, revente 40, À laisser)
+{"name": "boulangerie.com", "oral": 9, "radio": 9, "memo": 7, "sens": 10, "marque": 6, "marche": 6, "ext": 10, "acheteurs": 7, "risque": 0, "quick_low": 1000, "quick_high": 3000, "final_low": 5000, "final_high": 15000, "comment": "Commerce que tout le monde fréquente, le .com porte une chaîne ou un site de commande national. Acheteur type : réseau de boulangeries franchisées ou appli de retrait en boutique."}
+  (calculé : exploitation 75, revente 70, À prendre)
+{"name": "comparateurenergie.com", "oral": 8, "radio": 8, "memo": 2, "sens": 8, "marque": 3, "marche": 8, "ext": 10, "acheteurs": 6, "risque": 0, "quick_low": 500, "quick_high": 1500, "final_low": 2000, "final_high": 8000, "comment": "Requête tapée à chaque hausse des tarifs, et chaque client signé rapporte une commission. Acheteur type : courtier en énergie pour particuliers."}
+  (calculé : exploitation 40, revente 50, À surveiller)
+{"name": "stack.io", "oral": 9, "radio": 9, "memo": 7, "sens": 8, "marque": 7, "marche": 6, "ext": 9, "acheteurs": 6, "risque": 3, "quick_low": 300, "quick_high": 1000, "final_low": 800, "final_high": 3000, "comment": "Évoque la pile logicielle (tech stack), vocabulaire quotidien des développeurs. Acheteur type : start-up d'outils pour développeurs."}
+  (calculé : exploitation 65, revente 55, À surveiller)
+{"name": "ciel.org", "oral": 9, "radio": 8, "memo": 10, "sens": 8, "marque": 4, "marche": 2, "ext": 3, "acheteurs": 3, "risque": 0, "quick_low": 0, "quick_high": 100, "final_low": 100, "final_high": 300, "comment": "Parle aux causes climat et astronomie, mais le .org ferme la porte aux acheteurs commerciaux. Acheteur type : association d'astronomie ou de qualité de l'air."}
+  (calculé : exploitation 60, revente 45, À surveiller)
+{"name": "sommes.fr", "oral": 8, "radio": 5, "memo": 7, "sens": 3, "marque": 2, "marche": 2, "ext": 7, "acheteurs": 2, "risque": 1, "quick_low": 0, "quick_high": 100, "final_low": 200, "final_high": 800, "comment": "Forme de « être » ou pluriel de « somme », sens flou. Acheteur type : rare, à la marge en finance."}
+  (calculé : exploitation 30, revente 25, À laisser)
+{"name": "382.fr", "oral": 3, "radio": 6, "memo": 10, "sens": 0, "marque": 1, "marche": 1, "ext": 5, "acheteurs": 2, "risque": 0, "quick_low": 0, "quick_high": 0, "final_low": 100, "final_high": 300, "comment": "Trois chiffres sans motif, se dit mal et s'oublie. Acheteur type : entreprise qui porte ce numéro."}
+  (calculé : exploitation 20, revente 20, À laisser)
+{"name": "qsd.fr", "oral": 1, "radio": 4, "memo": 10, "sens": 0, "marque": 1, "marche": 1, "ext": 5, "acheteurs": 3, "risque": 0, "quick_low": 0, "quick_high": 0, "final_low": 100, "final_high": 300, "comment": "Suite imprononçable sans sens, seule la brièveté compte. Acheteur type : entreprise au sigle QSD."}
+  (calculé : exploitation 15, revente 20, À laisser)
+{"name": "puer.fr", "oral": 8, "radio": 7, "memo": 10, "sens": 6, "marque": 1, "marche": 1, "ext": 6, "acheteurs": 1, "risque": 8, "quick_low": 0, "quick_high": 0, "final_low": 50, "final_high": 200, "comment": "Verbe à l'image repoussante, aucune marque ne voudra s'y associer. Acheteur type : aucun crédible."}
+  (calculé : exploitation 20, revente 10, À laisser)"""
 
 
 def hash_token(token: str) -> str:
@@ -167,8 +166,9 @@ def public(row) -> dict:
     found = {k: row[k] for k in ("exploit", "resale", "quick_low", "quick_high", "final_low", "final_high",
                                  "comment", "rated_at")}
     keys = row.keys()
-    for k in ("quick_months", "final_months"):
+    for k in ("sell_rate", "yield", "taken"):
         found[k] = row[k] if k in keys else None
+    found["median_years"] = round(median_years(found["sell_rate"]), 1) if found.get("sell_rate") else None
     grid = row["grid"] if "grid" in keys else None
     found["grid"] = json.loads(grid) if grid else None
     found["version"] = row["version"] if "version" in keys else None
@@ -251,6 +251,7 @@ def to_review(explorer, limit: int = REVIEW_PER_NIGHT) -> list[tuple[str, int, i
 # premier avis ; la note la plus basse reste (save). Un seul correcteur donnait 0 ou 45 « À prendre » sur
 # 1 000 noms comparables.
 CONFIRM_PER_LOT = 200
+COMPARABLES = 4  # ventes réelles les plus proches, jointes à chaque nom du lot (repères de prix)
 
 
 def to_confirm(explorer, limit: int = CONFIRM_PER_LOT) -> list[str]:
@@ -313,8 +314,8 @@ def _refresh_positions(explorer, locked: bool = False):
 
 
 def _done(conn) -> set[str]:
-    """Noms dont l'avis est à jour : version courante, ou « À laisser » de la version 5 (pas renotés)."""
-    rows = conn.execute("SELECT name FROM domain_ai WHERE version >= ? OR (version = 5 AND comment LIKE 'À laisser.%')",
+    """Noms dont l'avis est à jour : version courante, ou « À laisser » des versions 5 et 6 (pas renotés)."""
+    rows = conn.execute("SELECT name FROM domain_ai WHERE version >= ? OR (version IN (5, 6) AND comment LIKE 'À laisser.%')",
                         (VERSION,))
     return {r[0] for r in rows}
 
@@ -471,6 +472,11 @@ def _describe(explorer, picked, data) -> list[dict]:
         found = gandi.summary(checks.get(name), since.get(name))
         if found is not None:
             item["gandi"] = found
+        market = getattr(explorer, "market", None)
+        if market is not None:
+            sales = market.comparables(name, COMPARABLES)
+            if sales:
+                item["ventes_comparables"] = [f"{s['name']} {s['price']} $ ({s['date'][:7]})" for s in sales]
         out.append(item)
     return out
 
@@ -481,18 +487,22 @@ def rederive(conn, store) -> int:
     if store.get("ai_derive") == DERIVE_VERSION:
         return 0
     changed = 0
-    rows = conn.execute("SELECT name, grid, comment, exploit, resale, final_months FROM domain_ai WHERE grid IS NOT NULL").fetchall()
+    rows = conn.execute("SELECT name, grid, comment, exploit, resale, final_low, taken, renewal, sell_rate, yield "
+                        "FROM domain_ai WHERE grid IS NOT NULL").fetchall()
     for r in rows:
-        item = normalized({"name": r["name"], **json.loads(r["grid"]), "final_months": r["final_months"]})
+        item = normalized({"name": r["name"], **json.loads(r["grid"]), "final_low": r["final_low"], "taken": r["taken"],
+                           "renewal": r["renewal"]})
         notes = derive(item)
         grid = json.dumps({k: item[k] for k in CRITERIA_V5})
         reason = r["comment"].split(". ", 1)[1] if r["comment"].startswith(VERDICTS) and ". " in r["comment"] else r["comment"]
         comment = f"{notes['verdict']}. {reason}"
-        if (notes["exploit"], notes["resale"], comment, grid) == (r["exploit"], r["resale"], r["comment"], r["grid"]):
+        rate, gain = notes.get("sell_rate"), notes.get("yield_")
+        if (notes["exploit"], notes["resale"], comment, grid, rate, gain) == (r["exploit"], r["resale"], r["comment"], r["grid"],
+                                                                            r["sell_rate"], r["yield"]):
             continue
         prices = default_prices(item) if notes["resale"] != r["resale"] else None
-        conn.execute("UPDATE domain_ai SET exploit = ?, resale = ?, comment = ?, grid = ? WHERE name = ?",
-                     (notes["exploit"], notes["resale"], comment, grid, r["name"]))
+        conn.execute("UPDATE domain_ai SET exploit = ?, resale = ?, comment = ?, grid = ?, sell_rate = ?, yield = ? WHERE name = ?",
+                     (notes["exploit"], notes["resale"], comment, grid, rate, gain, r["name"]))
         if prices:
             conn.execute("UPDATE domain_ai SET quick_low = ?, quick_high = ?, final_low = ?, final_high = ? WHERE name = ?",
                          (prices["quick_low"], prices["quick_high"], prices["final_low"], prices["final_high"], r["name"]))
@@ -501,17 +511,18 @@ def rederive(conn, store) -> int:
     return changed
 
 
-def save(conn, results: list, known, status_of=None) -> dict:
+def save(conn, results: list, known, status_of=None, context_of=None) -> dict:
     """Enregistre les avis au bon format ; les autres sont rejetés avec la raison, sans bloquer le lot.
-    `status_of(name)` : code d'état de l'Explorer au moment de l'avis, gardé pour la mesure a posteriori."""
+    `status_of(name)` : code d'état de l'Explorer au moment de l'avis, gardé pour la mesure a posteriori.
+    `context_of(name)` : {"taken": autres extensions où le nom est pris, "renewal": euros par an}, pour le rendement."""
     now = iso(utcnow())
     saved, rejected, names = 0, [], []
     # Noms déjà notés avec la grille, avant ce lot : un avis à l'ancien format ne les remplace pas, et un
     # avis v5 qui revient est le second passage (il ne repassera plus), même en double dans le lot.
     detailed = {r[0] for r in conn.execute("SELECT name FROM domain_ai WHERE version >= ?", (VERSION,))}
     # « À prendre » pas encore contre-notés : l'avis qui arrive est le second, la note la plus basse reste.
-    to_confirm_now = {r[0]: (r[1], r[2]) for r in conn.execute(
-        "SELECT name, resale, exploit FROM domain_ai WHERE comment LIKE 'À prendre.%' AND version >= ? "
+    to_confirm_now = {r[0]: (r[1], r[2], r[3]) for r in conn.execute(
+        "SELECT name, resale, exploit, yield FROM domain_ai WHERE comment LIKE 'À prendre.%' AND version >= ? "
         "AND confirmed_at IS NULL", (VERSION,))}
     for item in results[:MAX_RESULTS]:
         reason = check_any(item, known)
@@ -523,16 +534,18 @@ def save(conn, results: list, known, status_of=None) -> dict:
             continue
         if is_v5(item):
             # Notes et verdict calculés depuis les sous-notes : ils ne peuvent pas se contredire.
-            item = normalized(item)
-            notes = derive(item)
+            item = normalized({k: v for k, v in item.items() if k not in ("quick_months", "final_months")})
+            context = context_of(item["name"]) if context_of else {}
+            notes = derive({**item, **context})
             row = {**item, "exploit": notes["exploit"], "resale": notes["resale"],
-                   "comment": f"{notes['verdict']}. {item['comment']}"}
+                   "comment": f"{notes['verdict']}. {item['comment']}", "taken": context.get("taken"),
+                   "renewal": context.get("renewal"), "sell_rate": notes.get("sell_rate"), "yield": notes.get("yield_")}
             grid, version = json.dumps({k: item[k] for k in CRITERIA_V5}), VERSION
             first = to_confirm_now.pop(item["name"], None)
             if first is not None:
                 conn.execute("UPDATE domain_ai SET confirmed_at = ?, reviewed_at = COALESCE(reviewed_at, ?) WHERE name = ?",
                              (now, now, item["name"]))
-                if (notes["resale"], notes["exploit"]) >= first:
+                if (notes["resale"], notes["exploit"]) >= first[:2] and (notes.get("yield_") or 0) >= (first[2] or 0):
                     saved += 1  # le premier avis, plus prudent ou égal, reste
                     names.append(item["name"])
                     continue
@@ -541,21 +554,41 @@ def save(conn, results: list, known, status_of=None) -> dict:
         again = row["name"] in detailed
         conn.execute(
             """INSERT INTO domain_ai (name, exploit, resale, quick_low, quick_high, final_low, final_high,
-                                      comment, rated_at, version, grid, reviewed_at, status_at, quick_months, final_months)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                      comment, rated_at, version, grid, reviewed_at, status_at, taken, renewal, sell_rate, yield)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(name) DO UPDATE SET exploit = excluded.exploit, resale = excluded.resale,
                  quick_low = excluded.quick_low, quick_high = excluded.quick_high,
                  final_low = excluded.final_low, final_high = excluded.final_high,
                  comment = excluded.comment, rated_at = excluded.rated_at, version = excluded.version,
                  grid = excluded.grid, reviewed_at = COALESCE(excluded.reviewed_at, domain_ai.reviewed_at),
-                 status_at = excluded.status_at, quick_months = excluded.quick_months,
-                 final_months = excluded.final_months""",
+                 status_at = excluded.status_at, taken = excluded.taken, renewal = excluded.renewal,
+                 sell_rate = excluded.sell_rate, yield = excluded.yield""",
             (*(row[k] for k in FIELDS), now, version, grid, now if again and version >= VERSION else None,
-             status_of(row["name"]) if status_of else None, row.get("quick_months"), row.get("final_months")),
+             status_of(row["name"]) if status_of else None, row.get("taken"), row.get("renewal"), row.get("sell_rate"),
+             row.get("yield")),
         )
         saved += 1
         names.append(item["name"])
     return {"saved": saved, "rejected": rejected, "names": names}
+
+
+def context_lookup(explorer, store):
+    """Pour le rendement d'un avis : autres extensions où le nom est pris (demande mesurée) et renouvellement de son
+    extension chez Gandi. Pour un nom hors .com, un .com pris ne compte pas : presque tout mot l'est déjà."""
+    u = explorer.universe
+    data = {t: explorer.status_bytes(t) for t in explorer.tlds()}
+    prices = gandi.grid(store)
+
+    def context(name: str) -> dict:
+        label, _, tld = name.partition(".")
+        i = u.index(label)
+        taken = None
+        if i is not None:
+            taken = sum(1 for t in data if t != tld and (tld == "com" or t != "com") and data[t][i] in TAKEN)
+        price = (prices.get(tld) or {}).get("price")
+        return {"taken": taken, "renewal": float(price) if price else None}
+
+    return context
 
 
 def status_lookup(explorer):

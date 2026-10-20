@@ -31,7 +31,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import ai, bot, calendar_ics, ccdns, db, decisions, morning, notify, pepites, portfolio, digest, drops, explore, frdata, frdns, gandi, prenoms, reserved, seo, signals, states, updates, value, wordlists
+from . import ai, bot, calendar_ics, ccdns, db, decisions, market, morning, notify, pepites, portfolio, digest, drops, explore, frdata, frdns, gandi, prenoms, reserved, seo, signals, states, updates, value, wordlists
 from .auth import (
     COOKIE_NAME,
     LoginGuard,
@@ -323,6 +323,11 @@ async def lifespan(app: FastAPI):
         task.add_done_callback(done)
         return True
 
+    async def refresh_market() -> None:
+        # Rapports DNJournal (toutes les deux semaines) : un passage par jour, rattrapage de l'historique compris.
+        if app.state.market.due(utcnow()):
+            await app.state.market.refresh()
+
     async def refresh_prenoms() -> None:
         # Une fois par mois : l'Insee publie une édition par an, la date exacte varie.
         if app.state.prenoms.due():
@@ -349,6 +354,8 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(refresh_reserved, "interval", hours=6, next_run_time=now + timedelta(minutes=2), max_instances=1)
     scheduler.add_job(refresh_prenoms, "interval", hours=6, next_run_time=now + timedelta(minutes=11), max_instances=1,
                       id="prenoms")
+    scheduler.add_job(refresh_market, "interval", hours=6, next_run_time=now + timedelta(minutes=13), max_instances=1,
+                      id="market")
     # File .fr : chaque minute, autant de requêtes que le plafond réglé le permet.
     scheduler.add_job(tick_fr, "interval", minutes=1, next_run_time=now + timedelta(minutes=6), max_instances=1)
     # DNS .fr : une passe par jour, lancée à minuit, étalée sur la journée.
@@ -380,6 +387,8 @@ async def lifespan(app: FastAPI):
     app.state.reserved = reserved.Reserved(conn, store)
     app.state.explorer = explore.Explorer(conn, watcher, fr, app.state.reserved)
     app.state.prenoms = prenoms.RecentNames(store, settings.data_dir)
+    app.state.market = market.Market(conn, store)
+    app.state.explorer.market = app.state.market  # ventes comparables : file IA et fiche
     app.state.explorer.recent = app.state.prenoms
     fr_dns = frdns.FrDns(conn, store, app.state.explorer, digest.local_zone(), notify=note_health)
     app.state.fr_dns = fr_dns
@@ -1112,6 +1121,7 @@ async def get_settings(request: Request):
         "gandi": {**state.gandi.status(), "pass": state.gandi_pass.status(), "live": state.gandi_live.status()},
         "reserved": state.reserved.status(),
         "prenoms": state.prenoms.status(),
+        "market": state.market.status(),
         "weights": {"values": value.weights_from(store.get("score_weights")), "labels": value.CRITERIA},
         "order_url": _order_url(store),
         "alerts": _alert_settings(store),
@@ -1971,7 +1981,8 @@ async def ai_results(request: Request, payload: AiResults):
     known = ai.known_name(explorer)
     asked = {r["name"] for r in ai.requests(conn)["pending"]}
     status_of = await _off(ai.status_lookup, explorer)  # état au moment de l'avis : mesure a posteriori
-    saved = ai.save(conn, payload.results, lambda name: name in asked or known(name), status_of)
+    context_of = await _off(ai.context_lookup, explorer, request.app.state.store)  # demande mesurée, renouvellement
+    saved = ai.save(conn, payload.results, lambda name: name in asked or known(name), status_of, context_of)
     explorer.ai_changed()  # compteurs filtrés sur l'avis
     for name in ai.finish(conn, saved.pop("names")):
         await _notify_ai_done(request, name)
@@ -2155,6 +2166,7 @@ async def diag(request: Request):
         "reserved": state.reserved.status(),
         # Sans l'adresse saisie : le jeton en lecture seule ne voit aucun réglage.
         "prenoms": {k: v for k, v in state.prenoms.status().items() if k != "url"},
+        "market": state.market.status(),
         "lists": {k: len(v) for k, v in wordlists.lists().items()},
         "domains": dict(conn.execute("SELECT COALESCE(state, 'inconnu'), COUNT(*) FROM domains GROUP BY 1").fetchall()),
         "drops": drops_by_state,

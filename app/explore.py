@@ -2203,6 +2203,8 @@ class Explorer:
             "item": main,
             "others": others,
             "comparables": self.comparables(name) if card["known"] else [],
+            # Ventes réelles proches (DNJournal) : ce que vaut ce genre de nom quand il se vend.
+            "sales": self.market.comparables(name) if getattr(self, "market", None) is not None else [],
             "references": self.references(name),
             "timeline": self.timeline(name, domain, rdap),
             "categories": card.get("categories", []),

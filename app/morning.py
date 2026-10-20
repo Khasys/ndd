@@ -27,7 +27,7 @@ MAX_EVENTS = 50          # événements de santé gardés pour le quotidien
 # Pannes qui arrêtent l'appli sur une partie de son travail : dites tout de suite, apparition et fin. Jeton Gandi
 # refusé (passes de nuit et continue arrêtées), vérifications .fr en pause longue, zones non lues depuis 36 h,
 # fichier .fr de l'Afnic en erreur. Le reste attend le quotidien.
-BLOCKING = ("gandi", "fr_pause", "czds_late", "fr")
+BLOCKING = ("gandi", "fr_pause", "czds_late", "fr", "market")
 
 
 def link(base: str, name: str) -> str:
@@ -145,6 +145,9 @@ def problems(state, now: datetime) -> dict[str, str]:
     store = watcher.store
     if (store.get("gandi_pat") or "").strip() and store.get("gandi_error"):
         found["gandi"] = f"Gandi : {store.get('gandi_error')}"
+    market = getattr(state, "market", None)
+    if market is not None and (problem := market.problem(now)):
+        found["market"] = problem  # source des ventes comparables cassée : alerte Telegram tout de suite
     return found
 
 
