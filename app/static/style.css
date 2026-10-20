@@ -488,6 +488,8 @@ button:disabled { cursor: default; opacity: .55; }
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
     height: var(--tabbar); padding: 4px env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
     background: var(--surface); border-top: 1px solid var(--line);
+    /* Calque à part : Safari ne la perd plus quand la barre d'adresse se replie ou qu'un écran s'ouvre. */
+    transform: translateZ(0); -webkit-transform: translateZ(0);
   }
   .tabbar button {
     position: relative;
@@ -1487,3 +1489,21 @@ button:disabled { cursor: default; opacity: .55; }
 .alert-types small { flex-basis: 100%; font-size: 12px; }
 .alert-types .rhythm { font-size: 11px; padding: 0 6px; border-radius: 999px; background: var(--hover); color: var(--muted); white-space: nowrap; }
 .alert-types .rhythm.immediate { background: var(--s-available-bg); color: var(--s-available-fg); }
+
+/* Action longue (plus de 2 s) : cercle qui se remplit et temps restant. Ne bloque pas les clics. */
+.loader {
+  /* Centré sans transform : la transition d'Alpine écrase transform en ligne. */
+  position: fixed; z-index: 70; inset: 0; margin: auto; width: fit-content; height: fit-content;
+  display: flex; align-items: center; gap: 12px; padding: 12px 18px 12px 14px;
+  background: var(--surface); color: var(--text); border: 1px solid var(--line); border-radius: 14px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .18); pointer-events: none;
+  font-size: 14px; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.loader svg { width: 36px; height: 36px; flex: none; }
+.loader circle { fill: none; stroke-width: 4; }
+.loader-track { stroke: var(--line); }
+.loader-ring {
+  stroke: var(--accent); stroke-linecap: round; stroke-dasharray: 100;
+  transform: rotate(-90deg); transform-origin: 50% 50%; transition: stroke-dashoffset 250ms linear;
+}
+.loader svg.spin .loader-ring { stroke-dashoffset: 75 !important; transition: none; }

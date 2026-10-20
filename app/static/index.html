@@ -22,7 +22,8 @@
 <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
 </head>
 <body>
-<div class="page" x-data="app" @keydown.escape.window="escape()">
+<div class="app-root" x-data="app" @keydown.escape.window="escape()">
+<div class="page">
 
   <aside class="sidebar" aria-label="Barre latérale">
     <nav class="side-nav">
@@ -1984,6 +1985,10 @@
     </div>
   </template>
 
+
+  </div>
+</div>
+
   <!-- Cinq entrées, libellés entiers à 390 px ; Paramètres : icône en haut de chaque écran (gabarit #settings-btn). -->
   <nav class="tabbar" aria-label="Navigation">
     <button type="button" :class="{ on: todayOpen }" @click="openSheet('today')">
@@ -2008,6 +2013,13 @@
     </button>
   </nav>
 
+  <!-- Action de plus de 2 s : cercle qui se remplit et temps restant estimé (durée habituelle de la même requête). -->
+  <div class="loader" x-show="loader" x-cloak x-transition.opacity.duration.150ms role="status" aria-live="polite">
+    <svg viewBox="0 0 44 44" aria-hidden="true" :class="{ spin: loader && loader.left === null }">
+      <circle class="loader-track" cx="22" cy="22" r="19"/>
+      <circle class="loader-ring" cx="22" cy="22" r="19" pathLength="100" :style="`stroke-dashoffset: ${loader ? 100 - loader.frac * 100 : 100}`"/>
+    </svg>
+    <span x-text="loaderText()"></span>
   </div>
 </div>
 </body>

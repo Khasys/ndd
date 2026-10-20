@@ -202,6 +202,8 @@ document.addEventListener("alpine:init", () => {
     sortDir: 1,
     history: {},
     busy: {},
+    // Action de plus de 2 s : { left: secondes restantes estimées ou null, frac: part écoulée } (voir track).
+    loader: null,
     bulkRunning: false,
     sendingTest: false,
     // Écran d'accueil : les meilleurs noms du jour (GET /api/today) ; l'appli s'ouvre toujours dessus.
@@ -325,6 +327,12 @@ document.addEventListener("alpine:init", () => {
     exProbe: [],
 
     init() {
+      // Une requête lancée juste après un geste (ou à l'ouverture) est une action : le cercle de chargement la suit ;
+      // les rafraîchissements de fond n'en montrent pas.
+      this._lastInput = Date.now();
+      for (const ev of ["pointerdown", "keydown", "input", "change"]) {
+        window.addEventListener(ev, () => (this._lastInput = Date.now()), { capture: true, passive: true });
+      }
       // Téléphone ou ordinateur : suivi en direct, les réglages simples changent de place selon la largeur.
       const narrow = window.matchMedia("(max-width: 899px)");
       narrow.addEventListener("change", (e) => (this.isMobile = e.matches));
@@ -2779,8 +2787,53 @@ document.addEventListener("alpine:init", () => {
       this.saveZones();
     },
 
+    // Cercle de chargement : une action passe 2 s, il s'affiche avec le temps restant estimé d'après la durée
+    // habituelle de la même requête (mémorisée par le navigateur), puis « Encore un instant » une fois l'estimation
+    // dépassée. Renvoie la fonction à appeler à la fin de la requête.
+    track(method, url) {
+      if (Date.now() - (this._lastInput || 0) > 1500) return () => {};
+      const key = method + " " + url.split("?")[0].replace(/\/[^/]*[\d.%][^/]*(?=\/|$)/g, "/:x");
+      if (!this._durations) {
+        try { this._durations = JSON.parse(localStorage.getItem("dw-durations") || "{}"); } catch (_) { this._durations = {}; }
+      }
+      const job = { key, start: Date.now(), est: this._durations[key] || null };
+      this._jobs = this._jobs || new Set();
+      this._jobs.add(job);
+      if (!this._loaderTimer) this._loaderTimer = setInterval(() => this.loaderTick(), 250);
+      return () => {
+        const took = Date.now() - job.start;
+        // Moyenne glissante : une lenteur passagère ne fausse pas durablement l'estimation.
+        this._durations[key] = job.est ? Math.round(job.est * 0.6 + took * 0.4) : took;
+        try { localStorage.setItem("dw-durations", JSON.stringify(this._durations)); } catch (_) {}
+        this._jobs.delete(job);
+        this.loaderTick();
+      };
+    },
+
+    loaderTick() {
+      const now = Date.now();
+      let show = null;
+      for (const j of this._jobs) {
+        const spent = now - j.start;
+        if (spent < 2000) continue;
+        const left = j.est ? Math.max(0, (j.est - spent) / 1000) : null;
+        const frac = j.est ? Math.min(1, spent / j.est) : 0;
+        if (!show || (left ?? Infinity) > (show.left ?? Infinity)) show = { left, frac };
+      }
+      this.loader = show;
+      if (!this._jobs.size) { clearInterval(this._loaderTimer); this._loaderTimer = null; }
+    },
+
+    loaderText() {
+      const l = this.loader;
+      if (!l) return "";
+      if (l.left === null) return "Chargement…";
+      return l.left >= 1 ? `Encore ${Math.ceil(l.left)} s` : "Encore un instant";
+    },
+
     async api(method, url, body) {
       let res;
+      const done = this.track(method, url);
       try {
         res = await fetch(url, {
           method,
@@ -2791,6 +2844,8 @@ document.addEventListener("alpine:init", () => {
       } catch (_) {
         // Navigateur hors ligne ou NAS injoignable : pas de statut, l'action est rejouable.
         throw Object.assign(new Error("Réseau injoignable"), { status: 0 });
+      } finally {
+        done();
       }
       if (res.status === 401) {
         window.location.href = "/login";
@@ -2813,10 +2868,13 @@ document.addEventListener("alpine:init", () => {
       this._fresh = this._fresh || {};
       const known = this._fresh[url];
       let res;
+      const done = this.track("GET", url);
       try {
         res = await fetch(url, { headers: known ? { "If-None-Match": known.tag } : {}, credentials: "same-origin", cache: "no-store" });
       } catch (_) {
         throw Object.assign(new Error("Réseau injoignable"), { status: 0 });
+      } finally {
+        done();
       }
       if (res.status === 304 && known) return [known.data, false];
       if (res.status === 401) {
