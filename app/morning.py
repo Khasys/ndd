@@ -14,7 +14,7 @@ import json
 from datetime import datetime, timedelta
 from urllib.parse import urlencode
 
-from . import ai, digest, drops, states
+from . import ai, digest, drops, states, tokens
 from .checker import iso, parse_iso
 
 MAX_LINES = 10            # noms par rubrique
@@ -140,7 +140,7 @@ def problems(state, now: datetime) -> dict[str, str]:
         if paused and paused - now > FR_PAUSE_ALERT:
             found["fr_pause"] = f"Vérifications .fr en pause jusqu'au {paused.strftime('%d/%m %H:%M')} UTC (limite Afnic)"
     last = parse_iso(ai.last_rated(state.explorer.conn))
-    if state.explorer.fr.store.get("ai_token_hash") and last and now - last > AI_LATE:
+    if tokens.any_of(state.explorer.conn, "ai") and last and now - last > AI_LATE:
         found["ai"] = f"Notation IA de nuit : aucun avis reçu depuis le {last.strftime('%d/%m %H:%M')} UTC"
     store = watcher.store
     if (store.get("gandi_pat") or "").strip() and store.get("gandi_error"):

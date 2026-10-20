@@ -6,18 +6,14 @@ surveillés. Rien n'écrit, aucun réglage ni secret ne sort. Les réponses sont
 retirés) pour tenir dans le contexte de l'assistant.
 
 Accès : adresse secrète /mcp/<jeton> (ChatGPT n'envoie pas d'en-tête), ou /mcp avec « Authorization: Bearer ».
-Le jeton est montré une fois ; seule son empreinte est gardée, comme celui de la tâche de notation.
+Jetons de type « mcp » de la table tokens (Paramètres, Jetons d'accès).
 """
 
-import hashlib
-import hmac
 import json
-import secrets
 from urllib.parse import urlencode
 
 from . import explore, wordlists
 
-TOKEN_KEY = "mcp_token_hash"
 PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
 MAX_TEXT = 60_000  # caractères par réponse d'outil : au-delà, la liste est raccourcie
 # Champs techniques ou redondants : utiles à l'écran, du bruit pour un assistant.
@@ -28,32 +24,6 @@ NOISE = frozenset({
     "stale", "pending", "currency", "price_ht", "kind", "steps", "cursor", "id", "unicode_name", "epp_statuses",
     "nameservers", "last_checked_at", "last_success_at", "source", "updated_at", "reviewed_at",
 })
-
-
-def hash_token(token: str) -> str:
-    return hashlib.sha256(token.encode()).hexdigest()
-
-
-def new_token(store) -> str:
-    """Nouveau jeton : l'ancien cesse de marcher. Montré une fois, seule son empreinte est gardée."""
-    token = "dwm_" + secrets.token_urlsafe(32)
-    store.set(TOKEN_KEY, hash_token(token))
-    return token
-
-
-def revoke(store) -> None:
-    store.set(TOKEN_KEY, "")
-
-
-def enabled(store) -> bool:
-    return bool(store.get(TOKEN_KEY))
-
-
-def token_ok(store, token: str | None) -> bool:
-    expected = store.get(TOKEN_KEY)
-    if not expected or not token:
-        return False
-    return hmac.compare_digest(hash_token(token.strip()), expected)
 
 
 def compact(value, keep_lists: int = 100):

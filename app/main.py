@@ -31,7 +31,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import ai, bot, mcp, calendar_ics, ccdns, db, decisions, market, morning, notify, pepites, portfolio, digest, drops, explore, frdata, frdns, gandi, prenoms, reserved, seo, signals, states, updates, value, wordlists
+from . import ai, bot, mcp, tokens, calendar_ics, ccdns, db, decisions, market, morning, notify, pepites, portfolio, digest, drops, explore, frdata, frdns, gandi, prenoms, reserved, seo, signals, states, updates, value, wordlists
 from .auth import (
     COOKIE_NAME,
     LoginGuard,
@@ -611,10 +611,10 @@ async def require_session(request: Request, call_next):
             _remember_public_url(request)
         return await call_next(request)
     # Tâche de notation IA : jeton d'accès, limité à l'échange de la liste et des avis.
-    if path in AI_PATHS and ai.token_ok(state.store, request.headers.get("authorization")):
+    if path in AI_PATHS and ai.token_ok(state.conn, request.headers.get("authorization")):
         return await call_next(request)
     if (request.method == "GET" and READ_PATHS.match(path)
-            and ai.token_ok(state.store, request.headers.get("authorization"))):
+            and tokens.check(state.conn, ("ai", "read"), tokens.bearer(request.headers.get("authorization")))):
         return await call_next(request)
     if path.startswith("/api/"):
         return JSONResponse({"detail": "Session expirée."}, status_code=401)
@@ -929,7 +929,7 @@ async def meta(request: Request):
             "telegram": request.app.state.telegram.configured,
             "czds": request.app.state.drops.configured,
             "fr": request.app.state.fr.enabled,
-            "ai": bool(request.app.state.store.get("ai_token_hash")),
+            "ai": tokens.any_of(request.app.state.conn, "ai"),
         },
         # Démarrer en 3 étapes (Aujourd'hui, Paramètres) : même calcul que /api/today.
         "steps": _setup_steps(request.app.state),
@@ -1137,7 +1137,7 @@ async def get_settings(request: Request):
         "market": state.market.status(),
         "weights": {"values": value.weights_from(store.get("score_weights")), "labels": value.CRITERIA},
         "order_url": _order_url(store),
-        "mcp": {"enabled": mcp.enabled(store)},
+        "mcp": {"enabled": tokens.any_of(state.conn, "mcp")},
         "alerts": _alert_settings(store),
         "appearance": {
             "app_name": store.get("app_name") or DEFAULT_NAME,
@@ -1501,7 +1501,7 @@ def _setup_steps(state) -> list[dict]:
         {"key": "sources", "title": "Sources", "text": ".fr (Afnic) ou zones ICANN : les noms qui se libèrent",
          "done": bool(state.drops.configured or state.fr.enabled)},
         {"key": "telegram", "title": "Telegram", "text": "alertes immédiates et message du jour", "done": bool(state.telegram.configured)},
-        {"key": "ai", "title": "Avis IA", "text": "notes et prix, facultatif", "done": bool(state.store.get("ai_token_hash"))},
+        {"key": "ai", "title": "Avis IA", "text": "notes et prix, facultatif", "done": tokens.any_of(state.conn, "ai")},
     ]
 
 
@@ -2205,20 +2205,66 @@ async def diag(request: Request):
 @app.post("/api/settings/ai-token")
 async def ai_token(request: Request):
     """Nouveau jeton pour la tâche de notation ; l'ancien cesse de marcher. Montré une seule fois."""
-    return {"token": ai.new_token(request.app.state.store)}
+    return {"token": ai.new_token(request.app.state.conn)}
 
 
-@app.post("/api/settings/mcp-token")
-async def mcp_token(request: Request):
-    """Nouvelle adresse du connecteur MCP (ChatGPT, Claude) ; l'ancienne cesse de marcher. Montrée une seule fois."""
-    token = mcp.new_token(request.app.state.store)
-    base = _public_url(request.app.state) or str(request.base_url).rstrip("/")
-    return {"token": token, "url": f"{base.rstrip('/')}/mcp/{token}"}
+class NewToken(BaseModel):
+    kind: str
+    label: str | None = None
 
 
-@app.delete("/api/settings/mcp-token")
-async def mcp_token_off(request: Request):
-    mcp.revoke(request.app.state.store)
+class TokenLabel(BaseModel):
+    label: str | None = None
+
+
+def _calendar_row(state) -> dict | None:
+    """Le lien du calendrier est un jeton aussi : listé avec les autres, révocable de la même façon."""
+    if not state.store.get("calendar_token"):
+        return None
+    return {"id": "calendar", "kind": "calendar", "kind_label": "Calendrier", "label": "Lien du calendrier",
+            "created_at": state.store.get("calendar_created_at") or None,
+            "last_used_at": state.store.get("calendar_used_at") or None}
+
+
+@app.get("/api/tokens")
+async def list_tokens(request: Request):
+    """Jetons d'accès : type, libellé, création, dernière utilisation. Jamais le jeton lui-même."""
+    state = request.app.state
+    items = tokens.listing(state.conn)
+    if (cal := _calendar_row(state)) is not None:
+        items.append(cal)
+    return {"kinds": {k: {"label": v[0], "opens": v[2]} for k, v in tokens.KINDS.items()}, "items": items}
+
+
+@app.post("/api/tokens")
+async def create_token(request: Request, payload: NewToken):
+    """Nouveau jeton, montré une seule fois ; pour le connecteur MCP, son adresse complète."""
+    try:
+        token_id, token = tokens.create(request.app.state.conn, payload.kind, payload.label)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    result = {"id": token_id, "token": token}
+    if payload.kind == "mcp":
+        base = _public_url(request.app.state) or str(request.base_url)
+        result["url"] = f"{base.rstrip('/')}/mcp/{token}"
+    return result
+
+
+@app.put("/api/tokens/{token_id}")
+async def rename_token(request: Request, token_id: int, payload: TokenLabel):
+    if not tokens.rename(request.app.state.conn, token_id, payload.label):
+        raise HTTPException(404, "Jeton introuvable.")
+    return Response(status_code=204)
+
+
+@app.delete("/api/tokens/{token_id}")
+async def revoke_token(request: Request, token_id: str):
+    state = request.app.state
+    if token_id == "calendar":
+        state.store.set("calendar_token", "")
+        return Response(status_code=204)
+    if not token_id.isdigit() or not tokens.revoke(state.conn, int(token_id)):
+        raise HTTPException(404, "Jeton introuvable.")
     return Response(status_code=204)
 
 
@@ -2639,6 +2685,7 @@ async def pair_telegram(request: Request):
 @app.post("/api/settings/calendar")
 async def regenerate_calendar(request: Request):
     request.app.state.store.set("calendar_token", secrets.token_urlsafe(24))
+    request.app.state.store.set("calendar_created_at", utcnow().isoformat(timespec="seconds"))
     return {"calendar_url": _calendar_url(request)}
 
 
@@ -2648,7 +2695,11 @@ async def calendar(request: Request, token: str):
     # Lien secret, sans session : les applis de calendrier ne savent pas se connecter.
     if not expected or not hmac.compare_digest(token.encode(), expected.encode()):
         raise HTTPException(404)
-    body = calendar_ics.build(request.app.state.checker, utcnow(), request.app.state.settings.app_url)
+    store, now = request.app.state.store, utcnow()
+    used = parse_iso(store.get("calendar_used_at") or None)
+    if used is None or now - used > tokens.TOUCH_EVERY:  # Jetons d'accès : dernière utilisation du lien
+        store.set("calendar_used_at", now.isoformat(timespec="seconds"))
+    body = calendar_ics.build(request.app.state.checker, now, request.app.state.settings.app_url)
     return Response(body, media_type="text/calendar; charset=utf-8")
 
 
@@ -2802,7 +2853,7 @@ async def _mcp_read(app_, path: str, params: dict):
 
 async def _mcp(request: Request, token: str | None):
     state = request.app.state
-    if not mcp.token_ok(state.store, token):
+    if tokens.check(state.conn, ("mcp",), token) is None:
         return JSONResponse({"detail": "Jeton du connecteur absent, faux ou révoqué."}, status_code=401)
     try:
         message = json.loads(await request.body())
@@ -2823,8 +2874,7 @@ async def mcp_secret_url(request: Request, token: str):
 
 @app.post("/mcp")
 async def mcp_bearer(request: Request):
-    header = request.headers.get("authorization") or ""
-    return await _mcp(request, header[7:] if header.startswith("Bearer ") else None)
+    return await _mcp(request, tokens.bearer(request.headers.get("authorization")))
 
 
 # Pas de flux serveur (SSE) ni de session à fermer : le client se contente des réponses JSON.

@@ -1507,3 +1507,18 @@ button:disabled { cursor: default; opacity: .55; }
   transform: rotate(-90deg); transform-origin: 50% 50%; transition: stroke-dashoffset 250ms linear;
 }
 .loader svg.spin .loader-ring { stroke-dashoffset: 75 !important; transition: none; }
+
+/* Paramètres, Jetons d'accès : une ligne par jeton, libellé, type, dates, actions. */
+.token-list { list-style: none; margin: 10px 0 12px; padding: 0; display: grid; gap: 8px; }
+.token-row {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px;
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface);
+}
+.token-main { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.token-label { overflow-wrap: anywhere; }
+.token-dates { flex-basis: 100%; }
+.token-actions { display: flex; gap: 6px; }
+.token-new select { max-width: 12em; }
+.token-new input { flex: 1; min-width: 10em; }
+.token-fresh { margin-top: 10px; }
+.btn-ghost.danger { color: var(--danger); }

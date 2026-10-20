@@ -7,15 +7,12 @@ revente rapide (à un investisseur, en quelques semaines) et utilisateur final (
 avec de la patience). Ce sont des avis, pas des cotes du marché.
 """
 
-import hashlib
 import heapq
-import hmac
 import json
-import secrets
 import threading
 from datetime import timedelta
 
-from . import gandi, rdapinfo, value, wordlists
+from . import gandi, rdapinfo, tokens, value, wordlists
 from .checker import iso, utcnow
 
 # Version de la consigne : la monter fait renoter tous les noms, petit à petit.
@@ -127,22 +124,14 @@ Exemples de référence :
   (calculé : exploitation 20, revente 10, À laisser)"""
 
 
-def hash_token(token: str) -> str:
-    return hashlib.sha256(token.encode()).hexdigest()
+def new_token(conn) -> str:
+    """Jeton de la tâche de notation (bouton historique) : remplace les jetons de notation existants."""
+    tokens.revoke_kind(conn, "ai")
+    return tokens.create(conn, "ai", "Tâche de notation")[1]
 
 
-def new_token(store) -> str:
-    """Jeton d'accès de la tâche de notation : montré une fois, seule son empreinte est gardée."""
-    token = "dw_" + secrets.token_urlsafe(32)
-    store.set("ai_token_hash", hash_token(token))
-    return token
-
-
-def token_ok(store, header: str | None) -> bool:
-    expected = store.get("ai_token_hash")
-    if not expected or not header or not header.startswith("Bearer "):
-        return False
-    return hmac.compare_digest(hash_token(header[7:].strip()), expected)
+def token_ok(conn, header: str | None) -> bool:
+    return tokens.check(conn, ("ai",), tokens.bearer(header)) is not None
 
 
 # Pourquoi « À laisser » ou « À surveiller », en mots simples depuis la grille : le point faible qui pèse le plus.
@@ -196,7 +185,7 @@ def stats(explorer) -> dict:
     rated = explorer.conn.execute("SELECT COUNT(*), MAX(rated_at) FROM domain_ai WHERE version >= ?", (VERSION,)).fetchone()
     total = sum(explorer.universe.good) * len([t for t in explorer.tlds() if t in AI_TLDS])
     return {"rated": rated[0], "last": rated[1], "total": total, "pending": max(0, total - rated[0]),
-            "token_set": bool(explorer.fr.store.get("ai_token_hash"))}
+            "token_set": tokens.any_of(explorer.conn, "ai")}
 
 
 # Extensions notées : .biz, .info et les autres valent trop peu pour dépenser la notation de nuit.

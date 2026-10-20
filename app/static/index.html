@@ -1205,14 +1205,7 @@
         <p class="small" x-show="aiStatus">
           <span x-text="aiStatus ? fmt(aiStatus.rated) + (aiStatus.rated > 1 ? ' noms notés sur ' : ' nom noté sur ') + fmt(aiStatus.total) : ''"></span><span x-show="aiStatus && aiStatus.last" x-text="aiStatus && aiStatus.last ? ', dernier envoi ' + relative(aiStatus.last) : ''"></span>.
         </p>
-        <p class="muted small">Une tâche planifiée récupère chaque nuit les noms à noter et renvoie, pour chaque nom complet, le potentiel de revente (prioritaire) et d'exploitation, un prix de revente rapide et un prix utilisateur final avec leur délai de vente estimé, et un commentaire. Elle se connecte avec ce jeton.</p>
-        <button type="button" class="btn-ghost" @click="newAiToken()" x-text="aiStatus && aiStatus.token_set ? 'Nouveau jeton' : 'Créer le jeton'"></button>
-        <template x-if="aiToken">
-          <div>
-            <p class="small">Copie-le maintenant : il ne sera plus affiché.</p>
-            <div class="hash" x-text="aiToken"></div>
-          </div>
-        </template>
+        <p class="muted small">Une tâche planifiée récupère chaque nuit les noms à noter et renvoie, pour chaque nom complet, le potentiel de revente (prioritaire) et d'exploitation, un prix de revente rapide et un prix utilisateur final avec leur délai de vente estimé, et un commentaire. Elle se connecte avec un jeton « Notation IA » : carte Jetons d'accès.</p>
         <!-- Mesure a posteriori : part des noms repris par quelqu'un d'autre, par verdict et par tranche de note. -->
         <template x-if="aiOutcomes">
           <div class="ai-outcomes">
@@ -1237,6 +1230,56 @@
                 </table>
               </div>
             </template>
+          </div>
+        </template>
+      </div>
+      <div id="set-tokens" class="tokens-card">
+        <h3>Jetons d'accès</h3>
+        <p class="muted small">Ce qui peut entrer dans l'appli sans mot de passe. Un jeton n'est montré qu'à sa création ; le révoquer coupe l'accès tout de suite.</p>
+        <template x-if="tokenList">
+          <ul class="token-list">
+            <template x-for="t in tokenList.items" :key="t.id">
+              <li class="token-row">
+                <div class="token-main">
+                  <template x-if="tokenEdit === t.id">
+                    <form class="inline-form" @submit.prevent="renameToken(t)">
+                      <input type="text" x-model="tokenEditLabel" maxlength="60" aria-label="Libellé du jeton" x-init="$nextTick(() => $el.focus())">
+                      <button type="submit" class="btn-ghost sm">OK</button>
+                    </form>
+                  </template>
+                  <template x-if="tokenEdit !== t.id">
+                    <strong class="token-label" x-text="t.label"></strong>
+                  </template>
+                  <span class="tag small" x-text="t.kind_label"></span>
+                  <span class="muted small token-dates" x-text="tokenDates(t)"></span>
+                </div>
+                <div class="token-actions">
+                  <button type="button" class="btn-ghost sm" x-show="t.kind !== 'calendar' && tokenEdit !== t.id" @click="tokenEdit = t.id; tokenEditLabel = t.label">Renommer</button>
+                  <button type="button" class="btn-ghost sm danger" @click="revokeToken(t)">Révoquer</button>
+                </div>
+              </li>
+            </template>
+            <li class="muted small" x-show="!tokenList.items.length">Aucun jeton : rien n'entre sans mot de passe.</li>
+          </ul>
+        </template>
+        <form class="inline-form token-new" @submit.prevent="createToken()">
+          <select x-model="tokenKind" aria-label="Type de jeton">
+            <option value="mcp">Connecteur MCP</option>
+            <option value="read">Lecture seule</option>
+            <option value="ai">Notation IA</option>
+          </select>
+          <input type="text" x-model="tokenLabel" maxlength="60" placeholder="Libellé (ex. ChatGPT perso)" aria-label="Libellé du nouveau jeton">
+          <button type="submit" class="btn-ghost">Créer</button>
+        </form>
+        <p class="muted small" x-show="tokenList && tokenList.kinds[tokenKind]" x-text="tokenList && tokenList.kinds[tokenKind] ? 'Ouvre : ' + tokenList.kinds[tokenKind].opens + '.' : ''"></p>
+        <template x-if="tokenNew">
+          <div class="token-fresh">
+            <p class="small"><strong x-text="tokenNew.label"></strong> : copie-le maintenant, il ne sera plus affiché.</p>
+            <p class="inline-form">
+              <input type="text" readonly :value="tokenNew.url || tokenNew.token" class="mono" @focus="$event.target.select()" aria-label="Nouveau jeton">
+              <button type="button" class="btn-ghost" @click="copy(tokenNew.url || tokenNew.token)">Copier</button>
+            </p>
+            <p class="muted small" x-show="tokenNew.url">Dans ChatGPT : active le mode développeur (Paramètres, Connecteurs, Avancé), puis crée un connecteur avec cette adresse, sans authentification. Dans Claude : connecteur personnalisé avec cette adresse.</p>
           </div>
         </template>
       </div>
@@ -1380,30 +1423,6 @@
           </form>
         </template>
         <p class="muted small">{domain} est remplacé par le nom.</p>
-      </div>
-
-      <div id="set-mcp">
-        <h3>Connecteur ChatGPT / Claude</h3>
-        <template x-if="cfg">
-          <div class="setting-lines">
-            <p class="muted small">Adresse MCP en lecture seule : ChatGPT (mode développeur) ou Claude lisent les fiches, l'Explorer, Aujourd'hui, la Veille, les listes, les avis IA et les noms surveillés. Rien ne peut être modifié par ce biais, aucun réglage ne sort.</p>
-            <p class="small" x-text="cfg.mcp && cfg.mcp.enabled ? 'Accès ouvert.' : 'Accès fermé.'"></p>
-            <template x-if="mcpUrl">
-              <div>
-                <p class="small">Copie-la maintenant : elle ne sera plus affichée.</p>
-                <p class="inline-form">
-                  <input type="text" readonly :value="mcpUrl" class="mono" @focus="$event.target.select()" aria-label="Adresse du connecteur">
-                  <button type="button" class="btn-ghost" @click="copy(mcpUrl)">Copier</button>
-                </p>
-              </div>
-            </template>
-            <p class="setting-actions">
-              <button type="button" class="btn-ghost" @click="newMcpUrl()" x-text="cfg.mcp && cfg.mcp.enabled ? 'Nouvelle adresse' : 'Créer l\'adresse'"></button>
-              <button type="button" class="btn-ghost" x-show="cfg.mcp && cfg.mcp.enabled" @click="revokeMcp()">Couper l'accès</button>
-            </p>
-            <p class="muted small">L'adresse contient un jeton secret : ne pas la partager. Dans ChatGPT : active le mode développeur (Paramètres, Connecteurs, Avancé), puis crée un connecteur avec cette adresse, sans authentification. Dans Claude : connecteur personnalisé avec cette adresse.</p>
-          </div>
-        </template>
       </div>
 
       <div>
@@ -2038,7 +2057,7 @@
   </nav>
 
   <!-- Action de plus de 2 s : cercle qui se remplit et temps restant estimé (durée habituelle de la même requête). -->
-  <div class="loader" x-show="loader" x-cloak x-transition.opacity.duration.150ms role="status" aria-live="polite">
+  <div class="loader" x-show="loader" x-cloak role="status" aria-live="polite">
     <svg viewBox="0 0 44 44" aria-hidden="true" :class="{ spin: loader && loader.left === null }">
       <circle class="loader-track" cx="22" cy="22" r="19"/>
       <circle class="loader-ring" cx="22" cy="22" r="19" pathLength="100" :style="`stroke-dashoffset: ${loader ? 100 - loader.frac * 100 : 100}`"/>

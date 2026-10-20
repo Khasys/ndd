@@ -286,9 +286,13 @@ document.addEventListener("alpine:init", () => {
     dropBulkRunning: false,
     dropBulkDone: 0,
     dropsSeenBefore: "",
-    aiToken: "",
-    // Adresse du connecteur MCP, montrée une seule fois après création.
-    mcpUrl: "",
+    // Jetons d'accès (Paramètres) : liste, type et libellé du prochain, jeton tout juste créé (montré une fois).
+    tokenList: null,
+    tokenKind: "mcp",
+    tokenLabel: "",
+    tokenNew: null,
+    tokenEdit: null,
+    tokenEditLabel: "",
     aiStatus: null,
     df: { ...DROP_FILTER_DEFAULTS },
     dfOpen: false,
@@ -1438,17 +1442,6 @@ document.addEventListener("alpine:init", () => {
       if (!k) return "";
       const first = ["form", "combo", "trend", "expr"].includes(k) ? "1re" : "1er";
       return `${r[k] === 1 ? first : this.fmt(r[k]) + "e"} ${FREQ_PHRASES[k] || "de la liste " + this.kindLabel(null, k)}`;
-    },
-
-    async newAiToken() {
-      if (this.aiStatus && this.aiStatus.token_set && !confirm("Un nouveau jeton remplace l'ancien : la tâche de notation devra utiliser le nouveau. Continuer ?")) return;
-      try {
-        this.aiToken = (await this.api("POST", "/api/settings/ai-token")).token;
-        await this.loadAiStatus();
-        this.refreshMeta();
-      } catch (e) {
-        this.say(e.message, "error");
-      }
     },
 
     async loadAiStatus() {
@@ -2789,7 +2782,7 @@ document.addEventListener("alpine:init", () => {
       this.saveZones();
     },
 
-    // Cercle de chargement : une action passe 2 s, il s'affiche avec le temps restant estimé d'après la durée
+    // Cercle de chargement : une action passe 2 s (ou dure d'habitude 3 s et plus), il s'affiche avec le temps restant estimé d'après la durée
     // habituelle de la même requête (mémorisée par le navigateur), puis « Encore un instant » une fois l'estimation
     // dépassée. Renvoie la fonction à appeler à la fin de la requête.
     track(method, url) {
@@ -2801,7 +2794,7 @@ document.addEventListener("alpine:init", () => {
       const job = { key, start: Date.now(), est: this._durations[key] || null };
       this._jobs = this._jobs || new Set();
       this._jobs.add(job);
-      if (!this._loaderTimer) this._loaderTimer = setInterval(() => this.loaderTick(), 250);
+      if (!this._loaderTimer) this._loaderTimer = setInterval(() => this.loaderTick(), 200);
       return () => {
         const took = Date.now() - job.start;
         // Moyenne glissante : une lenteur passagère ne fausse pas durablement l'estimation.
@@ -2817,19 +2810,33 @@ document.addEventListener("alpine:init", () => {
       let show = null;
       for (const j of this._jobs) {
         const spent = now - j.start;
-        if (spent < 2000) continue;
+        // Habituellement long (3 s et plus) : le cercle part presque tout de suite, le compte à rebours se lit en
+        // entier. Durée inconnue ou d'habitude courte : seulement passé 2 s.
+        if (spent < (j.est >= 3000 ? 400 : 2000)) continue;
         const left = j.est ? Math.max(0, (j.est - spent) / 1000) : null;
         const frac = j.est ? Math.min(1, spent / j.est) : 0;
-        if (!show || (left ?? Infinity) > (show.left ?? Infinity)) show = { left, frac };
+        if (!show || (left ?? Infinity) > (show.left ?? Infinity)) show = { left, frac, spent };
       }
-      this.loader = show;
-      if (!this._jobs.size) { clearInterval(this._loaderTimer); this._loaderTimer = null; }
+      if (show) {
+        if (!this.loader) this._loaderShownAt = now;
+        this._loaderIdle = null;
+        this.loader = show;
+      } else if (this.loader) {
+        // Plus rien en cours : le cercle reste au moins 0,8 s, et 0,3 s de plus si une requête enchaîne
+        // (sinon il s'éteint et se rallume entre deux appels : il scintille).
+        this._loaderIdle = this._loaderIdle || now;
+        if (now - this._loaderShownAt >= 800 && now - this._loaderIdle >= 300) {
+          this.loader = null;
+          this._loaderIdle = null;
+        }
+      }
+      if (!this._jobs.size && !this.loader) { clearInterval(this._loaderTimer); this._loaderTimer = null; }
     },
 
     loaderText() {
       const l = this.loader;
       if (!l) return "";
-      if (l.left === null) return "Chargement…";
+      if (l.left === null) return `Chargement… ${Math.floor(l.spent / 1000)} s`;
       return l.left >= 1 ? `Encore ${Math.ceil(l.left)} s` : "Encore un instant";
     },
 
@@ -3027,6 +3034,7 @@ document.addEventListener("alpine:init", () => {
         this.orderUrl = this.cfg.order_url;
         this.loadAiStatus();
         this.loadAiOutcomes();
+        this.loadTokens();
         this.refreshMeta();
       } catch (e) {
         this.sayError(e, "Paramètres indisponibles", () => this.loadSettings());
@@ -3206,28 +3214,54 @@ document.addEventListener("alpine:init", () => {
       try {
         const res = await this.api("POST", "/api/settings/calendar");
         this.cfg.calendar_url = res.calendar_url;
+        this.loadTokens();
       } catch (e) {
         this.say(e.message, "error");
       }
     },
 
-    async newMcpUrl() {
-      if (this.cfg.mcp && this.cfg.mcp.enabled && !confirm("Nouvelle adresse ? L'ancienne cessera de fonctionner : le connecteur devra être mis à jour.")) return;
+    async loadTokens() {
+      try { this.tokenList = await this.api("GET", "/api/tokens"); } catch (_) {}
+    },
+
+    tokenDates(t) {
+      const made = t.created_at ? "créé " + this.relative(t.created_at) : "";
+      const used = t.last_used_at ? "utilisé " + this.relative(t.last_used_at) : "jamais utilisé";
+      return [made, used].filter(Boolean).join(" · ");
+    },
+
+    async createToken() {
       try {
-        this.mcpUrl = (await this.api("POST", "/api/settings/mcp-token")).url;
-        this.cfg.mcp = { enabled: true };
+        const res = await this.api("POST", "/api/tokens", { kind: this.tokenKind, label: this.tokenLabel });
+        await this.loadTokens();
+        const made = this.tokenList.items.find((t) => t.id === res.id);
+        this.tokenNew = { ...res, label: made ? made.label : "" };
+        this.tokenLabel = "";
+        if (this.tokenKind === "ai") { this.loadAiStatus(); this.refreshMeta(); }
       } catch (e) {
         this.say(e.message, "error");
       }
     },
 
-    async revokeMcp() {
-      if (!confirm("Couper l'accès ? ChatGPT ou Claude ne pourront plus lire l'appli.")) return;
+    async renameToken(t) {
       try {
-        await this.api("DELETE", "/api/settings/mcp-token");
-        this.cfg.mcp = { enabled: false };
-        this.mcpUrl = "";
-        this.say("Accès du connecteur coupé.");
+        await this.api("PUT", `/api/tokens/${t.id}`, { label: this.tokenEditLabel });
+        this.tokenEdit = null;
+        await this.loadTokens();
+      } catch (e) {
+        this.say(e.message, "error");
+      }
+    },
+
+    async revokeToken(t) {
+      if (!confirm(`Révoquer « ${t.label} » ? Ce qui l'utilise perd l'accès tout de suite.`)) return;
+      try {
+        await this.api("DELETE", `/api/tokens/${t.id}`);
+        if (this.tokenNew && this.tokenNew.id === t.id) this.tokenNew = null;
+        if (t.kind === "calendar") this.cfg.calendar_url = null;
+        await this.loadTokens();
+        if (t.kind === "ai") { this.loadAiStatus(); this.refreshMeta(); }
+        this.say(`« ${t.label} » révoqué.`);
       } catch (e) {
         this.say(e.message, "error");
       }

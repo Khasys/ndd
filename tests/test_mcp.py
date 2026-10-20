@@ -1,10 +1,11 @@
 """Connecteur MCP en lecture seule : jeton, protocole, outils, rien d'écrit, jeton masqué dans les journaux."""
 
+import json
 import logging
 
 import pytest
 
-from app import mcp
+from app import mcp, tokens
 from app.main import MCP_READS, READ_PATHS, _MaskMcp, _redact
 
 from test_app import PASSWORD, client_factory, logged  # noqa: F401  fixtures partagées
@@ -22,7 +23,7 @@ def rpc(method, params=None, ident=1):
 @pytest.fixture
 def connected(logged):
     client = logged()
-    url = client.post("/api/settings/mcp-token").json()["url"]
+    url = client.post("/api/tokens", json={"kind": "mcp", "label": "ChatGPT"}).json()["url"]
     path = "/" + url.split("://", 1)[1].split("/", 1)[1]
     client.cookies.clear()  # l'assistant n'a pas de session : seule l'adresse secrète compte
     yield client, path
@@ -38,13 +39,15 @@ def test_every_tool_reads_a_read_only_screen():
 
 def test_token_is_shown_once_and_only_its_hash_is_kept(logged):
     client = logged()
-    res = client.post("/api/settings/mcp-token").json()
+    res = client.post("/api/tokens", json={"kind": "mcp", "label": "ChatGPT"}).json()
     assert res["token"].startswith("dwm_") and res["url"].endswith("/mcp/" + res["token"])
-    stored = client.app.state.store.get(mcp.TOKEN_KEY)
-    assert stored and res["token"] not in stored
+    stored = client.app.state.conn.execute("SELECT hash FROM tokens WHERE id = ?", (res["id"],)).fetchone()[0]
+    assert stored == tokens.hash_token(res["token"]) and res["token"] not in json.dumps(client.get("/api/tokens").json())
     assert client.get("/api/settings").json()["mcp"] == {"enabled": True}
     # Le jeton de notation IA n'ouvre pas le connecteur, et inversement.
-    assert not mcp.token_ok(client.app.state.store, client.post("/api/settings/ai-token").json()["token"])
+    ai_token = client.post("/api/settings/ai-token").json()["token"]
+    assert tokens.check(client.app.state.conn, ("mcp",), ai_token) is None
+    assert tokens.check(client.app.state.conn, ("ai",), res["token"]) is None
     client.__exit__(None, None, None)
 
 
@@ -55,10 +58,11 @@ def test_wrong_missing_or_revoked_token_is_refused(connected):
     assert client.post("/mcp", json=rpc("ping")).status_code == 401
     token = path.rsplit("/", 1)[1]
     assert client.post("/mcp", json=rpc("ping"), headers={"Authorization": f"Bearer {token}"}).status_code == 200
-    # Couper l'accès demande une session : l'adresse secrète ne suffit pas.
-    assert client.delete("/api/settings/mcp-token").status_code == 401
+    # Révoquer demande une session : l'adresse secrète ne suffit pas.
+    token_id = client.app.state.conn.execute("SELECT id FROM tokens WHERE kind = 'mcp'").fetchone()[0]
+    assert client.delete(f"/api/tokens/{token_id}").status_code == 401
     client.post("/login", data={"username": "moi", "password": PASSWORD})
-    assert client.delete("/api/settings/mcp-token").status_code == 204
+    assert client.delete(f"/api/tokens/{token_id}").status_code == 204
     client.cookies.clear()
     assert client.post(path, json=rpc("ping")).status_code == 401
 
@@ -69,7 +73,8 @@ def test_secret_url_opens_nothing_else(connected):
     headers = {"Authorization": f"Bearer {token}"}
     assert client.get("/api/settings", headers=headers).status_code == 401
     assert client.get("/api/explore/fiche", params={"name": "velo.fr"}, headers=headers).status_code == 401
-    assert client.post("/api/settings/mcp-token", headers=headers).status_code == 401
+    assert client.post("/api/tokens", json={"kind": "ai"}, headers=headers).status_code == 401
+    assert client.get("/api/tokens", headers=headers).status_code == 401
     assert client.get(path).status_code == 405
 
 

@@ -152,18 +152,36 @@ estimées, avec un rappel la veille. Elle s'ouvre sans mot de passe : la changer
 Les lignes du fichier sont pliées à 75 octets, comme le demande la RFC 5545 : les agendas stricts
 (Apple, Thunderbird) lisent les longs noms et descriptions sans rien tronquer.
 
+### Jetons d'accès
+
+Paramètres, Jetons d'accès : tout ce qui entre dans l'appli sans mot de passe, un jeton par ligne avec
+son libellé (modifiable), son type, sa date de création et sa dernière utilisation (notée au plus toutes
+les 10 minutes). « Révoquer » coupe l'accès tout de suite. Plusieurs jetons par type (30 au plus), seule
+leur empreinte est gardée, le jeton n'est montré qu'à sa création (`GET/POST /api/tokens`,
+`PUT/DELETE /api/tokens/{id}`).
+
+| Type | Préfixe | Ouvre |
+|---|---|---|
+| Notation IA | `dw_` | liste à noter, envoi des avis, et toutes les lectures |
+| Lecture seule | `dwr_` | lectures de l'API (écrans, fiches, diagnostic), rien d'autre |
+| Connecteur MCP | `dwm_` | le connecteur ChatGPT / Claude ci-dessous, en lecture seule |
+| Calendrier | (lien) | le lien ICS du calendrier, listé ici pour être révoqué au même endroit |
+
+Les jetons uniques d'avant (notation IA, connecteur MCP) sont repris tels quels par la migration 041 :
+la tâche de notation et un connecteur déjà branchés continuent de marcher.
+
 ### Connecteur ChatGPT / Claude (MCP)
 
-Paramètres, Connecteur ChatGPT / Claude, « Créer l'adresse » : une adresse MCP secrète,
-`https://<appli>/mcp/<jeton>`, montrée une seule fois. Un assistant compatible MCP (ChatGPT en mode
+Paramètres, Jetons d'accès, type « Connecteur MCP », « Créer » : une adresse MCP secrète,
+`https://<appli>/mcp/<jeton>`, montrée une seule fois. Un jeton par assistant (ChatGPT, Claude) permet
+de couper l'un sans l'autre. Un assistant compatible MCP (ChatGPT en mode
 développeur, Claude avec un connecteur personnalisé) lit alors l'appli avec sept outils :
 `search` (Explorer), `fetch` (fiche d'un nom), `today` (Aujourd'hui), `drops` (Veille), `top_list`
 (top d'une liste), `ai_rated` (avis IA) et `watched` (noms surveillés).
 
 - **Lecture seule** : chaque outil lit un écran déjà ouvert à l'API en lecture ; rien n'écrit, aucun
   réglage ni secret ne sort.
-- **Jeton** : seule son empreinte est gardée ; il est distinct de celui de la tâche de notation.
-  « Nouvelle adresse » coupe l'ancienne, « Couper l'accès » ferme le connecteur.
+- **Jeton** : de type « Connecteur MCP » seulement ; un jeton de notation ou de lecture ne l'ouvre pas.
 - **Journal** : le jeton de l'adresse est masqué dans le journal d'accès et dans le diagnostic.
 - **Sans en-tête possible** (ChatGPT) : l'adresse secrète suffit, en « sans authentification ». Un
   client qui envoie des en-têtes peut aussi appeler `/mcp` avec `Authorization: Bearer <jeton>`.
@@ -963,7 +981,7 @@ bandeau disparaît quand on l'ouvre ou quand on suit le lien Telegram ; l'avis e
 dans la fiche, puis affiché normalement aux visites suivantes. Lien ouvert sans session :
 connexion, puis retour sur la fiche.
 
-Le jeton se crée dans Paramètres > Avis IA ; il n'est montré qu'une fois. Il ouvre l'échange des
+Le jeton se crée dans Paramètres > Jetons d'accès (type « Notation IA ») ; il n'est montré qu'une fois. Il ouvre l'échange des
 avis et, en lecture seule (GET), le diagnostic `/api/diag` (version, mémoire, zones, .fr, DNS, avis
 IA, compteurs, tâches planifiées, exécutions manquées ou en erreur du planificateur, file Telegram,
 dernières erreurs du journal), les écrans (Domaines, Veille,

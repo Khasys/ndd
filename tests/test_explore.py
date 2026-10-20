@@ -636,7 +636,8 @@ def test_ai_health_counts_opinions_of_every_guide_version(env):
     from types import SimpleNamespace
     from app import morning
 
-    env.fr.store.set("ai_token_hash", "x")
+    from app import tokens
+    tokens.create(env.conn, "ai")
     now = datetime.now(timezone.utc)
     state = SimpleNamespace(drops=env.drops, fr=env.fr, explorer=env)
     env.conn.execute("INSERT INTO domain_ai (name, exploit, resale, quick_low, quick_high, final_low, final_high, comment, "
