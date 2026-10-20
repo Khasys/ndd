@@ -42,6 +42,34 @@ puis les autres, filles et garçons en alternance du plus au moins donné. En mi
 Source : Insee, fichier des prénoms, données publiques. Lu dans le même dépôt
 github.com/cnovel/prenoms (fichiers dist.prenoms.f.all.txt et dist.prenoms.m.all.txt).
 
+## prenoms_us.txt
+
+Les 10 000 prénoms les plus donnés aux États-Unis entre 1880 et 2017, filles et garçons réunis
+(naissances additionnées, prénom en minuscules), du plus au moins donné ; le dernier l'a été
+1 088 fois. Réunis aux prénoms français dans la catégorie Prénoms : 3 001 sont dans les deux
+listes (thomas, marie), 6 999 seulement ici (bernice, katelyn).
+
+Source : Social Security Administration (cartes de sécurité sociale, prénoms donnés au moins
+5 fois une année), données publiques du gouvernement américain. Lu dans le jeu babynames de
+github.com/hadley/babynames (table babynames, total par prénom sur toutes les années).
+
+## noms_us.txt
+
+Les 21 689 noms de famille les plus portés aux États-Unis au recensement de 2010, autant que
+noms.txt, du plus au moins porté (à égalité, l'ordre du fichier) ; le dernier l'est par
+1 120 personnes. En minuscules, sans accents, espaces et apostrophes retirés ; une ligne qui n'est
+pas un nom (« ALL OTHER NAMES » dans d'autres éditions) ou un libellé invalide pour l'appli serait
+écartée. Réunis aux noms français dans la catégorie Noms de famille : 3 144 sont dans les deux
+listes (martin, thomas), 18 545 seulement ici (smith, ford).
+
+Source : U.S. Census Bureau, noms de famille du recensement de 2010 (noms portés par 100
+personnes au moins), données publiques du gouvernement américain. Lu dans le dépôt
+github.com/fivethirtyeight/data (most-common-name/surnames.csv).
+
+Pour reconstruire les deux fichiers, sans réseau, depuis les fichiers téléchargés :
+`python scripts/build_names_us.py PRENOMS_CSV SURNAMES_CSV` (PRENOMS_CSV : colonnes name,n, le
+total des naissances par prénom tiré de babynames ; SURNAMES_CSV : le fichier du recensement).
+
 ## Prénoms récents (hors de ce dossier)
 
 Pas de fichier ici : le NAS télécharge chaque mois le fichier national des prénoms de l'Insee

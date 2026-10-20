@@ -15,6 +15,7 @@ Recherche, filtres et comptages se font sur ces octets : bytes.find et bytes.cou
 
 import bisect
 import json
+import math
 import operator
 import heapq
 import itertools
@@ -354,18 +355,24 @@ class Universe:
         ranks = wordlists.ranks()
         best: dict[int, float] = {}
         for key, r in ranks.items():
-            size = len(r)
             for w, n in r.items():
                 i = positions.get(w)
                 if i is not None:
-                    best[i] = min(best.get(i, 1.0), n / size)
-        # Rang relatif de chaque nom d'une catégorie : dans sa liste ; nom dérivé, son meilleur rang relatif dans les
-        # listes d'où vient la catégorie (wordlists.DERIVED_FROM : assurance, 1er terme star, parmi les premiers
-        # termes stars, pas au rang de « it » dans les mots anglais), après les mots du thème pour un thème.
+                    best[i] = min(best.get(i, math.inf), wordlists.relative(key, n))
+        # Rang relatif de chaque nom d'une catégorie : dans sa liste, le meilleur de ses sources pour une catégorie qui
+        # en réunit plusieurs (wordlists.MERGED : le 50e prénom des États-Unis à côté du 50e prénom français) ; nom
+        # dérivé, son meilleur rang relatif dans les listes d'où vient la catégorie (wordlists.DERIVED_FROM :
+        # assurance, 1er terme star, parmi les premiers termes stars, pas au rang de « it » dans les mots anglais),
+        # après les mots du thème pour un thème.
         self.relative: dict[str, dict[int, float]] = {}
         gained = wordlists.derived()
         for key, r in ranks.items():
             found = {positions[w]: n / len(r) for w, n in r.items() if w in positions}
+            for source in wordlists.sources(key)[1:]:
+                for w, n in ranks[source].items():
+                    i = positions.get(w)
+                    if i is not None:
+                        found[i] = min(found.get(i, math.inf), wordlists.relative(source, n))
             after = 1.0 if key in wordlists.THEMES else 0.0
             sources = [ranks[k] for k in wordlists.DERIVED_FROM.get(key, ())]
             for w in gained.get(key, ()):
@@ -962,11 +969,13 @@ class Explorer:
         return 0, self.universe.size
 
     def best_rank(self, label: str, category: str = "") -> int | None:
-        """Meilleur rang du nom dans les listes du filtre de catégorie (une ou plusieurs), sinon dans toutes. Nom
-        dérivé dans la catégorie (assurance dans Termes stars) : son meilleur rang dans les listes d'où vient la
-        catégorie (wordlists.DERIVED_FROM)."""
+        """Meilleur rang du nom dans les listes du filtre de catégorie (une ou plusieurs, avec les listes qui y sont
+        réunies : Prénoms, ceux de France et des États-Unis), sinon dans toutes. Nom dérivé dans la catégorie
+        (assurance dans Termes stars) : son meilleur rang dans les listes d'où vient la catégorie
+        (wordlists.DERIVED_FROM)."""
         ranks = wordlists.ranks()
         keys = [category] if category in ranks else ([c for c in category.split(",") if c in ranks] if "," in category else [])
+        keys = [s for k in keys for s in wordlists.sources(k)]
         found = [ranks[k][label] for k in (keys or ranks) if label in ranks[k]]
         if keys and not found:
             sources = {s for k in keys if label in wordlists.classes()[k] for s in wordlists.DERIVED_FROM.get(k, ())}
@@ -1645,16 +1654,15 @@ class Explorer:
             if len(items) >= limit:
                 break
         items = items[:limit]
-        # Liste qui donne le rang : celle du filtre ; plusieurs (ou aucune), celle où le nom est le mieux placé
-        # parmi elles (même calcul que l'ordre).
-        sizes = {k: len(r) for k, r in wordlists.ranks().items()}
-        keys = key.split(",") if key else None
+        # Liste qui donne le rang : celle du filtre ; plusieurs (ou aucune, ou une catégorie de deux sources comme
+        # Prénoms), celle où le nom est le mieux placé parmi elles (même calcul que l'ordre).
+        keys = [s for k in key.split(",") for s in wordlists.sources(k)] if key else None
         for item in items:
             # Nom dérivé dans la catégorie du filtre : le rang de sa meilleure liste d'origine.
             ranks = ({k: n for k, n in item["ranks"].items() if keys is None or k in keys}
                      or {k: n for k, n in item["ranks"].items()
                          if any(k in wordlists.DERIVED_FROM.get(c, ()) for c in keys or ())})
-            item["freq_list"] = min(ranks, key=lambda k: ranks[k] / sizes[k], default=None)
+            item["freq_list"] = min(ranks, key=lambda k: wordlists.relative(k, ranks[k]), default=None)
         return {"items": items}
 
     # --- Compteurs -------------------------------------------------------------------
@@ -2141,7 +2149,8 @@ class Explorer:
         """Liste principale d'un nom (la première de ses listes d'origine) ; pour un nom court hors des listes, sa
         forme et sa longueur (L3g : 3 lettres prononçables, D3 : 3 chiffres…)."""
         listed = wordlists.own(label)
-        return listed[0] if listed else self.universe.shape_class(i)
+        # Prénom ou nom des seuls États-Unis : la liste de sa catégorie, comme les autres prénoms et noms.
+        return wordlists.MERGED.get(listed[0], listed[0]) if listed else self.universe.shape_class(i)
 
     def comparables(self, name: str) -> list[dict]:
         """Jusqu'à COMPARABLES noms déjà notés avec la grille (v5) sur la même extension, de la même liste

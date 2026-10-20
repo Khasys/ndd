@@ -317,7 +317,10 @@ def test_facets_follow_every_filter(env):
     assert verbs["available"] == len(env.universe.by_nature["verb"]) - len(
         [i for i in env.universe.by_nature["verb"] if "word" not in env.universe.categories(env.universe.label(i))])
     assert env.facets("fr", taken="com")["available"] == 2
-    assert env.facets("fr", category="firstname", max_rank=10)["available"] == 10
+    # Prénoms : les 10 premiers de chaque source (France et États-Unis), sans les noms pas encore cherchés en .fr.
+    ranks, u = __import__("app").wordlists.ranks(), env.universe
+    top = {u.index(w) for k in ("firstname", "firstname_us") for w, n in ranks[k].items() if n <= 10} - env.unread("fr")
+    assert env.facets("fr", category="firstname", max_rank=10)["available"] == len(top) > 10
 
 
 def test_weights_change_the_order(env):
@@ -459,6 +462,39 @@ def test_language_filter(env):
     assert "insurance" in en and "mutuelle" not in en
     counts = env.facets("fr", lang="en")
     assert 0 < counts["available"] < env.facets("fr")["available"]
+
+
+def test_us_names_are_first_names_and_surnames_in_english(env):
+    """Prénoms et noms de famille des États-Unis : dans Prénoms et Noms de famille (pas de catégorie à part), en
+    anglais pour le filtre de langue, rang et raison de leur source ; un nom des deux pays passe les deux filtres."""
+    from app import wordlists
+
+    zone(env, [], [])  # .com lu avec toutes les listes : aucun nom masqué faute d'avoir été cherché
+
+    def found(q, **kw):
+        return {i["label"]: i for i in env.rank("com", q=q, mode="prefix", limit=50, **kw)["items"]}
+
+    # bernice : prénom des seuls États-Unis (dans aucune autre liste).
+    assert wordlists.own("bernice") == ["firstname_us"] and wordlists.categories("bernice") == ["firstname"]
+    assert "bernice" in found("bernice", category="firstname", lang="en")
+    assert "bernice" not in found("bernice", category="firstname", lang="fr")
+    assert "bernice" not in found("bernice", category="surname")
+    item = found("bernice", category="firstname")["bernice"]
+    assert item["categories"] == ["firstname"] and item["ranks"] == {"firstname_us": 396}
+    assert "396e prénom le plus donné aux États-Unis" in item["reasons"]
+    # ford : nom de famille des seuls États-Unis ; martin et thomas : des deux pays, les deux langues.
+    item = found("ford", category="surname", lang="en")["ford"]
+    assert "124e nom de famille le plus porté aux États-Unis" in item["reasons"] and "ford" not in found("ford", lang="fr")
+    for name, cat in (("martin", "surname"), ("thomas", "firstname")):
+        assert name in found(name, category=cat, lang="fr") and name in found(name, category=cat, lang="en")
+    # Un prénom seulement français : en français seulement, son rang et sa raison de toujours.
+    item = found("jean-pierre", category="firstname", lang="fr")["jean-pierre"]
+    assert item["ranks"]["firstname"] == 106 and "106e prénom le plus donné" in item["reasons"]
+    assert "jean-pierre" not in found("jean-pierre", category="firstname", lang="en")
+    # Tri par fréquence : la carte lit le rang dans la source où le nom est le mieux placé.
+    top = env.rank("com", category="firstname", sort="freq", limit=6)["items"]
+    assert [(i["label"], i["freq_list"]) for i in top[:4]] == [("jean", "firstname"), ("james", "firstname_us"),
+                                                               ("marie", "firstname"), ("john", "firstname_us")]
 
 
 def test_fiche_tells_when_rdap_is_next_read(env):
@@ -1396,8 +1432,10 @@ def test_several_categories_are_a_union(env):
     u = env.universe
     assert explore.Filters(category="surname, firstname,surname").category == "firstname,surname"
     union = set(u.by_list["firstname"]) | set(u.by_list["surname"])
+    # Prénoms et noms des États-Unis pas encore cherchés en .fr (aucun import dans le test) : masqués, pas comptés.
+    shown = union - env.unread("fr")
     both = env.facets("fr", category="surname,firstname", junk=True)["available"]
-    assert both == len(union) and both > max(env.facets("fr", category=c, junk=True)["available"] for c in ("firstname", "surname"))
+    assert both == len(shown) and both > max(env.facets("fr", category=c, junk=True)["available"] for c in ("firstname", "surname"))
     # Ordre des puces indifférent : même clé, même compte.
     assert env.facets("fr", category="firstname,surname", junk=True)["available"] == both
     items = env.rank("fr", category="firstname,surname", limit=200, sort="score")["items"]
@@ -1407,17 +1445,22 @@ def test_several_categories_are_a_union(env):
     mixed = env.facets("fr", category="digits,word", length=2, junk=True)["available"]
     assert mixed == env.facets("fr", category="digits", length=2, junk=True)["available"] + env.facets("fr", category="word", length=2, junk=True)["available"]
     # Les plus fréquents : les deux listes mêlées par rang relatif, rang lu dans la liste où le nom est le mieux placé.
+    # Chaque catégorie avec ses deux sources (France, États-Unis).
+    sources = ("firstname", "firstname_us", "surname", "surname_us")
     freq = env.rank("fr", category="firstname,surname", sort="freq", limit=60)["items"]
-    assert {i["freq_list"] for i in freq} == {"firstname", "surname"}
+    assert {i["freq_list"] for i in freq} == set(sources)
+    assert all(i["freq_list"] == min((k for k in sources if k in i["ranks"]), key=lambda k: wordlists.relative(k, i["ranks"][k]))
+               for i in freq)
     order = u.frequency("firstname,surname")
     places = [u.position("firstname,surname", u.index(i["label"])) for i in freq]
     assert places == sorted(places) and len(order) == len(union)
-    assert {i["freq_list"] for i in env.rank("fr", category="firstname", sort="freq", limit=10)["items"]} == {"firstname"}
-    # Rang : dans les 10 premiers de l'une ou de l'autre liste.
+    assert {i["freq_list"] for i in env.rank("fr", category="firstname", sort="freq", limit=10)["items"]} == {"firstname", "firstname_us"}
+    # Rang : dans les 10 premiers de l'une ou de l'autre liste, de l'une ou de l'autre source.
     ranks = wordlists.ranks()
-    top = {w for k in ("firstname", "surname") for w, n in ranks[k].items() if n <= 10}
+    top = {u.index(w) for k in sources for w, n in ranks[k].items() if n <= 10} - env.unread("fr")
     assert env.facets("fr", category="firstname,surname", max_rank=10, junk=True)["available"] == len(top)
-    assert env.best_rank("martin", "firstname,surname") == min(r["martin"] for k, r in ranks.items() if k in ("firstname", "surname") and "martin" in r)
+    assert env.best_rank("martin", "firstname,surname") == min(r["martin"] for k, r in ranks.items() if k in sources and "martin" in r) == 1
+    assert env.best_rank("thomas", "firstname") == ranks["firstname_us"]["thomas"] < ranks["firstname"]["thomas"]
 
 
 def test_renewed_by_owner_is_not_shown_as_taken_again():

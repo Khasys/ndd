@@ -1,5 +1,5 @@
-"""Listes de noms surveillés au-delà des noms courts : mots français, noms de famille, prénoms,
-mots anglais, secteurs porteurs, tendances, combinaisons et listes thématiques (métiers, sport, animaux,
+"""Listes de noms surveillés au-delà des noms courts : mots français, noms de famille, prénoms (France et
+États-Unis), mots anglais, secteurs porteurs, tendances, combinaisons et listes thématiques (métiers, sport, animaux,
 cuisine), construites par scripts/build_lists.py ; termes stars, mots-clés à forte valeur, métier + ville
 et marques inventées, fournis tels quels ; « Mes ajouts », les noms ajoutés depuis l'Explorer.
 
@@ -24,7 +24,8 @@ LABELS = {"word": "Mots", "form": "Formes fléchies", "surname": "Noms de famill
           "niche": "Sites de niche", "expr": "Expressions", "media": "Noms de médias",
           "startup": "Tech et startups", "job": "Métiers", "sport": "Sport", "animal": "Animaux",
           "food": "Cuisine", "premium": "Termes stars", "keyword": "Mots-clés à forte valeur",
-          "local": "Métier + ville", "brand": "Noms de marque", "mine": "Mes ajouts"}
+          "local": "Métier + ville", "brand": "Noms de marque", "firstname_us": "Prénoms des États-Unis",
+          "surname_us": "Noms de famille des États-Unis", "mine": "Mes ajouts"}
 # Nature des mots et des formes, tirée du Lexique.
 NATURES = {"verb": "Verbes", "noun": "Noms communs", "adj": "Adjectifs", "adv": "Adverbes", "other": "Mots outils"}
 
@@ -34,7 +35,7 @@ FILES = {"word": "mots.txt", "form": "formes.txt", "surname": "noms.txt", "first
          "niche": "niches.txt", "expr": "expressions.txt", "media": "medias.txt",
          "startup": "startup.txt", "job": "metiers.txt", "sport": "sport.txt", "animal": "animaux.txt",
          "food": "cuisine.txt", "premium": "premium.txt", "keyword": "motscles.txt", "local": "local.txt",
-         "brand": "marques_inventees.txt"}
+         "brand": "marques_inventees.txt", "firstname_us": "prenoms_us.txt", "surname_us": "noms_us.txt"}
 # Listes fournies telles quelles (rédigées ailleurs) : scripts/build_lists.py ne les écrit jamais, il en
 # relève seulement la langue (--provided).
 PROVIDED = ("premium", "keyword", "local", "brand")
@@ -46,7 +47,7 @@ MINE_FILE = "mes_ajouts.txt"
 LEGACY = ("word", "form", "surname", "firstname")
 # Listes ajoutées après les imports .fr sans relevé des noms cherchés (zones/fr.searched) : leurs noms
 # attendent l'import suivant.
-LATE = (*PROVIDED, MINE)
+LATE = (*PROVIDED, MINE, "firstname_us", "surname_us")
 # Listes sans sens : une marque inventée vaut par sa sonorité ; « Mes ajouts » ne dit rien du nom.
 NO_MEANING = ("brand", MINE)
 # Rang sans valeur pour le score : l'ordre d'ajout ne classe rien.
@@ -54,8 +55,9 @@ NO_RANK = (MINE,)
 # Catégories dérivées (nom, catégories gagnées), écrites par scripts/build_lists.py. Hors de l'empreinte du score
 # (precompute) : elles ne changent aucun score.
 DERIVED_FILE = "categories.txt"
-# Jamais dérivées : la langue a son propre filtre, une marque inventée vaut par sa sonorité, Mes ajouts sont à part.
-NEVER_DERIVED = ("word", "form", "english", "surname", "firstname", "brand", MINE)
+# Jamais dérivées : la langue a son propre filtre, une marque inventée vaut par sa sonorité, Mes ajouts sont à part ;
+# prénoms et noms des États-Unis : réunis à leur catégorie (MERGED), pas dérivés.
+NEVER_DERIVED = ("word", "form", "english", "surname", "firstname", "firstname_us", "surname_us", "brand", MINE)
 # Thèmes : les noms composés gagnés viennent après les mots du thème dans l'ordre « les plus fréquents » (le Top
 # Sport commence par football, pas par coachsportif).
 THEMES = ("startup", "job", "sport", "animal", "food", "trend")
@@ -65,13 +67,19 @@ COMPOUNDS = ("combo", "keyword", "local", "premium", "niche", "expr", "media")
 # (Top, « les plus fréquents », filtre de fréquence) : assurance, 1er terme star, parmi les premiers termes stars.
 DERIVED_FROM = {"premium": ("sector", "trend"), "keyword": ("combo",), "local": ("combo", "keyword"),
                 **{key: COMPOUNDS for key in THEMES}}
-# Liste sans puce : ses noms sont tous dans Termes stars (catégorie dérivée) ; elle reste pour le score et le
-# calage IA, et cat=sector (vues enregistrées, adresses anciennes) se lit comme cat=premium.
-HIDDEN = ("sector",)
-ALIASES = {"sector": "premium"}
+# Listes d'une autre source réunies dans une catégorie : prénoms et noms de famille des États-Unis dans Prénoms et
+# Noms de famille. Chacune garde ses rangs (score, ordre « les plus fréquents », « 12e prénom le plus donné aux
+# États-Unis ») ; un nom des deux sources est un seul nom de la catégorie.
+MERGED = {"firstname_us": "firstname", "surname_us": "surname"}
+# Listes sans puce : les secteurs porteurs sont tous dans Termes stars (catégorie dérivée), la liste reste pour le
+# score et le calage IA ; les prénoms et noms des États-Unis sont dans leur catégorie, la liste reste pour leurs rangs.
+# cat=sector (vues enregistrées, adresses anciennes) se lit comme cat=premium, cat=firstname_us comme cat=firstname.
+HIDDEN = ("sector", *MERGED)
+ALIASES = {"sector": "premium", **MERGED}
 SHOWN = {key: label for key, label in LABELS.items() if key not in HIDDEN}
 # Listes sans avis IA de calage (score_model.json) : leur rang compte avec le poids de la liste la plus proche.
-SCORE_AS = {"premium": "sector", "keyword": "sector", "local": "combo", "brand": "startup"}
+# Prénoms et noms des États-Unis : le poids des prénoms et des noms français, au meilleur des deux rangs.
+SCORE_AS = {"premium": "sector", "keyword": "sector", "local": "combo", "brand": "startup", **MERGED}
 
 
 def _ordered(name: str) -> list[str]:
@@ -258,9 +266,28 @@ def derived() -> dict[str, frozenset[str]]:
 
 @lru_cache(maxsize=1)
 def classes() -> dict[str, frozenset[str]]:
-    """Noms de chaque catégorie : sa liste et les noms dérivés. Classement, filtres, compteurs, carte, Top."""
+    """Noms de chaque catégorie : sa liste, les listes qui y sont réunies (MERGED) et les noms dérivés. Classement,
+    filtres, compteurs, carte, Top."""
     gained = derived()
-    return {key: names | gained.get(key, frozenset()) for key, names in lists().items()}
+    found = {key: names | gained.get(key, frozenset()) for key, names in lists().items()}
+    for key, into in MERGED.items():
+        found[into] = found[into] | found[key]
+    return found
+
+
+def sources(key: str) -> list[str]:
+    """Listes d'origine d'une catégorie : la sienne et celles qui y sont réunies (firstname, firstname_us)."""
+    return [key, *(k for k, into in MERGED.items() if into == key)]
+
+
+def relative(key: str, rank: int) -> float:
+    """Rang relatif dans une liste (rang sur taille), pour ranger ensemble des listes de tailles différentes (ordre
+    « les plus fréquents », Top). Liste réunie à une catégorie (MERGED) : rapporté à la liste de la catégorie, juste
+    après le même rang de celle-ci (le 50e prénom des États-Unis entre le 50e et le 51e prénom français)."""
+    into = MERGED.get(key)
+    if into is None:
+        return rank / len(ranks()[key])
+    return (rank + 0.5) / len(ranks()[into])
 
 
 def own(label: str) -> list[str]:
@@ -292,13 +319,19 @@ def natures() -> dict[str, frozenset[str]]:
 LANGS = {"fr": "Français", "en": "Anglais"}
 # Listes sans langue : le filtre de langue ne s'y applique pas. Marques inventées : pas de sens, pas de
 # langue ; Mes ajouts : un nom y garde la langue qu'il a dans une autre liste, la liste entière reste visible.
-NO_LANG = ("surname", "firstname", "brand", MINE)
+NO_LANG = ("brand", MINE)
+# Listes d'une seule langue, tout entières : Lexique en français, mots anglais en anglais, prénoms et noms de famille
+# en français pour l'Insee, en anglais pour les États-Unis (un nom des deux sources a les deux langues).
+LIST_LANG = {"word": "fr", "form": "fr", "surname": "fr", "firstname": "fr", "english": "en", "firstname_us": "en",
+             "surname_us": "en"}
 
 
 @lru_cache(maxsize=1)
 def _static_languages() -> dict[str, frozenset[str]]:
     lists = static_lists()
-    found = {"fr": set(lists["word"]) | set(lists["form"]), "en": set(lists["english"])}
+    found: dict[str, set[str]] = {lang: set() for lang in LANGS}
+    for key, lang in LIST_LANG.items():
+        found[lang] |= lists[key]
     path = DATA / "langues.txt"
     if path.exists():
         for line in path.read_text(encoding="utf-8").splitlines():
@@ -311,10 +344,10 @@ def _static_languages() -> dict[str, frozenset[str]]:
 
 @lru_cache(maxsize=1)
 def languages() -> dict[str, frozenset[str]]:
-    """Noms par langue : mots et formes en français, mots anglais en anglais, et pour les listes
-    mêlées (secteurs, tendances, combinaisons, sites de niche, listes thématiques, listes fournies) la
-    langue relevée à la construction. Noms de famille, prénoms et marques inventées : sans langue.
-    Mes ajouts : la langue d'une autre liste, sinon aucune."""
+    """Noms par langue : mots et formes en français, mots anglais en anglais, prénoms et noms de famille selon
+    leur source (France : français, États-Unis : anglais), et pour les listes mêlées (secteurs, tendances,
+    combinaisons, sites de niche, listes thématiques, listes fournies) la langue relevée à la construction.
+    Marques inventées : sans langue. Mes ajouts : la langue d'une autre liste, sinon aucune."""
     return _static_languages()
 
 

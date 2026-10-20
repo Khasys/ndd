@@ -150,8 +150,9 @@ def features(label: str, tld: str) -> dict[str, float]:
     f["brand"] = float(label in brands())
     # Mot anglais en .fr, mot français ailleurs : moins lisible pour l'acheteur visé.
     langs = wordlists.languages()
-    # Un prénom ou un nom de famille n'a pas de langue : lea.fr n'est pas « un mot anglais en .fr ».
-    person = strength.get("firstname", 0.0) > 0 or strength.get("surname", 0.0) > 0
+    # Un prénom ou un nom de famille se porte dans toutes les langues : lea.fr n'est pas « un mot anglais en .fr »,
+    # ni un prénom des États-Unis en .fr (compté avec les prénoms : wordlists.SCORE_AS).
+    person = f["in_firstname"] > 0 or f["in_surname"] > 0
     f["lang_mismatch"] = float(not person and (
         (label in langs.get("en", ()) and label not in langs.get("fr", ()) and not english_ext)
         or (label in langs.get("fr", ()) and label not in langs.get("en", ()) and english_ext)))

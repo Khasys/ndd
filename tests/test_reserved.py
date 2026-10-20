@@ -103,7 +103,8 @@ def test_failed_download_keeps_previous_lists(env):
 def test_frequency_order(env):
     lists, ex = env
     found = [i["label"] for i in ex.rank("fr", category="firstname", sort="freq", limit=5)["items"]]
-    assert found[:3] == ["jean", "marie", "jeanne"]
+    # Prénoms de France et des États-Unis mêlés par rang, le Ne français d'abord : jean, james, marie, john, jeanne.
+    assert found == ["jean", "james", "marie", "john", "jeanne"]
     by_length = [i["length"] for i in ex.rank("fr", sort="length", limit=40)["items"]]
     assert by_length == sorted(by_length)
 

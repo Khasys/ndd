@@ -60,14 +60,16 @@ POPULAR = {"word": "mot", "form": "forme", "surname": "nom", "firstname": "prén
            "sector": "terme star", "trend": "tendance", "combo": "nom composé", "niche": "site de niche",
            "expr": "expression", "media": "nom de média",
            "startup": "tech et startups", "job": "métier", "sport": "sport", "animal": "animal", "food": "cuisine",
-           "premium": "terme star", "keyword": "mot-clé", "local": "métier + ville", "brand": "nom de marque"}
+           "premium": "terme star", "keyword": "mot-clé", "local": "métier + ville", "brand": "nom de marque",
+           "firstname_us": "prénom", "surname_us": "nom"}
 # Une forme fléchie vaut moins que le mot de base ; un nom composé bien moins qu'un mot seul (métier + ville
 # en est une ; une marque inventée n'a pas de sens, seulement un rang parmi les autres).
 POPULAR_FACTOR = {"form": 0.7, "combo": 0.5, "niche": 0.5, "expr": 0.8, "media": 0.6, "local": 0.5, "brand": 0.5}
 
 
 def popularity(label: str) -> tuple[int, str | None]:
-    """Le meilleur rang parmi les listes : 30 pour le premier, 0 pour le dernier."""
+    """Le meilleur rang parmi les listes : 30 pour le premier, 0 pour le dernier. Prénoms et noms de famille : un
+    rang par source (France, États-Unis), chacun sur la taille de sa liste ; à égalité, le rang français."""
     best, reason = 0, None
     for key, ranks in wordlists.ranks().items():
         rank = ranks.get(label)
@@ -86,7 +88,9 @@ POPULAR_PHRASE = {"word": "mot le plus courant", "form": "forme la plus courante
                   "trend": "tendance", "combo": "nom composé", "niche": "site de niche", "expr": "expression courante",
                   "media": "nom de média", "startup": "mot tech et startups", "job": "métier le plus demandé",
                   "sport": "mot du sport", "animal": "animal", "food": "mot de cuisine", "premium": "terme star",
-                  "keyword": "mot-clé à forte valeur", "local": "métier + ville", "brand": "nom de marque"}
+                  "keyword": "mot-clé à forte valeur", "local": "métier + ville", "brand": "nom de marque",
+                  "firstname_us": "prénom le plus donné aux États-Unis",
+                  "surname_us": "nom de famille le plus porté aux États-Unis"}
 
 
 def _nth(rank: int) -> str:

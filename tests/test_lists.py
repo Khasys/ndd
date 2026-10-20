@@ -34,7 +34,7 @@ def test_provided_lists_are_loaded_with_labels_and_languages():
     assert wordlists.categories("kinia") == ["brand"]
     # Langue relevée par scripts/build_lists.py --provided : celle des mots qui composent le nom.
     assert wordlists.langs_of("mutuellesante") == ["fr"] and wordlists.langs_of("carinsurance") == ["en"]
-    assert wordlists.langs_of("kinia") == []  # marque inventée : sans langue, comme un nom propre
+    assert wordlists.langs_of("kinia") == []  # marque inventée : sans langue
     assert "brand" in wordlists.NO_LANG and "mine" in wordlists.NO_LANG
 
 
@@ -476,3 +476,75 @@ def test_no_elided_e_before_en_ligne():
             if at > 3 and head not in known and head + "e" in known:
                 wrong.append((name, w))
     assert wrong == []
+
+
+# --- Prénoms et noms des États-Unis ----------------------------------------------------------------------
+
+
+def test_us_names_join_their_categories():
+    """Autant de prénoms et de noms des États-Unis que de France, dans les mêmes catégories ; un nom des deux pays y
+    est un seul nom ; langue de sa source."""
+    lists, classes = wordlists.lists(), wordlists.classes()
+    french = {k: (wordlists.DATA / wordlists.FILES[k]).read_text().split() for k in ("firstname", "surname")}
+    assert len(lists["firstname_us"]) == 10_000 and len(lists["surname_us"]) == len(french["surname"]) == 21_689
+    assert all(wordlists.valid_label(w) for k in wordlists.MERGED for w in lists[k])
+    for key, into in wordlists.MERGED.items():
+        assert classes[into] == lists[into] | lists[key] and key in wordlists.HIDDEN and key not in wordlists.SHOWN
+        assert wordlists.canonical(key) == into and key not in wordlists.NO_LANG and into not in wordlists.NO_LANG
+    assert {"smith", "ford", "martin"} <= classes["surname"] and {"bernice", "thomas", "jean-pierre"} <= classes["firstname"]
+    assert wordlists.categories("bernice") == ["firstname"] and wordlists.categories("alvarado") == ["surname"]
+    assert wordlists.categories("ford") == ["surname", "firstname"]  # nom et prénom des États-Unis
+    assert wordlists.langs_of("bernice") == wordlists.langs_of("alvarado") == wordlists.langs_of("ford") == ["en"]
+    assert wordlists.langs_of("jean-pierre") == ["fr"] and wordlists.langs_of("legall") == ["fr"]
+    assert wordlists.langs_of("thomas") == wordlists.langs_of("martin") == ["fr", "en"]
+    # Les listes françaises n'ont pas bougé : mêmes noms, mêmes rangs.
+    for key, names in french.items():
+        assert wordlists.ranks()[key] == {w: n for n, w in enumerate(names, 1)}
+
+
+def test_us_names_score_like_their_french_equivalent():
+    """Score : le rang de chaque source sur la taille de sa liste, le meilleur des deux, avec le poids des prénoms
+    et des noms français ; un nom seulement français garde exactement son rang, son score et sa raison."""
+    import math
+
+    ranks = wordlists.ranks()
+    # Seulement français : la formule de toujours, sur la liste française seule.
+    assert "jean-pierre" not in ranks["firstname_us"] and ranks["firstname"]["jean-pierre"] == 106
+    expected = round(30 * (1 - math.sqrt(105 / len(ranks["firstname"]))))
+    assert value.popularity("jean-pierre") == (expected, "106e prénom le plus donné")
+    f = quality.features("jean-pierre", "fr")
+    assert f["in_firstname"] == 1 - math.sqrt(105 / len(ranks["firstname"]))
+    assert value.popularity("legall")[1] == f"{ranks['surname']['legall']}e nom de famille le plus porté"
+    # Seulement des États-Unis : son rang américain, la raison le dit, le poids des prénoms français.
+    assert value.popularity("bernice") == (round(30 * (1 - math.sqrt(395 / 10_000))), "396e prénom le plus donné aux États-Unis")
+    assert value.popularity("smith")[1] == "1er nom de famille le plus porté aux États-Unis"
+    assert value.popularity("ford")[1] == "124e nom de famille le plus porté aux États-Unis"
+    us = quality.features("bernice", "fr")
+    assert us["in_firstname"] == 1 - math.sqrt(395 / 10_000) and us["lang_mismatch"] == 0
+    assert quality.family(us, "bernice") == "names"
+    # Le 50e prénom des États-Unis pèse comme le 50e prénom français.
+    fr50 = next(w for w, n in ranks["firstname"].items() if n == 50)
+    us50 = next(w for w, n in ranks["firstname_us"].items() if n == 50)
+    assert value.popularity(fr50)[0] == value.popularity(us50)[0] == 28
+    # Des deux pays : le meilleur rang (martin : 1er nom de famille en France, 17e aux États-Unis).
+    assert value.popularity("martin") == (30, "1er nom de famille le plus porté")
+    assert ranks["firstname"]["thomas"] == 76 and ranks["firstname_us"]["thomas"] == 11
+    assert value.popularity("marie") == (30, "2e prénom le plus donné")
+
+
+def test_build_names_us_is_reproducible(tmp_path, monkeypatch):
+    """scripts/build_names_us.py : du plus fréquent au moins fréquent, minuscules, libellés valides, sans doublon,
+    sans réseau ; reconstruit les fichiers livrés depuis les fichiers téléchargés."""
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    import build_names_us
+
+    first = tmp_path / "first.csv"
+    first.write_text("name,n\njames,500\nzoé,20\nmary,900\nJames,10\n", encoding="utf-8")
+    last = tmp_path / "last.csv"
+    last.write_text("name,rank,count\nSMITH,1,90\nALL OTHER NAMES,0,5000\nO'BRIEN,2,80\nDE LA CRUZ,3,70\nX*Y,4,60\n",
+                    encoding="utf-8")
+    assert build_names_us.ranked(first, "n", 3) == ["mary", "james", "zoe"]
+    assert build_names_us.ranked(last, "count", 10) == ["smith", "obrien", "delacruz"]

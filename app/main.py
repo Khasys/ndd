@@ -1661,7 +1661,7 @@ def _explore_params_of(p, explorer) -> dict:
             "max_rank": max_rank, "min_score": min_score, "taken": taken, "junk": p.get("junk") == "1",
             "seo": p.get("seo", "") if p.get("seo", "") in explore.SEO_FILTERS else "",
             "ai": _ai_param(p),
-            # Prénoms et noms de famille n'ont pas de langue : avec l'une de ces listes cochée, la langue ne filtre pas.
+            # Liste sans langue (marques inventées, Mes ajouts) cochée : la langue ne filtre pas.
             "lang": p.get("lang", "") if p.get("lang", "") in wordlists.LANGS and not set(cats) & set(wordlists.NO_LANG) else "",
             # Premiums (vus chez Gandi ou probables) affichés par défaut ; nopremium=1 les retire (« Masquer les premiums »).
             "premium": p.get("nopremium") != "1",

@@ -304,7 +304,7 @@
     <dl class="help-dl">
       <dt>Formes</dt><dd>Tous les noms de 1 à 4 caractères.</dd>
       <dt>Mots, formes fléchies</dt><dd>20 000 mots français les plus fréquents, 10 000 formes fléchies.</dd>
-      <dt>Noms de famille, prénoms</dt><dd>Noms donnés plus de 500 fois, prénoms plus de 100 fois en France (Insee).</dd>
+      <dt>Noms de famille, prénoms</dt><dd>Noms donnés plus de 500 fois, prénoms plus de 100 fois en France (Insee) ; autant des États-Unis (10 000 prénoms de la Social Security, 21 689 noms du recensement de 2010), dans les mêmes listes. Langue : français pour la France, anglais pour les États-Unis, les deux pour un nom des deux pays. Chaque source garde son rang : « 12e prénom le plus donné aux États-Unis ».</dd>
       <dt>Prénoms récents</dt><dd>Les plus donnés de la dernière année publiée par l'Insee (jamais l'année en cours) : liste du Top, tri « Les plus donnés en … » avec le type Prénoms, raison sur la carte.</dd>
       <dt>Mots anglais</dt><dd>30 000 plus fréquents, hors marques connues.</dd>
       <dt>Secteurs porteurs</dt><dd>Assurance, crédit, immobilier, droit, santé, travaux… en français et en anglais. Pas de puce : ses noms sont dans Termes stars ; la liste reste pour le score.</dd>
@@ -794,7 +794,7 @@
                 <button type="button" class="tag" :class="{ on: top.n === n }" @click="top.n = n; exLoadTop()" x-text="'Top ' + n"></button>
               </template>
             </div>
-            <p class="muted small" x-show="ex.lang && ['surname', 'firstname', 'firstname_recent'].includes(top.cat)">Langue ignorée : les prénoms et les noms n'en ont pas.</p>
+            <p class="muted small" x-show="ex.lang && top.cat === 'firstname_recent'">Langue ignorée : les prénoms récents de l'Insee sont ceux de la France.</p>
             <p class="muted small" x-show="top.cat === 'firstname_recent' && topData && topData.year"><span x-text="'Naissances ' + (topData || {}).year + ' (Insee).'"></span> L'année en cours n'est jamais publiée. Rang de l'Insee : les prénoms hors des listes suivies sont sautés.</p>
             <p class="muted small" x-show="!topData">Chargement…</p>
             <template x-if="topData">

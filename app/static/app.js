@@ -17,6 +17,7 @@ const KIND_LABELS = {
   sector: "Secteurs porteurs", trend: "Tendances", combo: "Noms composés", niche: "Sites de niche", expr: "Expressions",
   media: "Noms de médias", startup: "Tech et startups", job: "Métiers", sport: "Sport", animal: "Animaux", food: "Cuisine",
   premium: "Termes stars", keyword: "Mots-clés à forte valeur", local: "Métier + ville", brand: "Noms de marque", mine: "Mes ajouts",
+  firstname_us: "Prénoms des États-Unis", surname_us: "Noms de famille des États-Unis",
 };
 const NATURE_LABELS = { noun: "nom commun", verb: "verbe", adj: "adjectif", adv: "adverbe", other: "mot outil" };
 // Rang dans une liste, en clair : « 12e prénom le plus donné » (mêmes mots que les raisons du score, value.py).
@@ -26,7 +27,14 @@ const FREQ_PHRASES = {
   combo: "nom composé", niche: "site de niche", expr: "expression courante", media: "nom de média",
   startup: "mot tech et startups", job: "métier le plus demandé", sport: "mot du sport", animal: "animal", food: "mot de cuisine",
   premium: "terme star", keyword: "mot-clé à forte valeur", local: "métier + ville", brand: "nom de marque", mine: "de mes ajouts",
+  firstname_us: "prénom le plus donné aux États-Unis", surname_us: "nom de famille le plus porté aux États-Unis",
 };
+// Listes réunies dans une catégorie, chacune avec ses rangs (wordlists.MERGED) : Prénoms, ceux de France et des États-Unis.
+const MERGED_LISTS = { firstname_us: "firstname", surname_us: "surname" };
+// Liste d'une catégorie où le nom est le mieux placé : la sienne ou l'une de celles qui y sont réunies (de tailles
+// voisines, le rang suffit).
+const bestSource = (r, key) => [key, ...Object.keys(MERGED_LISTS).filter((k) => MERGED_LISTS[k] === key)]
+  .filter((k) => r[k]).sort((a, b) => r[a] - r[b])[0];
 const VERDICT_CLASSES = { "À prendre": "take", "À surveiller": "watch", "À laisser": "skip" };
 // min : score minimum des filtres avancés ; 0 = tout voir. period : libérés depuis / libération dans (clé de
 // PERIODS), "" = tout ce que la Veille garde.
@@ -1308,7 +1316,7 @@ document.addEventListener("alpine:init", () => {
       if (f.natures && f.natures.length) name.push(["Nature", esc(f.natures.map((n) => NATURE_LABELS[n] || n).join(", "))]);
       // Rang dans chaque liste, du mieux placé au moins bien placé : « 442e mot anglais le plus courant ».
       const ranks = (item && item.ranks) || {};
-      const ranked = Object.keys(ranks).sort((a, b) => ranks[a] - ranks[b]).map((k) => this.freqText(item, k));
+      const ranked = Object.keys(ranks).sort((a, b) => ranks[a] - ranks[b]).map((k) => this.freqText(item, k, true));
       if (ranked.length) name.push(["Fréquence", esc(ranked.join(", "))]);
       else if (f.rank) name.push(["Fréquence", `n° ${esc(this.fmt(f.rank))} de sa liste`]);
       // Libération estimée et prochaine lecture du registre : déjà dans Dates clés.
@@ -1363,7 +1371,8 @@ document.addEventListener("alpine:init", () => {
       const kinds = (this.exData && this.exData.kinds) || (this.dropsData && this.dropsData.kinds) || {};
       const ranks = (f.item && f.item.ranks) || {};
       // Les listes où le nom est le mieux placé d'abord ; les formes (lettres, chiffres) seulement à défaut.
-      const lists = f.categories.filter((c) => !SHAPE_KINDS.includes(c)).sort((a, b) => (ranks[a] || 1e9) - (ranks[b] || 1e9));
+      const rank = (c) => ranks[bestSource(ranks, c)] || 1e9;
+      const lists = f.categories.filter((c) => !SHAPE_KINDS.includes(c)).sort((a, b) => rank(a) - rank(b));
       return (lists.length ? lists : f.categories).slice(0, 2).map((c) => this.kindLabel(kinds, c)).join(", ");
     },
 
@@ -1434,11 +1443,13 @@ document.addEventListener("alpine:init", () => {
 
     verdictClass(v) { return VERDICT_CLASSES[v] || ""; },
 
-    // « 12e prénom le plus donné » : rang dans la liste key si le nom y est, sinon dans la liste choisie par le
-    // serveur (freq_list), sinon dans celle où son rang est le meilleur.
-    freqText(i, key) {
+    // « 12e prénom le plus donné » : rang dans la liste key si le nom y est (la mieux placée de ses sources : Prénoms
+    // de France ou des États-Unis ; exact, cette liste seule), sinon dans la liste choisie par le serveur
+    // (freq_list), sinon dans celle où son rang est le meilleur.
+    freqText(i, key, exact = false) {
       const r = (i && i.ranks) || {};
-      const k = key && r[key] ? key : i.freq_list && r[i.freq_list] ? i.freq_list : Object.keys(r).sort((a, b) => r[a] - r[b])[0];
+      const k = (key && (exact ? r[key] && key : bestSource(r, key)))
+        || (i.freq_list && r[i.freq_list] ? i.freq_list : Object.keys(r).sort((a, b) => r[a] - r[b])[0]);
       if (!k) return "";
       const first = ["form", "combo", "trend", "expr"].includes(k) ? "1re" : "1er";
       return `${r[k] === 1 ? first : this.fmt(r[k]) + "e"} ${FREQ_PHRASES[k] || "de la liste " + this.kindLabel(null, k)}`;
@@ -2461,7 +2472,7 @@ document.addEventListener("alpine:init", () => {
         if (sort === "freq") {
           // Du plus donné au moins donné (Insee pour prénoms et noms) ; les noms hors des listes à la fin.
           const key = this.dropFreqList();
-          const rank = (d) => { const r = d.ranks || {}; return key ? r[key] ?? Infinity : Math.min(Infinity, ...Object.values(r)); };
+          const rank = (d) => { const r = d.ranks || {}; return key ? r[bestSource(r, key)] ?? Infinity : Math.min(Infinity, ...Object.values(r)); };
           return list.sort((a, b) => rank(a) - rank(b) || best(a, b));
         }
         return list.sort(best);

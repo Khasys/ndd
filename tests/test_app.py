@@ -364,17 +364,20 @@ def test_explorer_several_categories(logged):
     first, last, both = count("firstname"), count("surname"), count("firstname,surname")
     assert max(first, last) < both <= first + last and count("surname,firstname") == both
     items = client.get("/api/explore/rank", params={"cat": "firstname,surname", "sort": "freq", "limit": 40}).json()["items"]
-    assert {i["freq_list"] for i in items} == {"firstname", "surname"}
+    # Rang lu dans la liste où le nom est le mieux placé, prénoms et noms de France ou des États-Unis.
+    assert {i["freq_list"] for i in items} == {"firstname", "surname", "firstname_us", "surname_us"}
     assert all({"firstname", "surname"} & set(i["categories"]) for i in items)
     assert client.get("/api/explore/rank", params={"cat": "firstname,zzz"}).status_code == 422
     # Forme et liste ensemble ; la longueur reste un filtre à part.
     assert client.get("/api/explore/rank", params={"cat": "letters,word", "len": "2", "limit": 5}).json()["items"]
     csv = client.get("/api/explore/export", params={"status": "registered", "cat": "word,surname"}).text
     assert "navarro.fr;Enregistré" in csv
-    # Prénoms et noms de famille n'ont pas de langue : cochés avec une autre liste, la langue ne filtre plus.
+    # Prénoms et noms de famille ont une langue (France : français, États-Unis : anglais) ; une liste sans langue
+    # (marques inventées, Mes ajouts) cochée avec une autre : la langue ne filtre plus.
     from app.main import _view_params
     params = _view_params(client.app.state.explorer, {"cat": "surname,word", "lang": "fr"})
-    assert params["category"] == "surname,word" and params["lang"] == ""
+    assert params["category"] == "surname,word" and params["lang"] == "fr"
+    assert _view_params(client.app.state.explorer, {"cat": "brand,word", "lang": "fr"})["lang"] == ""
     assert _view_params(client.app.state.explorer, {"cat": "word", "lang": "fr"})["lang"] == "fr"
     # Vue enregistrée : une longue liste de catégories n'est pas coupée.
     many = "english,firstname,sector,startup,surname,word"
@@ -617,12 +620,27 @@ def test_top_follows_language_and_extensions(logged):
     assert client.get("/api/explore/top", params={"cat": "nope"}).status_code == 422
 
 
-def test_language_is_ignored_for_first_names(logged):
+def test_language_filters_first_names(logged):
+    """Top Prénoms : prénoms de France (Insee) en français, des États-Unis en anglais, les deux pour un prénom des
+    deux listes ; rang de la liste filtrée."""
+    from app import wordlists
+
     client = logged()
     client.app.state.conn.execute("INSERT INTO fr_names (label, created_on) VALUES ('zz', '2001-01-01')")
-    every = client.get("/api/explore/top", params={"cat": "firstname", "n": 500}).json()
-    french = client.get("/api/explore/top", params={"cat": "firstname", "n": 500, "lang": "fr"}).json()
-    assert len(every["items"]) == len(french["items"]) == 500
+    top = lambda **kw: [i["label"] for i in client.get("/api/explore/top", params={"cat": "firstname", "n": 500, **kw}).json()["items"]]
+    every, french, english = top(), top(lang="fr"), top(lang="en")
+    assert len(every) == len(french) == len(english) == 500
+    assert every[:5] == ["jean", "james", "marie", "john", "jeanne"]
+    assert set(french) <= wordlists.languages()["fr"] and set(english) <= wordlists.languages()["en"]
+    # Prénoms des seuls États-Unis (russell, tammy) en anglais seulement ; thomas, des deux listes, dans les deux ;
+    # jean-pierre, de la seule liste française, en français seulement.
+    us_only = {w for w in english if wordlists.langs_of(w) == ["en"]}
+    assert {"russell", "tammy"} <= us_only and not us_only & set(french)
+    assert all("firstname" not in wordlists.own(w) for w in us_only)
+    assert "thomas" in english and "thomas" in french
+    assert "jean-pierre" in french and "jean-pierre" not in english
+    # Sans puce à part : cat=firstname_us se lit comme cat=firstname.
+    assert client.get("/api/explore/top", params={"cat": "firstname_us"}).json()["category"] == "firstname"
 
 
 def test_recent_first_names_in_top_sort_and_settings(logged, tmp_path):
@@ -1513,9 +1531,10 @@ def test_rank_sorts_keep_every_filter(logged):
                     dates = [it["release_at"] or "9" for it in items]
                     assert dates == sorted(dates), params
                 if sort == "freq":
+                    # Rang relatif dans la liste du filtre (Prénoms : le meilleur de ses deux sources), sinon dans toutes.
                     key = f.get("cat") if f.get("cat") in wordlists.LABELS else ""
-                    sizes = {k: len(r) for k, r in wordlists.ranks().items()}
-                    pos = [it["ranks"][key] if key else min(r / sizes[k] for k, r in it["ranks"].items()) for it in items]
+                    pos = [min(wordlists.relative(k, n) for k, n in it["ranks"].items() if not key or k in wordlists.sources(key))
+                           for it in items]
                     assert pos == sorted(pos), params
                     assert all(it["freq_list"] in it["ranks"] for it in items)
     assert checked > 2000
@@ -1523,8 +1542,13 @@ def test_rank_sorts_keep_every_filter(logged):
     for level in ("good", ""):
         items = client.get("/api/explore/rank", params={"tld": "fr", "status": "all", "sort": "freq", "cat": "firstname",
                                                         "level": level, "limit": 30}).json()["items"]
-        ranks = [it["ranks"]["firstname"] for it in items]
-        assert ranks and ranks == sorted(ranks) and all(it["freq_list"] == "firstname" for it in items)
+        # Prénoms de France et des États-Unis mêlés : le Ne des États-Unis juste après le Ne de France ; chaque source
+        # dans son ordre.
+        pos = [wordlists.relative(it["freq_list"], it["ranks"][it["freq_list"]]) for it in items]
+        assert pos and pos == sorted(pos) and {it["freq_list"] for it in items} <= {"firstname", "firstname_us"}
+        for source in ("firstname", "firstname_us"):
+            ranks = [it["ranks"][source] for it in items if it["freq_list"] == source]
+            assert ranks and ranks == sorted(ranks)
     # Par avis IA, noms faibles masqués : les « À laisser » écartés ne laissent pas leur place à des noms sans avis.
     items = client.get("/api/explore/rank", params={"tld": "fr", "status": "all", "sort": "ai", "level": "good", "limit": 5}).json()["items"]
     assert len(items) == 5 and all(it["ai"] and not it["ai"]["comment"].startswith("À laisser") for it in items)

@@ -258,7 +258,7 @@ Réglages communs, gardés d'un écran à l'autre :
   valeur reste acceptée, formes `letters`, `digits`, `mixed`, `hyphen` comprises) suit compteurs, tri, export CSV,
   vues enregistrées et mémoire du navigateur ; la longueur reste un filtre à part, la carte garde une case par
   catégorie. Les plus fréquents avec plusieurs listes : par meilleur rang relatif, `freq_list` dit la liste du rang.
-  Prénoms ou Noms de famille cochés avec une autre liste : la langue ne filtre plus (ces listes n'en ont pas).
+  Noms de marque ou Mes ajouts cochés avec une autre liste : la langue ne filtre plus (ces listes n'en ont pas).
   Une catégorie compte aussi ses noms dérivés (voir « Listes de noms ») ; `cat=sector` (vues enregistrées, adresses
   anciennes) se lit comme `cat=premium`.
 - **Période** (Veille) : « Tout » par défaut (tout ce que la Veille garde), ou 24 h, 7 j, 30 j : Libérés depuis la
@@ -351,7 +351,8 @@ Menu Veille : les noms qui quittent les zones des extensions génériques (et le
 .io), suivis jusqu'à leur libération. Sont suivis tous les noms de 1 à 4 caractères (lettres, chiffres, tiret), les 20 000
 mots français les plus courants (forme de base, sans accents), les noms de famille donnés plus
 de 500 fois en France entre 1891 et 2000 (environ 21 700) et les prénoms donnés plus de 100 fois
-entre 1900 et 2018 (environ 10 000). S'y ajoutent les 30 000 mots anglais les plus fréquents
+entre 1900 et 2018 (environ 10 000), avec autant de noms de famille (recensement de 2010) et de prénoms
+(naissances de 1880 à 2017) des États-Unis dans les mêmes listes. S'y ajoutent les 30 000 mots anglais les plus fréquents
 (marques connues retirées), environ 580 mots des secteurs qui paient (assurance, crédit,
 immobilier, droit, santé, travaux…), environ 200 mots en vogue et environ 35 000 noms composés
 (monassurance, plombier-lyon, insurancehub, dallasplumber…) et environ 4 000 noms de sites de
@@ -375,7 +376,7 @@ dérivés (ci-dessous) ; le filtre de langue suit la langue relevée dans `app/d
 | Clé | Libellé | Contenu |
 |---|---|---|
 | word, form | Mots, Formes fléchies | 20 000 lemmes et 10 000 formes du Lexique |
-| surname, firstname | Noms de famille, Prénoms | Insee |
+| surname, firstname | Noms de famille, Prénoms | Insee (France), et les listes des États-Unis qui y sont réunies (ci-dessous) |
 | english | Mots anglais | 30 000 mots de wordfreq, marques retirées |
 | sector, trend, startup | Secteurs porteurs, Tendances, Tech et startups | listes à la main ; Secteurs porteurs sans puce à l'écran (ses noms sont dans Termes stars), la liste reste pour le score et le calage IA |
 | combo, niche, expr, media | Noms composés, Sites de niche, Expressions, Noms de médias | construites par `scripts/build_lists.py` (noms de médias : lesvoeux, mondedujardinage, frandroid) |
@@ -388,6 +389,21 @@ dérivés (ci-dessous) ; le filtre de langue suit la langue relevée dans `app/d
 | local | Métier + ville | `local.txt`, fourni (plombierparis) |
 | brand | Noms de marque | `marques_inventees.txt`, fourni : lieux et légendes, mots étrangers, mots réels détournés, noms inventés, composés rythmés, mots-valises ; la sonorité compte, pas le sens |
 | mine | Mes ajouts | `data/mes_ajouts.txt`, dans le dossier de données : les noms ajoutés depuis l'Explorer |
+| firstname_us, surname_us | Prénoms et Noms de famille des États-Unis, sans puce | `prenoms_us.txt` (10 000 prénoms, Social Security Administration, 1880-2017) et `noms_us.txt` (21 689 noms, recensement de 2010), construits par `scripts/build_names_us.py` ; réunis à Prénoms et Noms de famille |
+
+**Prénoms et noms des États-Unis** : autant que de prénoms et de noms de l'Insee, dans les mêmes catégories
+(`wordlists.MERGED`) : puces, compteurs, filtres, Top, export et fiche ne connaissent que Prénoms et Noms de famille,
+un nom des deux pays (thomas, martin) y est un seul nom ; `cat=firstname_us` se lit comme `cat=firstname`. Chaque
+source garde ses rangs (`ranks`, `freq_list`) :
+- score : le rang de chaque source sur la taille de sa liste, le meilleur des deux (le 50e prénom des États-Unis
+  pèse comme le 50e prénom français ; à égalité, le français), avec le poids des prénoms et des noms français
+  (`wordlists.SCORE_AS`). Un nom seulement français garde exactement son rang et son score. Raison : « 396e prénom
+  le plus donné aux États-Unis », « 1er nom de famille le plus porté aux États-Unis » ; « 2e prénom le plus donné »
+  pour un prénom français ;
+- ordre « les plus fréquents », Top, filtre de fréquence : le meilleur rang des deux sources, le Ne des États-Unis
+  juste après le Ne de France (`wordlists.relative`) ; la carte dit le rang de la source retenue ;
+- langue : français pour l'Insee, anglais pour les États-Unis, les deux pour un nom des deux listes. Les prénoms
+  récents (Insee, ci-dessous) restent ceux de la France.
 
 **Catégories dérivées** : un nom garde ses listes d'origine et reçoit en plus les catégories que lui donnent des
 règles, calculées par `scripts/build_lists.py` (`--provided`, `--themes` et la construction complète finissent par
@@ -427,8 +443,8 @@ de la fiche : la liste principale reste la première liste d'origine.
 la plus à la moins précieuse, jusqu'à environ 100 000 entrées en tout. `scripts/build_lists.py` ne les écrit
 jamais : `python scripts/build_lists.py --provided` en vérifie le format (une entrée hors format ou en double est
 signalée, et écartée par l'appli) et relève leur langue dans `langues.txt` : celle d'un mot déjà connu, sinon
-celle des mots qui composent le nom (plombierparis : français ; carinsurance : anglais), sinon aucune, comme
-les noms propres. Les marques inventées n'ont pas de langue. Un fichier absent vaut une liste vide. Dans le
+celle des mots qui composent le nom (plombierparis : français ; carinsurance : anglais), sinon aucune. Les marques inventées n'ont pas de langue.
+Un fichier absent vaut une liste vide. Dans le
 score, leur rang compte comme celui des autres listes, avec le poids appris pour la liste la plus proche
 (termes stars et mots-clés : secteurs porteurs ; métier + ville : noms composés ; marques inventées : tech et
 startups). Une marque inventée n'est pas un « vrai mot » : sa forme se juge à la sonorité et elle ne gagne
@@ -645,13 +661,16 @@ DNS change de version à la fin de chaque passe : l'Explorer se recalcule alors.
   dans l'ordre d'ajout, mots, anglais, prénoms, noms…), pris ou non, avec l'état sur chaque extension en toutes lettres
   (probablement libre, pris, à venir, libre, réservé, premium probable). Un état ouvre la fiche. Les
   puces d'état de la liste sont masquées tant que le Top est ouvert : il montre tous les états.
-  À côté de « Prénoms » (1900-2018), « Prénoms 2024 » (l'année la plus récente du fichier de l'Insee,
+  À côté de « Prénoms » (France 1900-2018, États-Unis 1880-2017), « Prénoms 2024 » (l'année la plus récente du fichier de l'Insee,
   voir « Listes de noms »), dès que le fichier a été lu : rang de l'Insee, nombre de naissances au
   survol, prénoms hors de l'univers sautés (`cat=firstname_recent` de `/api/explore/top`, avec `year`
   et `count` ; 409 tant qu'aucun fichier n'est lu ; `recent` de `/api/explore/rank` donne `key`, `year`
   et `label`, ou null).
 - **Langue** : filtre Français / Anglais (Explorer et Veille). Listes mêlées : langue relevée à
   la construction (app/data/langues.txt) ; jargon des tendances absent des deux listes : les deux.
+  Prénoms et noms de famille : français pour ceux de l'Insee, anglais pour ceux des États-Unis, les deux pour un
+  nom des deux listes (`lang=en` avec Prénoms : bernice, james, thomas ; pas jean-pierre). Sans langue : marques
+  inventées ; Mes ajouts gardent celle de leurs autres listes ; le Top « Prénoms 2024 » (Insee) ignore la langue.
 - **Fiche** : nuit prévue pour l'avis IA (place dans la file, 1 000 noms par nuit, horizon de 30
   nuits) et, pour un .fr, la prochaine interrogation DNS et la dernière réponse.
 - **États** : Libres (libres et probablement libres), Bientôt libres (triés par libération la plus
@@ -848,7 +867,7 @@ en erreur ne remplace pas un résultat connu : elle est notée à côté.
   côté des prix de revente dans la carte décision, ligne « Gandi » de Registre et SEO (statut, prix TTC et HT, date,
   erreur), « Vérifié chez Gandi » dans Dates clés.
 
-Tri : score, fréquence (mot, nom ou prénom du plus courant au moins courant), prénoms de l'année la plus récente (Insee), longueur, SEO, avis IA. Un tri ne filtre pas : avec SEO ou avis IA, les noms analysés viennent d'abord, puis les autres par score. Chaque tri applique tous les filtres (recherche, SEO et avis IA compris pour la libération la plus proche). Les éléments de `/api/explore/rank`, `/api/drops`, `/api/today` et de la fiche portent `ranks` (rang du nom dans chaque liste, `{"firstname": 12, "word": 4881}`) ; avec `sort=freq`, `freq_list` dit la liste qui donne l'ordre (celle du filtre de catégorie, sinon celle où le nom est le mieux placé).
+Tri : score, fréquence (mot, nom ou prénom du plus courant au moins courant), prénoms de l'année la plus récente (Insee), longueur, SEO, avis IA. Un tri ne filtre pas : avec SEO ou avis IA, les noms analysés viennent d'abord, puis les autres par score. Chaque tri applique tous les filtres (recherche, SEO et avis IA compris pour la libération la plus proche). Les éléments de `/api/explore/rank`, `/api/drops`, `/api/today` et de la fiche portent `ranks` (rang du nom dans chaque liste, `{"firstname": 12, "word": 4881}` ; prénoms et noms des États-Unis sous `firstname_us` et `surname_us`) ; avec `sort=freq`, `freq_list` dit la liste qui donne l'ordre (celle du filtre de catégorie ou l'une de ses sources, sinon celle où le nom est le mieux placé).
 
 #### Avis IA
 
