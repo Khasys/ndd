@@ -80,7 +80,15 @@ CRITERIA_V5 = {
     "acheteurs": "Acheteurs possibles : beaucoup d'entreprises plausibles (10) ou un seul acheteur imaginable (1)",
     "risque": "Risque : marque déposée connue, sens négatif, vulgaire ou gênant dans une autre langue (0 aucun, 10 fort)",
 }
-FIELDS_V5 = ("name", *CRITERIA_V5, "quick_low", "quick_high", "final_low", "final_high", "comment")
+FIELDS_V5 = ("name", *CRITERIA_V5, "quick_low", "quick_high", "final_low", "final_high", "quick_months", "final_months",
+             "comment")
+# Délai de vente médian estimé (une chance sur deux d'avoir vendu avant), en mois : revente rapide à un
+# investisseur (enchère, offre directe) et achat immédiat d'un utilisateur final sur une place de marché type
+# Afternic. 0 pour la revente rapide quand personne ne l'achèterait vite (prix rapides à 0).
+MONTH_STEPS = (1, 3, 6, 12, 24, 36, 60, 120)
+# Un nom qui dort vaut moins : renouvellements payés pendant l'attente, argent immobilisé. La note de revente
+# garde toute sa valeur jusqu'à 6 mois d'attente au prix final, puis baisse jusqu'à 40 % à 10 ans.
+DELAY_FACTOR = {1: 1.0, 3: 1.0, 6: 1.0, 12: 0.95, 24: 0.88, 36: 0.82, 60: 0.72, 120: 0.6}
 COMMENT_V5_MAX = 180
 # « Raison. Acheteur type : qui. » Le verdict n'est plus écrit par l'IA : il est calculé.
 COMMENT_V5_SHAPE = re.compile(r"^[^\s].{5,}?\. Acheteur type : .{3,}?\.$")
@@ -92,9 +100,9 @@ EXPLOIT_WEIGHTS = {"sens": 0.38, "marque": 0.37, "ext": 0.10, "memo": 0.15}
 RESALE_WEIGHTS = {"marche": 0.25, "acheteurs": 0.25, "sens": 0.15, "marque": 0.10, "ext": 0.10, "memo": 0.15}
 FORM_FLOOR = 0.6
 RISK_COST = 3     # points de note retirés par point de risque
-TAKE_MIN = 60     # « À prendre » : meilleure note d'au moins 60, risque de 4 au plus, acheteurs de 4 et plus
+TAKE_MIN = 60     # « À prendre » : note de revente d'au moins 60, risque de 4 au plus, acheteurs de 4 et plus
 TAKE_BUYERS = 4
-LEAVE_MAX = 40    # « À laisser » : meilleure note de 40 au plus, ou risque de 8 et plus
+LEAVE_MAX = 40    # « À laisser » : note de revente de 40 au plus, ou risque de 8 et plus (la revente décide)
 # Longueur : au-delà de 12 lettres, un nom se lit et se retient mal (assurancesantesenior), quel que soit son
 # marché. 3 % de note en moins par lettre de plus, 30 % au plus (22 lettres et au-delà).
 LENGTH_FREE = 12
@@ -166,17 +174,18 @@ def length_factor(name: str) -> float:
 
 
 def derive(item: dict) -> dict:
-    """Notes sur 100 et verdict, calculés depuis les sous-notes : même règle partout. « À prendre » se juge sur
-    la revente : une note d'exploitation seule ne suffit pas."""
+    """Notes sur 100 et verdict, calculés depuis les sous-notes : même règle partout. La revente décide : une
+    note d'exploitation seule ne fait ni un « À prendre » ni un « À surveiller ». Le délai de vente au prix final
+    (final_months, absent des avis d'avant) baisse la note de revente au-delà de 6 mois."""
     item = normalized(item)
     risk = item["risque"]
     form = (FORM_FLOOR + (1 - FORM_FLOOR) * (item["oral"] + item["radio"]) / 20) * length_factor(item.get("name") or "")
+    delay = DELAY_FACTOR.get(item.get("final_months"), 1.0)
     exploit = _round5(10 * sum(item[k] * w for k, w in EXPLOIT_WEIGHTS.items()) * form - RISK_COST * risk)
-    resale = _round5(10 * sum(item[k] * w for k, w in RESALE_WEIGHTS.items()) * form - RISK_COST * risk)
-    best = max(exploit, resale)
+    resale = _round5(10 * sum(item[k] * w for k, w in RESALE_WEIGHTS.items()) * form * delay - RISK_COST * risk)
     if resale >= TAKE_MIN and risk <= 4 and item["acheteurs"] >= TAKE_BUYERS:
         verdict = "À prendre"
-    elif best <= LEAVE_MAX or risk >= 8:
+    elif resale <= LEAVE_MAX or risk >= 8:
         verdict = "À laisser"
     else:
         verdict = "À surveiller"
@@ -268,6 +277,15 @@ def check_v5(item, known) -> str | None:
         return "revente rapide plus chère que l'utilisateur final"
     if quick_high > _step_up(final_high * QUICK_SHARE):
         return f"revente rapide : {int(QUICK_SHARE * 100)} % du prix utilisateur final au plus"
+    quick_months, final_months = item["quick_months"], item["final_months"]
+    steps = ", ".join(map(str, MONTH_STEPS))
+    if final_months not in MONTH_STEPS or isinstance(final_months, bool):
+        return f"délai utilisateur final : un de {steps} mois"
+    if quick_high == 0:
+        if quick_months != 0:
+            return "délai de revente rapide : 0 quand personne ne l'achèterait vite"
+    elif quick_months not in MONTH_STEPS or isinstance(quick_months, bool):
+        return f"délai de revente rapide : un de {steps} mois"
     # Le prix suit la note de revente : elle tient compte du marché et des acheteurs, l'exploitation non.
     resale = derive(item)["resale"]
     label, _, tld = name.rpartition(".")
@@ -297,6 +315,10 @@ FORMAT_V5 = {
         "quick_high": {"type": "integer", "enum": list(PRICE_STEPS)},
         "final_low": {"type": "integer", "enum": list(PRICE_STEPS)},
         "final_high": {"type": "integer", "enum": list(PRICE_STEPS)},
+        "quick_months": {"type": "integer", "enum": [0, *MONTH_STEPS],
+                         "description": "délai médian de revente rapide à un investisseur, en mois (0 si prix rapides à 0)"},
+        "final_months": {"type": "integer", "enum": list(MONTH_STEPS),
+                         "description": "délai médian de vente au prix utilisateur final, en achat immédiat (type Afternic), en mois"},
         "comment": {"type": "string", "maxLength": COMMENT_V5_MAX, "pattern": "Raison en une phrase. Acheteur type : qui."},
     },
 }

@@ -879,6 +879,11 @@ doit apprendre ce que les sous-notes ne disent pas (usage concret, ce qui fait p
 marque précise qui gêne) plutôt que « long » ou « descriptif ». La mémorisation est calculée par l'appli (10
 jusqu'à 4 lettres ou mot très courant, 7 de 5 à 7 lettres ou mot courant, 4 de 8 à 12, 2 au-delà) ; au-delà de
 12 lettres la note perd 3 % par lettre (30 % au plus). « À prendre » exige une note de revente d'au moins 60.
+Délais (version 6) : pour chaque prix, l'IA donne un délai de vente médian en mois (1, 3, 6, 12, 24, 36, 60
+ou 120) : revente rapide à un investisseur, achat immédiat au prix final sur une place de marché type Afternic.
+Au-delà de 6 mois au prix final, la note de revente baisse (−5 % à 1 an, −12 % à 2 ans, −28 % à 5 ans, −40 % à
+10 ans) et les prix suivent. La revente décide de tout : « À prendre » et « À laisser » se jugent sur elle. Les
+avis de la version 5 « À prendre » ou « À surveiller » sont renotés ; les « À laisser » restent.
 Contre-notation : chaque « À prendre » repasse à l'aveugle chez un second correcteur, en tête de lot (200 au
 plus), et la note la plus basse reste (`confirmed_at`). Validation de
 la grille : 50 noms témoins notés par plusieurs agents indépendants, écart-type moyen de 3 points,
@@ -907,7 +912,7 @@ puis .org), puis les autres probablement libres, puis enregistrés, les plus pro
 seul entre dans la file dès que Gandi le dit libre (pas encore vérifié : jamais) ; mêmes filtres partout (mot
 seulement anglais écarté en .fr, 1 ou 2 caractères jamais vus écartés, réservés et premiums probables exclus), avec la consigne et des exemples
 de référence pour garder des notes cohérentes. Il réimporte les avis (`POST /api/ai/results`) après
-contrôle du format, le même pour chaque avis : exactement quinze champs, sous-notes entières de 0
+contrôle du format, le même pour chaque avis : exactement dix-sept champs, sous-notes entières de 0
 à 10, prix sur une échelle fixe (0, 50, 100, 150, 200, 300, 500, 800, 1 000…), revente rapide à 40 %
 du prix final au plus, raison sur le gabarit « Raison. Acheteur type : … » (180 caractères, sans
 emoji ni tiret long, sans verdict). Le verdict calculé est « À prendre » (meilleure note d'au moins

@@ -2247,11 +2247,11 @@ class Explorer:
         opinions = self._opinions(tld)
         own = opinions.get(name)
         # Sans avis sur ce nom : l'estimation du score tient lieu de note de revente.
-        target = own["resale"] if own and own.get("version", 0) >= ai.VERSION else round(quality.predict(label, tld)[0])
+        target = own["resale"] if own and own.get("version", 0) >= 5 else round(quality.predict(label, tld)[0])
         data = self.status_bytes(tld)
         found = []
         for other, o in opinions.items():
-            if other == name or o.get("version", 0) < ai.VERSION:
+            if other == name or o.get("version", 0) < 5:
                 continue
             olabel = other.rpartition(".")[0]
             if abs(len(olabel) - len(label)) > COMPARABLE_LENGTH:

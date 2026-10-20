@@ -798,6 +798,7 @@ def test_save_keeps_the_grid_against_old_format_and_batch_duplicates(env):
     known = ai.known_name(env)
     v5 = {"name": "velo.fr", "oral": 10, "radio": 10, "memo": 10, "sens": 10, "marque": 9, "marche": 8, "ext": 10,
           "acheteurs": 9, "risque": 0, "quick_low": 3000, "quick_high": 8000, "final_low": 15000, "final_high": 50000,
+          "quick_months": 3, "final_months": 6,
           "comment": "Mot que tout le monde tape, rare en 4 lettres. Acheteur type : enseigne vélo."}
     assert ai.save(env.conn, [v5, v5], known)["saved"] == 2
     version, reviewed = env.conn.execute("SELECT version, reviewed_at FROM domain_ai WHERE name = 'velo.fr'").fetchone()
@@ -943,7 +944,7 @@ def test_price_tiers_are_smooth_above_80():
     assert ai_format.price_limits(95, "com", "abc") == (15000, 1000000) and ai_format.price_limits(95, "fr", "abc")[1] == 300000
     assert ai_format.price_limits(0, "fr", "zzzzz") == (0, 300)
     velo = {"name": "velo.fr", **GRIDS["velo"], "quick_low": 3000, "quick_high": 8000, "final_low": 15000, "final_high": 50000,
-            "comment": "Mot que tout le monde tape. Acheteur type : enseigne vélo."}
+            "quick_months": 3, "final_months": 6, "comment": "Mot que tout le monde tape. Acheteur type : enseigne vélo."}
     assert ai_format.check_v5(velo, lambda n: True) is None
     assert ai_format.check_v5({**velo, "final_high": 300000, "quick_high": 100000}, lambda n: True) is None
     assert ai_format.check_v5({**velo, "final_high": 500000, "quick_high": 100000}, lambda n: True).startswith("prix utilisateur final hors palier")
@@ -1536,7 +1537,7 @@ def test_take_needs_resale_memo_is_computed_and_a_second_rater_confirms(env):
     assert notes["exploit"] >= 60 > notes["resale"] and notes["verdict"] == "À surveiller"
 
     grid = {"oral": 9, "radio": 9, "memo": 7, "sens": 9, "marque": 6, "marche": 8, "ext": 10, "acheteurs": 7, "risque": 0}
-    first = {"name": "lesmotos.com", **grid, "comment": "Marché moto. Acheteur type : concession."}
+    first = {"name": "lesmotos.com", **grid, "quick_months": 3, "final_months": 6, "comment": "Marché moto. Acheteur type : concession."}
     first.update(ai_format.default_prices(first))
     assert ai_format.derive(first)["verdict"] == "À prendre"
     ai.save(env.conn, [first], lambda n: True)
@@ -1554,3 +1555,13 @@ def test_take_needs_resale_memo_is_computed_and_a_second_rater_confirms(env):
     ai.save(env.conn, [harsh], lambda n: True)
     row = env.conn.execute("SELECT * FROM domain_ai").fetchone()
     assert row["confirmed_at"] and not row["comment"].startswith("À prendre") and json.loads(row["grid"])["acheteurs"] == 3
+
+
+def test_v5_opinions_left_aside_are_not_rated_again(env):
+    """Version 6 (délais) : les avis v5 « À prendre » et « À surveiller » repassent, les « À laisser » restent."""
+    from app import ai
+
+    for name, verdict in (("a.fr", "À prendre"), ("b.fr", "À surveiller"), ("c.fr", "À laisser")):
+        env.conn.execute("INSERT INTO domain_ai (name, exploit, resale, quick_low, quick_high, final_low, final_high, comment, "
+                         "rated_at, version) VALUES (?, 50, 50, 0, 0, 0, 100, ?, 'x', 5)", (name, f"{verdict}. X. Acheteur type : y."))
+    assert ai._done(env.conn) == {"c.fr"}

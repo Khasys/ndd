@@ -450,7 +450,7 @@ def test_gandi_in_veille_today_explorer_export_ai_and_domains(logged):
     names = {n["name"]: n for n in data["names"]}
     assert names["velo.com"]["gandi"] == {"kind": "premium", "price": 878}
     assert names["chat.com"]["gandi"] == {"kind": "available", "price": 13}
-    assert "la revente doit couvrir ce prix" in data["guide"] and data["version"] == 5
+    assert "la revente doit couvrir ce prix" in data["guide"] and data["version"] == 6
     # Domaines : prix Gandi d'un domaine libre suivi.
     conn.execute("INSERT INTO domains (name, added_at, state) VALUES ('chat.com', 'x', ?)", (states.AVAILABLE,))
     domain = next(d for d in client.get("/api/domains").json() if d["name"] == "chat.com")
