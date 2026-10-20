@@ -876,7 +876,11 @@ grille (`version` 4) n'en a pas et sera renoté. Un mot ou une expression franç
 défaut : la prononciation se juge dans la langue du mot et l'adéquation à l'extension vaut 10 en
 français comme en anglais (les avis .com donnés avant cette règle repassent dans la file). La raison
 doit apprendre ce que les sous-notes ne disent pas (usage concret, ce qui fait payer le secteur,
-marque précise qui gêne) plutôt que « long » ou « descriptif ». Validation de
+marque précise qui gêne) plutôt que « long » ou « descriptif ». La mémorisation est calculée par l'appli (10
+jusqu'à 4 lettres ou mot très courant, 7 de 5 à 7 lettres ou mot courant, 4 de 8 à 12, 2 au-delà) ; au-delà de
+12 lettres la note perd 3 % par lettre (30 % au plus). « À prendre » exige une note de revente d'au moins 60.
+Contre-notation : chaque « À prendre » repasse à l'aveugle chez un second correcteur, en tête de lot (200 au
+plus), et la note la plus basse reste (`confirmed_at`). Validation de
 la grille : 50 noms témoins notés par plusieurs agents indépendants, écart-type moyen de 3 points,
 même verdict dans 94 % des cas.
 

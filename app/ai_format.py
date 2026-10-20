@@ -3,6 +3,8 @@
 l'importe dans une session qui n'a pas les paquets de l'appli."""
 
 import re
+from functools import lru_cache
+from pathlib import Path
 
 # Format imposé, le même pour chaque avis : clés, types, pas des notes et des prix, gabarit du commentaire.
 FIELDS = ("name", "exploit", "resale", "quick_low", "quick_high", "final_low", "final_high", "comment")
@@ -119,6 +121,44 @@ def _round5(x: float) -> int:
     return max(0, min(100, int(5 * round(x / 5))))
 
 
+# Mémorisation calculée par l'appli, pas par l'IA : la même grille pour tous les correcteurs (deux sessions
+# donnaient 3 et 7 à deux noms de même longueur). 10 jusqu'à 4 lettres ou mot très courant ; 7 de 5 à 7 lettres,
+# ou mot courant jusqu'à 12 ; 4 de 8 à 12 lettres ; 2 au-delà.
+MEMO_VERY_COMMON = 2000   # rang dans mots.txt ou anglais.txt
+MEMO_COMMON = 10000
+
+
+@lru_cache(maxsize=1)
+def _word_ranks() -> dict[str, int]:
+    ranks: dict[str, int] = {}
+    data = Path(__file__).parent / "data"
+    for name in ("mots.txt", "anglais.txt"):
+        path = data / name
+        if path.exists():
+            for rank, line in enumerate(path.read_text().split(), 1):
+                ranks[line] = min(rank, ranks.get(line, rank))
+    return ranks
+
+
+def memo_for(name: str) -> int | None:
+    """Sous-note de mémorisation d'après la longueur et la fréquence du mot ; None sans nom."""
+    label = name.rpartition(".")[0] or name
+    if not label:
+        return None
+    rank = _word_ranks().get(label)
+    if len(label) <= 4 or (rank and rank <= MEMO_VERY_COMMON):
+        return 10
+    if len(label) <= 7 or (rank and rank <= MEMO_COMMON and len(label) <= 12):
+        return 7
+    return 4 if len(label) <= 12 else 2
+
+
+def normalized(item: dict) -> dict:
+    """Sous-notes telles que l'appli les retient : la mémorisation est la sienne."""
+    memo = memo_for(item.get("name") or "")
+    return {**item, "memo": memo} if memo is not None else item
+
+
 def length_factor(name: str) -> float:
     """Part de la note gardée selon la longueur du nom, sans l'extension."""
     label = name.rpartition(".")[0] or name
@@ -126,13 +166,15 @@ def length_factor(name: str) -> float:
 
 
 def derive(item: dict) -> dict:
-    """Notes sur 100 et verdict, calculés depuis les sous-notes : même règle partout."""
+    """Notes sur 100 et verdict, calculés depuis les sous-notes : même règle partout. « À prendre » se juge sur
+    la revente : une note d'exploitation seule ne suffit pas."""
+    item = normalized(item)
     risk = item["risque"]
     form = (FORM_FLOOR + (1 - FORM_FLOOR) * (item["oral"] + item["radio"]) / 20) * length_factor(item.get("name") or "")
     exploit = _round5(10 * sum(item[k] * w for k, w in EXPLOIT_WEIGHTS.items()) * form - RISK_COST * risk)
     resale = _round5(10 * sum(item[k] * w for k, w in RESALE_WEIGHTS.items()) * form - RISK_COST * risk)
     best = max(exploit, resale)
-    if best >= TAKE_MIN and risk <= 4 and item["acheteurs"] >= TAKE_BUYERS:
+    if resale >= TAKE_MIN and risk <= 4 and item["acheteurs"] >= TAKE_BUYERS:
         verdict = "À prendre"
     elif best <= LEAVE_MAX or risk >= 8:
         verdict = "À laisser"
