@@ -1,76 +1,266 @@
 # Niche and hobby topics in English, broadest audience first (hand judgement).
-smarthome
-homeautomation
-diy
-gardening
-woodworking
-cooking
-recipes
-baking
-homebrew
-grilling
-bbq
-camping
-hiking
-fishing
-hunting
-cycling
-running
-fitness
-yoga
-keto
-vegan
-parenting
-pregnancy
-baby
-dogs
-cats
-aquarium
-beekeeping
-chickens
-horses
-photography
-drones
-astronomy
-gaming
-retrogaming
-boardgames
-chess
-poker
-guitar
-piano
-coffee
-tea
-wine
-beer
-whiskey
-travel
-vanlife
-rv
-sailing
-golf
-tennis
-pickleball
-skiing
-surfing
-scuba
-knitting
-sewing
-crochet
-quilting
-crafts
-genealogy
-coins
-stamps
-watches
-sneakers
-cars
-motorcycles
-ebikes
-solar
-investing
-crypto
-retirement
-frugal
-minimalism
-budget
+# Ligne : thème tel qu'on le nomme[/forme devant un format] : genres. Le thème sert aux formats placés devant
+# (allaboutdogs, learngolf), la forme devant un nom aux autres (dogforum, dogtraining : un nom anglais se met au
+# singulier devant un autre). Genres : formats qui vont au thème (scripts/lists/formats.txt, section [en]) ; les
+# formats « all » (forum, blog, guide, tips, hub, hq, central, 101, community, talk, info) vont à tous, sauf au thème
+# marqué -all (un adjectif : sustainableliving, pas sustainableforum).
+dogs/dog : fan club supply advice training school about life gear names
+gardening : club school advice easy simply about learn
+garden : shop supply club fan geek corner life advice ideas plans
+cooking : club school classes easy about lab hacks corner advice
+recipes/recipe : corner easy lab club ideas
+travel : club life nation hacks gear buy fan geek advice ideas planning
+fitness : club life nation lab hacks pro gear training coach advice
+cats/cat : fan club supply advice about corner life names
+diy : club corner life nation geek lab hacks pro supply easy ideas
+smarthome : buy shop geek lab pro hacks
+homeautomation : buy geek lab pro hacks
+golf : club fan geek nation life pro gear shop buy school lessons training coach learn
+camping : club gear shop life hacks about easy advice
+fishing : club gear shop buy life nation pro school hacks about learn supply
+hunting : club gear life nation supply
+pets/pet : shop supply fan advice about life corner names training
+parenting : hacks advice corner
+baking : club school classes easy simply about lab corner hacks supply
+coffee : club fan geek lab shop buy gear supply life corner school about
+wine : club fan geek shop buy school about
+beer : club fan geek shop buy school lab nation
+gaming : club geek life nation zone lab gear shop buy pro hacks
+homeimprovement : advice pro hacks ideas
+woodworking : club school lessons classes plans pro corner supply easy learn about
+running : club gear life coach
+cycling : club gear life training
+yoga : life school classes studio shop gear fan easy simply club
+keto : life easy simply club hacks lab nation recipes about
+vegan : life easy simply club corner shop lab nation recipes
+weightloss : hacks recipes coach advice
+budget : hacks advice
+frugal : living life hacks simply
+money : hacks advice
+investing : club school geek lab easy simply learn about
+retirement : planning living advice life about
+crypto : geek zone lab nation reviews learn
+photography : club school lessons classes hacks learn about
+photo : club lab geek school
+guitar : school lessons shop buy gear geek fan club learn easy
+piano : school lessons shop learn easy fan
+music : school lessons shop gear fan studio
+cars/car : club buy geek fan life zone
+trucks/truck : buy club gear
+motorcycles/motorcycle : club gear shop buy school life
+ebikes/ebike : shop buy club life
+bikes/bike : shop buy gear club life
+rv : club gear supply buy advice hacks
+boating : club life school supply
+boats/boat : buy club life supply
+sailing : club school lessons life gear
+tennis : club school lessons gear shop buy pro nation training coach learn
+pickleball : club lessons gear shop buy pro nation life learn
+skiing : learn about
+ski : club school lessons shop gear buy
+snowboarding : gear club lessons
+surfing : learn about
+surf : club school lessons shop gear life
+hiking : club gear life about advice
+backpacking : gear club life about
+scuba : club school gear shop life
+kayaking : club gear life
+climbing : club gear school life
+archery : club gear shop school lessons
+flyfishing : club gear shop school lessons life
+horses/horse : fan club supply training advice about life
+chickens/chicken : supply advice about
+beekeeping : club school supply advice learn about
+aquarium : shop supply advice club
+homesteading/homestead : life supply advice about
+homebrew : club shop supply lab
+grilling : gear hacks recipes
+grill : buy shop gear
+bbq : club school geek fan shop buy gear supply life nation pro lab recipes
+sourdough : club school lab easy recipes
+baby : shop gear deals advice corner club names
+pregnancy : advice
+kids : activities club zone corner shop
+moms/mom : life hacks advice club corner
+dads/dad : life hacks club
+toddlers/toddler : advice activities
+homeschool : corner ideas
+weddings/wedding : ideas planning shop advice
+party : ideas planning supply shop
+dating : advice coach
+relationships/relationship : advice coach
+seniors/senior : life living advice activities
+college : life advice hacks
+careers/career : advice coach lab
+smallbusiness : ideas advice
+sidehustles/sidehustle : ideas
+freelancing/freelance : life
+productivity : hacks lab geek
+minimalism/minimalist : living life
+zerowaste : living life shop hacks
+sustainability :
+sustainable : -all living life shop
+offgrid : living life supply
+tinyhouses/tinyhouse : living life fan
+homedecor : shop deals fan ideas
+interiordesign : school ideas advice
+organizing : hacks advice ideas
+cleaning : hacks advice supply
+houseplants/houseplant : fan geek corner shop advice
+succulents/succulent : fan shop
+bonsai : club school shop fan geek
+orchids/orchid : club shop fan
+hydroponics/hydroponic : shop supply geek lab
+permaculture : school advice
+sleep : hacks lab reviews
+skincare : buy shop lab
+makeup : buy shop lab school
+nutrition : lab coach school
+fasting : life coach
+meditation : school classes easy simply
+mentalhealth : advice
+knitting : club school classes shop supply easy simply learn corner patterns
+crochet : club easy simply learn corner patterns shop
+sewing : club school classes shop supply easy simply learn corner patterns
+quilting : club easy simply learn corner
+quilts/quilt : shop patterns
+embroidery : patterns easy learn
+crafts/craft : shop supply club lab corner ideas
+scrapbooking : supply ideas corner
+painting : classes lessons easy learn
+drawing : lessons classes easy learn
+art : school classes supply club fan studio shop
+pottery : classes studio school
+calligraphy : lessons classes easy learn
+dance : school studio lessons classes club fan life
+drums/drum : lessons school shop gear learn
+violin : lessons school shop learn
+ukulele : lessons shop learn easy
+singing : lessons school learn
+dj : school gear shop life
+vinyl : shop fan club
+podcasts/podcast : reviews gear school lab
+streaming : gear buy
+movies/movie : club reviews fan geek
+books/book : club shop buy fan geek corner
+writing : school lab club
+poetry : corner club
+comics/comic : shop geek fan club buy
+anime : fans club geek shop buy
+manga : shop fans buy
+cosplay : ideas shop club
+boardgames/boardgame : club geek shop buy fan
+puzzles/puzzle : club fan shop
+chess : club school lessons geek nation learn
+poker : club school pro nation zone learn
+betting : picks
+sportsbetting : picks
+stocks/stock : picks geek
+dividends/dividend : geek
+bitcoin : geek learn
+coins/coin : club shop geek supply
+stamps/stamp : club shop
+watches/watch : club shop buy geek fan
+sneakers/sneaker : shop buy geek fan
+knives/knife : shop buy geek club
+fountainpens/fountainpen : shop buy geek club
+antiques/antique : shop
+vintage : shop fan
+tradingcards/tradingcard : shop club
+sportscards/sportscard : shop club
+modeltrains/modeltrain : club shop
+rccars/rccar : club shop buy
+drones/drone : club shop buy geek zone lab pro school gear
+3dprinting : lab geek hacks
+3dprinters/3dprinter : buy
+gadgets/gadget : buy geek shop
+electronics : shop buy geek lab
+cameras/camera : buy shop geek
+smartphones/smartphone : buy geek
+laptops/laptop : buy
+headphones/headphone : buy geek
+hifi : buy shop geek
+tools/tool : buy shop geek
+powertools/powertool : buy
+mattresses/mattress : buy
+appliances/appliance : buy
+homesecurity : buy
+vr : buy geek zone lab
+esports : nation zone fans
+videogames/videogame : shop buy geek
+retrogaming : geek shop
+astronomy : club geek about
+telescopes/telescope : buy shop
+birding : club gear
+birds/bird : fan supply advice
+parrots/parrot : advice
+reptiles/reptile : supply shop fan advice
+rabbits/rabbit : advice
+puppies/puppy : training advice fan school
+poultry : supply advice
+soccer : fans school gear shop training nation
+football : fans gear training nation
+basketball : fans gear training
+baseball : fans gear training
+hockey : fans gear training
+softball : gear training
+volleyball : club gear training
+lacrosse : gear training
+swimming : club lessons
+bowling : club
+boxing : club gear training
+mma : gear training fans
+martialarts : school gear
+karate : school club classes
+jiujitsu : gear
+wrestling : fans
+bodybuilding : life nation training
+weightlifting : club gear training
+powerlifting : gear training
+triathlon : club training gear
+marathon : training
+gym : life gear hacks
+homegym : buy gear
+pilates : classes studio
+equestrian : club gear life shop
+discgolf : club gear shop
+mountainbiking : club gear life
+metaldetecting : club gear shop
+survival : gear school supply hacks
+prepper : supply
+bushcraft : school gear
+foraging : school club
+overlanding : gear life club
+cruises/cruise : buy life
+roadtrips/roadtrip : ideas
+vanlife : gear hacks
+beaches/beach : life fan
+nationalparks/nationalpark :
+budgettravel : hacks
+solotravel :
+familytravel :
+hamradio : club shop
+aviation : school geek
+coding : school lab geek
+genealogy : geek
+cocktails/cocktail : club lab school recipes easy
+bourbon : club fan geek shop buy
+whiskey : club fan geek shop buy
+craftbeer : fan geek shop club
+tea : club fan shop buy corner
+espresso : fan buy shop
+chocolate : fan shop club lab
+cheese : fan shop club
+pizza : fan lab school nation recipes
+hotsauce : fan shop buy club
+glutenfree : life easy simply shop recipes
+paleo : life easy simply recipes
+mealprep : easy hacks club recipes
+airfryer : buy recipes
+slowcooker : buy recipes
+smoothies/smoothie : recipes
+solar : buy shop geek pro
+ev : buy geek
+tattoos/tattoo : ideas shop
+nailart : ideas
+lawn : advice geek

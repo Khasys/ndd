@@ -1,7 +1,8 @@
 """Listes de noms surveillés au-delà des noms courts : mots français, noms de famille, prénoms (France et
-États-Unis), mots anglais, secteurs porteurs, tendances, combinaisons et listes thématiques (métiers, sport, animaux,
-cuisine), construites par scripts/build_lists.py ; termes stars, mots-clés à forte valeur, métier + ville
-et marques inventées, fournis tels quels ; « Mes ajouts », les noms ajoutés depuis l'Explorer.
+États-Unis), mots anglais, secteurs porteurs, tendances, combinaisons, sites de niche et noms de médias (France et
+États-Unis) et listes thématiques (métiers, sport, animaux, cuisine), construites par scripts/build_lists.py ; termes
+stars, mots-clés à forte valeur, métier + ville (France et États-Unis) et marques inventées, fournis tels quels ;
+« Mes ajouts », les noms ajoutés depuis l'Explorer.
 
 Catégories : un nom a ses listes d'origine, plus les catégories dérivées (categories.txt, calculé par
 scripts/build_lists.py : assurance aussi dans Termes stars, plombierlyon aussi dans Métiers). Les dérivées
@@ -25,7 +26,8 @@ LABELS = {"word": "Mots", "form": "Formes fléchies", "surname": "Noms de famill
           "startup": "Tech et startups", "job": "Métiers", "sport": "Sport", "animal": "Animaux",
           "food": "Cuisine", "premium": "Termes stars", "keyword": "Mots-clés à forte valeur",
           "local": "Métier + ville", "brand": "Noms de marque", "firstname_us": "Prénoms des États-Unis",
-          "surname_us": "Noms de famille des États-Unis", "mine": "Mes ajouts"}
+          "surname_us": "Noms de famille des États-Unis", "niche_us": "Sites de niche des États-Unis",
+          "media_us": "Noms de médias des États-Unis", "local_us": "Métier + ville des États-Unis", "mine": "Mes ajouts"}
 # Nature des mots et des formes, tirée du Lexique.
 NATURES = {"verb": "Verbes", "noun": "Noms communs", "adj": "Adjectifs", "adv": "Adverbes", "other": "Mots outils"}
 
@@ -35,10 +37,11 @@ FILES = {"word": "mots.txt", "form": "formes.txt", "surname": "noms.txt", "first
          "niche": "niches.txt", "expr": "expressions.txt", "media": "medias.txt",
          "startup": "startup.txt", "job": "metiers.txt", "sport": "sport.txt", "animal": "animaux.txt",
          "food": "cuisine.txt", "premium": "premium.txt", "keyword": "motscles.txt", "local": "local.txt",
-         "brand": "marques_inventees.txt", "firstname_us": "prenoms_us.txt", "surname_us": "noms_us.txt"}
+         "brand": "marques_inventees.txt", "firstname_us": "prenoms_us.txt", "surname_us": "noms_us.txt",
+         "niche_us": "niches_us.txt", "media_us": "medias_us.txt", "local_us": "local_us.txt"}
 # Listes fournies telles quelles (rédigées ailleurs) : scripts/build_lists.py ne les écrit jamais, il en
 # relève seulement la langue (--provided).
-PROVIDED = ("premium", "keyword", "local", "brand")
+PROVIDED = ("premium", "keyword", "local", "local_us", "brand")
 # Noms ajoutés à la main depuis l'Explorer, dans l'ordre d'ajout, gardés dans le dossier de données.
 MINE = "mine"
 MINE_FILE = "mes_ajouts.txt"
@@ -47,7 +50,7 @@ MINE_FILE = "mes_ajouts.txt"
 LEGACY = ("word", "form", "surname", "firstname")
 # Listes ajoutées après les imports .fr sans relevé des noms cherchés (zones/fr.searched) : leurs noms
 # attendent l'import suivant.
-LATE = (*PROVIDED, MINE, "firstname_us", "surname_us")
+LATE = (*PROVIDED, MINE, "firstname_us", "surname_us", "niche_us", "media_us")
 # Listes sans sens : une marque inventée vaut par sa sonorité ; « Mes ajouts » ne dit rien du nom.
 NO_MEANING = ("brand", MINE)
 # Rang sans valeur pour le score : l'ordre d'ajout ne classe rien.
@@ -56,30 +59,35 @@ NO_RANK = (MINE,)
 # (precompute) : elles ne changent aucun score.
 DERIVED_FILE = "categories.txt"
 # Jamais dérivées : la langue a son propre filtre, une marque inventée vaut par sa sonorité, Mes ajouts sont à part ;
-# prénoms et noms des États-Unis : réunis à leur catégorie (MERGED), pas dérivés.
-NEVER_DERIVED = ("word", "form", "english", "surname", "firstname", "firstname_us", "surname_us", "brand", MINE)
+# listes des États-Unis : réunies à leur catégorie (MERGED), pas dérivées.
+NEVER_DERIVED = ("word", "form", "english", "surname", "firstname", "firstname_us", "surname_us", "niche_us",
+                 "media_us", "local_us", "brand", MINE)
 # Thèmes : les noms composés gagnés viennent après les mots du thème dans l'ordre « les plus fréquents » (le Top
 # Sport commence par football, pas par coachsportif).
 THEMES = ("startup", "job", "sport", "animal", "food", "trend")
 # Noms composés, découpés en mots pour leur donner un thème.
-COMPOUNDS = ("combo", "keyword", "local", "premium", "niche", "expr", "media")
+COMPOUNDS = ("combo", "keyword", "local", "premium", "niche", "expr", "media", "niche_us", "media_us", "local_us")
 # Listes d'où vient chaque catégorie dérivée (règles de scripts/build_lists.py) : un nom dérivé y prend son rang
 # (Top, « les plus fréquents », filtre de fréquence) : assurance, 1er terme star, parmi les premiers termes stars.
 DERIVED_FROM = {"premium": ("sector", "trend"), "keyword": ("combo",), "local": ("combo", "keyword"),
                 **{key: COMPOUNDS for key in THEMES}}
 # Listes d'une autre source réunies dans une catégorie : prénoms et noms de famille des États-Unis dans Prénoms et
-# Noms de famille. Chacune garde ses rangs (score, ordre « les plus fréquents », « 12e prénom le plus donné aux
-# États-Unis ») ; un nom des deux sources est un seul nom de la catégorie.
-MERGED = {"firstname_us": "firstname", "surname_us": "surname"}
+# Noms de famille ; sites de niche, noms de médias et métier + ville en anglais pour les États-Unis dans Sites de
+# niche, Noms de médias et Métier + ville. Chacune garde ses rangs (score, ordre « les plus fréquents », « 12e prénom
+# le plus donné aux États-Unis ») ; un nom des deux sources est un seul nom de la catégorie.
+MERGED = {"firstname_us": "firstname", "surname_us": "surname", "niche_us": "niche", "media_us": "media",
+          "local_us": "local"}
 # Listes sans puce : les secteurs porteurs sont tous dans Termes stars (catégorie dérivée), la liste reste pour le
-# score et le calage IA ; les prénoms et noms des États-Unis sont dans leur catégorie, la liste reste pour leurs rangs.
+# score et le calage IA ; les listes des États-Unis sont dans leur catégorie, chacune reste pour ses rangs.
 # cat=sector (vues enregistrées, adresses anciennes) se lit comme cat=premium, cat=firstname_us comme cat=firstname.
 HIDDEN = ("sector", *MERGED)
 ALIASES = {"sector": "premium", **MERGED}
 SHOWN = {key: label for key, label in LABELS.items() if key not in HIDDEN}
 # Listes sans avis IA de calage (score_model.json) : leur rang compte avec le poids de la liste la plus proche.
-# Prénoms et noms des États-Unis : le poids des prénoms et des noms français, au meilleur des deux rangs.
-SCORE_AS = {"premium": "sector", "keyword": "sector", "local": "combo", "brand": "startup", **MERGED}
+# Listes des États-Unis : le poids de leur catégorie (prénoms, noms, sites de niche, médias ; métier + ville : noms
+# composés), au meilleur des deux rangs.
+SCORE_AS = {"premium": "sector", "keyword": "sector", "local": "combo", "brand": "startup", **MERGED,
+            "local_us": "combo"}
 
 
 def _ordered(name: str) -> list[str]:
@@ -282,12 +290,13 @@ def sources(key: str) -> list[str]:
 
 def relative(key: str, rank: int) -> float:
     """Rang relatif dans une liste (rang sur taille), pour ranger ensemble des listes de tailles différentes (ordre
-    « les plus fréquents », Top). Liste réunie à une catégorie (MERGED) : rapporté à la liste de la catégorie, juste
-    après le même rang de celle-ci (le 50e prénom des États-Unis entre le 50e et le 51e prénom français)."""
+    « les plus fréquents », Top). Liste réunie à une catégorie (MERGED) : son rang relatif, juste après le même rang
+    relatif de la liste de la catégorie (le 50e prénom des États-Unis entre le 50e et le 51e prénom français ; le
+    100e de 7 500 métier + ville des États-Unis près du 200e de 15 000 de France)."""
     into = MERGED.get(key)
     if into is None:
         return rank / len(ranks()[key])
-    return (rank + 0.5) / len(ranks()[into])
+    return rank / len(ranks()[key]) + 0.5 / len(ranks()[into])
 
 
 def own(label: str) -> list[str]:

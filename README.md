@@ -355,11 +355,12 @@ entre 1900 et 2018 (environ 10 000), avec autant de noms de famille (recensement
 (naissances de 1880 à 2017) des États-Unis dans les mêmes listes. S'y ajoutent les 30 000 mots anglais les plus fréquents
 (marques connues retirées), environ 580 mots des secteurs qui paient (assurance, crédit,
 immobilier, droit, santé, travaux…), environ 200 mots en vogue et environ 35 000 noms composés
-(monassurance, plombier-lyon, insurancehub, dallasplumber…) et environ 4 000 noms de sites de
-niche (forumdomotique, guidepotager, gardeningforum…), environ 1 000 expressions courantes
-françaises et anglaises (bonplan, faitmaison, goodvibes…), quatre listes thématiques (métiers,
-sport, animaux, cuisine), quatre listes fournies (termes stars, mots-clés à forte valeur, métier + ville,
-marques inventées) et « Mes ajouts », les noms ajoutés depuis l'Explorer (voir « Listes de noms »). Une liste
+(monassurance, plombier-lyon, insurancehub, dallasplumber…), environ 5 500 noms de sites de
+niche (forumdomotique, guidepotager, et autant en anglais : gardeningforum, dogtraining…), environ 2 800 noms
+de médias (lequipe, mondedujardinage, et autant en anglais : golfdaily, thegardener…), environ 1 000 expressions
+courantes françaises et anglaises (bonplan, faitmaison, goodvibes…), quatre listes thématiques (métiers,
+sport, animaux, cuisine), cinq listes fournies (termes stars, mots-clés à forte valeur, métier + ville de France
+et des États-Unis, marques inventées) et « Mes ajouts », les noms ajoutés depuis l'Explorer (voir « Listes de noms »). Une liste
 ajoutée n'est cherchée dans une zone qu'à la lecture suivante, dans le fichier .fr qu'à l'import suivant,
 dans le DNS de .co, .ai et .io qu'à la passe suivante : d'ici là, ses noms n'apparaissent pas pour cette
 extension plutôt que d'y passer pour libres. Sources et licences des listes :
@@ -390,6 +391,8 @@ dérivés (ci-dessous) ; le filtre de langue suit la langue relevée dans `app/d
 | brand | Noms de marque | `marques_inventees.txt`, fourni : lieux et légendes, mots étrangers, mots réels détournés, noms inventés, composés rythmés, mots-valises ; la sonorité compte, pas le sens |
 | mine | Mes ajouts | `data/mes_ajouts.txt`, dans le dossier de données : les noms ajoutés depuis l'Explorer |
 | firstname_us, surname_us | Prénoms et Noms de famille des États-Unis, sans puce | `prenoms_us.txt` (10 000 prénoms, Social Security Administration, 1880-2017) et `noms_us.txt` (21 689 noms, recensement de 2010), construits par `scripts/build_names_us.py` ; réunis à Prénoms et Noms de famille |
+| niche_us, media_us | Sites de niche et Noms de médias des États-Unis, sans puce | `niches_us.txt` (2 775 : gardeningforum, dogtraining, allaboutdogs) et `medias_us.txt` (1 381 : golfdaily, healthinsider, thegardener), en anglais, construits par `scripts/build_lists.py --us` ; réunis à Sites de niche et Noms de médias |
+| local_us | Métier + ville des États-Unis, sans puce | `local_us.txt`, fourni (7 500 : scottsdaledentist, dentistscottsdale), écrit par `scripts/build_local_us.py` ; réuni à Métier + ville |
 
 **Prénoms et noms des États-Unis** : autant que de prénoms et de noms de l'Insee, dans les mêmes catégories
 (`wordlists.MERGED`) : puces, compteurs, filtres, Top, export et fiche ne connaissent que Prénoms et Noms de famille,
@@ -400,14 +403,33 @@ source garde ses rangs (`ranks`, `freq_list`) :
   (`wordlists.SCORE_AS`). Un nom seulement français garde exactement son rang et son score. Raison : « 396e prénom
   le plus donné aux États-Unis », « 1er nom de famille le plus porté aux États-Unis » ; « 2e prénom le plus donné »
   pour un prénom français ;
-- ordre « les plus fréquents », Top, filtre de fréquence : le meilleur rang des deux sources, le Ne des États-Unis
-  juste après le Ne de France (`wordlists.relative`) ; la carte dit le rang de la source retenue ;
+- ordre « les plus fréquents », Top, filtre de fréquence : le meilleur rang relatif des deux sources, le Ne des
+  États-Unis juste après le Ne de France (`wordlists.relative`) ; la carte dit le rang de la source retenue ;
 - langue : français pour l'Insee, anglais pour les États-Unis, les deux pour un nom des deux listes. Les prénoms
   récents (Insee, ci-dessous) restent ceux de la France.
 
+**Sites de niche, noms de médias et métier + ville des États-Unis** : autant de noms en anglais qu'en français dans
+ces trois catégories, chacun ayant un sens pour un acheteur américain, réunis de la même façon (`wordlists.MERGED`) ;
+les listes françaises n'y perdent ni ne changent aucun nom (les sites de niche anglais ont quitté `niches.txt` pour
+`niches_us.txt` : les noms français y gardent leur ordre). Score : le poids des sites de niche, des médias et, pour métier + ville, des noms composés ;
+raison « 12e site de niche des États-Unis ». Rang relatif : celui de la liste (le 100e de 7 500 métier + ville des
+États-Unis près du 200e de 15 000 de France). Langue : anglais (`langues.txt`). Motifs et règles :
+`app/data/SOURCES.md`.
+- Sites de niche (`niches_us.txt`, 2 775) : thème + format qui lui va, la forme du thème devant un nom au singulier
+  (dogforum, chickenforum ; plus de dogsforum ni de chickenszone), formats placés devant avec le thème nommé
+  (allaboutdogs, easybaking, learngolf) ; un format ne va qu'aux thèmes où il a un sens (dogtraining, sailinglessons,
+  coffeereviews ; pas de dogreviews).
+- Noms de médias (`medias_us.txt`, 1 381) : thème + tête de média (golfdaily, healthinsider, techweekly,
+  worldofgolf) et the + amateur ou lieu (thegardener, theworkshop, thefairway).
+- Métier + ville (`local_us.txt`, 7 500, fourni) : 151 villes et métropoles, 148 services locaux, la ville devant
+  puis derrière (scottsdaledentist, dentistscottsdale), en plus des 4 368 noms service + ville des combinaisons
+  (dallasplumber), qui y restent : environ 11 900 noms en anglais, autant qu'en français (11 855).
+- Marques, titres et sites connus écartés (`scripts/lists/connus_en.txt` : golfdigest, businessinsider, boardgamegeek,
+  cartalk ; marques de `marques.txt`) ; un nom déjà dans une autre liste n'y entre pas.
+
 **Catégories dérivées** : un nom garde ses listes d'origine et reçoit en plus les catégories que lui donnent des
-règles, calculées par `scripts/build_lists.py` (`--provided`, `--themes` et la construction complète finissent par
-là) dans `app/data/categories.txt` (nom, catégories gagnées), lu par `app/wordlists.py` (`classes`, `categories`).
+règles, calculées par `scripts/build_lists.py` (`--provided`, `--themes`, `--us` et la construction complète finissent
+par là) dans `app/data/categories.txt` (nom, catégories gagnées), lu par `app/wordlists.py` (`classes`, `categories`).
 Elles servent à classer et filtrer seulement : rangs, traits et score restent ceux des listes d'origine (`lists`,
 `ranks`), et l'empreinte de `scores.bin` ne couvre pas ce fichier (table identique octet par octet avant et après,
 test `test_derived_categories_do_not_change_the_score`).
@@ -421,7 +443,8 @@ test `test_derived_categories_do_not_change_the_score`).
 - Un nom composé ou un mot-clé de forme métier + ville est aussi Métier + ville : plombierlyon, plombier-lyon,
   arlingtonlawyer, fortworthdentist ; ville d'abord seulement pour une ville américaine et pour immo, immobilier,
   auto, garage (lyonimmobilier). Villes de France et régions de `scripts/lists/metier_ville.txt` (celles de
-  `local.txt`), villes américaines de `scripts/lists/cities_us.txt` ; pas de numéro de département (24 : 24 h).
+  `local.txt`), villes américaines de `scripts/lists/cities_us.txt` et `metier_ville_us.txt` ; pas de numéro de
+  département (24 : 24 h).
 - Un nom composé (noms composés, mots-clés, métier + ville, termes stars, sites de niche, expressions, noms de
   médias) est découpé en vrais mots (Lexique, formes, anglais, thèmes, villes, affixes ; la découpe la plus économe,
   toutes ses variantes d'accord) : un mot de Métiers, Sport, Animaux, Cuisine, Tech et startups ou Tendances lui
@@ -439,7 +462,7 @@ Ordre « les plus fréquents » et Top : un nom dérivé prend son rang relatif 
 viennent après les mots du thème. Le filtre de fréquence (top N) leur applique ce même rang d'origine. Comparables
 de la fiche : la liste principale reste la première liste d'origine.
 
-**Listes fournies** (premium, keyword, local, brand) : rédigées ailleurs, une entrée par ligne, en `[a-z0-9]`, de
+**Listes fournies** (premium, keyword, local, local_us, brand) : rédigées ailleurs, une entrée par ligne, en `[a-z0-9]`, de
 la plus à la moins précieuse, jusqu'à environ 100 000 entrées en tout. `scripts/build_lists.py` ne les écrit
 jamais : `python scripts/build_lists.py --provided` en vérifie le format (une entrée hors format ou en double est
 signalée, et écartée par l'appli) et relève leur langue dans `langues.txt` : celle d'un mot déjà connu, sinon

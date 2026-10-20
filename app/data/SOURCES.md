@@ -129,10 +129,26 @@ du mot et de l'ajout, familles en alternance.
 
 ## niches.txt
 
-Format de site + thème de passion ou de niche : forumdomotique, guidepotager, jardinagefacile,
-gardeningforum. Environ 110 thèmes français avec 25 formats français (pour le .fr), environ 75
-thèmes anglais avec 20 formats anglais (pour le .com), choisis et ordonnés à la main
-(scripts/lists/themes_fr.txt, themes_en.txt, formats.txt). Version collée seulement.
+Format de site + thème de passion ou de niche, en français : forumdomotique, guidepotager, jardinagefacile.
+Environ 110 thèmes français avec 25 formats français (pour le .fr), choisis et ordonnés à la main
+(scripts/lists/themes_fr.txt, formats.txt). Version collée seulement. 2 775 noms ; les sites de niche anglais
+sont dans niches_us.txt.
+
+## niches_us.txt
+
+Sites de niche anglais pour le marché américain (.com), autant que niches.txt (2 775), réunis à la catégorie
+Sites de niche : thème + format qui lui va (gardeningforum, dogtraining, guitarschool, easybaking,
+allaboutdogs). Environ 260 thèmes (loisirs, maison, cuisine, sport, animaux, tech, finance, voyages,
+parentalité…) et 50 formats, choisis et ordonnés à la main (scripts/lists/themes_en.txt, section [en] de
+formats.txt) ; chaque format ne va qu'aux genres de thème où il a un sens (reviews et deals pour ce qui
+s'achète, lessons pour ce qui s'apprend, training pour le chien ou le golf, recipes pour la cuisine :
+dogreviews et parentingshop n'existent pas). Un nom anglais se met au singulier devant un autre : le thème a
+sa forme devant un format (dogs/dog : dogforum ; chickens/chicken : chickenforum ; plus de dogsforum ni de
+chickenszone), et sa forme nommée après un format placé devant (allaboutdogs, learngolf). Ni mot répété
+(vanlifelife), ni lettre trois fois (chessshop). Rangés par produit des rangs du thème et du format ; pas de
+format de média (news, daily, insider, world : noms de médias). Noms déjà dans une autre liste, marques et
+sites connus (scripts/lists/connus_en.txt : boardgamegeek, cartalk, homebrewtalk ; marques de marques.txt)
+écartés. Construits par `python scripts/build_lists.py --us`, sans Lexique ni wordfreq.
 
 ## expressions.txt
 
@@ -158,15 +174,39 @@ Noms de média ou de marque, sur quatre motifs, du plus fréquent au moins fréq
 
 Les noms déjà présents dans une autre liste sont retirés. Pour la part tirée du Lexique, même source
 et même licence CC BY-SA 4.0 que mots.txt.
+
+## medias_us.txt
+
+Noms de médias anglais pour le marché américain, autant que medias.txt (1 381), réunis à la catégorie Noms
+de médias, sur les motifs des sites et magazines américains, en alternance :
+
+- thème + tête de média : news, daily, insider, today, weekly, times, journal, magazine, report, digest,
+  world, mag, wire, pulse, headlines, watch, beat, brief, buzz, monthly, gazette, et worldof devant le thème
+  (healthinsider, golfdaily, techweekly, fashionmagazine, worldofgolf). Environ 110 thèmes d'intérêt
+  (santé, argent, tech, maison, sport, voyages, mode, auto, animaux, parentalité…) ; chaque tête ne va
+  qu'aux thèmes où elle sonne juste (insider, report, wire pour l'actualité ; gazette pour le golf, la pêche
+  ou le jardin ; pas de babyinsider) ;
+- the + amateur, lieu ou objet du thème (thegardener, thehomecook, theworkshop, thefairway, thenestegg),
+  environ 280 mots.
+
+Rangés par produit des rangs du thème et de la tête, choisis à la main (scripts/lists/medias_en.txt). Noms
+déjà dans une autre liste (healthtoday, travelmagazine sont des combinaisons), titres et marques connus
+(scripts/lists/connus_en.txt : golfdigest, businessinsider, sciencedaily, yogajournal ; marques.txt)
+écartés. Construits par `python scripts/build_lists.py --us`.
+
 ## langues.txt
 
 Langue (fr, en ou les deux) de chaque nom des listes mêlées : secteurs, tendances, combinaisons,
-sites de niche, expressions, métiers, sport, animaux, cuisine, et listes fournies (termes stars,
-mots-clés, métier + ville) quand elle se déduit des mots qui composent le nom. Relevée à la construction.
+sites de niche, expressions, noms de médias, métiers, sport, animaux, cuisine, sites de niche et noms de
+médias des États-Unis (anglais), et listes fournies (termes stars, mots-clés, métier + ville de France et des
+États-Unis) quand elle se déduit des mots qui composent le nom (pour local_us.txt, avec ses villes et ses
+métiers). Relevée à la construction ; un nom sorti de toutes les listes en est retiré.
 
 Pour reconstruire les fichiers : `python scripts/build_lists.py DOSSIER_WORDFREQ LEXIQUE383_TXT` ;
 `python scripts/build_lists.py --themes` pour les seules listes thématiques et langues.txt ;
-`python scripts/build_lists.py --provided` pour la langue des listes fournies (elles ne sont jamais réécrites).
+`python scripts/build_lists.py --provided` pour la langue des listes fournies (elles ne sont jamais réécrites) ;
+`python scripts/build_lists.py --us` pour niches_us.txt et medias_us.txt, puis comme --provided ;
+`python scripts/build_local_us.py` pour local_us.txt (puis --provided).
 
 ## startup.txt
 
@@ -212,6 +252,20 @@ français ; finance et santé, tech et services en anglais) entremêlés par ran
 Métier + ville, collés (agenceimmobiliereparis, courtiercreditlyon), du plus au moins précieux : 191 métiers
 et services locaux, 165 villes, départements et régions. Liste rédigée par IA, relue, 2026-10. Fichier fourni :
 15 831 entrées.
+
+## local_us.txt
+
+Métier + ville des États-Unis, en anglais, collés dans les deux sens (scottsdaledentist,
+dentistscottsdale), réunis à la catégorie Métier + ville : 151 grandes villes et métropoles (recensement de
+2020, de la plus peuplée à la moins, écrites sans espace : sanantonio, newyork, nyc, bayarea) et 148 services
+locaux qui achètent ce genre de nom, du plus demandé au moins (avocats spécialisés, dentistes, plombiers,
+couvreurs, chauffage et climatisation, agents immobiliers, déménageurs, CPA…), choisis à la main
+(scripts/lists/metier_ville_us.txt). Paires rangées par produit des rangs, la ville devant puis derrière ;
+24 lettres au plus. Les combinaisons ont déjà les 4 368 noms des 42 services de trades_en.txt avec les 52
+villes de cities_us.txt (dallasplumber, plumberdallas) : ils y restent et sont aussi Métier + ville (catégorie
+dérivée) ; local_us.txt en a 7 500 autres, soit environ 11 900 noms Métier + ville en anglais, autant que de
+noms en français (11 855). Fichier fourni comme local.txt (scripts/build_lists.py ne l'écrit pas, --provided en
+vérifie le format et en relève la langue), écrit par `python scripts/build_local_us.py`.
 
 ## marques_inventees.txt
 

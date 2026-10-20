@@ -1,13 +1,16 @@
 """Construit les listes anglais, secteurs, tendances, combinaisons, sites de niche, expressions,
-noms de média et listes thématiques (métiers, sport, animaux, cuisine) dans app/data.
+noms de média et listes thématiques (métiers, sport, animaux, cuisine) dans app/data, et les sites de niche et noms
+de médias anglais des États-Unis (niches_us.txt, medias_us.txt).
 
 Usage : python scripts/build_lists.py WORDFREQ_DIR LEXIQUE_TXT
         python scripts/build_lists.py --themes   (listes thématiques et langues.txt seulement, sans Lexique)
         python scripts/build_lists.py --provided (langue des listes fournies dans langues.txt, sans Lexique)
+        python scripts/build_lists.py --us       (sites de niche et noms de médias anglais, puis --provided)
 
-Listes fournies (termes stars, mots-clés à forte valeur, métier + ville, marques inventées : premium.txt,
-motscles.txt, local.txt, marques_inventees.txt) : rédigées ailleurs, jamais écrites ici. Le script en vérifie
-le format et en relève la langue (langues.txt) ; une marque inventée n'en a pas.
+Listes fournies (termes stars, mots-clés à forte valeur, métier + ville de France et des États-Unis, marques
+inventées : premium.txt, motscles.txt, local.txt, local_us.txt, marques_inventees.txt) : rédigées ailleurs (local_us.txt
+par scripts/build_local_us.py), jamais écrites ici. Le script en vérifie le format et en relève la langue
+(langues.txt) ; une marque inventée n'en a pas.
 
 Chaque usage finit par les catégories dérivées (categories.txt, voir « Catégories dérivées » plus bas).
 
@@ -175,20 +178,106 @@ def combos(sectors_fr, sectors_en, trends, english_words, genders) -> list[str]:
 
 
 def niche() -> list[str]:
-    """Format de site + thème de passion : forumdomotique, guidepotager, gardeningforum."""
+    """Format de site + thème de passion en français : forumdomotique, guidepotager, jardinagefacile (l'anglais :
+    niche_en)."""
     formats = sections("formats.txt")
-    fr, en = unique(read("themes_fr.txt")), unique(read("themes_en.txt"))
+    fr = unique(read("themes_fr.txt"))
     families = [
         ranked(fr, formats["fr"], lambda b, m: [m + b]),
         ranked(fr, formats["fr-apres"], lambda b, m: [b + m]),
-        ranked(en, formats["en"], lambda b, m: [b + m]),
     ]
     LANG["fr"].update(families[0] + families[1])
-    LANG["en"].update(families[2])
     out = []
     for i in range(max(map(len, families))):
         out += [f[i] for f in families if i < len(f)]
     return out
+
+
+# --- Listes anglaises des États-Unis (sites de niche, noms de médias) -------------------------------------------
+# Construites sans Lexique ni wordfreq (--us), après toutes les autres : un nom déjà dans une autre liste n'y entre
+# pas. Autant de noms que la liste française du même genre (niches.txt, medias.txt), les meilleurs d'abord.
+# Métier + ville des États-Unis : liste fournie (local_us.txt, scripts/build_local_us.py), pas construite ici.
+US_BUILT = ("niche_us", "media_us")
+
+
+def tagged(lines: list[str]) -> list[tuple[str, str, frozenset[str]]]:
+    """Lignes « thème[/forme] : genres » ou « format : genres » : (thème ou format, forme devant un nom, genres)."""
+    out = []
+    for line in lines:
+        word, _, kinds = line.partition(":")
+        name, _, form = word.strip().partition("/")
+        out.append((name, form or name, frozenset(kinds.split())))
+    return out
+
+
+def affix(line: str) -> str:
+    """Format ou tête de média d'une ligne à genres, sans ses genres ni son tiret (allabout- : allabout)."""
+    return line.partition(":")[0].strip().strip("-")
+
+
+def compose(theme: tuple, fmt: tuple) -> list[str]:
+    """Thème + format anglais, si le format va au thème : la forme devant un nom avant un format (dog + forum :
+    dogforum, jamais dogsforum ni chickenszone), le thème tel qu'on le nomme après un format qui finit par un tiret
+    (allabout- + dogs : allaboutdogs). Pas de mot répété (vanlife + life) ni de lettre trois fois (chess + shop)."""
+    (topic, form, kinds), (word, _, fits) = theme, fmt
+    if not (fits & kinds or ("all" in fits and "-all" not in kinds)):
+        return []
+    if word.endswith("-"):
+        head = word[:-1]
+        name = "" if topic.startswith(head) else head + topic
+    else:
+        name = "" if form.endswith(word) else form + word
+    if not name or any(a == b == c for a, b, c in zip(name, name[1:], name[2:])):
+        return []
+    return [name]
+
+
+def famous() -> tuple[set[str], list[str]]:
+    """Noms connus écartés des listes anglaises (scripts/lists/connus_en.txt, marques de app/data/marques.txt) et
+    marques de 5 lettres et plus, écartées aussi au début ou à la fin d'un nom (teslaforum ; pas au milieu :
+    educationnews n'a rien de ducati)."""
+    brands = read("marques.txt", DATA)
+    return set(read("connus_en.txt")) | set(brands), [b for b in brands if len(b) >= 5]
+
+
+def english_names(families: list[list[str]], taken: set[str], size: int) -> list[str]:
+    """Familles mêlées une à une, chacune dans son ordre ; sans doublon, nom connu ni nom déjà pris ; size au plus."""
+    banned, inside = famous()
+    out = []
+    for i in range(max(map(len, families))):
+        out += [f[i] for f in families if i < len(f)]
+    found = [n for n in unique(out) if n not in taken and n not in banned
+             and not any(n.startswith(b) or n.endswith(b) for b in inside)]
+    return found[:size]
+
+
+def niche_en(taken: set[str], size: int) -> list[str]:
+    """Sites de niche anglais : thème + format qui lui va (gardeningforum, dogtraining, sailinglessons, easybaking),
+    rangés par produit des rangs du thème et du format."""
+    themes = tagged(read("themes_en.txt"))
+    formats = tagged(sections("formats.txt")["en"])
+    return english_names([ranked(themes, formats, compose)], taken, size)
+
+
+def medias_en(taken: set[str], size: int) -> list[str]:
+    """Noms de médias anglais : thème + tête de média (golfdaily, healthinsider, worldofgolf) et the + mot
+    (thegardener, theworkshop), en alternance."""
+    src = sections("medias_en.txt")
+    heads = ranked(tagged(src["themes"]), tagged(src["tetes"]), compose)
+    return english_names([heads, ["the" + w for w in src["the"]]], taken, size)
+
+
+def us_lists() -> dict[str, list[str]]:
+    """Sites de niche et noms de médias anglais (niches_us.txt, medias_us.txt), d'après les listes de app/data :
+    hors de toute autre liste, autant que leur liste française. Langue : anglais."""
+    others = {key: wordlists._ordered(file) for key, file in wordlists.FILES.items() if key not in US_BUILT}
+    taken = set().union(*map(set, others.values()))
+    niches = niche_en(taken, len(others["niche"]))
+    medias = medias_en(taken | set(niches), len(others["media"]))
+    LANG["en"].update(niches + medias)
+    write(wordlists.FILES["niche_us"], niches)
+    write(wordlists.FILES["media_us"], medias)
+    return {"niche_us": niches, "media_us": medias}
 
 
 ARTICLE_TOP = 600    # noms par genre (et pluriels) pour « le / la / l' / les + mot »
@@ -322,13 +411,14 @@ def main() -> None:
             LANG["en"].add(t)
     mixed = set(sectors) | set(trends) | set(combined) | set(niches) | set(expressions) | set(media)
     mixed |= themes(set(english_words))
+    # Listes anglaises des États-Unis : après toutes les autres (us_lists relit celles écrites ci-dessus).
+    mixed |= {name for names in us_lists().values() for name in names}
     # Listes fournies : jamais réécrites, leur langue relevée comme celle des autres.
     known = {"fr": existing | LANG["fr"], "en": set(english_words) | LANG["en"]}
-    vocab = vocabularies()
     for file, with_lang in PROVIDED.items():
         entries = check_provided(file)
         if with_lang:
-            for name, langs in provided_langs(entries, known, vocab).items():
+            for name, langs in provided_langs(entries, known, vocabularies(file)).items():
                 for lang in langs:
                     LANG[lang].add(name)
                 mixed.add(name)
@@ -357,18 +447,23 @@ def themes_only() -> None:
 
 
 # Listes fournies : fichier de app/data -> langue à relever (une marque inventée n'en a pas).
-PROVIDED = {"premium.txt": True, "motscles.txt": True, "local.txt": True, "marques_inventees.txt": False}
+PROVIDED = {"premium.txt": True, "motscles.txt": True, "local.txt": True, "local_us.txt": True,
+            "marques_inventees.txt": False}
 PIECE = 3  # une partie de nom composé fait 3 lettres au moins (« de », « my » collent à tout)
 
 
-def vocabularies() -> dict[str, set[str]]:
-    """Mots connus par langue, pour découper un nom composé : Lexique (mots, formes), mots anglais, villes,
-    métiers et services des listes à la main."""
+def vocabularies(file: str = "") -> dict[str, set[str]]:
+    """Mots connus par langue, pour découper un nom composé de la liste fournie file : Lexique (mots, formes), mots
+    anglais, villes, métiers et services des listes à la main. Villes et métiers des États-Unis seulement pour
+    local_us.txt : ailleurs, orthodontist + earles ferait d'orthodontistearles (Arles) un nom anglais."""
     def words(name: str) -> set[str]:
         return set((DATA / name).read_text(encoding="utf-8").split())
 
     fr = words("mots.txt") | words("formes.txt") | set(read("villes_fr.txt")) | set(read("metiers_fr.txt"))
     en = words("anglais.txt") | set(read("cities_us.txt")) | set(read("trades_en.txt"))
+    if file == wordlists.FILES["local_us"]:
+        us = sections("metier_ville_us.txt")
+        en |= set(us["villes"] + us["metiers"])
     return {"fr": {w.replace("-", "") for w in fr if len(w) >= PIECE}, "en": {w for w in en if len(w) >= PIECE}}
 
 
@@ -421,26 +516,29 @@ def check_provided(name: str) -> list[str]:
     return entries
 
 
-def provided_only() -> None:
-    """Sans wordlists ni Lexique : vérifie les listes fournies (sans les réécrire) et complète langues.txt."""
+def provided_only(added: dict[str, set[str]] | None = None) -> None:
+    """Sans wordlists ni Lexique : vérifie les listes fournies (sans les réécrire) et complète langues.txt, avec la
+    langue des noms ajoutés (added : listes anglaises de --us). Un nom sorti de toutes les listes en est retiré."""
+    listed = set().union(*(wordlists._ordered(file) for file in wordlists.FILES.values()))
     lines = {}
     for line in (DATA / "langues.txt").read_text(encoding="utf-8").splitlines():
         name, _, langs = line.partition("\t")
-        if name:
+        if name in listed:
             lines[name] = set(langs.split(","))
+    for name, langs in (added or {}).items():
+        lines.setdefault(name, set()).update(langs)
     known = {"fr": set((DATA / "mots.txt").read_text(encoding="utf-8").split())
              | set((DATA / "formes.txt").read_text(encoding="utf-8").split()),
              "en": set((DATA / "anglais.txt").read_text(encoding="utf-8").split())}
     for name, langs in lines.items():
         for lang in langs:
             known.setdefault(lang, set()).add(name)
-    vocab = vocabularies()
     without = 0
     for file, with_lang in PROVIDED.items():
         entries = check_provided(file)
         if not with_lang:
             continue
-        found = provided_langs(entries, known, vocab)
+        found = provided_langs(entries, known, vocabularies(file))
         without += sum(1 for e in entries if e not in found and not any(e in known[k] for k in ("fr", "en")))
         for name, langs in found.items():
             lines.setdefault(name, set()).update(langs)
@@ -500,9 +598,10 @@ STRONG = {"startup": {
     "autopilot", "ledger", "wallet"}}
 # Dans les listes commerciales (combinaisons, mots-clés, métier + ville, termes stars), « cuisine » et « kitchen »
 # sont le cuisiniste (cuisine-metz, deviscuisine, kitchenquotes), pas la table ; dans un site de niche ou un média
-# (forumcuisine, guidecuisine), la table.
-TRADE_LISTS = ("combo", "keyword", "local", "premium")
-WEAK_TRADE = {"food": {"cuisine", "cuisines", "kitchen", "kitchens", "cocktail"}}
+# (forumcuisine, guidecuisine), la table. De même « fencing » y est le poseur de clôtures (dallasfencing), pas
+# l'escrime.
+TRADE_LISTS = ("combo", "keyword", "local", "local_us", "premium")
+WEAK_TRADE = {"food": {"cuisine", "cuisines", "kitchen", "kitchens", "cocktail"}, "sport": {"fencing"}}
 # Règle b : modificateurs d'intention de recherche (prix, comparaison, en ligne, devis). Les formes possessives et
 # de média (mon, my, le, the, info, guide, hub, hq, top, sos, allo…) n'en sont pas, ni les ajouts de marque (pro,
 # expert, direct, express, 24, now, instant, quick, buy, find) : monassurance, mytravel, hairexpress, buyteeth sont
@@ -545,8 +644,8 @@ def splits(name: str, vocabulary: set[str], parts: int = 4, keep: int = 8) -> li
 def derive_vocab(lists: dict[str, list[str]]) -> dict:
     """Vocabulaires des règles, tirés des listes et des listes à la main : mots (Lexique, formes, anglais), thèmes,
     secteurs et thèmes des sites de niche, villes et métiers des listes « métier + ville » et des combinaisons,
-    affixes des combinaisons et des sites de niche."""
-    local = sections("metier_ville.txt")
+    affixes des combinaisons, des sites de niche et des médias anglais."""
+    local, local_us = sections("metier_ville.txt"), sections("metier_ville_us.txt")
     mods, formats = sections("modifiers.txt"), sections("formats.txt")
     themes = {}
     for key, source in THEME_SOURCES.items():
@@ -556,21 +655,27 @@ def derive_vocab(lists: dict[str, list[str]]) -> dict:
             found |= set(parts.get("fr", [])) | set(parts.get("en", []))
         themes[key] = {w.replace("-", "") for w in found}
     cities = {c.replace("-", "") for c in local["villes"] + local["regions"] + read("villes_fr.txt")}
-    us = set(read("cities_us.txt"))
-    services = {w.replace("-", "") for w in local["services"] + read("metiers_fr.txt") + read("trades_en.txt")}
+    # Villes des États-Unis : celles des combinaisons et de local_us.txt (découpe de scottsdaleplumber). Les métiers
+    # de local_us.txt n'entrent pas dans les services : un nom de cette liste est déjà Métier + ville.
+    us = set(read("cities_us.txt") + local_us["villes"])
+    trades_en = set(read("trades_en.txt"))
+    services = {w.replace("-", "") for w in local["services"] + read("metiers_fr.txt")} | trades_en
     services |= themes["job"]
-    affixes = {a for part in (*mods.values(), *formats.values()) for a in part} | LINKS | INTENT | QUOTE
-    # Racine commerciale : un secteur ou un terme star qui n'est pas un ajout de combinaison (expert, app, pro).
-    # Une ville n'en est pas une (paris : aussi un secteur, les paris sportifs).
-    roots = (set(lists.get("sector", ())) | set(lists.get("premium", ()))) - affixes - cities - us
+    # Affixes : ajouts des combinaisons, formats des sites de niche et têtes des médias anglais (sans leurs genres).
+    added = {affix(a) for part in (*mods.values(), formats["fr"], formats["fr-apres"]) for a in part}
+    affixes = added | {affix(a) for a in formats["en"] + sections("medias_en.txt")["tetes"]} | LINKS | INTENT | QUOTE
+    # Racine commerciale : un secteur ou un terme star qui n'est pas un ajout de combinaison ni un format français
+    # (expert, app, pro, boutique). Un format anglais peut en être une (training, store, coach : besttraining,
+    # coachpascher). Une ville n'en est pas une (paris : aussi un secteur, les paris sportifs).
+    roots = (set(lists.get("sector", ())) | set(lists.get("premium", ()))) - added - LINKS - INTENT - QUOTE - cities - us
     # Découpe en vrais mots : Lexique, formes et anglais de 3 lettres et plus (un mot de 2 lettres colle à tout),
     # thèmes (ia et ai compris), thèmes des sites de niche, villes et affixes connus, même courts (my, hq, d, l).
     # Pas les noms composés des listes (coachsportif, assurancevie) : ils cacheraient leurs mots.
     words = {w for key in ("word", "form", "english") for w in lists.get(key, ()) if len(w) >= 3}
-    words |= set(read("themes_fr.txt")) | set(read("themes_en.txt"))
+    words |= set(read("themes_fr.txt"))
     pieces = words | {w for t in themes.values() for w in t if len(w) >= 2} | cities | us | affixes
     return {"themes": themes, "cities": cities, "us": us, "places": cities | us, "services": services,
-            "trades_en": set(read("trades_en.txt")), "before": set(local["avant-ville"]), "roots": roots,
+            "trades_en": trades_en, "before": set(local["avant-ville"]), "roots": roots,
             "affixes": affixes, "pieces": pieces, "commerce": pieces | roots}
 
 
@@ -675,11 +780,20 @@ def write_derived() -> dict[str, list[str]]:
     return found
 
 
+def us_only() -> None:
+    """Sans wordlists ni Lexique : listes anglaises des États-Unis (sites de niche, noms de médias), puis les
+    listes fournies et langues.txt comme --provided."""
+    found = us_lists()
+    provided_only({name: {"en"} for names in found.values() for name in names})
+
+
 if __name__ == "__main__":
     if sys.argv[1:] == ["--themes"]:
         themes_only()
     elif sys.argv[1:] == ["--provided"]:
         provided_only()
+    elif sys.argv[1:] == ["--us"]:
+        us_only()
     else:
         main()
     write_derived()

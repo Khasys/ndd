@@ -488,8 +488,10 @@ def test_us_names_join_their_categories():
     french = {k: (wordlists.DATA / wordlists.FILES[k]).read_text().split() for k in ("firstname", "surname")}
     assert len(lists["firstname_us"]) == 10_000 and len(lists["surname_us"]) == len(french["surname"]) == 21_689
     assert all(wordlists.valid_label(w) for k in wordlists.MERGED for w in lists[k])
+    derived = wordlists.derived()
     for key, into in wordlists.MERGED.items():
-        assert classes[into] == lists[into] | lists[key] and key in wordlists.HIDDEN and key not in wordlists.SHOWN
+        assert classes[into] == lists[into] | lists[key] | derived.get(into, frozenset())
+        assert key in wordlists.HIDDEN and key not in wordlists.SHOWN and key in wordlists.NEVER_DERIVED
         assert wordlists.canonical(key) == into and key not in wordlists.NO_LANG and into not in wordlists.NO_LANG
     assert {"smith", "ford", "martin"} <= classes["surname"] and {"bernice", "thomas", "jean-pierre"} <= classes["firstname"]
     assert wordlists.categories("bernice") == ["firstname"] and wordlists.categories("alvarado") == ["surname"]
@@ -548,3 +550,83 @@ def test_build_names_us_is_reproducible(tmp_path, monkeypatch):
                     encoding="utf-8")
     assert build_names_us.ranked(first, "n", 3) == ["mary", "james", "zoe"]
     assert build_names_us.ranked(last, "count", 10) == ["smith", "obrien", "delacruz"]
+
+
+# --- Sites de niche, noms de médias et métier + ville des États-Unis -------------------------------------------
+
+
+def test_us_niche_media_and_local_lists_join_their_categories():
+    """Autant de noms anglais que de français dans Sites de niche, Noms de médias et Métier + ville, sans toucher aux
+    noms français ; anglais, sans doublon avec une autre liste, rangés à part (« 3e site de niche des États-Unis »)."""
+    lists, classes, langs = wordlists.lists(), wordlists.classes(), wordlists.languages()
+    assert len(lists["niche_us"]) == len(lists["niche"]) and len(lists["media_us"]) == len(lists["media"])
+    # Métier + ville : 7 500, et les noms service + ville des États-Unis des combinaisons (dallasplumber).
+    combos_us = wordlists.derived()["local"] & langs["en"] - langs["fr"]
+    assert len(lists["local_us"]) == 7_500 and 11_500 < len(lists["local_us"]) + len(combos_us) < 12_500
+    for key in ("niche_us", "media_us", "local_us"):
+        names = lists[key]
+        assert names <= langs["en"] and all(wordlists.valid_label(n) for n in names)
+        assert not any(names & other for k, other in wordlists.static_lists().items() if k != key), key
+    # Les noms anglais des sites de niche ont quitté niches.txt : il ne garde que le français.
+    assert not lists["niche"] & langs["en"] - langs["fr"] - {"recettespratiques"}
+    assert {"gardeningforum", "dogtraining", "guitarschool", "easybaking", "allaboutdogs"} <= lists["niche_us"]
+    assert {"golfdaily", "healthinsider", "worldofgolf", "thegardener", "theworkshop"} <= lists["media_us"]
+    assert {"scottsdaledentist", "dentistscottsdale", "newyorkcriminallawyer"} <= lists["local_us"]
+    assert {"phoenixplumber", "plumberphoenix"} <= lists["combo"] & classes["local"] - lists["local_us"]
+    assert wordlists.categories("gardeningforum") == ["niche"] and "media" in wordlists.categories("golfdaily")
+    assert wordlists.categories("scottsdaledentist") == ["job", "local"]
+    # Marques et médias connus écartés (golfdigest, businessinsider, boardgamegeek, cartalk).
+    known = {"golfdigest", "businessinsider", "boardgamegeek", "cartalk", "yogajournal", "photoshop", "teslaforum"}
+    assert not known & (lists["niche_us"] | lists["media_us"])
+    assert value.popularity("gardeningforum")[1].endswith("site de niche des États-Unis")
+    assert quality.features("gardeningforum", "com")["in_niche"] > 0.9
+    assert quality.features("scottsdaledentist", "com")["in_combo"] > 0
+
+
+def test_us_niche_names_never_put_a_plural_before_a_format():
+    """Un nom anglais se met au singulier devant un autre : dogforum, chickenforum, pas dogsforum ni chickenszone
+    (forme maladroite des anciens sites de niche anglais)."""
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    import build_lists
+
+    themes = build_lists.tagged(build_lists.read("themes_en.txt"))
+    formats = [f for f, _, _ in build_lists.tagged(build_lists.sections("formats.txt")["en"]) if not f.endswith("-")]
+    niches = wordlists.lists()["niche_us"]
+    plural = {topic + f for topic, form, _ in themes if topic != form for f in formats}
+    assert plural and not plural & niches
+    assert not {"dogsforum", "catsforum", "chickensreviews", "chickenszone", "recipesforum"} & wordlists.classes()["niche"]
+    assert {"dogforum", "catforum", "recipeforum", "allaboutdogs"} <= niches
+    dog = ("dogs", "dog", frozenset({"about"}))
+    assert build_lists.compose(dog, ("forum", "forum", frozenset({"all"}))) == ["dogforum"]
+    assert build_lists.compose(dog, ("allabout-", "allabout-", frozenset({"about"}))) == ["allaboutdogs"]
+    assert build_lists.compose(dog, ("reviews", "reviews", frozenset({"buy"}))) == []  # format qui ne va pas au thème
+    assert build_lists.compose(("vanlife", "vanlife", frozenset({"life"})), ("life", "life", frozenset({"life"}))) == []
+    assert build_lists.compose(("chess", "chess", frozenset({"shop"})), ("shop", "shop", frozenset({"shop"}))) == []
+    adjective = ("sustainable", "sustainable", frozenset({"-all", "living"}))
+    assert build_lists.compose(adjective, ("forum", "forum", frozenset({"all"}))) == []
+    assert build_lists.compose(adjective, ("living", "living", frozenset({"living"}))) == ["sustainableliving"]
+
+
+def test_us_lists_are_reproducible():
+    """scripts/build_lists.py --us (sites de niche, médias) et scripts/build_local_us.py refont les fichiers livrés,
+    sans Lexique ni réseau."""
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    import build_lists
+    import build_local_us
+
+    lists = {key: wordlists._ordered(file) for key, file in wordlists.FILES.items()}
+    taken = set().union(*(set(v) for k, v in lists.items() if k not in build_lists.US_BUILT))
+    niches = build_lists.niche_en(taken, len(lists["niche"]))
+    assert niches == lists["niche_us"]
+    assert build_lists.medias_en(taken | set(niches), len(lists["media"])) == lists["media_us"]
+    assert build_local_us.build() == lists["local_us"]
+    # Les plus grandes villes et les métiers les plus demandés d'abord, ville devant puis derrière.
+    assert lists["local_us"][:2] == ["newyorkcriminallawyer", "criminallawyernewyork"]
+    assert all(len(n) <= build_local_us.LONGEST for n in lists["local_us"])
+

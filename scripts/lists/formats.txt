@@ -1,5 +1,5 @@
 # Formats de site, du plus utilisé au moins. [fr] : avant les thèmes français (forumdomotique) ;
-# [fr-apres] : après (jardinagefacile) ; [en] : après les thèmes anglais (gardeningforum).
+# [fr-apres] : après (jardinagefacile) ; [en] : formats anglais (gardeningforum, dogtraining, easybaking).
 [fr]
 forum
 guide
@@ -28,23 +28,58 @@ passion
 info
 mag
 [en]
-forum
-blog
-guide
-reviews
-tips
-hub
-hq
-club
-central
-101
-world
-zone
-daily
-insider
-nation
-life
-lab
-geek
-pro
-shop
+# Format anglais : genres de thème à qui il va, l'un d'eux suffit (scripts/lists/themes_en.txt ; « all » : à
+# tous). Collé après la forme du thème devant un nom (dog : dogforum, pas dogsforum) ; un format qui finit par un
+# tiret se met devant le thème tel qu'on le nomme (allabout- : allaboutdogs). Pas de format de média (news, daily,
+# insider, world, magazine) : ils font les noms de médias anglais (scripts/lists/medias_en.txt).
+forum : all
+blog : all
+guide : all
+tips : all
+reviews : buy reviews
+hub : all
+club : club
+shop : shop
+hq : all
+central : all
+101 : all
+lovers : fan
+community : all
+talk : all
+store : shop
+gear : gear
+school : school
+lessons : lessons
+training : training
+recipes : recipes
+ideas : ideas
+deals : buy deals
+supply : supply
+pro : pro
+geek : geek
+life : life
+lab : lab
+hacks : hacks
+advice : advice
+easy- : easy
+allabout- : about
+learn- : learn
+classes : classes
+academy : school
+corner : corner
+nation : nation
+nerd : geek
+zone : zone
+living : living
+planning : planning
+patterns : patterns
+plans : plans
+names : names
+coach : coach
+fans : fans
+studio : studio
+activities : activities
+picks : picks
+experts : advice
+info : all
+simply- : simply

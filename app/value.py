@@ -61,10 +61,12 @@ POPULAR = {"word": "mot", "form": "forme", "surname": "nom", "firstname": "prén
            "expr": "expression", "media": "nom de média",
            "startup": "tech et startups", "job": "métier", "sport": "sport", "animal": "animal", "food": "cuisine",
            "premium": "terme star", "keyword": "mot-clé", "local": "métier + ville", "brand": "nom de marque",
-           "firstname_us": "prénom", "surname_us": "nom"}
+           "firstname_us": "prénom", "surname_us": "nom", "niche_us": "site de niche", "media_us": "nom de média",
+           "local_us": "métier + ville"}
 # Une forme fléchie vaut moins que le mot de base ; un nom composé bien moins qu'un mot seul (métier + ville
 # en est une ; une marque inventée n'a pas de sens, seulement un rang parmi les autres).
-POPULAR_FACTOR = {"form": 0.7, "combo": 0.5, "niche": 0.5, "expr": 0.8, "media": 0.6, "local": 0.5, "brand": 0.5}
+POPULAR_FACTOR = {"form": 0.7, "combo": 0.5, "niche": 0.5, "expr": 0.8, "media": 0.6, "local": 0.5, "brand": 0.5,
+                  "niche_us": 0.5, "media_us": 0.6, "local_us": 0.5}
 
 
 def popularity(label: str) -> tuple[int, str | None]:
@@ -90,7 +92,9 @@ POPULAR_PHRASE = {"word": "mot le plus courant", "form": "forme la plus courante
                   "sport": "mot du sport", "animal": "animal", "food": "mot de cuisine", "premium": "terme star",
                   "keyword": "mot-clé à forte valeur", "local": "métier + ville", "brand": "nom de marque",
                   "firstname_us": "prénom le plus donné aux États-Unis",
-                  "surname_us": "nom de famille le plus porté aux États-Unis"}
+                  "surname_us": "nom de famille le plus porté aux États-Unis",
+                  "niche_us": "site de niche des États-Unis", "media_us": "nom de média des États-Unis",
+                  "local_us": "métier + ville des États-Unis"}
 
 
 def _nth(rank: int) -> str:

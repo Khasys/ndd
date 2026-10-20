@@ -1,0 +1,430 @@
+# Noms de médias anglais (marché américain), du plus au moins porteur (jugement manuel), sur les motifs des médias
+# américains : thème + tête de média (golfdaily, healthinsider, techweekly, travelmagazine), worldof + thème
+# (worldofwine), the + amateur, lieu ou objet du thème (thegardener, theworkshop, thefairway).
+# [tetes] : tête : genres de thème à qui elle va (« all » : à tous ; « hot » : sujets d'actualité, pour wire, pulse,
+# headlines, beat, brief) ; collée après la forme du thème devant un nom, ou devant le thème tel qu'on le nomme si
+# elle finit par un tiret (worldof- : worldofdogs).
+# [themes] : thème[/forme devant un nom] : genres, comme scripts/lists/themes_en.txt.
+# [the] : mots précédés de « the ».
+# Marques et médias connus que ces motifs produiraient (golfdigest, businessinsider) : scripts/lists/connus_en.txt.
+[tetes]
+news : all
+daily : all
+insider : insider
+today : all
+weekly : all
+times : all
+journal : all
+magazine : all
+report : report
+digest : all
+world : world
+worldof- : worldof
+mag : all
+wire : hot
+pulse : hot
+headlines : hot
+watch : watch
+beat : hot
+brief : hot
+buzz : buzz
+monthly : all
+gazette : gazette
+[themes]
+health : insider report hot watch
+tech : worldof hot buzz watch
+money : insider report hot watch
+finance : insider report hot
+business : report hot
+food : world worldof buzz
+travel : insider report world worldof hot buzz
+home : insider report
+sports : insider report world worldof hot buzz
+golf : insider report worldof hot buzz gazette
+fashion : insider report world worldof buzz
+beauty : report world buzz
+style : insider buzz
+celebrity : insider report hot buzz watch
+entertainment : insider report hot buzz
+lifestyle : insider buzz
+movie : insider buzz
+film : buzz
+tv : report buzz
+music : insider report world worldof hot buzz
+gaming : insider report world worldof hot buzz
+ai : insider report world hot buzz watch
+crypto : insider report world hot buzz watch
+bitcoin : insider report hot
+blockchain : insider report hot
+realestate : insider report world hot buzz watch
+housing : insider report hot watch
+mortgage : insider report hot watch
+insurance : insider report hot
+tax : insider report hot watch
+legal : insider report hot
+political : insider report hot buzz watch
+crime : report hot watch
+investing : insider report hot
+stock : insider report hot watch
+market : report world hot watch
+retirement : report watch
+job : report hot watch
+science : report worldof
+space : insider report hot watch
+nature : worldof watch
+weather : report world hot watch
+climate : insider report hot watch
+energy : insider report world hot watch
+solar : insider report hot
+ev : insider report world hot buzz watch
+auto : insider report world hot buzz
+car : insider report world buzz
+truck : insider report
+motorcycle : insider gazette
+aviation : insider report hot
+airline : insider report hot watch
+hotel : insider report
+cruise : insider report buzz
+themepark : insider report buzz
+pets/pet : insider report world worldof buzz
+dogs/dog : world worldof gazette
+cats/cat : world worldof
+horses/horse : world worldof report gazette
+parenting :
+family :
+wedding : buzz
+baby : world
+kids : world worldof
+senior :
+education : report hot watch
+college : report hot buzz
+career : insider report
+startup : insider report world hot buzz watch
+smallbusiness : insider report
+marketing : insider report world hot
+retail : insider report hot watch
+restaurant : insider report hot buzz
+wine : insider report world worldof gazette
+beer : buzz
+coffee : buzz
+kitchen :
+cooking :
+baking :
+outdoor : insider report gazette
+hunting : insider report world gazette
+fishing : insider report world worldof gazette
+boating : insider report gazette
+sailing : report gazette
+camping : gazette
+rv : insider report
+surf : insider report world
+ski : insider report
+tennis : insider report world worldof gazette
+soccer : insider report worldof hot buzz
+football : insider report hot buzz
+basketball : insider report hot buzz
+baseball : insider report hot buzz
+hockey : insider report hot buzz
+running : insider gazette
+cycling : insider gazette
+fitness : insider report buzz
+yoga : world
+wellness : insider report world
+nutrition : insider report
+garden : world gazette
+gardening :
+decor : buzz
+diy :
+history : worldof
+book : insider report buzz
+design : insider world buzz
+gadget : insider buzz
+cybersecurity : insider report hot watch
+esports : insider report world hot buzz
+luxury : insider report world buzz
+[the]
+gardener
+homecook
+golfer
+angler
+traveler
+investor
+runner
+cyclist
+baker
+hiker
+camper
+homesteader
+woodworker
+fisherman
+photographer
+musician
+guitarist
+foodie
+chef
+homeowner
+handyman
+farmer
+rancher
+collector
+beekeeper
+birdwatcher
+stargazer
+astronomer
+maker
+tinkerer
+crafter
+knitter
+quilter
+potter
+painter
+filmmaker
+drummer
+singer
+dancer
+yogi
+climber
+surfer
+skier
+sailor
+boater
+paddler
+diver
+swimmer
+explorer
+nomad
+wanderer
+roadtripper
+pitmaster
+homebrewer
+brewer
+sommelier
+barista
+saver
+trader
+retiree
+newmom
+newdad
+student
+teacher
+nurse
+lawyer
+coach
+athlete
+sportsfan
+reader
+writer
+poet
+doglover
+catlover
+petowner
+equestrian
+driver
+rider
+biker
+trucker
+pilot
+mechanic
+techie
+coder
+freelancer
+prepper
+organizer
+garden
+kitchen
+pantry
+garage
+workshop
+workbench
+toolbox
+backyard
+patio
+porch
+cellar
+taproom
+coffeehouse
+teahouse
+bakehouse
+smokehouse
+greenhouse
+pottingshed
+homestead
+farmhouse
+cabin
+lodge
+trailhead
+campfire
+campsite
+fairway
+clubhouse
+lockerroom
+sidelines
+dugout
+bullpen
+rink
+paddock
+stable
+kennel
+coop
+hive
+studio
+darkroom
+observatory
+arcade
+bookshelf
+readingroom
+nursery
+playroom
+classroom
+campus
+nestegg
+piggybank
+vault
+craftroom
+sewingroom
+dock
+harbor
+marina
+racetrack
+gym
+dojo
+trail
+summit
+basecamp
+shoreline
+boardwalk
+vineyard
+winery
+brewery
+distillery
+bakery
+creamery
+deli
+diner
+dinnertable
+lunchbox
+spicerack
+recipebox
+cookbook
+kitchentable
+scoop
+roundup
+recap
+lowdown
+fieldguide
+handbook
+playbook
+toolkit
+blueprint
+almanac
+compass
+guidebook
+checkup
+tradingpost
+generalstore
+outpost
+trailguide
+tacklebox
+baitshop
+boathouse
+fishinghole
+treestand
+deerstand
+firepit
+toolshed
+woodshop
+makerspace
+hobbyshop
+yarnshop
+artroom
+sketchbook
+canvas
+palette
+easel
+listeningroom
+jukebox
+bandstand
+backstage
+greenroom
+screeningroom
+pressbox
+scoreboard
+huddle
+tailgate
+bleachers
+gridiron
+hardwood
+pitch
+finishline
+startingline
+startinggate
+winnerscircle
+dogpark
+doghouse
+litterbox
+birdfeeder
+birdhouse
+fishbowl
+barn
+pasture
+tackroom
+henhouse
+chickencoop
+orchard
+herbgarden
+rosegarden
+yogamat
+sauna
+mudroom
+laundryroom
+livingroom
+homeoffice
+basement
+attic
+frontporch
+sunroom
+grill
+cuttingboard
+butcherblock
+castiron
+dutchoven
+skillet
+whisk
+rollingpin
+mixingbowl
+cookiejar
+breadbasket
+farmstand
+farmersmarket
+butchershop
+cheeseshop
+winecellar
+corkscrew
+brewpub
+alehouse
+coffeebar
+paycheck
+sidehustle
+corneroffice
+boardroom
+breakroom
+watercooler
+pitchdeck
+tradingfloor
+bullmarket
+portfolio
+weekender
+commuter
+forager
+bowhunter
+outdoorsman
+sportsman
+yachtsman
+marathoner
+lifter
+bodybuilder
+powerlifter
+glamper
+catlady
+plantlady
+dogmom
