@@ -1410,7 +1410,7 @@ document.addEventListener("alpine:init", () => {
     // Rendement attendu (avis récents) : chance de vente réelle × prix bas, commission et renouvellement ôtés.
     yieldText(o, long) {
       if (!o || o.yield == null) return "";
-      const v = Math.round(Math.abs(o.yield));
+      const v = Math.round(Math.abs(o.yield)).toLocaleString("fr-FR");
       const head = o.yield >= 0 ? `rapporte ~${v}\u00a0€/an` : `coûte ~${v}\u00a0€/an`;
       if (!long || !o.sell_rate) return head;
       const pct = (o.sell_rate * 100).toLocaleString("fr-FR", { maximumFractionDigits: 1 });

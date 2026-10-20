@@ -1260,7 +1260,10 @@ button:disabled { cursor: default; opacity: .55; }
 .fd-num span { margin-top: 5px; color: var(--muted); font-size: 11.5px; white-space: nowrap; }
 .fd-num + .fd-num { padding-left: 16px; border-left: 1px solid var(--line); }
 .fd-prices { display: flex; flex-wrap: wrap; gap: 2px 16px; color: var(--muted); font-size: 13px; }
-.fd-prices b { color: var(--text); font-weight: 600; white-space: nowrap; }
+/* Les montants gardent leurs espaces insécables ; la ligne rendement, longue, passe à la ligne (en nowrap elle
+   élargissait toute la carte, qui débordait de l'écran sur téléphone). */
+.fd-prices b { color: var(--text); font-weight: 600; }
+.fd-prices > span { min-width: 0; overflow-wrap: anywhere; }
 .fd-none { color: var(--muted); font-size: 13px; }
 .fd-why { font-size: 13.5px; font-weight: 500; line-height: 1.4; overflow-wrap: anywhere; }
 .fd-comment { font-size: 13.5px; line-height: 1.45; color: var(--muted); overflow-wrap: anywhere; }
