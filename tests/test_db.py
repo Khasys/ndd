@@ -106,3 +106,30 @@ def test_com_opinions_go_back_to_the_rating_queue(tmp_path):
     db.migrate(conn, tmp_path / "backups")
     versions = dict(conn.execute("SELECT name, version FROM domain_ai").fetchall())
     assert versions == {"motfrancais.com": 4, "velo.fr": 5}
+
+
+def test_provisional_com_data_is_removed(tmp_path):
+    """Accès CZDS au .com accordé : lignes .com du DNS et réglages du mécanisme provisoire effacés ; .co, .ai, .io et
+    les autres réglages gardés. Rejouée, la migration ne change plus rien."""
+    import json
+    import re
+
+    sql = (db.MIGRATIONS_DIR / "042_retrait_com_provisoire.sql").read_text()
+    retired = set(re.findall(r"'(\w+)'", sql.split("DELETE FROM settings")[1].split(";")[0]))
+    assert len(retired) == 11 and {"com_dns_status", "com_dns_last", "gandi_recheck"} <= retired
+    conn = db.connect(tmp_path / "t.db")
+    db.migrate(conn, tmp_path / "backups")
+    at = "2026-10-19T03:00:00+00:00"
+    for name in ("maison.com", "menu.co", "chat.ai"):
+        conn.execute("INSERT INTO cc_dns (name, present, checked_at) VALUES (?, 1, ?)", (name, at))
+    kept = {"co_dns_status": "{}", "gandi_pass_rate": "3", "gandi_pat": "pat_test"}
+    for key, value in [*((k, "1") for k in retired), *kept.items(),
+                       ("gandi_unsold", json.dumps({"com": "2099-01-01", "xyz": "2099-01-01"}))]:
+        conn.execute("INSERT INTO settings (key, value) VALUES (?, ?)", (key, value))
+    for _ in range(2):
+        conn.execute("PRAGMA user_version = 41")
+        db.migrate(conn, tmp_path / "backups")
+        assert [r[0] for r in conn.execute("SELECT name FROM cc_dns ORDER BY name")] == ["chat.ai", "menu.co"]
+        settings = dict(conn.execute("SELECT key, value FROM settings").fetchall())
+        assert not retired & set(settings) and kept.items() <= settings.items()
+        assert json.loads(settings["gandi_unsold"]) == {"xyz": "2099-01-01"}

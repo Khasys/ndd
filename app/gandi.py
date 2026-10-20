@@ -10,11 +10,7 @@ dedans) : elles ont servi à caler la lecture des états et des prix (read).
 Chaque nuit, entre les passes DNS et la notation IA, la passe Gandi (NightPass) vérifie les noms non pris
 (libres, bientôt libres, probablement libres, libres selon le WHOIS) du meilleur score au moins bon, à un
 rythme prudent. Le résultat (gandi_checks) précise l'état du nom dans l'Explorer, la Veille et la fiche :
-premium avec son prix, libre au prix standard, ou indisponible.
-
-Extension « par Gandi seul » (only_tlds, .com par défaut) tant qu'aucune zone ne la lit (pas d'accès CZDS, ou
-zone pas encore lue) : jour et nuit, la passe continue (LivePass) demande à Gandi chaque nom qui a un sens, les
-listes fournies d'abord. Sa réponse fait l'état (explore.gandi_effect). Les deux passes partagent le client et
+premium avec son prix, libre au prix standard, ou indisponible. Toutes les requêtes partagent le client et
 son plafond commun (GLOBAL_PER_MINUTE), sous la limite de Gandi.
 """
 
@@ -22,7 +18,6 @@ import asyncio
 import json
 import logging
 import random
-import re
 import string
 import time
 from collections import deque
@@ -30,7 +25,6 @@ from datetime import datetime, timedelta
 
 import httpx
 
-from . import wordlists
 from .checker import iso, utcnow
 
 log = logging.getLogger(__name__)
@@ -78,24 +72,13 @@ EMPTY_WAIT = 60
 EMPTY_STOP = 6            # passe de nuit : 6 attentes d'affilée sans réponse (25 min environ), arrêt
 UNSOLD_STOP = 5           # réponses invalides d'affilée sur une extension : Gandi ne la vend pas
 UNSOLD_DAYS = 30
-# Plafond commun à toutes les requêtes de l'appli (passes, Vérifier, domaines suivis), sur 60 s glissantes :
-# sous la limite de Gandi (1 000 par minute et par adresse IP), même avec les deux passes au plus haut.
+# Plafond commun à toutes les requêtes de l'appli (passe de nuit, Vérifier, domaines suivis), sur 60 s glissantes :
+# sous la limite de Gandi (1 000 par minute et par adresse IP), même avec la passe au plus haut.
 GLOBAL_PER_MINUTE = 900
 
-# Passe continue des extensions par Gandi seul (LivePass), jour et nuit.
-ONLY_DEFAULT = "com"      # extensions par Gandi seul tant qu'aucune zone ne les lit (réglage gandi_only_tlds)
-LIVE_RATE = 5.0           # requêtes par seconde (réglable)
-LIVE_MAX_RATE = 15.0      # 900 par minute : le plafond commun
-LIVE_TOUR = 1800          # secondes de travail par tour : la file est refaite ensuite (libres revus chaque jour)
-LIVE_IDLE = 900           # rien à revoir : tour suivant dans 15 minutes
-LIVE_FAIL_PAUSE = 900     # FAIL_STOP échecs réseau d'affilée : pause de 15 minutes, puis reprise
-LIVE_LIMIT_MAX = 3600     # « trop de requêtes » répétés : attente doublée à chaque refus, une heure au plus
-LIVE_HALT_HOURS = 24      # jeton refusé : nouvel essai le lendemain, ou dès qu'un jeton est enregistré
-# Requêtes en vol à la fois (passe de nuit et passe continue) : Gandi met environ 1 s à répondre depuis le NAS ; une
+# Requêtes en vol à la fois (passe de nuit) : Gandi met environ 1 s à répondre depuis le NAS ; une
 # à une, une passe plafonnait à 1 nom par seconde quel que soit le rythme réglé. Les départs restent espacés de 1 / rythme.
 PARALLEL = 8
-# Ordre de la file : listes fournies d'abord, termes stars, mots-clés et marques mêlés par rang, puis métier + ville.
-FIRST_LISTS = (("premium", "keyword", "brand"), ("local",))
 # Revue d'un nom déjà classé par Gandi (revisit_due) : sur un événement d'abord (changement d'état), sinon selon ce qu'il
 # a dit. Libre au tarif normal : jamais d'office (la zone ou le DNS voient qu'il est pris ; son prix est celui de la
 # grille de l'extension, grid). Premium : prix propre au nom, revu tous les 30 jours (7 avec un avis « À prendre »).
@@ -194,26 +177,17 @@ def grid(store) -> dict:
         return {}
 
 
-def only_tlds(store) -> list[str]:
-    """Extensions à vérifier par Gandi seul quand aucune zone ne les lit (réglage gandi_only_tlds, « com » par défaut)."""
-    raw = store.get("gandi_only_tlds", ONLY_DEFAULT)
-    return sorted({t.strip(".") for t in re.split(r"[\s,]+", raw.lower()) if re.fullmatch(r"[a-z]{2,24}", t.strip("."))})
-
-
 def unsold(store) -> set[str]:
-    """Extensions que Gandi ne vend pas (réponses invalides d'affilée), écartées 30 jours. Jamais une extension par
-    Gandi seul (.com) : Gandi la vend, une série d'erreurs y est passagère (ancienne marque ignorée)."""
+    """Extensions que Gandi ne vend pas (réponses invalides d'affilée), écartées 30 jours."""
     try:
         found = json.loads(store.get("gandi_unsold") or "{}")
     except ValueError:
         return set()
     today = utcnow().date().isoformat()
-    return {t for t, until in found.items() if until > today} - set(only_tlds(store))
+    return {t for t, until in found.items() if until > today}
 
 
 def mark_unsold(store, tld: str) -> None:
-    if tld in only_tlds(store):
-        return
     try:
         found = json.loads(store.get("gandi_unsold") or "{}")
     except ValueError:
@@ -302,11 +276,10 @@ def save(conn, name: str, found: dict, now: datetime) -> tuple[dict | None, dict
     return before, load(conn, [name])[name]
 
 
-def totals(conn, tlds: list[str] | None = None) -> dict:
-    """Réponses gardées par sorte (toutes extensions, ou seulement celles-ci) et date de la dernière."""
-    where, args = (f"WHERE tld IN ({','.join('?' * len(tlds))})", tlds) if tlds is not None else ("", [])
-    by_kind = dict(conn.execute(f"SELECT kind, COUNT(*) FROM gandi_checks {where} GROUP BY kind", args).fetchall())
-    last = conn.execute(f"SELECT MAX(checked_at) FROM gandi_checks {where}", args).fetchone()[0]
+def totals(conn) -> dict:
+    """Réponses gardées par sorte et date de la dernière."""
+    by_kind = dict(conn.execute("SELECT kind, COUNT(*) FROM gandi_checks GROUP BY kind").fetchall())
+    last = conn.execute("SELECT MAX(checked_at) FROM gandi_checks").fetchone()[0]
     return {"known": sum(by_kind.values()), "by_kind": by_kind, "last": last}
 
 
@@ -386,7 +359,6 @@ class Gandi:
     def set_key(self, key: str) -> None:
         self.store.set("gandi_pat", "".join(key.split()))
         self.store.set("gandi_error", "")
-        self.store.set("gandi_live_halt", "")  # nouveau jeton : la passe continue repart
 
     async def _slot(self) -> None:
         """Attend une place sous le plafond commun : jamais plus de GLOBAL_PER_MINUTE requêtes sur 60 s glissantes,
@@ -574,10 +546,9 @@ class NightPass:
         mark_unsold(self.store, tld)
 
     def tlds(self) -> list[str]:
-        """Extensions lues (.fr, zones ICANN, .co, .ai, .io) : pas celles par Gandi seul, que la passe continue couvre."""
-        ex = self.explorer
-        skip = self.unsold() | set(ex.gandi_tlds())
-        return [t for t in ex.tlds() if t not in skip]
+        """Extensions lues (.fr, zones ICANN, .co, .ai, .io), sauf celles que Gandi ne vend pas."""
+        skip = self.unsold()
+        return [t for t in self.explorer.tlds() if t not in skip]
 
     # --- File -----------------------------------------------------------------------------
 
@@ -792,321 +763,3 @@ class NightPass:
                 "last_day": self.store.get(f"{self.key}_last") or None, "unsold": sorted(self.unsold()),
                 "totals": totals(self.conn)}
 
-
-# --- Passe continue : extensions par Gandi seul ------------------------------------------------
-
-class LivePass:
-    """Jour et nuit, les extensions par Gandi seul (explorer.gandi_tlds : .com sans zone lisible). Chaque nom qui a un
-    sens, les listes fournies d'abord ; libres et premiums revus chaque jour, les autres après N jours (réglable).
-    Même client et même plafond commun que la passe de nuit. La zone lue, l'extension sort de cette passe."""
-
-    key = "gandi_live"
-
-    def __init__(self, gandi: Gandi, conn, store, explorer, local_zone, notify=None):
-        self.gandi = gandi
-        self.conn = conn
-        self.store = store
-        self.explorer = explorer
-        self.local_zone = local_zone
-        self.notify = notify
-        self.running = False
-        self.progress: dict | None = None
-        self.sleep = asyncio.sleep  # remplaçable dans les tests
-
-    # --- Réglages ---------------------------------------------------------------------
-
-    @property
-    def enabled(self) -> bool:
-        return self.store.get(f"{self.key}_enabled", "1") == "1"
-
-    @property
-    def rate(self) -> float:
-        return _number(self.store, f"{self.key}_rate", LIVE_RATE, MIN_RATE, LIVE_MAX_RATE)
-
-    @property
-    def days(self) -> int:
-        return int(_number(self.store, f"{self.key}_days", FRESH_DAYS, 1, 90))
-
-    def tlds(self) -> list[str]:
-        """Extensions concernées en ce moment : par Gandi seul, jeton enregistré, vendues par Gandi."""
-        return [t for t in self.explorer.gandi_tlds() if t not in unsold(self.store)]
-
-    def _idle_reason(self) -> str:
-        if self.explorer.gandi_tlds():
-            return "extension écartée : Gandi ne la vend pas"
-        return "zone lue : fonctionnement normal"
-
-    def halted(self) -> str | None:
-        """Jeton refusé il y a moins de LIVE_HALT_HOURS : la passe attend (un nouveau jeton la relance)."""
-        at = self.store.get(f"{self.key}_halt") or ""
-        return at if at and at > iso(utcnow() - timedelta(hours=LIVE_HALT_HOURS)) else None
-
-    def due(self) -> bool:
-        return not self.running and self.enabled and bool(self.gandi.key) and not self.halted() and bool(self.tlds())
-
-    # --- File -----------------------------------------------------------------------------
-
-    def plan(self, limit: int, now: datetime | None = None) -> tuple[list[str], dict]:
-        """(noms à demander, dans l'ordre ; compte des noms concernés et de ceux à revoir). Ordre : libres et premiums
-        à revoir (revus chaque jour), puis les absents du DNS du registre (ccdns.ComDns), par score de base. Avec des
-        données DNS, rien d'autre : un nom délégué est pris, un nom pas encore interrogé attend la passe DNS. Sans données
-        DNS (passe arrêtée) : les listes fournies (termes stars, mots-clés et marques mêlés par rang, puis métier +
-        ville), puis le reste par score de base. Noms qui ont un sens seulement ; pas un terme réservé, ni un nom
-        enregistré ou bientôt libre d'après le registre (Vérifier), sauf « enregistré » revu après N jours."""
-        from .explore import FREE, PREMIUM, REGISTERED, TAKEN_GANDI, UNCHECKED  # import local : explore importe ce module
-
-        now = now or utcnow()
-        tlds = self.tlds()
-        info = {"total": 0, "due": 0, "planned_at": iso(now)}
-        if not tlds:
-            return [], info
-        ex = self.explorer
-        u = ex.universe
-        buckets = u.buckets()
-        listed = ex.reserved.names() if ex.reserved is not None else frozenset()
-        hot = hot_names(self.conn)
-        wanted = (UNCHECKED, FREE, PREMIUM, TAKEN_GANDI, REGISTERED)
-        table = bytes(1 if c in wanted else 0 for c in range(256))
-        data, fresh, daily, skip, absent = {}, {}, [], {}, []
-        for tld in tlds:
-            data[tld] = ex.status_bytes(tld)
-            # DNS du registre (ccdns.ComDns) : seuls les absents (libres possibles) sont demandés à Gandi ; un nom
-            # délégué est pris, un nom pas encore interrogé attend la passe DNS (en .com, 8 sur 10 sont pris : le
-            # demander à Gandi gâcherait sa limite). Sans aucune donnée DNS (passe arrêtée) : tous, comme avant.
-            rows = self.conn.execute("SELECT name, present FROM cc_dns WHERE name LIKE ?", (f"%.{tld}",)).fetchall()
-            out = bytearray([1 if rows else 0]) * u.size
-            delegated = set()
-            for name, present in rows:
-                i = u.index(name[: -len(tld) - 1])
-                if i is None:
-                    continue
-                if present:
-                    delegated.add(i)
-                else:
-                    out[i] = 0
-                    if u.good[i]:
-                        absent.append((-(u.base_table[i] & 127), i, tld))
-            skip[tld] = out
-            since = dict(self.conn.execute("SELECT label, state_since FROM drops WHERE tld = ? AND state_since IS NOT NULL",
-                                           (tld,)).fetchall())
-            done = bytearray(u.size)
-            cut = len(tld) + 1
-            for name, at, kind, error in self.conn.execute(
-                    "SELECT name, checked_at, kind, error FROM gandi_checks WHERE tld = ?", (tld,)):
-                label = name[:-cut]
-                i = u.index(label)
-                if i is None:
-                    continue
-                if not revisit_due(kind, error, at, (since.get(label) or "") > at, now, self.days, name in hot):
-                    done[i] = 1
-                elif kind in ("available", "premium") and u.good[i] and i not in delegated:
-                    daily.append((-(u.base_table[i] & 127), i, tld))
-                    skip[tld][i] = 0  # premium à revoir (ou libre dont l'état a changé), même pas encore vu dans le DNS
-            fresh[tld] = done
-            eligible = int.from_bytes(data[tld].translate(table), "big") & u.good_int & ~int.from_bytes(skip[tld], "big")
-            info["total"] += eligible.bit_count()
-            info["due"] += (eligible & ~int.from_bytes(done, "big")).bit_count()
-        picked: list[str] = []
-        chosen = {t: bytearray(u.size) for t in tlds}
-
-        def take(i: int, tld: str) -> bool:
-            if chosen[tld][i] or fresh[tld][i] or skip[tld][i] or not u.good[i] or data[tld][i] not in wanted:
-                return False
-            name = f"{u.label(i)}.{tld}"
-            if name in listed:
-                return False
-            chosen[tld][i] = 1
-            picked.append(name)
-            return len(picked) >= limit
-
-        for _, i, tld in sorted(daily):
-            if take(i, tld):
-                return picked, info
-        for _, i, tld in sorted(absent):
-            if take(i, tld):
-                return picked, info
-        ranks = wordlists.ranks()
-        for keys in FIRST_LISTS:
-            keys = [k for k in keys if ranks.get(k)]
-            if not keys:
-                continue
-            for i in u.frequency(",".join(keys)):
-                for tld in tlds:
-                    if take(i, tld):
-                        return picked, info
-        for score in range(len(buckets) - 1, -1, -1):
-            for i in buckets[score]:
-                if not u.good[i]:
-                    continue
-                for tld in tlds:
-                    if take(i, tld):
-                        return picked, info
-        return picked, info
-
-    # --- Passe ----------------------------------------------------------------------------
-
-    def _save(self, stats: dict) -> None:
-        self.store.set(f"{self.key}_status", json.dumps(stats))
-
-    async def _wait(self, seconds: float) -> None:
-        """Attente par tranches de 5 s : décocher la case (ou retirer le jeton) arrête la passe sans attendre la fin."""
-        left = seconds
-        while left > 0 and self.enabled and self.gandi.key:
-            await self.sleep(min(5.0, left))
-            left -= 5.0
-
-    async def run(self, tours: int | None = None) -> dict:
-        """Tourne jusqu'à l'arrêt : case décochée, jeton retiré ou refusé, extension lue par sa zone. tours : nombre
-        de tours au plus (tests)."""
-        if self.running:
-            return {"started": False}
-        if not self.gandi.key:
-            return {"started": False, "error": "Jeton Gandi non configuré"}
-        self.running = True
-        loop = asyncio.get_running_loop()
-        stats = {"started_at": iso(utcnow()), "checked": 0, "changed": 0, "kinds": {}, "failures": 0, "tours": 0,
-                 "queued": 0, "tour_checked": 0, "next_tour": None}
-        self.progress = stats
-        halted = None
-        try:
-            async with self.gandi._http_factory() as http:
-                while tours is None or stats["tours"] < tours:
-                    if not (self.enabled and self.gandi.key and self.tlds()):
-                        break
-                    names, info = await loop.run_in_executor(None, self.plan, max(1, int(self.rate * LIVE_TOUR)))
-                    stats.update(info, queued=len(names), tour_checked=0, tours=stats["tours"] + 1)
-                    if not names:
-                        stats["next_tour"] = iso(utcnow() + timedelta(seconds=LIVE_IDLE))
-                        self._save(stats)
-                        await self._wait(LIVE_IDLE)
-                        continue
-                    stats["next_tour"] = None
-                    halted = await self._tour(names, http, stats, loop)
-                    self._save(stats)
-                    if halted:
-                        break
-        except Exception as exc:  # noqa: BLE001  le journal garde la cause, l'écran l'affiche
-            log.warning("Gandi, passe continue : %s", exc)
-            stats["error"] = str(exc)
-        finally:
-            self.running = False
-            self.progress = None
-            stats["finished_at"] = iso(utcnow())
-            if halted:
-                stats["stopped"] = stats["error"] = halted
-            elif "error" not in stats:
-                stats["stopped"] = ("arrêtée dans Paramètres" if not self.enabled else "jeton retiré" if not self.gandi.key
-                                    else self._idle_reason() if not self.tlds() else "fin des tours demandés")
-            self._save(stats)
-        log.info("Gandi, passe continue : %s noms vérifiés, %s changements, arrêt : %s", stats["checked"], stats["changed"],
-                 stats.get("stopped") or stats.get("error"))
-        if halted:
-            await alert(self.store, self.local_zone, self.notify,
-                        f"Gandi : passe continue arrêtée ({halted}). {stats['checked']} noms vérifiés.")
-        return stats
-
-    async def _tour(self, names: list[str], http, stats: dict, loop) -> str | None:
-        """Un tour : chaque nom au rythme réglé, PARALLEL requêtes en vol au plus (Inflight), réponses traitées dans
-        l'ordre de la file. Renvoie le motif d'un arrêt définitif (jeton refusé), sinon None."""
-        fails = limited = empty = 0
-        invalid: dict[str, int] = {}
-        index = 0
-        tlds: set[str] = set()
-        flight = Inflight(lambda n: self.gandi.check(n, http), self.sleep, loop, names)
-
-        def wanted(i: int) -> bool:
-            return names[i].rpartition(".")[2] in tlds
-
-        try:
-            while index < len(names):
-                if not self.enabled:
-                    return None  # case décochée : arrêt au nom suivant
-                if index % 100 == 0 or not tlds:
-                    # Jeton, rythme et extensions relus tous les 100 noms : une zone lue entre-temps sort de la passe.
-                    if not self.gandi.key:
-                        return None
-                    tlds, flight.interval = set(self.tlds()), 1 / self.rate
-                    if not tlds:
-                        return None
-                    if index:
-                        self._save(stats)
-                name = names[index]
-                tld = name.rpartition(".")[2]
-                if tld not in tlds:
-                    flight.drop(index)
-                    index += 1
-                    continue
-                # Pas d'avance au-delà de la prochaine relecture (tous les 100 noms) : une zone lue arrête net.
-                raw, exc = await flight.get(index, wanted, min(len(names), (index // 100 + 1) * 100))
-                if exc is not None:
-                    if exc.code in ("refused", "missing"):
-                        self.store.set("gandi_error", str(exc))
-                        self.store.set(f"{self.key}_halt", iso(utcnow()))
-                        return str(exc)
-                    if exc.code == "limit":
-                        # Gandi demande d'attendre : on attend (deux fois plus à chaque refus d'affilée), puis on reprend
-                        # au même nom (les requêtes déjà parties suivent la même règle).
-                        limited += 1
-                        stats["limited"] = stats.get("limited", 0) + 1
-                        flight.close()
-                        await self._wait(min(LIVE_LIMIT_MAX, (exc.retry_after or LIMIT_WAIT) * 2 ** (limited - 1)))
-                        continue
-                    stats["failures"] += 1
-                    fails += 1
-                    if exc.code == "invalid":
-                        invalid[tld] = invalid.get(tld, 0) + 1
-                    if fails >= FAIL_STOP:
-                        fails = 0
-                        stats["paused_at"] = iso(utcnow())
-                        log.info("Gandi, passe continue : %s échecs d'affilée (%s), pause", FAIL_STOP, exc)
-                        await self._wait(LIVE_FAIL_PAUSE)
-                    index += 1
-                else:
-                    limited = 0
-                    found = read(raw)
-                    if found["status"] == "":
-                        # Réponse vide : Gandi limite. Nom pas noté ; attente doublée à chaque réponse vide d'affilée
-                        # (une heure au plus), puis reprise au même nom. Jamais « extension pas vendue ».
-                        empty += 1
-                        stats["throttled"] = stats.get("throttled", 0) + 1
-                        stats["paused_at"] = iso(utcnow())
-                        flight.close()
-                        await self._wait(min(LIVE_LIMIT_MAX, EMPTY_WAIT * 2 ** (empty - 1)))
-                        continue
-                    fails = empty = 0
-                    if found["status"] == "error_invalid":
-                        invalid[tld] = invalid.get(tld, 0) + 1
-                    else:
-                        invalid[tld] = 0
-                    if self.gandi.record(name, found):
-                        stats["changed"] += 1
-                    stats["checked"] += 1
-                    stats["tour_checked"] += 1
-                    stats["kinds"][found["kind"]] = stats["kinds"].get(found["kind"], 0) + 1
-                    index += 1
-                if invalid.get(tld, 0) >= UNSOLD_STOP:
-                    mark_unsold(self.store, tld)
-                    tlds.discard(tld)
-                    log.info("Gandi : .%s écartée (%s réponses invalides d'affilée)", tld, UNSOLD_STOP)
-        finally:
-            flight.close()
-        if stats["tour_checked"]:
-            self.store.set("gandi_error", "")
-        return None
-
-    def status(self) -> dict:
-        """Carte Gandi de Paramètres et /api/diag (aucun secret) : extensions concernées, noms vérifiés, restant,
-        rythme, prochain tour, dernier arrêt."""
-        try:
-            info = json.loads(self.store.get(f"{self.key}_status") or "{}")
-        except ValueError:
-            info = {}
-        if self.progress is not None:
-            info = dict(self.progress)
-        tlds = self.tlds()
-        known = totals(self.conn, tlds) if tlds else {"known": 0, "by_kind": {}, "last": None}
-        remaining = max(0, (info.get("due") or 0) - (info.get("tour_checked") or 0)) if info.get("planned_at") else None
-        return {**info, "enabled": self.enabled, "rate": self.rate, "days": self.days, "max_rate": LIVE_MAX_RATE,
-                "per_minute_cap": GLOBAL_PER_MINUTE, "tlds": tlds, "configured": only_tlds(self.store),
-                "running": self.running, "halted_at": self.halted(), "remaining": remaining,
-                "verified": known["known"] - known["by_kind"].get("error", 0), "totals": known}

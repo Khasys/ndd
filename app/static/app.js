@@ -797,8 +797,6 @@ document.addEventListener("alpine:init", () => {
                          when: i.release_at ? `libération ~${this.shortDate(i.release_at)}` : "libération à venir", canReserve: false, canCheck: false };
         case 1: return { badge: { text: "pris", cls: "x-1" }, when: detail || checked, canReserve: false, canCheck: false };
         case 6: return { badge: { text: "pris, suspendu", cls: "x-6" }, when: detail || checked, canReserve: false, canCheck: false };
-        // Extension par Gandi seul (.com sans zone) : pris, comme les autres (un seul statut) ; Vérifier lit le registre.
-        case 11: return { badge: { text: "pris", cls: "x-1" }, when: g ? `vérifié ${this.relative(g.checked_at)}` : "", canReserve: false, canCheck: true };
         case 7: return GANDI_BLOCKED.includes(kind)
           ? { badge: { text: g.label.toLowerCase(), cls: "x-7" }, when: BLOCKED_WHY, canReserve: false, canCheck: false }
           : { badge: { text: "réservé", cls: "x-7" }, when: (i.reserved || []).join(", "), canReserve: false, canCheck: false };
@@ -1402,7 +1400,6 @@ document.addEventListener("alpine:init", () => {
     badgeClass(i) {
       if (!i) return "x-0";
       if (i.status === 8 && this.gandiKind(i, "explore") === "premium") return "x-8 gandi";
-      if (i.status === 11) return "x-1";  // pris d'après Gandi : même badge que pris
       return i.status === 4 && i.drop_state ? "s-" + i.drop_state : "x-" + i.status;
     },
 
@@ -1977,7 +1974,7 @@ document.addEventListener("alpine:init", () => {
         this.gandiKey = "";
         this.gandiResults = [];
         this.say(this.cfg.gandi.key_set ? "Jeton Gandi enregistré. « Tester » vérifie qu'il marche." : "Jeton Gandi retiré.");
-        // Passes de nuit et continue : extensions concernées et état changent avec le jeton.
+        // Passe de nuit : son état change avec le jeton.
         await this.loadSettings();
       } catch (e) {
         this.say(e.message, "error");
@@ -2031,35 +2028,6 @@ document.addEventListener("alpine:init", () => {
         this.sayError(e, "Passe Gandi impossible", () => this.runGandi());
       }
       this.gandiStarting = false;
-    },
-
-    // Passe continue des extensions par Gandi seul : activation (décochée, elle s'arrête), rythme, délai.
-    async saveGandiLive(patch) {
-      try {
-        const live = await this.api("PUT", "/api/settings/gandi/live", patch);
-        this.cfg.gandi = { ...this.cfg.gandi, live };
-        this.say(patch.enabled === false ? "Passe continue arrêtée." : "Passe continue enregistrée.");
-      } catch (e) {
-        this.say(e.message, "error");
-        await this.loadSettings();
-      }
-    },
-
-    // Passe continue, en une phrase : extensions, noms vérifiés, restant, rythme, prochain tour, dernier arrêt.
-    gandiLiveLine(d) {
-      if (!d) return "";
-      const tlds = (d.tlds || []).map((t) => "." + t).join(", ");
-      if (!tlds) return (d.configured || []).length ? "aucune extension sans zone : la passe de nuit s'en charge." : "aucune extension.";
-      const parts = [`${tlds} : ${this.fmt(d.verified || 0)} nom(s) vérifié(s)`];
-      if (d.remaining !== null && d.remaining !== undefined) parts.push(`${this.fmt(d.remaining)} à demander ou à revoir`);
-      parts.push(`${String(d.rate).replace(".", ",")} requête(s) par seconde`);
-      if (d.enabled === false) parts.push("passe arrêtée");
-      else if (d.halted_at) parts.push(`arrêtée : ${d.error || "jeton refusé"}, nouvel essai demain ou avec un nouveau jeton`);
-      else if (d.running && d.next_tour) parts.push(`tout est à jour, prochain tour ${this.relative(d.next_tour)}`);
-      else if (d.running) parts.push("en cours");
-      else if (d.stopped) parts.push(`arrêtée : ${d.stopped}, reprise sous 5 minutes`);
-      else parts.push("démarrage sous 5 minutes");
-      return parts.join(" ; ") + ".";
     },
 
     // Dernière passe Gandi, en une phrase : Paramètres et Sources et lectures.

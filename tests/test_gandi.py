@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 import httpx
 import pytest
 
-from app import drops, explore, gandi, states
+from app import explore, gandi, states
 from app.checker import iso, utcnow
 from app.rdap import DomainInfo, LookupResult
 from tests.conftest import FIXTURES
@@ -518,138 +518,15 @@ def test_a_name_just_freed_gets_its_price_without_waiting_for_the_night(logged, 
     client.__exit__(None, None, None)
 
 
-# --- Extension par Gandi seul (.com sans zone) ---------------------------------------------------------
-
-def gandi_only(ex, handler=None):
-    """Explorer avec un jeton Gandi et la zone .com pas lue (accès CZDS sans lecture) : .com par Gandi seul."""
-    ex.gandi = client_for(ex, handler)
-    ex.invalidate()
-    return ex.gandi
-
-
 def _take(conn, name):
     conn.execute("""INSERT INTO domain_ai (name, exploit, resale, quick_low, quick_high, final_low, final_high, comment,
                     rated_at, version) VALUES (?, 70, 70, 0, 0, 0, 100, 'À prendre. Test. Acheteur type : test.', 'x', 5)""", (name,))
 
 
-def test_com_without_zone_is_known_through_gandi_alone(env, monkeypatch):
-    """Sans zone .com lisible : .com dans l'Explorer, chaque nom « pas encore vérifié » ; libre, premium ou pris d'après
-    Gandi selon sa réponse, sans revérification au registre sauf pour un nom « À prendre », sous un plafond par jour."""
-    assert env.tlds() == [] and env.gandi_tlds() == []  # sans jeton : rien
-    client = gandi_only(env)
-    assert env.tlds() == ["com"] and env.gandi_tlds() == ["com"]
-    u = env.universe
-    data = env.status_bytes("com")
-    assert data[u.index("jardin")] == explore.UNCHECKED and data[drops.encode("-ab")] == explore.INVALID
-    before = env.facets("com", premium=True)
-    assert before["bookable"] == 0 and before["registered"] == 0 and before["all"] > 100_000
-    now = utcnow()
-    client.record("jardin.com", gandi.read(answer("available", [STANDARD])), now)
-    client.record("abe.com", gandi.read(answer("available", [PREMIUM])), now)
-    client.record("maison.com", gandi.read(answer("unavailable")), now)
-    client.record("velo.com", gandi.read(answer("reserved_corporate")), now)
-    client.record("lune.com", gandi.read(answer("error_timeout")), now)
-    # Indisponible : pris d'après Gandi, aucune requête au registre (pas de ligne de Veille).
-    assert env.drops.row("maison.com") is None and env.drops.row("velo.com") is None
-
-    def one(label):
-        return env.search("com", q=label, mode="exact", status="all", premium=True)["items"][0]
-
-    jardin, abe, maison, velo, lune = (one(x) for x in ("jardin", "abe", "maison", "velo", "lune"))
-    assert jardin["status"] == explore.FREE and jardin["status_label"] == "Libre (vérifié)" and jardin["gandi_state"] == "available"
-    assert abe["status"] == explore.PREMIUM and abe["premium_price"] == 878
-    assert maison["status"] == explore.TAKEN_GANDI and maison["status_label"] == "Enregistré"  # un seul statut « pris » à l'écran
-    assert maison["gandi_state"] == "unavailable" and maison["reserved"] == []
-    assert velo["status"] == explore.TAKEN_GANDI
-    assert lune["status"] == explore.UNCHECKED and lune["status_label"] == "Pas encore vérifié" and lune["gandi"]["error"]
-    counts = env.facets("com", premium=True)
-    assert counts["registered"] == 2 and counts["free"] == 2 and env.facets("com")["free"] == 1 and counts["all"] == before["all"]
-    # Corrigé en place, nom par nom : le même résultat qu'un calcul d'ensemble.
-    touched, counted = bytes(env.status_bytes("com")), env.facets("com", premium=True)
-    env.invalidate("com")
-    assert bytes(env.status_bytes("com")) == touched and env.facets("com", premium=True) == counted
-    # Pris d'après Gandi compte comme pris ailleurs (demande, filtre « pris sur une autre extension »).
-    assert explore.TAKEN_GANDI in explore.TAKEN_CODES
-    # Un nom « À prendre » dit indisponible : revu au registre, RECHECK_DAILY par jour au plus.
-    monkeypatch.setattr(explore, "RECHECK_DAILY", 1)
-    for name in ("soleil.com", "plage.com", "credit.com"):
-        _take(env.conn, name)
-    client.record("soleil.com", gandi.read(answer("unavailable")), now)
-    client.record("plage.com", gandi.read(answer("unavailable")), now)
-    client.record("credit.com", gandi.read(answer("available", [STANDARD])), now)
-    assert env.drops.row("soleil.com")["next_check_at"] == iso(now) and env.drops.row("plage.com") is None
-    assert one("soleil")["status"] == explore.TAKEN_GANDI  # en attendant le registre : pris d'après Gandi
-    # Le registre le dit pris : « Enregistré » ; toujours libre : indisponible à l'achat (règle commune).
-    taken = LookupResult(found=True, info=DomainInfo(statuses=["active"], expires_at=now + timedelta(days=365)))
-    env.drops.apply(env.drops.row("soleil.com"), taken, now + timedelta(minutes=1))
-    assert one("soleil")["status"] == explore.REGISTERED and one("soleil")["status_label"] == "Enregistré"
-    # Libre d'après Gandi plus tard (le nom a été supprimé depuis) : la dernière lecture l'emporte.
-    client.record("soleil.com", gandi.read(answer("available", [STANDARD])), now + timedelta(days=8))
-    assert one("soleil")["status"] == explore.FREE
-    # La carte, le Top et la fiche disent la même chose.
-    assert env.map()["cells"]["com"]
-    fiche = env.fiche("maison.com")
-    assert fiche["item"]["status"] == explore.TAKEN_GANDI and fiche["gandi"]["kind"] == "unavailable"
-
-
-def test_com_without_zone_uses_the_registry_dns_before_gandi(env, monkeypatch):
-    """En attendant l'accès CZDS : le DNS du .com fait le gros du tri. Délégué : pris, jamais demandé à Gandi ;
-    absent : demandé à Gandi en premier, qui le dit libre, premium ou pris (enregistré sans serveurs). Sorti du DNS :
-    dans la Veille, comme un .co. La zone lue, la passe DNS .com s'arrête."""
-    from app import ccdns, frdns
-
-    monkeypatch.setattr(frdns, "RATE", 1_000_000.0)
-    client = gandi_only(env)
-    dns = ccdns.ComDns(env.conn, env.fr.store, env, timezone.utc)
-    assert dns.ready() and dns.tld == "com" and dns.key == "com_dns"
-    assert len(dns.pending(10**6)) > 150_000  # tous les noms qui ont un sens, pas seulement les 50 000 meilleurs
-    dns.servers = ["192.0.2.1"]
-    state = {"maison": True, "jardin": False, "velo": False, "credit": True}
-    dns.pending = lambda limit, now=None: list(state)
-
-    async def query(label):
-        return state[label]
-
-    dns.query = query
-    asyncio.run(dns.run(limit=4))
-    u = env.universe
-    data = env.status_bytes("com")
-    assert data[u.index("maison")] == explore.REGISTERED and data[u.index("credit")] == explore.REGISTERED
-    assert data[u.index("jardin")] == explore.UNCHECKED and data[u.index("soleil")] == explore.UNCHECKED
-    # Gandi : les absents du DNS d'abord, les délégués jamais.
-    live = gandi.LivePass(client, env.conn, env.fr.store, env, timezone.utc)
-    names, info = live.plan(10**7)
-    # Seulement les absents : un délégué est pris, un nom pas encore interrogé attend la passe DNS.
-    assert sorted(names) == ["jardin.com", "velo.com"] and info["total"] == info["due"] == 2
-    # Premium vu il y a 31 jours, pas encore interrogé dans le DNS : revu quand même, en tête.
-    env.conn.execute("INSERT INTO gandi_checks (name, status, kind, price, checked_at) VALUES ('soleil.com', "
-                     "'available', 'premium', 878, ?)", (iso(utcnow() - timedelta(days=31)),))
-    env.touch("soleil.com")
-    assert live.plan(10**7)[0] == ["soleil.com", *names]
-    # Absent du DNS et pris d'après Gandi (enregistré sans serveurs) : pris ; libre : libre.
-    client.record("velo.com", gandi.read(answer("unavailable")))
-    client.record("jardin.com", gandi.read(answer("available", [STANDARD])))
-    data = env.status_bytes("com")
-    assert data[u.index("velo")] == explore.TAKEN_GANDI and data[u.index("jardin")] == explore.FREE
-    # Corrigé nom par nom = calcul d'ensemble.
-    touched = bytes(data)
-    env.invalidate("com")
-    assert bytes(env.status_bytes("com")) == touched
-    # Sorti du DNS : dans la Veille (vérifié au registre ensuite), « Sorti du DNS » dans la ligne de temps.
-    state["maison"] = False
-    asyncio.run(dns.run(limit=4))
-    row = env.drops.row("maison.com")
-    assert row is not None and row["next_check_at"] and row["removed_on"]
-    assert env.status_bytes("com")[u.index("maison")] == explore.UNCHECKED
-    assert any(k == "dns_out" for _, k, _ in [(t["at"], t["kind"], t["label"]) for t in env.fiche("maison.com")["timeline"]])
-    # Zone .com lue : fonctionnement normal, la passe DNS .com n'a plus lieu d'être.
-    zone(env, [], ["maison"])
-    assert env.gandi_tlds() == [] and not dns.ready()
-
-
-def test_verify_a_com_without_zone_reads_the_registry(env):
-    """Vérifier interroge toujours le registre (RDAP), sans plafond : sa lecture fait l'état, Gandi précise le prix."""
-    gandi_only(env)
+def test_verify_reads_the_registry_then_gandi_gives_the_price(env):
+    """Vérifier interroge toujours le registre (RDAP) : sa lecture fait l'état, Gandi précise le prix."""
+    zone(env, [], [])
+    env.gandi = client_for(env)
     expires = datetime.now(timezone.utc) + timedelta(days=200)
     env.drops.rdap = FakeRdap({"maison.com": LookupResult(found=True, info=DomainInfo(statuses=["active"], expires_at=expires)),
                                "jardin.com": LookupResult(available=True)})
@@ -659,67 +536,10 @@ def test_verify_a_com_without_zone_reads_the_registry(env):
     assert item["status"] == explore.FREE and item["gandi"]["kind"] == "available"
 
 
-def test_live_pass_order_lists_first_then_score_with_revisits(env):
-    client = gandi_only(env)
-    live = gandi.LivePass(client, env.conn, env.fr.store, env, timezone.utc)
-    u = env.universe
-    now = utcnow()
-    names, info = live.plan(10**7, now)
-    assert info["due"] == info["total"] == len(names) > 150_000
-    pkb = [f"{u.label(i)}.com" for i in u.frequency("premium,keyword,brand") if u.good[i]]
-    first = set(pkb)
-    local = [f"{u.label(i)}.com" for i in u.frequency("local") if u.good[i] and f"{u.label(i)}.com" not in first]
-    assert names[:len(pkb)] == pkb and names[len(pkb):len(pkb) + len(local)] == local
-    rest = names[len(pkb) + len(local):]
-    scores = [u.base_table[u.index(n[:-4])] & 127 for n in rest[:2000]]
-    assert scores == sorted(scores, reverse=True)
-    # Revus selon revisit_due : libres au tarif normal jamais d'office, premiums après 30 jours, pris après 30 jours
-    # (réglable), erreurs le lendemain.
-    at = lambda days: iso(now - timedelta(days=days))  # noqa: E731
-    for name, kind, days in (("jardin.com", "available", 2), ("abe.com", "premium", 2), ("maison.com", "unavailable", 2),
-                             ("velo.com", "unavailable", 8), ("lune.com", "error", 2), ("soleil.com", "available", 0.5)):
-        env.conn.execute("INSERT INTO gandi_checks (name, status, kind, checked_at) VALUES (?, ?, ?, ?)", (name, kind, kind, at(days)))
-        env.touch(name)
-    names, info = live.plan(10**7, now)
-    assert "lune.com" in names and not {"jardin.com", "abe.com", "maison.com", "velo.com", "soleil.com"} & set(names)
-    assert info["due"] == len(names) == info["total"] - 5
-    assert live.plan(5, now)[0] == names[:5]
-    live.store.set("gandi_live_days", "1")
-    assert {"maison.com", "velo.com"} <= set(live.plan(10**7, now)[0])
-    # Premium vu il y a plus de 30 jours : revu, en tête.
-    env.conn.execute("UPDATE gandi_checks SET checked_at = ? WHERE name = 'abe.com'", (at(31),))
-    env.touch("abe.com")
-    assert live.plan(10**7, now)[0][0] == "abe.com"
-
-
-def test_live_pass_keeps_its_rate_when_gandi_is_slow(env):
-    """Gandi met environ 1 s à répondre depuis le NAS : une à une, la passe tombait à 1 nom par seconde. Ici 0,3 s
-    par réponse et 10 noms par seconde réglés : 20 noms en 2 s environ, pas 6 s ; aucun nom sauté ni doublé."""
-    async def handler(request):
-        await asyncio.sleep(0.3)
-        return httpx.Response(200, json=answer("available", [STANDARD], request.url.params["name"]))
-
-    client = gandi_only(env, handler)
-    live = gandi.LivePass(client, env.conn, env.fr.store, env, timezone.utc)
-    live.store.set("gandi_live_rate", "10")
-    names = [f"lent{n}.com" for n in range(20)]
-    live.plan = lambda limit, now=None: (names, {"total": 20, "due": 20, "planned_at": iso(utcnow())})
-    # Premier passage (Explorer et client prêts) hors chrono : seule la passe est mesurée.
-    live.plan = lambda limit, now=None: (["chauffe.com"], {"total": 1, "due": 1, "planned_at": iso(utcnow())})
-    asyncio.run(live.run(tours=1))
-    live.plan = lambda limit, now=None: (names, {"total": 20, "due": 20, "planned_at": iso(utcnow())})
-    started = time.monotonic()
-    stats = asyncio.run(live.run(tours=1))
-    elapsed = time.monotonic() - started
-    assert stats["checked"] == 20 and stats["kinds"] == {"available": 20} and 1.8 <= elapsed < 3.5, elapsed
-    assert {r[0] for r in env.conn.execute("SELECT name FROM gandi_checks WHERE name LIKE 'lent%'")} == set(names)
-
-
-def test_empty_answers_wait_and_never_drop_com(env):
+def test_night_pass_waits_on_empty_answers_and_keeps_the_extension(env):
     """Vu sur le NAS le 19/10/2026 : environ 150 vérifications .com, puis des réponses sans ligne de création (Gandi
-    limite), de nouveau 150 quinze minutes plus tard. Elles avaient écarté le .com 30 jours (« zone lue » affiché), puis
-    été notées en erreur. Ici : 5 réponses, puis vides jusqu'à une attente d'une minute ; aucun nom noté en erreur, tous
-    vérifiés, le .com reste."""
+    limite), de nouveau 150 quinze minutes plus tard. Ici : 5 réponses, puis vides jusqu'à une attente d'une minute ;
+    aucun nom noté en erreur, tous vérifiés, l'extension n'est pas écartée."""
     quota = {"left": 5}
 
     def handler(request):
@@ -729,88 +549,26 @@ def test_empty_answers_wait_and_never_drop_com(env):
         quota["left"] -= 1
         return httpx.Response(200, json=answer("available", [STANDARD], name))
 
-    client = gandi_only(env, handler)
-    live = gandi.LivePass(client, env.conn, env.fr.store, env, timezone.utc)
-    waits = []
+    night, waits = make_pass(env, handler)
 
     async def sleep(seconds):
         waits.append(seconds)
         if seconds >= 1:
-            quota["left"] = 5  # la limite de Gandi se recharge pendant l'attente (par tranches de 5 s)
+            quota["left"] = 5  # la limite de Gandi se recharge pendant l'attente
 
-    live.sleep = sleep
+    night.sleep = sleep
     names = [f"quota{n}.com" for n in range(12)]
-    live.plan = lambda limit, now=None: (names, {"total": 12, "due": 12, "planned_at": iso(utcnow())})
-    stats = asyncio.run(live.run(tours=1))
+    night.pending = lambda limit, now=None: names
+    stats = asyncio.run(night.run(manual=True))
     found = gandi.load(env.conn, names)
     assert set(found) == set(names) and {r["kind"] for r in found.values()} == {"available"}
-    assert stats["checked"] == 12 and stats["throttled"] >= 2 and stats["stopped"] == "fin des tours demandés"
+    assert stats["checked"] == 12 and stats["throttled"] >= 2 and "stopped" not in stats
     assert sum(w for w in waits if w >= 1) >= 2 * gandi.EMPTY_WAIT
-    assert gandi.unsold(env.fr.store) == set() and live.tlds() == ["com"]
-    # Marque laissée par l'ancienne version : ignorée pour une extension par Gandi seul.
-    env.fr.store.set("gandi_unsold", json.dumps({"com": "2099-01-01", "xyz": "2099-01-01"}))
-    assert gandi.unsold(env.fr.store) == {"xyz"} and live.tlds() == ["com"] and live.due()
-
-
-def test_live_pass_paces_waits_and_stops_on_refused_token(env):
-    calls = []
-    limited = {"b.com": 2}
-
-    def handler(request):
-        name = request.url.params["name"]
-        calls.append(name)
-        if name == "stop.com":
-            return httpx.Response(401)
-        if limited.get(name):
-            limited[name] -= 1
-            return httpx.Response(429, headers={"Retry-After": "7"})
-        return httpx.Response(200, json=answer("unavailable" if name == "b.com" else "available", [STANDARD], name))
-
-    client = gandi_only(env, handler)
-    live = gandi.LivePass(client, env.conn, env.fr.store, env, timezone.utc)
-    waits = []
-
-    async def sleep(seconds):
-        waits.append(seconds)
-
-    live.sleep = sleep
-    sent = []
-
-    async def notify(text):
-        sent.append(text)
-
-    live.notify = notify
-    assert live.due() and live.status()["tlds"] == ["com"] and live.status()["rate"] == 5.0
-    live.plan = lambda limit, now=None: (["a.com", "b.com", "c.com"], {"total": 10, "due": 3, "planned_at": iso(utcnow())})
-    stats = asyncio.run(live.run(tours=1))
-    # 429 : attente demandée (7 s), doublée au refus suivant, puis reprise au même nom ; 5 requêtes par seconde au plus,
-    # plusieurs en vol (c.com part avant que b.com soit réglé).
-    # (une réponse déjà partie au moment d'un refus est jetée et redemandée après l'attente : c.com peut repartir).
-    assert calls[:3] == ["a.com", "b.com", "c.com"] and calls.count("b.com") == 3 and set(calls) == {"a.com", "b.com", "c.com"}
-    assert stats["checked"] == 3 and stats["limited"] == 2
-    assert sum(w for w in waits if w > 1) == 7 + 14
-    assert all(w <= 0.2 + 0.01 for w in waits if w < 1)
-    assert stats["stopped"] == "fin des tours demandés" and env.status_bytes("com")[env.universe.index("b")] == explore.TAKEN_GANDI
-    status = live.status()
-    assert status["verified"] == 3 and status["remaining"] == 0 and "pat_" not in json.dumps(status)
-    # Jeton refusé : arrêt, erreur, alerte ; plus relancée avant le lendemain, sauf nouveau jeton.
-    live.plan = lambda limit, now=None: (["stop.com", "d.com"], {"total": 10, "due": 2, "planned_at": iso(utcnow())})
-    stats = asyncio.run(live.run())
-    assert "refusé" in stats["stopped"] and len(sent) == 1 and "continue" in sent[0]
-    assert not live.due() and live.status()["halted_at"]
-    client.set_key("pat_nouveau")
-    assert live.due()
-    # File vide : prochain tour dans 15 minutes ; case décochée : arrêt.
-    live.plan = lambda limit, now=None: ([], {"total": 10, "due": 0, "planned_at": iso(utcnow())})
-    waits.clear()
-    stats = asyncio.run(live.run(tours=1))
-    assert stats["next_tour"] and sum(waits) == gandi.LIVE_IDLE
-    live.store.set("gandi_live_enabled", "0")
-    assert not live.due() and asyncio.run(live.run())["stopped"] == "arrêtée dans Paramètres"
+    assert gandi.unsold(env.fr.store) == set()
 
 
 def test_one_ceiling_for_every_gandi_request(env):
-    """Passe de nuit, passe continue, Vérifier : un seul client, jamais plus de GLOBAL_PER_MINUTE requêtes par minute."""
+    """Passe de nuit, Vérifier, domaines suivis : un seul client, jamais plus de GLOBAL_PER_MINUTE requêtes par minute."""
     client = client_for(env)
     clock = [1000.0]
     waits = []
@@ -841,66 +599,22 @@ def test_one_ceiling_for_every_gandi_request(env):
     assert all(sent[n + cap] - sent[n] >= 60 - 1e-6 for n in range(len(sent) - cap))
 
 
-def test_zone_read_switches_com_back_to_normal(env):
-    """CZDS accorde la zone et la lecture de nuit la lit : .com quitte la passe continue et revient à la zone pour
-    l'état, avec la seule passe de nuit chez Gandi."""
-    client = gandi_only(env)
-    live = gandi.LivePass(client, env.conn, env.fr.store, env, timezone.utc)
-    night = gandi.NightPass(client, env.conn, env.fr.store, env, timezone.utc)
-    now = utcnow()
-    client.record("maison.com", gandi.read(answer("unavailable")), now)
-    client.record("jardin.com", gandi.read(answer("available", [STANDARD])), now)
-    u = env.universe
-    assert env.status_bytes("com")[u.index("maison")] == explore.TAKEN_GANDI
-    assert live.tlds() == ["com"] and live.due() and night.tlds() == [] and night.pending(100, now) == []
-    # Lecture de la zone .com (maison y est, velo non).
-    zone(env, [], ["maison"])
-    assert env.tlds() == ["com"] and env.gandi_tlds() == []
-    data = env.status_bytes("com")
-    assert data[u.index("maison")] == explore.REGISTERED and data[u.index("velo")] == explore.ABSENT
-    assert data[u.index("jardin")] == explore.FREE  # absent de la zone, libre chez Gandi
-    assert live.tlds() == [] and not live.due() and live.plan(100, now)[0] == []
-    assert night.tlds() == ["com"] and "velo.com" in night.pending(10**6, now)
-    stats = asyncio.run(live.run())
-    assert stats["stopped"] == "zone lue : fonctionnement normal" and stats["checked"] == 0
-    # Une passe continue en route s'arrête aussi dès que la zone est lue.
-    env.drops._path("com", "short").unlink()
-    env.invalidate("com")
-    assert env.gandi_tlds() == ["com"]
-    asked = []
-
-    def handler(request):
-        asked.append(request.url.params["name"])
-        if len(asked) == 1:
-            zone(env, [], ["maison"])  # la zone arrive pendant le tour
-        return httpx.Response(200, json=answer("available", [STANDARD], request.url.params["name"]))
-
-    client._http_factory = lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    live.sleep = lambda s: asyncio.sleep(0)
-    live.plan = lambda limit, now=None: ([f"x{n}abc.com" for n in range(150)], {"total": 150, "due": 150, "planned_at": iso(utcnow())})
-    asyncio.run(live.run(tours=3))
-    assert len(asked) == 100  # relu tous les 100 noms : la suite n'est pas demandée
-
-
-def test_gandi_live_settings_and_diag_without_secret(logged):
+def test_provisional_com_mechanism_is_gone(logged):
+    """Accès CZDS au .com accordé : plus de passe continue Gandi, ni de passe DNS sur les serveurs du .com, ni de
+    réglage des extensions par Gandi seul. Le .com n'est dans l'Explorer qu'une fois sa zone lue."""
     client = logged()
     st = client.app.state
-    assert client.put("/api/settings/gandi/live", json={"rate": 16}).status_code == 422
-    assert client.put("/api/settings/gandi/live", json={"days": 0}).status_code == 422
-    assert client.put("/api/settings/gandi/live", json={"tlds": ["fr"]}).status_code == 422
-    assert client.put("/api/settings/gandi/live", json={"tlds": ["co"]}).status_code == 422
-    saved = client.put("/api/settings/gandi/live", json={"enabled": False, "rate": 8, "days": 10}).json()
-    assert (saved["enabled"], saved["rate"], saved["days"], saved["tlds"], saved["configured"]) == (False, 8.0, 10, [], ["com"])
+    assert client.put("/api/settings/gandi/live", json={"enabled": False}).status_code in (404, 405)
     client.put("/api/settings/gandi", json={"key": "pat_secret-123"})
-    live = client.get("/api/settings").json()["gandi"]["live"]
-    assert live["tlds"] == ["com"] and live["per_minute_cap"] == gandi.GLOBAL_PER_MINUTE and live["max_rate"] == 15
+    assert "live" not in client.get("/api/settings").json()["gandi"]
     diag = client.get("/api/diag").json()
-    assert diag["gandi_live"]["tlds"] == ["com"] and "pat_secret" not in json.dumps(diag)
-    assert any(j["id"] == "check_gandi_live" for j in diag["jobs"])
-    # Une ligne de .com par Gandi seul : « pas encore vérifié », état de base de chaque nom.
-    items = client.get("/api/explore", params={"tld": "com", "q": "jardin", "mode": "exact", "status": "all"}).json()["items"]
-    assert items and items[0]["status"] == explore.UNCHECKED and items[0]["status_label"] == "Pas encore vérifié"
-    st.store.set("gandi_live_enabled", "0")
+    assert not [k for k in diag if "live" in k] and "pat_secret" not in json.dumps(diag)
+    jobs = {j["id"] for j in diag["jobs"]}
+    assert not [j for j in jobs if "live" in j] and "check_com_dns" not in jobs and "check_co_dns" in jobs
+    assert set(st.cc_dns) == {"co", "ai", "io"} and set(diag["cc_dns"]) == {"co", "ai", "io"}
+    assert "com" not in st.explorer.tlds()  # jeton enregistré, zone pas lue : pas de .com
+    _com_zone(st)
+    assert "com" in st.explorer.tlds() and "com" in st.gandi_pass.tlds()
     client.__exit__(None, None, None)
 
 
@@ -934,22 +648,27 @@ def test_a_free_name_taken_since_loses_its_price(env):
     """Un nom dit libre (prix d'achat) puis enregistré : « Enregistré » partout, plus de prix, plus dans le filtre
     « prix d'achat au plus » ; la ligne de Gandi est effacée (au fil de la passe DNS, et chaque heure pour la zone et
     le registre). Libéré de nouveau, il est redemandé à Gandi."""
-    client = gandi_only(env)
-    client.record("jardin.com", gandi.read(answer("available", [STANDARD])))
-    client.record("velo.com", gandi.read(answer("available", [STANDARD])))
+    from app import ccdns
+
+    env.gandi = client = client_for(env)
+    # .co : absents du DNS du registre, libres d'après Gandi.
+    for label in ("jardin", "velo"):
+        env.conn.execute("INSERT INTO cc_dns (name, present, checked_at) VALUES (?, 0, ?)", (f"{label}.co", iso(utcnow())))
+    env.fr.store.set("co_dns_status", "{}")
+    env.invalidate()
+    client.record("jardin.co", gandi.read(answer("available", [STANDARD])))
+    client.record("velo.co", gandi.read(answer("available", [STANDARD])))
 
     def one(label, **k):
-        return env.search("com", q=label, mode="exact", status="all", premium=True, **k)["items"]
+        return env.search("co", q=label, mode="exact", status="all", premium=True, **k)["items"]
 
-    assert one("jardin", gprice=20)[0]["status"] == explore.FREE
+    assert "co" in env.tlds() and one("jardin", gprice=20)[0]["status"] == explore.FREE
     # Repris, vu par la seule règle d'état (ligne de Gandi encore là) : plus achetable, même au filtre de prix.
-    env.conn.execute("INSERT INTO cc_dns (name, present, checked_at, seen_at) VALUES ('velo.com', 1, ?, ?)",
-                     (iso(utcnow()),) * 2)
-    env.touch("velo.com")
+    env.conn.execute("UPDATE cc_dns SET present = 1, seen_at = checked_at WHERE name = 'velo.co'")
+    env.touch("velo.co")
     velo = one("velo")[0]
     assert velo["status"] == explore.REGISTERED and not velo.get("gandi_state") and one("velo", gprice=20) == []
-    assert env.forget_taken_prices() == 1 and "velo.com" not in gandi.load(env.conn, ["velo.com"])
+    assert env.forget_taken_prices() == 1 and "velo.co" not in gandi.load(env.conn, ["velo.co"])
     # Vu délégué par la passe DNS : effacé tout de suite.
-    from app import ccdns
-    ccdns.ComDns(env.conn, env.fr.store, env, timezone.utc).save("jardin", True, iso(utcnow()))
-    assert gandi.load(env.conn, ["jardin.com"]) == {}
+    ccdns.CcDns("co", env.conn, env.fr.store, env, timezone.utc).save("jardin", True, iso(utcnow()))
+    assert gandi.load(env.conn, ["jardin.co"]) == {}

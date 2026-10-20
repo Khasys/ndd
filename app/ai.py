@@ -24,8 +24,7 @@ MAX_RESULTS = 5000
 FREE_SOON = (5, 4)        # libre vérifié, libération à venir
 TAKEN_MIN_BASE = 40       # noms enregistrés notés seulement à partir de ce score de base
 MAYBE_FREE = (2, 3, 9)    # supprimé non repris, jamais vu, libre selon le seul WHOIS
-TAKEN = (1, 6, 4, 11)     # enregistré, suspendu, libération à venir, pris d'après Gandi (pris ailleurs = demande)
-UNCHECKED = 10            # extension par Gandi seul, pas encore demandé : rien n'est connu, pas noté
+TAKEN = (1, 6, 4)         # enregistré, suspendu, libération à venir (pris ailleurs = demande)
 # Nouvelles listes, en tête des noms probablement libres ou libres : termes stars, mots-clés et marques mêlés par
 # rang, puis métier + ville.
 FIRST_LISTS = (("premium", "keyword", "brand"), ("local",))
@@ -318,8 +317,7 @@ def _queue(explorer, limit: int):
     """1. libres ou bientôt libres, du meilleur score au moins bon (extension pondérée) ;
     2. probablement libres ou libres des nouvelles listes (termes stars, mots-clés et marques mêlés par rang, puis
     métier + ville), par palier d'extension ; 3. les autres probablement libres, puis 4. enregistrés, par score de
-    base et extension. Ni les noms réservés ni ceux encore masqués (liste pas encore cherchée dans la zone), ni ceux
-    d'une extension par Gandi seul pas encore demandés (un .com y entre dès que Gandi le dit libre)."""
+    base et extension. Ni les noms réservés ni ceux encore masqués (liste pas encore cherchée dans la zone)."""
     u = explorer.universe
     u.buckets()  # construit u.good
     done = _done(explorer.conn)
@@ -337,9 +335,9 @@ def _queue(explorer, limit: int):
         picked.append((i, label, tld))
         return len(picked) >= limit
 
-    # 1. Classés par score complet (demande, historique, SEO compris), dans l'ordre d'un tri complet. Avec un .com
-    # par Gandi seul, ils sont des dizaines de milliers : la borne du score (Explorer._bound, vingt fois moins chère)
-    # range d'abord, et un nom n'est noté en entier que quand il peut sortir (aucune borne restante ne le dépasse).
+    # 1. Classés par score complet (demande, historique, SEO compris), dans l'ordre d'un tri complet. Ils peuvent être
+    # des dizaines de milliers : la borne du score (Explorer._bound, vingt fois moins chère) range d'abord, et un nom
+    # n'est noté en entier que quand il peut sortir (aucune borne restante ne le dépasse).
     soon = []
     for tld in tlds:
         ctx = explorer._bonus_context(tld)
@@ -374,7 +372,7 @@ def _queue(explorer, limit: int):
     def wanted(i: int, tld: str, codes) -> str | None:
         """Libellé du nom s'il entre dans la file pour ces états, avec les filtres de toujours."""
         code = data[tld][i]
-        if (codes is not None and code not in codes) or code in (INVALID, RESERVED, PREMIUM, UNCHECKED):
+        if (codes is not None and code not in codes) or code in (INVALID, RESERVED, PREMIUM):
             return None
         label = u.label(i)
         if code == ABSENT and len(label) <= 2:

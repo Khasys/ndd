@@ -2,8 +2,6 @@
 
 Une seule règle pour l'effet de Gandi (explore.gandi_effect), une seule pour la Veille face au DNS
 (explore.drop_open_code) ; et le même état dans tous les écrans : Explorer et fiche, Veille, Domaines.
-Extension par Gandi seul (.com sans zone lisible) : mêmes règles, avec ses deux états (pas encore vérifié, pris
-d'après Gandi), plus bas.
 """
 
 import itertools
@@ -18,8 +16,7 @@ from tests.test_app import client_factory, logged  # noqa: F401  (fixtures)
 from tests.test_gandi import _com_zone
 
 E = explore
-CODES = (E.INVALID, E.REGISTERED, E.GONE, E.ABSENT, E.COMING, E.FREE, E.SUSPENDED, E.RESERVED, E.PREMIUM, E.UNCONFIRMED,
-         E.UNCHECKED, E.TAKEN_GANDI)
+CODES = (E.INVALID, E.REGISTERED, E.GONE, E.ABSENT, E.COMING, E.FREE, E.SUSPENDED, E.RESERVED, E.PREMIUM, E.UNCONFIRMED)
 KINDS = ("available", "premium", "unavailable", "reserved", "restricted", "error")
 AT = "2026-10-19T03:00:00+00:00"  # réponse de Gandi
 BEFORE, AFTER = "2026-10-18T20:00:00+00:00", "2026-10-19T06:00:00+00:00"
@@ -32,12 +29,6 @@ BEFORE, AFTER = "2026-10-18T20:00:00+00:00", "2026-10-19T06:00:00+00:00"
 def test_gandi_effect_table(code, kind, since, checked, listed):
     check = {"kind": kind, "checked_at": AT}
     effect, applied = E.gandi_effect(code, check, since, checked, listed)
-    if code in E.GANDI_ONLY:
-        # Par Gandi seul (aucune lecture du registre pour ce nom) : la dernière réponse fait l'état, sans attendre de
-        # revérification ; indisponible, réservé ou restreint : pris d'après Gandi. Une erreur ne change rien.
-        expected = {"available": E.FREE, "premium": E.PREMIUM, "error": code}.get(kind, E.TAKEN_GANDI)
-        assert (effect, applied) == (expected, None if kind == "error" else kind)
-        return
     stale = since == AFTER  # état changé après la réponse : elle attend la passe suivante
     waiting = kind in gandi.BLOCKED and checked is not None and checked < AT  # registre pas revu depuis
     untouchable = code not in E.GANDI_OPEN or (code == E.RESERVED and listed)
@@ -58,27 +49,19 @@ def test_gandi_effect_without_answer_changes_nothing():
         assert E.gandi_effect(code, None) == (code, None)
 
 
-@pytest.mark.parametrize("state,checked,delegated,offered,expected", [
-    (states.AVAILABLE, BEFORE, AFTER, None, E.REGISTERED),   # libre au registre, puis vu délégué : enregistré depuis
-    (states.AVAILABLE, AFTER, BEFORE, None, E.FREE),         # délégation plus ancienne que la lecture du registre
-    (states.AVAILABLE, None, AT, None, E.REGISTERED),
-    (drops.UNCONFIRMED, BEFORE, AFTER, None, E.REGISTERED),
-    (states.REDEMPTION, BEFORE, AFTER, None, E.COMING),      # en fin de vie, le nom reste délégué un temps
-    (drops.TAKEN, BEFORE, None, None, E.REGISTERED),
-    (states.RENEWED, BEFORE, None, None, E.REGISTERED),
-    (drops.SUSPENDED, BEFORE, AFTER, None, E.SUSPENDED),
-    (None, None, AFTER, None, None),
-    # Par Gandi seul : enregistré au registre, puis achetable chez Gandi (libre ou premium) : supprimé depuis, la réponse
-    # de Gandi fait l'état (None : état de base, puis gandi_effect) ; plus ancienne que la lecture du registre, rien.
-    (drops.TAKEN, BEFORE, None, AFTER, None),
-    (states.RENEWED, BEFORE, None, AFTER, None),
-    (drops.TAKEN, AFTER, None, BEFORE, E.REGISTERED),
-    (states.AVAILABLE, BEFORE, None, AFTER, E.FREE),
-    (states.REDEMPTION, BEFORE, None, AFTER, E.COMING),
-    (drops.SUSPENDED, BEFORE, None, AFTER, E.SUSPENDED),
+@pytest.mark.parametrize("state,checked,delegated,expected", [
+    (states.AVAILABLE, BEFORE, AFTER, E.REGISTERED),   # libre au registre, puis vu délégué : enregistré depuis
+    (states.AVAILABLE, AFTER, BEFORE, E.FREE),         # délégation plus ancienne que la lecture du registre
+    (states.AVAILABLE, None, AT, E.REGISTERED),
+    (drops.UNCONFIRMED, BEFORE, AFTER, E.REGISTERED),
+    (states.REDEMPTION, BEFORE, AFTER, E.COMING),      # en fin de vie, le nom reste délégué un temps
+    (drops.TAKEN, BEFORE, None, E.REGISTERED),
+    (states.RENEWED, BEFORE, None, E.REGISTERED),
+    (drops.SUSPENDED, BEFORE, AFTER, E.SUSPENDED),
+    (None, None, AFTER, None),
 ])
-def test_drop_open_code_latest_observation_wins(state, checked, delegated, offered, expected):
-    assert E.drop_open_code(state, checked, delegated, offered) == expected
+def test_drop_open_code_latest_observation_wins(state, checked, delegated, expected):
+    assert E.drop_open_code(state, checked, delegated) == expected
 
 
 def test_unavailable_premium_is_not_buyable():
@@ -97,8 +80,7 @@ def explorer_class(item):
     if code == E.RESERVED:
         return "blocked" if kind in gandi.BLOCKED else "reserved"
     return {E.REGISTERED: "taken", E.SUSPENDED: "taken", E.COMING: "coming", E.FREE: "free", E.PREMIUM: "premium",
-            E.ABSENT: "maybe", E.GONE: "maybe", E.UNCONFIRMED: "maybe", E.UNCHECKED: "unchecked",
-            E.TAKEN_GANDI: "taken_gandi"}[code]
+            E.ABSENT: "maybe", E.GONE: "maybe", E.UNCONFIRMED: "maybe"}[code]
 
 
 def veille_class(item):
@@ -285,80 +267,3 @@ def test_real_cases_from_the_nas_agree_everywhere(logged):
     assert not problems, problems
     client.__exit__(None, None, None)
 
-
-# --- Extension par Gandi seul (.com sans zone lisible) -------------------------------------------------
-
-# nom : (lecture du registre (état, entrée dans l'état, lu), Gandi (sorte, à), suivi (état, lu) ou None, attendu)
-GANDI_ONLY_SCENARIOS = {
-    "maison": (None, None, None, "unchecked"),                            # pas encore demandé
-    "lune": (None, ("available", AT), None, "free"),
-    "ciel": (None, ("premium", AT), None, "premium"),
-    "banque": (None, ("unavailable", AT), None, "taken_gandi"),           # pris d'après Gandi, sans RDAP
-    "velo": (None, ("reserved", AT), None, "taken_gandi"),
-    "chat": (None, ("error", AT), None, "unchecked"),                     # une erreur ne change rien
-    # Revérification en cours (ligne créée, registre pas encore lu) : pris d'après Gandi d'ici là.
-    "soleil": ((None, BEFORE, None), ("unavailable", AT), None, "taken_gandi"),
-    # Enregistré au registre (Vérifier), puis libre chez Gandi : supprimé depuis, la dernière lecture l'emporte.
-    "credit": ((drops.TAKEN, BEFORE, BEFORE), ("available", AT), None, "free"),
-    "mobile": ((drops.TAKEN, AFTER, AFTER), ("available", AT), None, "taken"),
-    # Libre au registre : la règle commune (indisponible, registre pas revu : l'état d'avant tient ; revu : bloqué).
-    "jardin": ((states.AVAILABLE, BEFORE, BEFORE), ("unavailable", AT), None, "free"),
-    "plage": ((states.AVAILABLE, BEFORE, AFTER), ("unavailable", AT), None, "blocked"),
-    "voyage": ((states.REDEMPTION, BEFORE, BEFORE), ("unavailable", AT), None, "coming"),
-    # Suivi dans Domaines : la même lecture vaut partout. Lu libre après la réponse de Gandi (entrée dans l'état
-    # après elle) : la réponse attend la passe suivante ; lu avant : elle compte.
-    "ecole": (None, ("unavailable", AT), (states.AVAILABLE, AFTER), "free"),
-    "musique": (None, ("premium", AT), (states.AVAILABLE, BEFORE), "premium"),
-}
-
-
-def test_every_screen_shows_the_same_state_without_zone(logged):
-    """.com sans zone lisible, jeton Gandi enregistré : Explorer, liste, fiche, Veille et Domaines disent la même chose."""
-    client = logged()
-    st = client.app.state
-    conn = st.conn
-    st.store.set("reserved_mode", "show")
-    st.store.set("gandi_pat", "pat_test")
-    st.explorer.invalidate()
-    assert st.explorer.gandi_tlds() == ["com"]
-    labels = [label for label in GANDI_ONLY_SCENARIOS if st.explorer.universe.index(label) is not None]
-    assert len(labels) >= 12, "mots absents de l'univers : choisir d'autres noms"
-    now = datetime.now(timezone.utc)
-    for label in labels:
-        drop, check, domain, _ = GANDI_ONLY_SCENARIOS[label]
-        name = f"{label}.com"
-        if check:
-            conn.execute("INSERT INTO gandi_checks (name, status, kind, price, checked_at) VALUES (?, ?, ?, ?, ?)",
-                         (name, check[0], check[0], 878.4 if check[0] == "premium" else 13.2 if check[0] == "available" else None,
-                          check[1]))
-        if drop:
-            st.drops.ensure(name, now)
-            conn.execute("UPDATE drops SET state = ?, state_since = ?, checked_at = ?, available_since = ? WHERE name = ?",
-                         (drop[0], drop[1], drop[2], drop[1] if drop[0] == states.AVAILABLE else None, name))
-        if domain:
-            conn.execute("INSERT INTO domains (name, added_at, state, state_since, last_success_at) VALUES (?, ?, ?, ?, ?)",
-                         (name, BEFORE, domain[0], domain[1], domain[1]))
-            st.explorer.sync_registry(name, _result_of(domain[0], datetime.fromisoformat(domain[1])), datetime.fromisoformat(domain[1]))
-        st.explorer.touch(name)
-    touched = bytes(st.explorer.status_bytes("com"))
-    st.explorer.invalidate()
-    assert bytes(st.explorer.status_bytes("com")) == touched  # corrigé en place = calcul d'ensemble
-    veille = {i["name"]: i for i in client.get("/api/drops").json()["items"]}
-    watched = {d["name"]: d for d in client.get("/api/domains").json()}
-    for label in labels:
-        name, expected = f"{label}.com", GANDI_ONLY_SCENARIOS[label][3]
-        fiche = client.get("/api/explore/fiche", params={"name": name}).json()
-        seen = {"explorer": explorer_class(fiche["item"])}
-        listed = client.get("/api/explore", params={"tld": "com", "q": label, "mode": "exact", "status": "all"}).json()["items"]
-        if listed:
-            seen["liste"] = explorer_class(listed[0])
-        if name in veille:
-            seen["veille"] = veille_class(veille[name])
-        if name in watched:
-            seen["domaines"] = domain_class(watched[name])
-        assert set(seen.values()) == {expected}, (name, seen)
-        if expected == "taken_gandi":
-            assert fiche["item"]["status_label"] == "Enregistré" and fiche["item"]["gandi_state"] in gandi.BLOCKED
-        if expected == "unchecked":
-            assert fiche["item"]["status_label"] == "Pas encore vérifié"
-    client.__exit__(None, None, None)

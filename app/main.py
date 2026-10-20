@@ -272,8 +272,8 @@ async def lifespan(app: FastAPI):
             passes.discard(t)
             if not t.cancelled() and t.exception() is not None:
                 log.error("Passe DNS .%s interrompue", checker.tld, exc_info=t.exception())
-            elif not t.cancelled() and checker.tld in app.state.cc_dns and t.result().get("checked"):
-                # .co, .ai, .io, .com sans zone : nouvelles données de l'Explorer, préparées avant qu'on l'ouvre.
+            elif not t.cancelled() and checker.tld in ccdns.TLDS and t.result().get("checked"):
+                # .co, .ai, .io : nouvelles données de l'Explorer, préparées avant qu'on l'ouvre.
                 app.state.explorer_warm = asyncio.create_task(_off(app.state.explorer.warm))
         task.add_done_callback(done)
 
@@ -287,7 +287,7 @@ async def lifespan(app: FastAPI):
 
     async def refresh_gandi_grid() -> None:
         state = app.state
-        tlds = sorted({*state.gandi_pass.tlds(), *state.gandi_live.tlds()})
+        tlds = state.gandi_pass.tlds()
         if tlds and state.gandi.key:
             if await state.gandi.refresh_grid(tlds):
                 state.explorer.invalidate()  # prix normal changé : reporté sur les libres de l'extension
@@ -313,25 +313,6 @@ async def lifespan(app: FastAPI):
             passes.discard(t)
             if not t.cancelled() and t.exception() is not None:
                 log.error("Passe Gandi interrompue", exc_info=t.exception())
-        task.add_done_callback(done)
-        return True
-
-    async def check_gandi_live() -> None:
-        """Passe continue des extensions par Gandi seul (.com sans zone) : relancée si elle s'est arrêtée."""
-        if app.state.gandi_live.due():
-            start_gandi_live()
-
-    def start_gandi_live() -> bool:
-        live = app.state.gandi_live
-        if live.running:
-            return False
-        task = asyncio.create_task(live.run())
-        passes.add(task)
-
-        def done(t: asyncio.Task) -> None:
-            passes.discard(t)
-            if not t.cancelled() and t.exception() is not None:
-                log.error("Passe Gandi continue interrompue", exc_info=t.exception())
         task.add_done_callback(done)
         return True
 
@@ -372,8 +353,8 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(tick_fr, "interval", minutes=1, next_run_time=now + timedelta(minutes=6), max_instances=1)
     # DNS .fr : une passe par jour, lancée à minuit, étalée sur la journée.
     scheduler.add_job(check_fr_dns, "interval", minutes=10, next_run_time=now + timedelta(minutes=8), max_instances=1)
-    # DNS .co, .ai, .io (et .com tant qu'il est sans zone) : même passe du jour, une par extension en parallèle.
-    for n, tld in enumerate((*ccdns.TLDS, "com")):
+    # DNS .co, .ai, .io : même passe du jour, une par extension en parallèle.
+    for n, tld in enumerate(ccdns.TLDS):
         scheduler.add_job(cc_job(tld), "interval", minutes=10, next_run_time=now + timedelta(minutes=9 + n),
                           max_instances=1, id=f"check_{tld}_dns", name=f"check_{tld}_dns")
     # Gandi : une passe par nuit, dans sa fenêtre ; la tâche rend la main tout de suite (passe à part).
@@ -382,9 +363,6 @@ async def lifespan(app: FastAPI):
     # Grille de prix Gandi : un appel par extension et par jour (prix normal ; les libres ne sont plus redemandés).
     scheduler.add_job(refresh_gandi_grid, "interval", hours=1, next_run_time=now + timedelta(minutes=4), max_instances=1,
                       id="gandi_grid", name="gandi_grid")
-    # Extensions par Gandi seul : passe continue, jour et nuit ; relancée toutes les 5 minutes si elle s'est arrêtée.
-    scheduler.add_job(check_gandi_live, "interval", minutes=5, next_run_time=now + timedelta(minutes=3), max_instances=1,
-                      id="check_gandi_live", name="check_gandi_live")
     scheduler.start()
     telegram.start()
 
@@ -407,9 +385,6 @@ async def lifespan(app: FastAPI):
     # .co, .ai, .io : une passe par extension, en même temps que le .fr (registres différents).
     app.state.cc_dns = {t: ccdns.CcDns(t, conn, store, app.state.explorer, digest.local_zone(), notify=note_health)
                         for t in ccdns.TLDS}
-    # .com sans zone (en attendant l'accès CZDS) : délégué, pris ; absent, demandé à Gandi en premier. Passe
-    # inactive dès que la zone est lue (ComDns.ready).
-    app.state.cc_dns["com"] = ccdns.ComDns(conn, store, app.state.explorer, digest.local_zone(), notify=note_health)
     # Libres sur la seule foi d'un WHOIS, fausses sorties du DNS : corrigés une fois, sans migration.
     if any(watcher.repair().values()):
         app.state.explorer.invalidate()
@@ -426,9 +401,6 @@ async def lifespan(app: FastAPI):
     app.state.gandi_pass = gandi.NightPass(app.state.gandi, conn, store, app.state.explorer, digest.local_zone(),
                                            notify=note_health)
     app.state.start_gandi = start_gandi
-    app.state.gandi_live = gandi.LivePass(app.state.gandi, conn, store, app.state.explorer, digest.local_zone(),
-                                          notify=note_health)
-    app.state.start_gandi_live = start_gandi_live
 
     async def gandi_freed(name: str) -> None:
         """Nom tout juste libre : son prix (standard, premium, indisponible) sans attendre la passe de nuit. Une
@@ -578,9 +550,8 @@ def _remember_public_url(request: Request) -> None:
 
 
 def _cc_status(state) -> dict:
-    """Passes DNS sans zone, pour l'écran et le quotidien : .co, .ai, .io toujours ; .com seulement tant qu'il est sans
-    zone (ou si sa passe tourne encore)."""
-    return {tld: c.status() for tld, c in state.cc_dns.items() if tld in ccdns.TLDS or c.running or c.ready()}
+    """Passes DNS de .co, .ai, .io, pour l'écran et le quotidien."""
+    return {tld: c.status() for tld, c in state.cc_dns.items()}
 
 
 def _public_url(state) -> str:
@@ -1131,7 +1102,7 @@ async def get_settings(request: Request):
                "dns": state.store.get("fr_dns_enabled", "1") == "1"},
         "drops": {"keep_days": state.drops.keep_days, "min_score": _drops_min_score(state.store)},
         "seo": {"key_set": bool(state.seo.key)},
-        "gandi": {**state.gandi.status(), "pass": state.gandi_pass.status(), "live": state.gandi_live.status()},
+        "gandi": {**state.gandi.status(), "pass": state.gandi_pass.status()},
         "reserved": state.reserved.status(),
         "prenoms": state.prenoms.status(),
         "market": state.market.status(),
@@ -1822,8 +1793,7 @@ TOP_SIZES = (10, 50, 100, 200, 500, 1000)
 # État du tableau Top, en toutes lettres : les mêmes mots que les cartes.
 TOP_STATES = {explore.REGISTERED: "pris", explore.SUSPENDED: "pris", explore.GONE: "probablement libre", explore.ABSENT: "probablement libre",
               explore.COMING: "à venir", explore.FREE: "libre", explore.RESERVED: "réservé", explore.INVALID: "pas lu",
-              explore.PREMIUM: "premium probable", explore.UNCONFIRMED: "libre à confirmer",
-              explore.UNCHECKED: "pas encore vérifié", explore.TAKEN_GANDI: "pris"}
+              explore.PREMIUM: "premium probable", explore.UNCONFIRMED: "libre à confirmer"}
 
 
 def _top_state(tld: str, code: int) -> str:
@@ -2197,7 +2167,6 @@ async def diag(request: Request):
         "gandi_samples": state.gandi.samples(),
         # Passe de nuit Gandi : dernier passage, réglages de rythme, totaux par sorte ; ni le jeton ni sa présence.
         "gandi_pass": state.gandi_pass.status(),
-        "gandi_live": state.gandi_live.status(),
         "recent_errors": list(RECENT.records),
     }
 
@@ -2407,40 +2376,6 @@ async def set_gandi_pass(request: Request, payload: GandiPassSettings):
     return night.status()
 
 
-class GandiLiveSettings(BaseModel):
-    enabled: bool | None = None
-    rate: float | None = None
-    days: int | None = None
-    tlds: list[str] | None = None
-
-
-@app.put("/api/settings/gandi/live")
-async def set_gandi_live(request: Request, payload: GandiLiveSettings):
-    """Passe continue des extensions par Gandi seul : activation (décochée, elle s'arrête), rythme, délai avant de revoir
-    un nom, extensions concernées tant qu'aucune zone ne les lit."""
-    state = request.app.state
-    live, store = state.gandi_live, state.store
-    if payload.rate is not None and not gandi.MIN_RATE <= payload.rate <= gandi.LIVE_MAX_RATE:
-        raise HTTPException(422, f"Rythme entre {gandi.MIN_RATE} et {gandi.LIVE_MAX_RATE:g} requêtes par seconde.")
-    if payload.days is not None and not 1 <= payload.days <= 90:
-        raise HTTPException(422, "Délai entre 1 et 90 jours.")
-    if payload.tlds is not None:
-        tlds = [t.strip().lower().lstrip(".") for t in payload.tlds]
-        if any(not re.fullmatch(r"[a-z]{2,24}", t) or t == "fr" or t in ccdns.TLDS for t in tlds):
-            raise HTTPException(422, "Extensions génériques seulement (com, net…), ni .fr ni .co, .ai, .io.")
-        store.set("gandi_only_tlds", ",".join(sorted(set(tlds))))
-        state.explorer.invalidate()  # extensions de l'Explorer changées
-    if payload.enabled is not None:
-        store.set(f"{live.key}_enabled", "1" if payload.enabled else "0")
-    for field in ("rate", "days"):
-        value = getattr(payload, field)
-        if value is not None:
-            store.set(f"{live.key}_{field}", str(value))
-    if live.due():
-        state.start_gandi_live()
-    return live.status()
-
-
 @app.post("/api/settings/gandi/run", status_code=202)
 async def run_gandi_pass(request: Request):
     """« Lancer maintenant » : la passe de nuit tout de suite, hors de sa fenêtre, jusqu'au plafond."""
@@ -2535,7 +2470,7 @@ async def explore_fiche(request: Request):
     found["ai_eta"] = await _ai_eta(explorer, found)
     found["ai_request"] = ai.request_state(request.app.state.conn, name)
     found["in_portfolio"] = request.app.state.conn.execute("SELECT 1 FROM portfolio WHERE name = ?", (name,)).fetchone() is not None
-    if found.get("tld") in request.app.state.cc_dns:
+    if found.get("tld") in ccdns.TLDS:
         found["cc_dns"] = ccdns.load_names(request.app.state.conn, [name]).get(name)
     if found.get("tld") == "fr":
         found["dns_eta"] = await _dns_eta(request.app.state.fr_dns, found)

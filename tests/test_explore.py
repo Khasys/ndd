@@ -1465,31 +1465,13 @@ def test_ai_queue_new_lists_first_after_free_names(env):
     assert [n["name"] for n in ai.pending(env, 3)] == ["maison.com", f"{first[1]}.com", f"{first[2]}.com"]
 
 
-def test_ai_queue_takes_a_com_without_zone_once_gandi_says_free(env):
-    """.com par Gandi seul : un nom pas encore demandé n'entre pas dans la file IA ; libre d'après Gandi, il y entre
-    avec les libres ; pris d'après Gandi, il compte comme pris ailleurs."""
-    from app import ai, gandi as g
-    from tests.test_gandi import STANDARD, answer, client_for
-
-    env.gandi = client_for(env)
-    env.invalidate()
-    assert env.gandi_tlds() == ["com"]
-    assert ai._queue(env, 50)[0] == []
-    env.gandi.record("rachatcredit.com", g.read(answer("available", [STANDARD])), utcnow())
-    env.gandi.record("taxrelief.com", g.read(answer("unavailable")), utcnow())
-    picked = [f"{label}.{tld}" for _, label, tld in ai._queue(env, 50)[0]]
-    assert picked[0] == "rachatcredit.com"
-    assert all(env.status_bytes("com")[env.universe.index(n[:-4])] != explore.UNCHECKED for n in picked)
-    item = next(n for n in ai.pending(env, 50) if n["name"] == "rachatcredit.com")
-    assert item["status"] == "Libre (vérifié)" and item["gandi"] == {"kind": "available", "price": 13}
-
-
 def test_ai_queue_free_names_in_full_score_order(env):
     """Libres en tête de la file IA, dans l'ordre du score complet, même quand la borne du score sert à n'en noter
     qu'une partie (milliers de .com libres d'après Gandi)."""
     from app import ai, gandi
     from tests.test_gandi import STANDARD, answer, client_for
 
+    zone(env, [], [])  # zone .com lue, vide : chaque nom absent, libre dès que Gandi le dit
     env.gandi = client_for(env)
     env.invalidate()
     u = env.universe
