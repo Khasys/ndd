@@ -1522,3 +1522,11 @@ button:disabled { cursor: default; opacity: .55; }
 .token-new input { flex: 1; min-width: 10em; }
 .token-fresh { margin-top: 10px; }
 .btn-ghost.danger { color: var(--danger); }
+
+/* Explorer, « 50 de plus » : repère avant le premier nom ajouté. */
+/* Dans la ligne (content-visibility la contient : un repère au-dessus serait coupé). */
+.ex-row.ex-new-from::before {
+  content: attr(data-new-label); display: block; padding: 8px 14px 6px;
+  font-size: 12px; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: .04em;
+  background: var(--bg); border-top: 2px solid var(--accent);
+}

@@ -324,6 +324,13 @@ class Filters:
         return cls(**{k: v for k, v in kwargs.items() if k in cls.__dataclass_fields__})
 
 
+def lens_key(opinion: dict, lens: str) -> tuple:
+    """Classement « pour revendre / pour exploiter » d'un nom noté : palier, note choisie, puis l'autre note et le
+    prix final bas. Sans ces départages, des centaines de noms à 60 sortaient dans l'ordre alphabétique."""
+    other = "exploit" if lens == "resale" else "resale"
+    return (lens_tier(opinion), opinion[lens], opinion.get(other) or 0, opinion.get("final_low") or 0)
+
+
 def lens_tier(opinion: dict | None) -> int:
     """Ordre « pour revendre / pour exploiter » : 2 conseillé par l'IA, 1 sans avis, 0 déconseillé."""
     if not opinion:
@@ -1438,8 +1445,8 @@ class Explorer:
             key = None
             if opinion and lens:
                 # La clé ne dépend pas du score : un nom qui ne peut plus entrer n'est pas noté.
-                key = (lens_tier(opinion), opinion[lens])
-                if len(best) >= limit and key <= best[0][0]:
+                key = lens_key(opinion, lens)
+                if len(best) >= limit and (key, -i) <= best[0][:2]:
                     return
             if not self._keep(label, f):
                 return
@@ -1448,7 +1455,7 @@ class Explorer:
                 # qui peuvent entrer. Avec un avis, le niveau tient au verdict, pas au score.
                 bound = self._bound(tld, i, label, ctx)
                 if (f.min_score and bound < f.min_score) or (f.level and not opinion and bound < LEVEL_GOOD) \
-                        or (len(best) >= limit and (1, bound) <= best[0][0]):
+                        or (len(best) >= limit and ((1, bound), -i) <= best[0][:2]):
                     return
             found = self._value(tld, i, label, ctx)
             if f.min_score and found["score"] < f.min_score:
@@ -1471,15 +1478,20 @@ class Explorer:
                 # sans avis, le parcours par score ne les atteindrait pas toujours avant de s'arrêter. Dès que
                 # la page est pleine, les suivants sont écartés sur leur clé, sans calcul. Les avis « À laisser »
                 # ne passent devant personne : le parcours les trouve s'il va jusque-là.
-                advised = sorted(((o[lens], name) for name, o in opinions.items() if lens_tier(o) == 2), reverse=True)
-                for _, name in advised:
-                    i = u.index(name[: -len(tld) - 1])
+                # Dans l'ordre final (clé, puis ordre des mots) : la page pleine écarte les suivants sans calcul.
+                advised = []
+                for name, o in opinions.items():
+                    i = u.index(name[: -len(tld) - 1]) if lens_tier(o) == 2 else None
                     if i is not None:
-                        consider(i)
+                        advised.append((lens_key(o, lens), -i, i))
+                for _, _, i in sorted(advised, reverse=True):
+                    consider(i)
             top = max(ctx["weights"]["shape"], ctx["weights"]["popularity"])
             for score in range(70, -1, -1):
                 # Les noms du parcours n'ont pas d'avis (palier 1) : on s'arrête quand aucun ne peut plus entrer.
-                if len(best) >= limit and (1, score * top + ctx["reach"]) <= best[0][0]:
+                # Strictement : à égalité, un nom plus haut dans l'ordre des mots entre encore (sinon les 50
+                # premiers d'une page de 100 n'étaient pas ceux d'une page de 50).
+                if len(best) >= limit and (1, score * top + ctx["reach"]) < best[0][0]:
                     break
                 for i in u.buckets()[score]:
                     consider(i)
@@ -1598,8 +1610,10 @@ class Explorer:
                 return (0, -a["quick_high"], -a["resale"], -a["final_high"]) if a else (1, 0, 0, 0)
             return lambda item: (*opinion(item), -item["score"], where(item), item["tld"])
         if sort in LENSES:
-            return lambda item: (-lens_tier(item.get("ai")), -(item["ai"][sort] if item.get("ai") else item["score"]),
-                                 -item["score"], where(item), item["tld"])
+            # Même ordre que rank() : lens_key pour un nom noté, le score sinon, puis l'ordre des mots.
+            def lens(item):
+                return tuple(-v for v in (lens_key(item["ai"], sort) if item.get("ai") else (1, item["score"], 0, 0)))
+            return lambda item: (*lens(item), where(item), item["tld"])
         if sort == "release":
             return lambda item: (item.get("release_at") or "9", where(item), item["tld"])
         return lambda item: (-item["score"], where(item), item["tld"])

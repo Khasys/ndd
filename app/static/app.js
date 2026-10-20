@@ -240,6 +240,9 @@ document.addEventListener("alpine:init", () => {
     exError: "",
     exItems: [],
     exLimit: 50,
+    // « 50 de plus » : premier nom ajouté (un repère le signale) et son libellé.
+    exNewFrom: "",
+    exNewLabel: "",
     exNoMore: false,
     exTopOpen: false,
     top: { cat: "premium", n: 50 },
@@ -1482,7 +1485,7 @@ document.addEventListener("alpine:init", () => {
     // more : « 50 de plus » ; sinon rechargement en place (filtre changé, rafraîchissement après une action).
     async exLoad(reset = true, more = false) {
       if (reset) { this.exLimit = 50; this.exNoMore = false; this.exSelected = []; }
-      const before = this.exItems.length;
+      if (!more) this.exNewFrom = "";
       const ticket = (this._exTicket = (this._exTicket || 0) + 1);
       this.exLoading = true;
       try {
@@ -1495,9 +1498,20 @@ document.addEventListener("alpine:init", () => {
         this.exError = "";
         this.exData = data;
         this.ex.tld = data.tld;
-        this.exItems = data.items;
-        // « 50 de plus » sans rien de nouveau : fin de la liste pour ces filtres.
-        if (more && data.items.length <= before) this.exNoMore = true;
+        if (more) {
+          // Les noms déjà vus gardent leur place (mis à jour), les nouveaux vont en bas : sinon ils s'intercalaient
+          // au milieu et l'on ne voyait pas « 50 de plus ».
+          const fresh = new Map(data.items.map((i) => [i.name, i]));
+          const shown = new Set(this.exItems.map((i) => i.name));
+          const added = data.items.filter((i) => !shown.has(i.name));
+          this.exItems = [...this.exItems.filter((i) => fresh.has(i.name)).map((i) => fresh.get(i.name)), ...added];
+          this.exNewFrom = added.length ? added[0].name : "";
+          this.exNewLabel = added.length ? `${added.length} de plus` : "";
+          // « 50 de plus » sans rien de nouveau : fin de la liste pour ces filtres.
+          if (!added.length) this.exNoMore = true;
+        } else {
+          this.exItems = data.items;
+        }
       } catch (e) {
         if (ticket !== this._exTicket) return;
         // Extension mémorisée qui n'existe plus : retour à l'extension par défaut, une fois.

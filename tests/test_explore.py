@@ -1565,3 +1565,27 @@ def test_v5_opinions_left_aside_are_not_rated_again(env):
         env.conn.execute("INSERT INTO domain_ai (name, exploit, resale, quick_low, quick_high, final_low, final_high, comment, "
                          "rated_at, version) VALUES (?, 50, 50, 0, 0, 0, 100, ?, 'x', 5)", (name, f"{verdict}. X. Acheteur type : y."))
     assert ai._done(env.conn) == {"c.fr"}
+
+
+def test_more_results_extend_the_same_ranking(env):
+    """« 50 de plus » : les 50 premiers d'une page de 100 sont ceux de la page de 50, même avec des notes
+    à égalité ; entre égaux, l'autre note et le prix final départagent avant l'ordre alphabétique."""
+    from app import ai
+
+    add_fr(env, "zzzzz")
+    labels = [drops.decode(i) for i in env.universe.good_letters(4)[:240]]
+    env.conn.executemany("""INSERT INTO domain_ai (name, exploit, resale, quick_low, quick_high, final_low, final_high,
+                            comment, rated_at, version) VALUES (?, ?, 60, 0, 0, ?, 1000, ?, 'x', %d)""" % ai.VERSION,
+                         [(f"{label}.fr", 40 + n % 7, 100 * (n % 5), "À surveiller. Test. Acheteur type : test.")
+                          for n, label in enumerate(labels)])
+    env.ai_changed()
+    for sort in ("resale", "exploit", "score"):
+        first = [i["name"] for i in env.rank("fr", sort=sort, limit=50)["items"]]
+        more = [i["name"] for i in env.rank("fr", sort=sort, limit=100)["items"]]
+        assert more[:50] == first, sort
+    items = env.rank("fr", sort="resale", limit=100)["items"]
+    keys = [(i["ai"]["resale"], i["ai"]["exploit"], i["ai"]["final_low"]) for i in items if i.get("ai")]
+    assert keys == sorted(keys, reverse=True)
+    # Plusieurs extensions : même ordre que sur une seule.
+    merged = sorted(items, key=env.merge_key("resale"))
+    assert [i["name"] for i in merged] == [i["name"] for i in items]

@@ -893,7 +893,7 @@
         <p class="muted small" x-show="!exTopOpen && !exLoading && !exItems.length">Aucun nom.</p>
         <ol class="ex-list" :class="{ loading: exLoading }" x-show="!exTopOpen">
           <template x-for="i in exItems" :key="i.name">
-            <li class="ex-row" :class="{ picked: exSelected.includes(i.name) }" x-tpl="['name-card', { c: nameCard(i, 'explore') }]"></li>
+            <li class="ex-row" :class="{ picked: exSelected.includes(i.name), 'ex-new-from': exNewFrom && i.name === exNewFrom }" :data-new-label="exNewFrom && i.name === exNewFrom ? exNewLabel : null" x-tpl="['name-card', { c: nameCard(i, 'explore') }]"></li>
           </template>
         </ol>
         <div class="explore-more" x-show="!exTopOpen">
