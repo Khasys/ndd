@@ -17,7 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import httpx
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_MISSED
@@ -539,12 +539,27 @@ async def invalid_input(request: Request, exc: RequestValidationError):
     return JSONResponse({"detail": jsonable_encoder(errors)}, status_code=422)
 
 
+def _secure(url: str) -> str:
+    """Adresse vue en http derrière un proxy HTTPS (Synology, Cloudflare) qui ne transmet pas le schéma : l'adresse
+    publique est en https (ChatGPT refuse un connecteur en http, « Unsafe URL »). Une adresse locale (localhost, IP,
+    .local, .lan, port explicite) reste telle quelle."""
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    if parts.scheme != "http" or parts.port or "." not in host or host.endswith((".local", ".lan", ".home", ".internal")):
+        return url
+    try:
+        ipaddress.ip_address(host)
+        return url
+    except ValueError:
+        return urlunsplit(parts._replace(scheme="https"))
+
+
 def _remember_public_url(request: Request) -> None:
     """Adresse publique de l'appli, vue du navigateur : sert aux liens des messages Telegram."""
     host = request.headers.get("x-forwarded-host") or request.headers.get("host")
     if host:
         scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
-        url = f"{scheme}://{host}"
+        url = _secure(f"{scheme}://{host}")
         if request.app.state.store.get("public_url") != url:
             request.app.state.store.set("public_url", url)
 
@@ -555,7 +570,8 @@ def _cc_status(state) -> dict:
 
 
 def _public_url(state) -> str:
-    return state.settings.app_url or state.store.get("public_url") or ""
+    # APP_URL est pris tel quel ; l'adresse vue du navigateur, mémorisée avant ce correctif, passe en https ici.
+    return state.settings.app_url or _secure(state.store.get("public_url") or "")
 
 
 async def _daily(state, now_local: datetime) -> tuple[list[str], dict]:
@@ -1066,7 +1082,7 @@ def _calendar_url(request: Request) -> str | None:
     base = _public_url(request.app.state)
     if not base:
         scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
-        base = f"{scheme}://{request.headers.get('x-forwarded-host') or request.url.netloc}"
+        base = _secure(f"{scheme}://{request.headers.get('x-forwarded-host') or request.url.netloc}")
     return f"{base}/calendar/{token}.ics"
 
 
@@ -2214,7 +2230,7 @@ async def create_token(request: Request, payload: NewToken):
         raise HTTPException(422, str(exc)) from None
     result = {"id": token_id, "token": token}
     if payload.kind == "mcp":
-        base = _public_url(request.app.state) or str(request.base_url)
+        base = _public_url(request.app.state) or _secure(str(request.base_url))
         result["url"] = f"{base.rstrip('/')}/mcp/{token}"
     return result
 

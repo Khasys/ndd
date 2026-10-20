@@ -138,3 +138,19 @@ def test_token_is_masked_in_logs():
                                ("1.2.3.4", "POST", "/mcp/dwm_secret", "1.1", 200), None)
     _MaskMcp().filter(record)
     assert "dwm_secret" not in record.getMessage()
+
+
+def test_public_address_is_https_behind_a_proxy(logged):
+    """Proxy HTTPS qui ne transmet pas le schéma : l'adresse vue est en http, ChatGPT la refuse (« Unsafe URL »).
+    L'adresse publique passe en https ; une adresse locale reste telle quelle."""
+    from app.main import _secure
+
+    client = logged()
+    client.app.state.store.set("public_url", "http://domaines.exemple.fr")
+    url = client.post("/api/tokens", json={"kind": "mcp"}).json()["url"]
+    assert url.startswith("https://domaines.exemple.fr/mcp/dwm_")
+    assert client.post("/api/settings/calendar").json()["calendar_url"].startswith("https://domaines.exemple.fr/")
+    assert _secure("http://192.168.1.10:8080") == "http://192.168.1.10:8080"
+    assert _secure("http://nas.local") == "http://nas.local"
+    assert _secure("http://localhost") == "http://localhost"
+    client.__exit__(None, None, None)
