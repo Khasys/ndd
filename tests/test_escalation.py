@@ -176,3 +176,25 @@ def test_requested_analysis_reports_the_final_verdict_after_the_panel(logged, tm
                          capture_output=True, text=True)
     assert run.returncode != 0 and "velo.fr : pas d'avis" in run.stdout
     client.__exit__(None, None, None)
+
+
+def test_one_stage_at_a_time_so_rescued_names_join_the_same_night_panel(env):
+    escalation.consider(env.conn, "lesmotos.com", "À surveiller", 10)
+    escalation.consider(env.conn, "velo.fr", "À prendre", 40)
+    rescue = escalation.claim(env.conn, lambda names: [{"name": n} for n in names], "rescue")
+    assert rescue["rescue"] == [{"name": "lesmotos.com"}] and rescue["panel"] == []
+    for voter in (1, 2):
+        escalation.record(env.conn, "rescue", rescue["claim"], voter, [avis("lesmotos.com", TAKE)], NO_CONTEXT)
+    panel = escalation.claim(env.conn, lambda names: [{"name": n} for n in names], "panel")
+    assert sorted(n["name"] for n in panel["panel"]) == ["lesmotos.com", "velo.fr"]
+
+
+def test_prices_out_of_band_are_brought_back_not_refused(env):
+    """Un correcteur dont le prix sort du palier compte quand même : son prix est ramené, ses notes restent."""
+    escalation.consider(env.conn, "lesmotos.com", "À prendre", 40)
+    wild = {**avis(), "final_low": 300000, "final_high": 300000, "quick_low": 7, "quick_high": 120000}
+    assert ai_format.check_v5(wild, lambda n: True)  # refusé tel quel
+    fitted = ai_format.fit_prices(wild)
+    assert ai_format.check_v5(fitted, lambda n: True) is None and fitted["oral"] == wild["oral"]
+    out = escalation.record(env.conn, "panel", "c1", 1, [wild], NO_CONTEXT)
+    assert out["saved"] == 1 and out["rejected"] == []

@@ -8,7 +8,7 @@
   python scripts/ai_exchange.py pack lot.json avis.json avis-1.txt avis-2.txt...  # lignes compactes vers JSON
   python scripts/ai_exchange.py check lot.json avis.json # contrôle le format, sans rien envoyer
   python scripts/ai_exchange.py push lot.json avis.json  # contrôle puis envoie les avis conformes
-  python scripts/ai_exchange.py escalation /tmp/esc       # repêchage et panel : /tmp/esc/rescue.json et panel.json
+  python scripts/ai_exchange.py escalation /tmp/esc rescue  # une étape (rescue, puis panel) : /tmp/esc/rescue.json
   python scripts/ai_exchange.py escalation-push /tmp/esc/panel.json avis-1.json ... avis-10.json  # un fichier par correcteur
   python scripts/ai_exchange.py exploit rent.json        # analyses de rentabilité demandées (tâche du quart d'heure)
   python scripts/ai_exchange.py exploit-check rent.json rapports.json  # contrôle des rapports, sans rien envoyer
@@ -32,7 +32,7 @@ import urllib.error
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from app.ai_format import CRITERIA_V5, check_any, default_prices, derive, is_v5, summary  # noqa: E402  même règle que le NAS, sans dépendance
+from app.ai_format import CRITERIA_V5, check_any, default_prices, derive, fit_prices, is_v5, summary  # noqa: E402  même règle que le NAS, sans dépendance
 from app.exploit_format import clean as clean_report  # noqa: E402
 from app.wordlists import LABELS, NATURES  # noqa: E402
 
@@ -50,8 +50,9 @@ def call(method: str, path: str, body: dict | None = None) -> dict:
         return json.loads(response.read())
 
 
-def verify(lot_path: str, results_path: str) -> tuple[list, list]:
-    """Avis conformes, et problèmes : format, nom absent du lot, nom du lot sans avis, doublon."""
+def verify(lot_path: str, results_path: str, fit: bool = False) -> tuple[list, list]:
+    """Avis conformes, et problèmes : format, nom absent du lot, nom du lot sans avis, doublon. `fit` (escalade) :
+    les prix sont d'abord ramenés dans le palier, comme le fera le NAS, au lieu d'être refusés."""
     with open(lot_path, encoding="utf-8") as f:
         asked = [n["name"] for n in json.load(f)["names"]]
     with open(results_path, encoding="utf-8") as f:
@@ -61,6 +62,8 @@ def verify(lot_path: str, results_path: str) -> tuple[list, list]:
     wanted = set(asked)
     good, problems, seen = [], [], set()
     for item in results:
+        if fit and is_v5(item):
+            item = fit_prices(item)
         reason = check_any(item, lambda name: name in wanted)
         name = item.get("name") if isinstance(item, dict) else None
         if not reason and name in seen:
@@ -197,8 +200,9 @@ def main() -> None:
         print(f"DEMANDES {len(found['names'])}")
     elif action == "escalation":
         folder = sys.argv[2]
+        only = sys.argv[3] if len(sys.argv) > 3 else ""
         try:
-            found = call("GET", "/api/ai/escalation")
+            found = call("GET", "/api/ai/escalation" + (f"?stage={only}" if only else ""))
         except urllib.error.HTTPError as exc:
             if exc.code == 404:  # NAS d'avant cette fonction
                 print("ESCALADE 0 (NAS pas à jour)")
@@ -206,7 +210,7 @@ def main() -> None:
             raise
         os.makedirs(folder, exist_ok=True)
         counts = {}
-        for stage in ("rescue", "panel"):
+        for stage in [only] if only else ("rescue", "panel"):
             # Un lot par étape, au format de la file : check et show s'en servent tels quels.
             lot = {"version": found["version"], "guide": found["guide"], "format": found["format"], "stage": stage,
                    "claim": found["claim"], "votes": found["votes"][stage], "names": found[stage]}
@@ -217,8 +221,8 @@ def main() -> None:
         if not any(counts.values()):
             print("ESCALADE 0")
         else:
-            print(f"ESCALADE {sum(counts.values())} : repêchage {counts['rescue']} noms x {found['votes']['rescue']} correcteurs, "
-                  f"panel {counts['panel']} noms x {found['votes']['panel']} correcteurs")
+            print(f"ESCALADE {sum(counts.values())} : " + ", ".join(
+                f"{'repêchage' if st == 'rescue' else 'panel'} {n} noms x {found['votes'][st]} correcteurs" for st, n in counts.items()))
     elif action == "escalation-push":
         lot_path, files = sys.argv[2], sys.argv[3:]
         with open(lot_path, encoding="utf-8") as f:
@@ -227,7 +231,7 @@ def main() -> None:
             sys.exit(f"{lot['votes']} fichiers d'avis attendus pour l'étape {lot['stage']}, un par correcteur ({len(files)} reçus).")
         bad = {}
         for path in files:
-            good, problems = verify(lot_path, path)
+            good, problems = verify(lot_path, path, fit=True)
             if problems:
                 bad[path] = problems
         if bad:
@@ -239,7 +243,7 @@ def main() -> None:
             sys.exit("Corrige ces fichiers (format seulement, sans changer les jugements) puis renvoie.")
         decided = []
         for voter, path in enumerate(files, 1):
-            good, _ = verify(lot_path, path)
+            good, _ = verify(lot_path, path, fit=True)
             answer = call("POST", "/api/ai/escalation/results",
                           {"stage": lot["stage"], "claim": lot["claim"], "voter": voter, "results": good})
             decided += answer.get("decided", [])
@@ -291,7 +295,9 @@ def main() -> None:
             print(f"  {name} : {reason}")
         print(f"Avis écrits dans {sys.argv[3]} ; contrôle complet : check")
     elif action in ("check", "push"):
-        good, problems = verify(sys.argv[2], sys.argv[3])
+        with open(sys.argv[2], encoding="utf-8") as f:
+            staged = "stage" in json.load(f)  # lot d'escalade : prix ramenés dans le palier, comme au NAS
+        good, problems = verify(sys.argv[2], sys.argv[3], fit=staged)
         print(f"{len(good)} avis conformes, {len(problems)} problèmes")
         for name, reason in problems[:30]:
             print(f"  {name} : {reason}")
@@ -320,7 +326,7 @@ def main() -> None:
     else:
         sys.exit("Usage : pull <nombre> <lot.json> | requested <lot.json> | guide <lot.json> | show <lot.json> <début> <nombre> | "
                  "pack <lot.json> <avis.json> <avis-1.txt>... | check <lot.json> <avis.json> | push <lot.json> <avis.json> | "
-                 "escalation <dossier> | escalation-push <lot.json> <avis-1.json>... | exploit <rent.json> | exploit-check <rent.json> <rapports.json> | exploit-push <rent.json> <rapports.json>")
+                 "escalation <dossier> [rescue|panel] | escalation-push <lot.json> <avis-1.json>... | exploit <rent.json> | exploit-check <rent.json> <rapports.json> | exploit-push <rent.json> <rapports.json>")
 
 
 if __name__ == "__main__":

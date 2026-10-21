@@ -2013,7 +2013,10 @@ async def ai_escalation(request: Request):
     avec la consigne de notation : chaque correcteur note à l'aveugle, sans voir aucun autre avis."""
     explorer = request.app.state.explorer
     conn = request.app.state.conn
-    found = await _off(escalation.claim, conn, lambda names: ai.describe_names(explorer, names))
+    stage = request.query_params.get("stage") or None
+    if stage not in (None, *escalation.VOTES):
+        raise HTTPException(422, "Étape inconnue.")
+    found = await _off(escalation.claim, conn, lambda names: ai.describe_names(explorer, names), stage)
     guide = ai.GUIDE + portfolio.guide_addendum(portfolio.market_examples(conn))
     return {"version": ai.VERSION, "guide": guide, "format": ai.FORMAT, **found}
 

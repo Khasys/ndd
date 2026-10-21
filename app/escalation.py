@@ -7,8 +7,9 @@
   aussi ; une faute d'orthographe ou un risque de marque relevé par VETO correcteurs le bloque. La médiane des
   dix avis remplace le premier avis, qui ne compte pas dans la décision.
 
-La tâche du quart d'heure reçoit les noms (réservés CLAIM, pour qu'un passage plus long que l'intervalle ne les
-fasse pas noter deux fois), fait noter chaque correcteur par un agent séparé et renvoie les avis. Un nom ne
+La tâche de nuit (après la notation de nuit) reçoit une étape à la fois : le repêchage, puis le panel, qui reprend
+les repêchés de la même nuit. Les noms sont réservés CLAIM (un passage interrompu les rend ensuite) ; chaque
+correcteur est un agent séparé qui note tout le lot d'un coup. Un nom ne
 repasse jamais une étape déjà faite ; seule une nouvelle analyse demandée depuis la fiche le remet en jeu.
 """
 
@@ -18,7 +19,7 @@ import secrets
 import statistics
 from datetime import timedelta
 
-from .ai_format import CRITERIA_V5, check_any, derive, is_v5, normalized
+from .ai_format import CRITERIA_V5, check_any, derive, fit_prices, is_v5, normalized
 from .checker import iso, parse_iso, utcnow
 
 RESCUE_VOTES = 2
@@ -28,9 +29,11 @@ RESCUE_YIELD = 5.0   # euros par an : seuil de départ, à régler sur les noms 
 PANEL_TAKE = 7       # « À prendre » d'au moins 7 correcteurs sur 10
 VETO = 3             # faute ou risque de marque relevé par 3 correcteurs : pas de « À prendre »
 VETO_RISK = 5        # risque de 5 et plus : marque connue dans un secteur (consigne)
-CLAIM = timedelta(minutes=45)
-MAX_PANEL = 15       # par passage : dix agents notent chacun tous ces noms
-MAX_RESCUE = 30
+CLAIM = timedelta(minutes=90)  # un passage de nuit sur un gros lot peut durer
+# Par passage (une fois par nuit, après la notation de nuit) : chaque agent note tout le lot d'un coup ; son
+# coût tient surtout à son lancement, pas au nombre de noms.
+MAX_PANEL = 80
+MAX_RESCUE = 200
 PRICES = ("quick_low", "quick_high", "final_low", "final_high")
 
 
@@ -71,21 +74,25 @@ def counts(conn) -> dict:
     return found
 
 
-def claim(conn, describe) -> dict:
+def claim(conn, describe, stage: str | None = None) -> dict:
     """Noms à noter pour ce passage, réservés CLAIM ; `describe(names)` les décrit comme ceux de la file, sans
     aucun avis déjà donné (à l'aveugle)."""
     now = utcnow()
     free = "(claimed_until IS NULL OR claimed_until < ?)"
     picked = {}
-    for stage, limit in (("panel", MAX_PANEL), ("rescue", MAX_RESCUE)):
-        picked[stage] = [r[0] for r in conn.execute(
+    for step, limit in (("panel", MAX_PANEL), ("rescue", MAX_RESCUE)):
+        if stage and step != stage:
+            # Une étape à la fois : le repêchage d'abord, puis le panel, qui reprend les repêchés de la même nuit.
+            picked[step] = []
+            continue
+        picked[step] = [r[0] for r in conn.execute(
             f"SELECT name FROM ai_escalation WHERE stage = ? AND {free} ORDER BY queued_at, name LIMIT ?",
-            (stage, iso(now), limit))]
+            (step, iso(now), limit))]
     token = secrets.token_hex(8) if any(picked.values()) else ""
     for names in picked.values():
         for name in names:
             conn.execute("UPDATE ai_escalation SET claimed_until = ?, claim = ? WHERE name = ?", (iso(now + CLAIM), token, name))
-    return {"claim": token, "votes": VOTES, **{stage: describe(names) if names else [] for stage, names in picked.items()}}
+    return {"claim": token, "votes": VOTES, **{step: describe(names) if names else [] for step, names in picked.items()}}
 
 
 def record(conn, stage: str, claim_id: str, voter: int, results: list, context_of) -> dict:
@@ -98,6 +105,8 @@ def record(conn, stage: str, claim_id: str, voter: int, results: list, context_o
     saved, rejected, touched = 0, [], []
     for item in results:
         name = item.get("name") if isinstance(item, dict) else None
+        if is_v5(item):
+            item = fit_prices(item)  # un prix hors palier est ramené, pas refusé : le correcteur compte quand même
         reason = check_any(item, lambda n: n in waiting)
         if not reason and not is_v5(item):
             reason = "grille détaillée attendue"

@@ -289,6 +289,23 @@ def default_prices(item: dict) -> dict:
         quick_low = quick_high = 0
     return {"quick_low": quick_low, "quick_high": quick_high, "final_low": final_low, "final_high": final_high}
 
+def fit_prices(item: dict) -> dict:
+    """Prix d'un avis v5 ramenés sur l'échelle et dans le palier de sa note de revente, sans toucher aux
+    sous-notes : l'escalade garde ainsi chaque correcteur au lieu de le faire renoter pour un prix (coûteux)."""
+    try:
+        resale = derive(item)["resale"]
+        label, _, tld = item["name"].rpartition(".")
+        floor, ceiling = price_limits(resale, tld, label)
+        nearest = lambda v: min(PRICE_STEPS, key=lambda p: abs(p - v))  # noqa: E731
+        final_low = min(max(nearest(item["final_low"]), floor), ceiling)
+        final_high = min(max(nearest(item["final_high"]), final_low), ceiling)
+        quick_high = min(nearest(item["quick_high"]), _step_up(final_high * QUICK_SHARE))
+        quick_low = min(nearest(item["quick_low"]), quick_high, final_low)
+    except (KeyError, TypeError, ValueError):
+        return item  # avis mal formé : le contrôle dira pourquoi
+    return {**item, "quick_low": quick_low, "quick_high": quick_high, "final_low": final_low, "final_high": final_high}
+
+
 def check_v5(item, known) -> str | None:
     """Raison du refus d'un avis v5, ou None. Même règle pour la tâche de notation et pour le NAS."""
     if not isinstance(item, dict):
