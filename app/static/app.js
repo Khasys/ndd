@@ -1095,7 +1095,10 @@ document.addEventListener("alpine:init", () => {
       const release = tl.find((t) => t.future && t.kind === "release");
       if (release) return `libération ~${day(release.at)}`;
       const expires = tl.find((t) => t.future && t.kind === "expires");
-      return expires ? `expire le ${this.timelineDate(expires.at)}` : "";
+      if (expires) return `expire le ${this.timelineDate(expires.at)}`;
+      // Expiré (période de grâce du registre) : l'échéance passée, pas la date prolongée d'office.
+      const lapsed = [...tl].reverse().find((t) => !t.future && t.kind === "expires");
+      return lapsed ? `expiré le ${this.timelineDate(lapsed.at)}` : "";
     },
 
     // Une date de ce genre figure déjà dans Dates clés : la section Suivi ne la répète pas.

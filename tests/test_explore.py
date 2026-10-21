@@ -1614,3 +1614,16 @@ def test_more_results_extend_the_same_ranking(env):
     # Plusieurs extensions : même ordre que sur une seule.
     merged = sorted(items, key=env.merge_key("resale"))
     assert [i["name"] for i in merged] == [i["name"] for i in items]
+
+
+def test_timeline_uses_the_real_expiry_during_the_registry_grace_period(env):
+    """autoRenewPeriod hors .fr : le registre affiche l'échéance prolongée d'un an que personne n'a payée (license.io,
+    « expire le 25/09/2027 » alors qu'il est expiré). La frise montre la vraie échéance, passée."""
+    rdap = {"available": False, "statuses": ["clientHold", "autoRenewPeriod"], "registered_at": "2014-09-25T15:03:27+00:00",
+            "expires_at": "2099-09-25T15:03:27+00:00"}
+    line = env.timeline("velo.io", rdap=rdap)
+    expiry = [e for e in line if e["kind"] == "expires"]
+    assert [e["at"][:10] for e in expiry] == ["2098-09-25"] and "renouvelée d'office" in expiry[0]["label"]
+    # Sans période de grâce, l'échéance du registre telle quelle.
+    plain = env.timeline("velo.io", rdap={**rdap, "statuses": ["clientTransferProhibited"]})
+    assert [e["at"][:10] for e in plain if e["kind"] == "expires"] == ["2099-09-25"]

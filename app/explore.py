@@ -2217,7 +2217,14 @@ class Explorer:
         if rdap.get("registered_at") and not created:
             add(rdap["registered_at"], "created", "Enregistré (registre)")
         if rdap.get("expires_at") and not rdap.get("available"):
-            add(rdap["expires_at"], "expires", "Expiration")
+            expires = rdap["expires_at"]
+            if tld != "fr" and any(states._normalize(s) == "autorenewperiod" for s in rdap.get("statuses") or []):
+                # Période de grâce : le registre affiche déjà l'échéance prolongée d'un an, que personne n'a payée
+                # (states.effective_expiry, comme le suivi des domaines). La vraie échéance est un an plus tôt.
+                expires = iso(datetime.fromisoformat(str(expires)) - timedelta(days=365))
+                add(expires, "expires", "Expiration (renouvelée d'office par le registre, pas payée)")
+            else:
+                add(expires, "expires", "Expiration")
         drop = self.conn.execute("SELECT * FROM drops WHERE name = ?", (name,)).fetchone()
         if tld in ccdns.TLDS:
             # Sorti du DNS : seulement un nom vu délégué puis absent. Un nom absent dès la première nuit
