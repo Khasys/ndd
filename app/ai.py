@@ -225,7 +225,8 @@ def to_review(explorer, limit: int = REVIEW_PER_NIGHT) -> list[tuple[str, int, i
     known = known_name(explorer)
     found = []
     for name, exploit, resale in explorer.conn.execute(
-            "SELECT name, exploit, resale FROM domain_ai WHERE version >= ? AND reviewed_at IS NULL", (VERSION,)):
+            "SELECT name, exploit, resale FROM domain_ai WHERE version >= ? AND reviewed_at IS NULL "
+            "AND name NOT IN (SELECT name FROM ai_escalation)", (VERSION,)):  # l'escalade a déjà revu ce nom
         if not known(name):
             continue  # demandé depuis la fiche, hors univers ou hors extension suivie : pas de second passage
         label, _, tld = name.rpartition(".")

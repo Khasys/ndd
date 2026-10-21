@@ -198,3 +198,14 @@ def test_prices_out_of_band_are_brought_back_not_refused(env):
     assert ai_format.check_v5(fitted, lambda n: True) is None and fitted["oral"] == wild["oral"]
     out = escalation.record(env.conn, "panel", "c1", 1, [wild], NO_CONTEXT)
     assert out["saved"] == 1 and out["rejected"] == []
+
+
+def test_escalated_names_are_not_rated_again_by_the_cold_second_pass(env, monkeypatch):
+    """Un nom passé par le repêchage ou le panel n'est plus renoté par le second passage à froid : un avis seul
+    ne peut pas refaire un « À prendre » sans panel."""
+    from app import quality
+    ai.save(env.conn, [avis("lesmotos.com", WATCH), avis("lespianos.com", WATCH)], lambda n: True)
+    assert escalation.consider(env.conn, "lesmotos.com", "À surveiller", 10) == "rescue"
+    monkeypatch.setattr(ai, "known_name", lambda explorer: lambda name: True)
+    monkeypatch.setattr(quality, "predict", lambda label, tld: (95,))
+    assert [r[0] for r in ai.to_review(env)] == ["lespianos.com"]
