@@ -8,6 +8,8 @@
   python scripts/ai_exchange.py pack lot.json avis.json avis-1.txt avis-2.txt...  # lignes compactes vers JSON
   python scripts/ai_exchange.py check lot.json avis.json # contrôle le format, sans rien envoyer
   python scripts/ai_exchange.py push lot.json avis.json  # contrôle puis envoie les avis conformes
+  python scripts/ai_exchange.py escalation /tmp/esc       # repêchage et panel : /tmp/esc/rescue.json et panel.json
+  python scripts/ai_exchange.py escalation-push /tmp/esc/panel.json avis-1.json ... avis-10.json  # un fichier par correcteur
   python scripts/ai_exchange.py exploit rent.json        # analyses de rentabilité demandées (tâche du quart d'heure)
   python scripts/ai_exchange.py exploit-check rent.json rapports.json  # contrôle des rapports, sans rien envoyer
   python scripts/ai_exchange.py exploit-push rent.json rapports.json   # contrôle puis envoie les rapports conformes
@@ -193,6 +195,59 @@ def main() -> None:
             json.dump(found, f, ensure_ascii=False, indent=1)
         # Première ligne lue par la tâche horaire : à 0, elle s'arrête sans rien faire d'autre.
         print(f"DEMANDES {len(found['names'])}")
+    elif action == "escalation":
+        folder = sys.argv[2]
+        try:
+            found = call("GET", "/api/ai/escalation")
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:  # NAS d'avant cette fonction
+                print("ESCALADE 0 (NAS pas à jour)")
+                return
+            raise
+        os.makedirs(folder, exist_ok=True)
+        counts = {}
+        for stage in ("rescue", "panel"):
+            # Un lot par étape, au format de la file : check et show s'en servent tels quels.
+            lot = {"version": found["version"], "guide": found["guide"], "format": found["format"], "stage": stage,
+                   "claim": found["claim"], "votes": found["votes"][stage], "names": found[stage]}
+            with open(os.path.join(folder, f"{stage}.json"), "w", encoding="utf-8") as f:
+                json.dump(lot, f, ensure_ascii=False, indent=1)
+            counts[stage] = len(found[stage])
+        # Première ligne lue par la tâche : à 0, rien à faire de ce côté.
+        if not any(counts.values()):
+            print("ESCALADE 0")
+        else:
+            print(f"ESCALADE {sum(counts.values())} : repêchage {counts['rescue']} noms x {found['votes']['rescue']} correcteurs, "
+                  f"panel {counts['panel']} noms x {found['votes']['panel']} correcteurs")
+    elif action == "escalation-push":
+        lot_path, files = sys.argv[2], sys.argv[3:]
+        with open(lot_path, encoding="utf-8") as f:
+            lot = json.load(f)
+        if len(files) != lot["votes"]:
+            sys.exit(f"{lot['votes']} fichiers d'avis attendus pour l'étape {lot['stage']}, un par correcteur ({len(files)} reçus).")
+        bad = {}
+        for path in files:
+            good, problems = verify(lot_path, path)
+            if problems:
+                bad[path] = problems
+        if bad:
+            # Rien n'est envoyé tant qu'un correcteur a un avis manquant ou hors format : le panel doit être complet.
+            for path, problems in bad.items():
+                print(f"{path} : {len(problems)} problèmes")
+                for name, reason in problems[:20]:
+                    print(f"  {name} : {reason}")
+            sys.exit("Corrige ces fichiers (format seulement, sans changer les jugements) puis renvoie.")
+        decided = []
+        for voter, path in enumerate(files, 1):
+            good, _ = verify(lot_path, path)
+            answer = call("POST", "/api/ai/escalation/results",
+                          {"stage": lot["stage"], "claim": lot["claim"], "voter": voter, "results": good})
+            decided += answer.get("decided", [])
+            for r in answer["rejected"][:10]:
+                print(f"  correcteur {voter}, {r['name']} : {r['reason']}")
+        print(f"NAS : {len(files)} correcteurs envoyés pour l'étape {lot['stage']}, {len(decided)} noms tranchés")
+        for d in decided:
+            print(f"  {d['name']} : {d['verdict']}")
     elif action == "exploit":
         target = sys.argv[2]
         try:
@@ -265,7 +320,7 @@ def main() -> None:
     else:
         sys.exit("Usage : pull <nombre> <lot.json> | requested <lot.json> | guide <lot.json> | show <lot.json> <début> <nombre> | "
                  "pack <lot.json> <avis.json> <avis-1.txt>... | check <lot.json> <avis.json> | push <lot.json> <avis.json> | "
-                 "exploit <rent.json> | exploit-check <rent.json> <rapports.json> | exploit-push <rent.json> <rapports.json>")
+                 "escalation <dossier> | escalation-push <lot.json> <avis-1.json>... | exploit <rent.json> | exploit-check <rent.json> <rapports.json> | exploit-push <rent.json> <rapports.json>")
 
 
 if __name__ == "__main__":

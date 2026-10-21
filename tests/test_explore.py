@@ -1549,10 +1549,10 @@ def test_long_names_lose_points_and_saved_opinions_are_recomputed(env):
     assert row["final_high"] < 7500
 
 
-def test_take_needs_resale_memo_is_computed_and_a_second_rater_confirms(env):
-    """« À prendre » se juge sur la revente ; la mémorisation vient de la longueur ; un « À prendre » est renoté
-    à l'aveugle une fois et la note la plus basse reste."""
-    from app import ai, ai_format
+def test_take_needs_resale_and_memo_is_computed(env):
+    """« À prendre » se juge sur la revente ; la mémorisation vient de la longueur (la confirmation d'un
+    « À prendre » passe par l'escalade : tests/test_escalation.py)."""
+    from app import ai_format
 
     assert ai_format.memo_for("lesmotos.com") == ai_format.memo_for("lespianos.com") == 4
     assert ai_format.memo_for("velo.fr") == 10 and ai_format.memo_for("x" * 14 + ".com") == 2
@@ -1560,26 +1560,6 @@ def test_take_needs_resale_memo_is_computed_and_a_second_rater_confirms(env):
               "acheteurs": 5, "risque": 0}
     notes = ai_format.derive(pianos)
     assert notes["exploit"] >= 60 > notes["resale"] and notes["verdict"] == "À surveiller"
-
-    grid = {"oral": 9, "radio": 9, "memo": 7, "sens": 9, "marque": 6, "marche": 8, "ext": 10, "acheteurs": 7, "risque": 0}
-    first = {"name": "lesmotos.com", **grid, "comment": "Marché moto. Acheteur type : concession."}
-    first.update(ai_format.default_prices(first))
-    assert ai_format.derive(first)["verdict"] == "À prendre"
-    ai.save(env.conn, [first], lambda n: True)
-    assert [r[0] for r in env.conn.execute("SELECT name FROM domain_ai WHERE confirmed_at IS NULL")] == ["lesmotos.com"]
-    # Le second correcteur est plus généreux : le premier avis reste, contre-noté.
-    kinder = {**first, "marque": 8}
-    kinder.update(ai_format.default_prices(kinder))
-    ai.save(env.conn, [kinder], lambda n: True)
-    row = env.conn.execute("SELECT * FROM domain_ai").fetchone()
-    assert row["confirmed_at"] and json.loads(row["grid"])["marque"] == 6
-    # Un nouvel « À prendre » contre-noté plus bas : la note la plus basse reste.
-    env.conn.execute("UPDATE domain_ai SET confirmed_at = NULL")
-    harsh = {**first, "acheteurs": 3, "marche": 5}
-    harsh.update(ai_format.default_prices(harsh))
-    ai.save(env.conn, [harsh], lambda n: True)
-    row = env.conn.execute("SELECT * FROM domain_ai").fetchone()
-    assert row["confirmed_at"] and not row["comment"].startswith("À prendre") and json.loads(row["grid"])["acheteurs"] == 3
 
 
 def test_v5_opinions_left_aside_are_not_rated_again(env):

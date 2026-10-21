@@ -31,7 +31,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import ai, bot, exploit, exploit_format, mcp, tokens, calendar_ics, ccdns, db, decisions, market, morning, notify, pepites, portfolio, digest, drops, explore, frdata, frdns, gandi, prenoms, reserved, seo, signals, states, updates, value, wordlists
+from . import ai, bot, escalation, exploit, exploit_format, mcp, tokens, calendar_ics, ccdns, db, decisions, market, morning, notify, pepites, portfolio, digest, drops, explore, frdata, frdns, gandi, prenoms, reserved, seo, signals, states, updates, value, wordlists
 from .auth import (
     COOKIE_NAME,
     LoginGuard,
@@ -113,7 +113,8 @@ logging.getLogger("uvicorn.access").addFilter(_MaskMcp())
 
 STATIC = Path(__file__).parent / "static"
 PWA_PATHS = {"/manifest.webmanifest", "/sw.js", "/offline"}
-AI_PATHS = {"/api/ai/pending", "/api/ai/results", "/api/exploit/pending", "/api/exploit/results"}
+AI_PATHS = {"/api/ai/pending", "/api/ai/results", "/api/ai/escalation", "/api/ai/escalation/results", "/api/exploit/pending",
+            "/api/exploit/results"}
 # Lecture seule avec le même jeton : de quoi observer et analyser, jamais modifier ni lire un réglage.
 # Explorer : les écrans seulement (liste, classement, carte, fiches, export), pas les vues enregistrées.
 READ_PATHS = re.compile(r"^/api/(meta|diag|today|domains|domains/\d+/history|drops|explore(/(rank|top|map|name|fiche|export))?|ai/(status|rated|outcomes))$")
@@ -1988,9 +1989,52 @@ async def ai_results(request: Request, payload: AiResults):
     context_of = await _off(ai.context_lookup, explorer, request.app.state.store)  # demande mesurée, renouvellement
     saved = ai.save(conn, payload.results, lambda name: name in asked or known(name), status_of, context_of)
     explorer.ai_changed()  # compteurs filtrés sur l'avis
-    for name in ai.finish(conn, saved.pop("names")):
-        await _notify_ai_done(request, name)
+    escalated = set(saved.pop("escalated"))
+    done = ai.finish(conn, saved.pop("names"))
+    # Analyse demandée qui part en escalade : le message attend le verdict définitif.
+    escalation.mark_notify(conn, [name for name in done if name in escalated])
+    for name in done:
+        if name not in escalated:
+            await _notify_ai_done(request, name)
     return saved
+
+
+@app.get("/api/ai/escalation")
+async def ai_escalation(request: Request):
+    """Noms à repêcher (deux contre-avis) et à passer au panel (dix avis), réservés à ce passage de la tâche,
+    avec la consigne de notation : chaque correcteur note à l'aveugle, sans voir aucun autre avis."""
+    explorer = request.app.state.explorer
+    conn = request.app.state.conn
+    found = await _off(escalation.claim, conn, lambda names: ai.describe_names(explorer, names))
+    guide = ai.GUIDE + portfolio.guide_addendum(portfolio.market_examples(conn))
+    return {"version": ai.VERSION, "guide": guide, "format": ai.FORMAT, **found}
+
+
+class EscalationVotes(BaseModel):
+    stage: str
+    claim: str
+    voter: int
+    results: list[dict]
+
+
+@app.post("/api/ai/escalation/results")
+async def ai_escalation_results(request: Request, payload: EscalationVotes):
+    """Avis d'un correcteur ; l'étape complète, la décision, puis le message des analyses demandées."""
+    if len(payload.results) > ai.MAX_RESULTS or not 1 <= payload.voter <= escalation.PANEL_VOTES or not payload.claim:
+        raise HTTPException(422, "Envoi invalide.")
+    explorer = request.app.state.explorer
+    conn = request.app.state.conn
+    context_of = await _off(ai.context_lookup, explorer, request.app.state.store)
+    found = await _off(escalation.record, conn, payload.stage, payload.claim, payload.voter, payload.results, context_of)
+    explorer.ai_changed()
+    final = found.pop("final")
+    for done in final:
+        if done["notify"]:
+            await _notify_ai_done(request, done["name"])
+    opinions = ai.load(conn, [d["name"] for d in final])
+    found["decided"] = [{"name": d["name"], "verdict": ((opinions.get(d["name"]) or {}).get("comment") or "").split(".")[0]}
+                        for d in final]
+    return found
 
 
 async def _notify_ai_done(request: Request, name: str) -> None:
@@ -2003,6 +2047,8 @@ async def _notify_ai_done(request: Request, name: str) -> None:
     verdict, _, reason = (opinion.get("comment") or "").partition(". ")
     summary = (f"Avis IA : {verdict.rstrip('.')}, revente {opinion['resale']}, exploitation {opinion['exploit']}, "
                f"prix final {pepites.price_range(opinion['final_low'], opinion['final_high'])}") if opinion else ""
+    if opinion.get("panel"):
+        summary += f"\nPanel : {opinion['panel']['take']} sur {opinion['panel']['n']} « À prendre »"
     text = "\n".join(x for x in (f"Analyse IA prête : {name}", summary, reason, "Fiche : " + link if link else "") if x)
     try:
         await request.app.state.telegram.send(text)
@@ -2532,6 +2578,7 @@ async def explore_fiche(request: Request):
     found["ai_eta"] = await _ai_eta(explorer, found)
     found["ai_request"] = ai.request_state(request.app.state.conn, name)
     found["exploit"] = exploit.state(request.app.state.conn, name)
+    found["ai_escalation"] = escalation.state(request.app.state.conn, name)
     found["in_portfolio"] = request.app.state.conn.execute("SELECT 1 FROM portfolio WHERE name = ?", (name,)).fetchone() is not None
     if found.get("tld") in ccdns.TLDS:
         found["cc_dns"] = ccdns.load_names(request.app.state.conn, [name]).get(name)

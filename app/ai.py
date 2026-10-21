@@ -12,7 +12,7 @@ import json
 import threading
 from datetime import timedelta
 
-from . import gandi, rdapinfo, tokens, value, wordlists
+from . import escalation, gandi, rdapinfo, tokens, value, wordlists
 from .checker import iso, utcnow
 
 # Version de la consigne : la monter fait renoter tous les noms, petit à petit.
@@ -161,6 +161,7 @@ def public(row) -> dict:
     found["grid"] = json.loads(grid) if grid else None
     found["version"] = row["version"] if "version" in keys else None
     found["reviewed_at"] = row["reviewed_at"] if "reviewed_at" in keys else None
+    found["panel"] = json.loads(row["panel"]) if "panel" in keys and row["panel"] else None
     found["why"] = why((found["comment"] or "").split(".")[0], found["grid"])
     return found
 
@@ -184,7 +185,7 @@ def stats(explorer) -> dict:
     rated = explorer.conn.execute("SELECT COUNT(*), MAX(rated_at) FROM domain_ai WHERE version >= ?", (VERSION,)).fetchone()
     total = sum(explorer.universe.good) * len([t for t in explorer.tlds() if t in AI_TLDS])
     return {"rated": rated[0], "last": rated[1], "total": total, "pending": max(0, total - rated[0]),
-            "token_set": tokens.any_of(explorer.conn, "ai")}
+            "token_set": tokens.any_of(explorer.conn, "ai"), "escalation": escalation.counts(explorer.conn)}
 
 
 # Extensions notées : .biz, .info et les autres valent trop peu pour dépenser la notation de nuit.
@@ -235,39 +236,23 @@ def to_review(explorer, limit: int = REVIEW_PER_NIGHT) -> list[tuple[str, int, i
     return [(name, best, estimate) for _, name, best, estimate in sorted(found, reverse=True)[:limit]]
 
 
-# Contre-notation : chaque « À prendre » repasse à l'aveugle chez un autre correcteur, en tête de lot, sans son
-# premier avis ; la note la plus basse reste (save). Un seul correcteur donnait 0 ou 45 « À prendre » sur
-# 1 000 noms comparables.
-CONFIRM_PER_LOT = 200
 COMPARABLES = 4  # ventes réelles les plus proches, jointes à chaque nom du lot (repères de prix)
 
 
-def to_confirm(explorer, limit: int = CONFIRM_PER_LOT) -> list[str]:
-    known = known_name(explorer)
-    rows = explorer.conn.execute(
-        "SELECT name FROM domain_ai WHERE comment LIKE 'À prendre.%' AND version >= ? AND confirmed_at IS NULL "
-        "ORDER BY resale DESC, exploit DESC, name", (VERSION,)).fetchall()
-    return [r[0] for r in rows if known(r[0])][:limit]
-
-
 def pending(explorer, limit: int, offset: int = 0) -> list[dict]:
-    """Noms complets sans avis à jour, dans l'ordre où ils servent ; les avis à revoir et à contre-noter d'abord.
+    """Noms complets sans avis à jour, dans l'ordre où ils servent ; les avis à revoir d'abord (la confirmation
+    des « À prendre » passe par l'escalade, hors de ce lot).
     `offset` : tranche de la file pour des sessions en parallèle ; seuls les noms rendus sont décrits (ventes
     comparables comprises), la file elle-même est vite calculée."""
     limit += offset
     review = to_review(explorer, min(REVIEW_PER_NIGHT, limit))
-    confirm = [n for n in to_confirm(explorer, min(CONFIRM_PER_LOT, max(0, limit - len(review))))
-               if n not in {r[0] for r in review}]
-    rest = limit - len(review) - len(confirm)
+    rest = limit - len(review)
     picked, data = _queue(explorer, rest) if rest > 0 else ([], {t: explorer.status_bytes(t) for t in explorer.tlds()})
     u = explorer.universe
     head = []
     for name, best, estimate in review:  # noms de l'univers sur une extension suivie (to_review)
         label, _, tld = name.rpartition(".")
         head.append(((u.index(label), label, tld), {"previous_note": best, "score_estimate": estimate}))
-    for name in confirm:  # à l'aveugle : rien ne dit au correcteur qu'un premier avis existe
-        label, _, tld = name.rpartition(".")
-        head.append(((u.index(label), label, tld), None))
     infos = [info for _, info in head] + [None] * len(picked)
     chosen = ([p for p, _ in head] + picked)[offset:]
     items = _describe(explorer, chosen, data)
@@ -480,7 +465,7 @@ def rederive(conn, store) -> int:
         return 0
     changed = 0
     rows = conn.execute("SELECT name, grid, comment, exploit, resale, final_low, taken, renewal, sell_rate, yield "
-                        "FROM domain_ai WHERE grid IS NOT NULL").fetchall()
+                        "FROM domain_ai WHERE grid IS NOT NULL AND panel IS NULL").fetchall()  # panel : médiane de dix avis, gardée
     for r in rows:
         item = normalized({"name": r["name"], **json.loads(r["grid"]), "final_low": r["final_low"], "taken": r["taken"],
                            "renewal": r["renewal"]})
@@ -508,14 +493,10 @@ def save(conn, results: list, known, status_of=None, context_of=None) -> dict:
     `status_of(name)` : code d'état de l'Explorer au moment de l'avis, gardé pour la mesure a posteriori.
     `context_of(name)` : {"taken": autres extensions où le nom est pris, "renewal": euros par an}, pour le rendement."""
     now = iso(utcnow())
-    saved, rejected, names = 0, [], []
+    saved, rejected, names, escalated = 0, [], [], []
     # Noms déjà notés avec la grille, avant ce lot : un avis à l'ancien format ne les remplace pas, et un
     # avis v5 qui revient est le second passage (il ne repassera plus), même en double dans le lot.
     detailed = {r[0] for r in conn.execute("SELECT name FROM domain_ai WHERE version >= ?", (VERSION,))}
-    # « À prendre » pas encore contre-notés : l'avis qui arrive est le second, la note la plus basse reste.
-    to_confirm_now = {r[0]: (r[1], r[2], r[3]) for r in conn.execute(
-        "SELECT name, resale, exploit, yield FROM domain_ai WHERE comment LIKE 'À prendre.%' AND version >= ? "
-        "AND confirmed_at IS NULL", (VERSION,))}
     for item in results[:MAX_RESULTS]:
         reason = check_any(item, known)
         if not reason and not is_v5(item) and item["name"] in detailed:
@@ -533,14 +514,6 @@ def save(conn, results: list, known, status_of=None, context_of=None) -> dict:
                    "comment": f"{notes['verdict']}. {item['comment']}", "taken": context.get("taken"),
                    "renewal": context.get("renewal"), "sell_rate": notes.get("sell_rate"), "yield": notes.get("yield_")}
             grid, version = json.dumps({k: item[k] for k in CRITERIA_V5}), VERSION
-            first = to_confirm_now.pop(item["name"], None)
-            if first is not None:
-                conn.execute("UPDATE domain_ai SET confirmed_at = ?, reviewed_at = COALESCE(reviewed_at, ?) WHERE name = ?",
-                             (now, now, item["name"]))
-                if (notes["resale"], notes["exploit"]) >= first[:2] and (notes.get("yield_") or 0) >= (first[2] or 0):
-                    saved += 1  # le premier avis, plus prudent ou égal, reste
-                    names.append(item["name"])
-                    continue
         else:
             row, grid, version = item, None, 4  # avis à l'ancien format, arrivé pendant la transition
         again = row["name"] in detailed
@@ -554,14 +527,17 @@ def save(conn, results: list, known, status_of=None, context_of=None) -> dict:
                  comment = excluded.comment, rated_at = excluded.rated_at, version = excluded.version,
                  grid = excluded.grid, reviewed_at = COALESCE(excluded.reviewed_at, domain_ai.reviewed_at),
                  status_at = excluded.status_at, taken = excluded.taken, renewal = excluded.renewal,
-                 sell_rate = excluded.sell_rate, yield = excluded.yield""",
+                 sell_rate = excluded.sell_rate, yield = excluded.yield, panel = NULL""",
             (*(row[k] for k in FIELDS), now, version, grid, now if again and version >= VERSION else None,
              status_of(row["name"]) if status_of else None, row.get("taken"), row.get("renewal"), row.get("sell_rate"),
              row.get("yield")),
         )
         saved += 1
         names.append(item["name"])
-    return {"saved": saved, "rejected": rejected, "names": names}
+        # « À prendre » : panel de dix ; « À surveiller » qui rapporte : repêchage (escalation).
+        if version >= VERSION and escalation.consider(conn, row["name"], row["comment"].split(".")[0], row.get("yield")):
+            escalated.append(row["name"])
+    return {"saved": saved, "rejected": rejected, "names": names, "escalated": escalated}
 
 
 def context_lookup(explorer, store):
@@ -689,6 +665,7 @@ def request(conn, name: str) -> dict:
            ON CONFLICT(name) DO UPDATE SET requested_at = excluded.requested_at, done_at = NULL, seen_at = NULL""",
         (name, iso(utcnow())),
     )
+    escalation.reset(conn, name)  # le nouvel avis repasse par l'escalade s'il le mérite
     return request_state(conn, name)
 
 
@@ -717,6 +694,14 @@ def requested(explorer) -> list[dict]:
     """Noms demandés à analyser, décrits comme ceux de la file de nuit quand ils y sont connus."""
     names = [r[0] for r in explorer.conn.execute(
         "SELECT name FROM ai_requests WHERE done_at IS NULL ORDER BY requested_at")]
+    out = describe_names(explorer, names)
+    for item in out:
+        item["requested"] = True
+    return out
+
+
+def describe_names(explorer, names: list[str]) -> list[dict]:
+    """Noms quelconques décrits comme ceux de la file (sans aucun avis déjà donné) : demandes, escalade."""
     u = explorer.universe
     tlds = explorer.tlds()
     data = {t: explorer.status_bytes(t) for t in tlds}
@@ -737,7 +722,6 @@ def requested(explorer) -> list[dict]:
         r = rdap.get(name)
         if r is not None:
             item["rdap"] = {k: r[k] for k in ("at", "available", "statuses", "registered_at", "expires_at")}
-        item["requested"] = True
         out.append(item)
     return out
 

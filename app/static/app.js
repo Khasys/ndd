@@ -1016,7 +1016,7 @@ document.addEventListener("alpine:init", () => {
     // en premier et en grand), verdict, les deux prix, le pourquoi, le commentaire ; la grille dans « Détail IA ».
     // Sans avis : le score, où en est la notation, les deux premières raisons du score.
     ficheDecision(f) {
-      const k = { notes: [], verdict: null, prices: [], why: "", comment: "", queue: "", old: false, grid: null, rated: "", premium: "" };
+      const k = { notes: [], verdict: null, prices: [], why: "", comment: "", queue: "", panel: "", old: false, grid: null, rated: "", premium: "" };
       if (!f) return k;
       const item = f.item;
       const opinion = f.ai || (item && item.ai);
@@ -1035,6 +1035,10 @@ document.addEventListener("alpine:init", () => {
         k.old = (opinion.version || 0) < 5;
         k.grid = opinion.grid || null;
         k.rated = opinion.rated_at ? `noté le ${this.shortDate(opinion.rated_at)}` : "";
+        k.panel = this.panelText(opinion);
+        const esc = f.ai_escalation;
+        if (esc) k.queue = esc.stage === "panel" ? "Confirmation en cours par un panel de 10 correcteurs, au prochain quart d'heure"
+          : "Repêchage en cours : 2 contre-avis, au prochain quart d'heure";
       } else {
         if (item && item.score !== undefined) {
           k.notes = [{ value: item.score, label: "score", main: true, title: this.scoreTitle(item) || `Score ${item.score} sur 100` }];
@@ -1058,6 +1062,16 @@ document.addEventListener("alpine:init", () => {
         k.premium = "Premium probable : le registre peut demander bien plus que le prix courant, Gandi le dira.";
       }
       return k;
+    },
+
+    // Panel de dix correcteurs (escalade) : combien disent « À prendre », et pourquoi un nom n'a pas été confirmé.
+    panelText(opinion) {
+      const p = opinion && opinion.panel;
+      if (!p) return "";
+      const parts = [`Panel : ${p.take} sur ${p.n} « À prendre »`];
+      if (p.veto) parts.push(p.veto === "faute" ? "faute relevée par 3 correcteurs ou plus" : "risque de marque relevé par 3 correcteurs ou plus");
+      else if (this.aiVerdict(opinion) === "À surveiller" && (p.median_verdict === "À prendre" || p.take >= 4)) parts.push("avis partagés");
+      return parts.join(" · ");
     },
 
     // Détail IA : les neuf sous-notes sur 10 d'où viennent les notes et le verdict ; un risque de 5 ou plus est signalé.
