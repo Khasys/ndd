@@ -1620,12 +1620,12 @@ def test_interface_fiche_layout():
     # En-tête : nom, une ligne d'état, bouton fermer « × » de 44 px avec son libellé accessible.
     assert 'class="fiche-close"' in fiche and 'aria-label="Fermer"' in fiche and ">Fermer<" not in fiche
     assert "ficheWhen(fiche)" in fiche and "width: 44px; height: 44px" in css
-    # Ordre : en-tête, carte décision, pictos, dates clés, sections.
+    # Ordre : en-tête, carte décision, pictos, dates clés, sections (la rentabilité en premier).
     order = [fiche.index(k) for k in ('class="fiche-head"', 'class="fiche-deal"', 'class="fiche-acts"', 'class="fiche-timeline"',
-                                      *(f'fsec-title">{t}<' for t in ("Score", "Suivi", "Le nom", "Comparables et repères",
+                                      *(f'fsec-title">{t}<' for t in ("Rentabilité", "Score", "Suivi", "Le nom", "Comparables et repères",
                                                                       "Autres extensions", "Registre et SEO")))]
     assert order == sorted(order)
-    assert fiche.count('<details class="fsec') == 6 and fiche.count('class="fsec-sum"') >= 5
+    assert fiche.count('<details class="fsec') == 7 and fiche.count('class="fsec-sum"') >= 5
     # Tout l'avis IA dans la carte décision : deux notes, verdict, prix, pourquoi, commentaire, « Détail IA »
     # qui déroule la grille ; plus de section Avis IA en dessous.
     deal = fiche.split('class="fiche-deal"')[1].split("</section>")[0]

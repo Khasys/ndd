@@ -1531,3 +1531,17 @@ button:disabled { cursor: default; opacity: .55; }
   font-size: 12px; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: .04em;
   background: var(--bg); border-top: 2px solid var(--accent);
 }
+
+/* Fiche : rentabilité à l'exploitation (demande, puis rapport). */
+.fx-ask { display: flex; align-items: center; gap: 12px; justify-content: space-between; }
+.fx-ask .btn-ghost { flex: none; }
+.fx-report { margin-top: 14px; display: grid; gap: 10px; }
+.fx-report p { overflow-wrap: anywhere; }
+.fx-model { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; display: grid; gap: 4px; }
+.fx-model-head { display: flex; flex-wrap: wrap; gap: 0 4px; }
+.fx-list { margin: 0; padding-left: 18px; display: grid; gap: 4px; overflow-wrap: anywhere; }
+.fx-dl { margin-top: 4px; }
+.fx-report .fsub { margin: 6px 0 0; }
+@media (max-width: 479px) {
+  .fx-ask { flex-direction: column; align-items: stretch; }
+}

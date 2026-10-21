@@ -1748,6 +1748,54 @@
           </template>
         </ol>
       </section>
+      <!-- Rentabilité à l'exploitation : analyse à la demande (recherche web comprise) par la tâche du quart d'heure. -->
+      <details class="fsec fiche-exploit" :open="!mobile || !!(fiche.exploit && fiche.exploit.report)" x-data="{ x: exploitView(null) }" x-effect="x = exploitView(fiche)">
+        <summary><span class="fsec-title">Rentabilité</span><span class="fsec-sum" x-text="x.sum"></span></summary>
+        <div class="fsec-body">
+          <div class="fx-ask">
+            <p class="small muted" x-text="x.hint"></p>
+            <button type="button" class="btn-ghost sm" :disabled="x.pending || exploitBusy" @click="ficheExploit()" x-text="x.button"></button>
+          </div>
+          <template x-if="x.report">
+            <div class="fx-report">
+              <p class="fx-verdict"><span class="verdict" :class="x.cls" x-text="x.label"></span></p>
+              <p class="fx-summary" x-text="x.report.summary"></p>
+              <template x-for="(m, i) in x.report.models" :key="i">
+                <div class="fx-model">
+                  <p class="fx-model-head"><b x-text="exploitKind(m.kind)"></b><span class="muted" x-text="' · effort ' + m.effort + ' · ' + m.delay"></span></p>
+                  <p x-text="m.how"></p>
+                  <p><span class="muted">Revenu plausible : </span><b x-text="exploitRevenue(m)"></b></p>
+                  <p class="small muted" x-text="'Hypothèses : ' + m.assumptions"></p>
+                </div>
+              </template>
+              <p class="fsub">Programmes d'affiliation</p>
+              <p class="small muted" x-show="!x.report.programs.length">Aucun programme trouvé avec une rémunération publiée.</p>
+              <ul class="fx-list" x-show="x.report.programs.length">
+                <template x-for="(p, i) in x.report.programs" :key="i">
+                  <li><a :href="p.url" target="_blank" rel="noopener noreferrer" x-text="p.name"></a><span x-text="' : ' + p.pay"></span></li>
+                </template>
+              </ul>
+              <dl class="fdl fx-dl">
+                <dt>Concurrence</dt>
+                <dd><b x-text="x.report.competition.level"></b><span x-show="x.report.competition.players.length" x-text="' (' + x.report.competition.players.join(', ') + ')'"></span>. <span x-text="x.report.competition.note"></span></dd>
+                <dt>Demande</dt>
+                <dd><b x-text="x.report.demand.level"></b>. <span x-text="x.report.demand.note"></span></dd>
+                <dt>Coût de départ</dt>
+                <dd x-text="fmt(x.report.start_cost) + ' €'"></dd>
+                <dt>Premier euro</dt>
+                <dd x-text="x.report.first_euro"></dd>
+              </dl>
+              <p class="fsub" x-show="x.report.sources.length">Sources</p>
+              <ul class="fx-list small" x-show="x.report.sources.length">
+                <template x-for="(s, i) in x.report.sources" :key="i">
+                  <li><a :href="s" target="_blank" rel="noopener noreferrer" x-text="exploitHost(s)"></a></li>
+                </template>
+              </ul>
+              <p class="small muted fx-date" x-text="x.date"></p>
+            </div>
+          </template>
+        </div>
+      </details>
       <!-- Le détail, en sections repliables : même en-tête (titre, résumé d'un coup d'œil), même rythme. -->
       <details class="fsec" :open="!mobile" x-show="fiche.item && fiche.item.score !== undefined">
         <summary><span class="fsec-title">Score</span><span class="fsec-sum" x-text="fiche.item && fiche.item.score !== undefined ? fiche.item.score + '/100' : ''"></span></summary>

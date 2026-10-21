@@ -31,7 +31,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import ai, bot, mcp, tokens, calendar_ics, ccdns, db, decisions, market, morning, notify, pepites, portfolio, digest, drops, explore, frdata, frdns, gandi, prenoms, reserved, seo, signals, states, updates, value, wordlists
+from . import ai, bot, exploit, exploit_format, mcp, tokens, calendar_ics, ccdns, db, decisions, market, morning, notify, pepites, portfolio, digest, drops, explore, frdata, frdns, gandi, prenoms, reserved, seo, signals, states, updates, value, wordlists
 from .auth import (
     COOKIE_NAME,
     LoginGuard,
@@ -113,7 +113,7 @@ logging.getLogger("uvicorn.access").addFilter(_MaskMcp())
 
 STATIC = Path(__file__).parent / "static"
 PWA_PATHS = {"/manifest.webmanifest", "/sw.js", "/offline"}
-AI_PATHS = {"/api/ai/pending", "/api/ai/results"}
+AI_PATHS = {"/api/ai/pending", "/api/ai/results", "/api/exploit/pending", "/api/exploit/results"}
 # Lecture seule avec le même jeton : de quoi observer et analyser, jamais modifier ni lire un réglage.
 # Explorer : les écrans seulement (liste, classement, carte, fiches, export), pas les vues enregistrées.
 READ_PATHS = re.compile(r"^/api/(meta|diag|today|domains|domains/\d+/history|drops|explore(/(rank|top|map|name|fiche|export))?|ai/(status|rated|outcomes))$")
@@ -2105,6 +2105,52 @@ async def ai_request(request: Request, payload: AiAsk):
     return ai.request(request.app.state.conn, name)
 
 
+@app.post("/api/exploit/request")
+async def exploit_request(request: Request, payload: AiAsk):
+    """Demande d'analyse de rentabilité d'un nom, traitée par la tâche du quart d'heure."""
+    try:
+        name = clean_domain(payload.name)
+    except InvalidDomain as exc:
+        raise HTTPException(422, str(exc)) from None
+    if not request.app.state.settings.app_url:
+        _remember_public_url(request)
+    return exploit.request(request.app.state.conn, name)
+
+
+@app.get("/api/exploit/pending")
+async def exploit_pending(request: Request):
+    """Analyses de rentabilité demandées, avec la consigne : la tâche du quart d'heure les récupère."""
+    names = await _off(exploit.pending, request.app.state.explorer, request.app.state.store)
+    return {"version": exploit_format.VERSION, "guide": exploit_format.GUIDE, "format": exploit_format.FORMAT,
+            "names": names}
+
+
+@app.post("/api/exploit/results")
+async def exploit_results(request: Request, payload: AiResults):
+    if len(payload.results) > exploit.MAX_RESULTS:
+        raise HTTPException(422, f"{exploit.MAX_RESULTS} rapports au plus par envoi.")
+    saved = exploit.save(request.app.state.conn, payload.results)
+    for name in saved.pop("names"):
+        await _notify_exploit_done(request, name)
+    return saved
+
+
+async def _notify_exploit_done(request: Request, name: str) -> None:
+    """Analyse de rentabilité prête : message Telegram avec le lien vers la fiche."""
+    if not notify.enabled(request.app.state.store, "ai_ready"):
+        return
+    report = (exploit.state(request.app.state.conn, name) or {}).get("report") or {}
+    base = _public_url(request.app.state)
+    link = f"{base}/?{urlencode({'fiche': name})}" if base else ""
+    verdict = exploit_format.VERDICT_LABELS.get(report.get("verdict"), "")
+    text = "\n".join(x for x in (f"Rentabilité analysée : {name}", verdict, report.get("summary", ""),
+                                 "Fiche : " + link if link else "") if x)
+    try:
+        await request.app.state.telegram.send(text)
+    except Exception as exc:  # noqa: BLE001  le rapport reste dans la fiche
+        log.warning("Rentabilité : message Telegram non envoyé (%s)", exc)
+
+
 @app.get("/api/ai/requests")
 async def ai_requests(request: Request):
     return ai.requests(request.app.state.conn)
@@ -2485,6 +2531,7 @@ async def explore_fiche(request: Request):
         found["timeline"] = await _off(explorer.timeline, name, row, found.get("rdap"), iso(estimate))
     found["ai_eta"] = await _ai_eta(explorer, found)
     found["ai_request"] = ai.request_state(request.app.state.conn, name)
+    found["exploit"] = exploit.state(request.app.state.conn, name)
     found["in_portfolio"] = request.app.state.conn.execute("SELECT 1 FROM portfolio WHERE name = ?", (name,)).fetchone() is not None
     if found.get("tld") in ccdns.TLDS:
         found["cc_dns"] = ccdns.load_names(request.app.state.conn, [name]).get(name)

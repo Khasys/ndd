@@ -8,6 +8,9 @@
   python scripts/ai_exchange.py pack lot.json avis.json avis-1.txt avis-2.txt...  # lignes compactes vers JSON
   python scripts/ai_exchange.py check lot.json avis.json # contrôle le format, sans rien envoyer
   python scripts/ai_exchange.py push lot.json avis.json  # contrôle puis envoie les avis conformes
+  python scripts/ai_exchange.py exploit rent.json        # analyses de rentabilité demandées (tâche du quart d'heure)
+  python scripts/ai_exchange.py exploit-check rent.json rapports.json  # contrôle des rapports, sans rien envoyer
+  python scripts/ai_exchange.py exploit-push rent.json rapports.json   # contrôle puis envoie les rapports conformes
 
 Format compact (moins de texte à lire et à écrire, mêmes informations, même grille) : une ligne par nom,
   nom|oral,radio,memo,sens,marque,marche,ext,acheteurs,risque|prix|raison|acheteur type
@@ -23,10 +26,12 @@ dans Paramètres > Avis IA). Le jeton n'est jamais affiché ni écrit dans un fi
 import json
 import os
 import sys
+import urllib.error
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.ai_format import CRITERIA_V5, check_any, default_prices, derive, is_v5, summary  # noqa: E402  même règle que le NAS, sans dépendance
+from app.exploit_format import clean as clean_report  # noqa: E402
 from app.wordlists import LABELS, NATURES  # noqa: E402
 
 
@@ -143,6 +148,31 @@ def pack(lot_path: str, out_path: str, sources: list[str]) -> list[tuple[str, st
     return problems
 
 
+def verify_reports(asked_path: str, reports_path: str) -> tuple[list, list]:
+    """Rapports de rentabilité conformes, et problèmes : format, nom pas demandé, nom demandé sans rapport."""
+    with open(asked_path, encoding="utf-8") as f:
+        asked = [n["name"] for n in json.load(f)["names"]]
+    with open(reports_path, encoding="utf-8") as f:
+        reports = json.load(f)
+    if not isinstance(reports, list):
+        return [], [("", "liste JSON attendue")]
+    good, problems, seen = [], [], set()
+    for item in reports:
+        report, reason = clean_report(item)
+        name = report["name"] if report else str(item.get("name", "") if isinstance(item, dict) else "")
+        if report and name not in asked:
+            reason = "nom pas demandé"
+        elif report and name in seen:
+            reason = "doublon"
+        if reason:
+            problems.append((name, reason))
+            continue
+        seen.add(name)
+        good.append(item)
+    problems += [(n, "pas de rapport") for n in asked if n not in seen]
+    return good, problems
+
+
 def main() -> None:
     action = sys.argv[1] if len(sys.argv) > 1 else ""
     if action == "pull":
@@ -163,6 +193,31 @@ def main() -> None:
             json.dump(found, f, ensure_ascii=False, indent=1)
         # Première ligne lue par la tâche horaire : à 0, elle s'arrête sans rien faire d'autre.
         print(f"DEMANDES {len(found['names'])}")
+    elif action == "exploit":
+        target = sys.argv[2]
+        try:
+            found = call("GET", "/api/exploit/pending")
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:  # NAS d'avant cette fonction
+                print("RENTABILITÉ 0 (NAS pas à jour)")
+                return
+            raise
+        with open(target, "w", encoding="utf-8") as f:
+            json.dump(found, f, ensure_ascii=False, indent=1)
+        # Première ligne lue par la tâche : à 0, rien à faire de ce côté.
+        print(f"RENTABILITÉ {len(found['names'])}")
+    elif action in ("exploit-check", "exploit-push"):
+        good, problems = verify_reports(sys.argv[2], sys.argv[3])
+        print(f"{len(good)} rapports conformes, {len(problems)} problèmes")
+        for name, reason in problems[:30]:
+            print(f"  {name} : {reason}")
+        for item in good:
+            print(f"  {item['name']} : {item['verdict']}")
+        if action == "exploit-push" and good:
+            answer = call("POST", "/api/exploit/results", {"results": good})
+            print(f"NAS : {answer['saved']} rapports enregistrés, {len(answer['rejected'])} rejetés")
+            for r in answer["rejected"][:20]:
+                print(f"  {r['name']} : {r['reason']}")
     elif action == "guide":
         with open(sys.argv[2], encoding="utf-8") as f:
             print(json.load(f)["guide"])
@@ -209,7 +264,8 @@ def main() -> None:
                 print(f"  {r['name']} : {r['reason']}")
     else:
         sys.exit("Usage : pull <nombre> <lot.json> | requested <lot.json> | guide <lot.json> | show <lot.json> <début> <nombre> | "
-                 "pack <lot.json> <avis.json> <avis-1.txt>... | check <lot.json> <avis.json> | push <lot.json> <avis.json>")
+                 "pack <lot.json> <avis.json> <avis-1.txt>... | check <lot.json> <avis.json> | push <lot.json> <avis.json> | "
+                 "exploit <rent.json> | exploit-check <rent.json> <rapports.json> | exploit-push <rent.json> <rapports.json>")
 
 
 if __name__ == "__main__":

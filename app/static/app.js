@@ -39,6 +39,15 @@ const MERGED_LISTS = { firstname_us: "firstname", surname_us: "surname", niche_u
 const bestSource = (r, key) => [key, ...Object.keys(MERGED_LISTS).filter((k) => MERGED_LISTS[k] === key)]
   .filter((k) => r[k]).sort((a, b) => r[a] - r[b])[0];
 const VERDICT_CLASSES = { "À prendre": "take", "À surveiller": "watch", "À laisser": "skip" };
+// Rentabilité à l'exploitation (app/exploit_format.py) : libellé et couleur du verdict, modèles.
+const EXPLOIT_VERDICTS = {
+  facile: ["Facile à rentabiliser", "take"], possible: ["Rentable avec du travail", "watch"],
+  difficile: ["Difficile à rentabiliser", "skip"],
+};
+const EXPLOIT_KINDS = {
+  affiliation: "Affiliation", leads: "Vente de contacts", publicite: "Publicité", boutique: "Boutique en ligne",
+  service: "Service ou appli", media: "Média ou contenu",
+};
 // min : score minimum des filtres avancés ; 0 = tout voir. period : libérés depuis / libération dans (clé de
 // PERIODS), "" = tout ce que la Veille garde.
 // nopremium : « Masquer les premiums » ; gprice : prix d'achat Gandi au plus (noms vérifiés chez Gandi seulement).
@@ -263,6 +272,7 @@ document.addEventListener("alpine:init", () => {
     exMap: null,
     exBusy: {},
     mineBusy: false,
+    exploitBusy: false,
     exSeo: { running: false, done: 0, total: 0, key_set: true },
     seoKey: "",
     ex: { tld: "", q: "", status: "bookable", cat: "", len: "", sort: "best", nat: "", rank: "", taken: "", min: "", junk: "", seo: "", lang: "", nopremium: "", gprice: "", level: "good", ...AI_FILTER_DEFAULTS },
@@ -1163,6 +1173,50 @@ document.addEventListener("alpine:init", () => {
       if (state === "pending") return;
       if (state === "done" && !confirm(`Relancer l'analyse IA de ${this.fiche.name} ? L'avis actuel sera remplacé.`)) return;
       return this.ficheAskAi();
+    },
+
+    // Rentabilité à l'exploitation : état de la demande et rapport, prêts pour la section de la fiche.
+    exploitView(f) {
+      const e = (f && f.exploit) || null;
+      const report = e && e.report;
+      const pending = !!(e && e.pending);
+      const v = report ? EXPLOIT_VERDICTS[report.verdict] || ["", ""] : ["", ""];
+      return {
+        report, pending, label: v[0], cls: v[1],
+        sum: pending ? "En cours" : report ? v[0] : "Pas encore analysée",
+        hint: pending
+          ? `Demandée ${this.relative(e.requested_at)}. Traitée au prochain quart d'heure de 8 h à 23 h, sinon dans l'heure.`
+          : report ? "Affiliation, concurrence, effort et revenu plausible, recherche web comprise."
+          : "Comment ce nom rapporterait s'il est exploité : affiliation, concurrence, effort et revenu plausible, recherche web comprise.",
+        button: pending ? "Demandée" : report ? "Relancer" : "Analyser la rentabilité",
+        date: report && e.reported_at ? `Analysé le ${this.shortDate(e.reported_at)}` : "",
+      };
+    },
+
+    exploitKind(kind) { return EXPLOIT_KINDS[kind] || kind; },
+
+    exploitRevenue(m) {
+      if (!m.revenue_high) return "rien de crédible";
+      return `${this.fmt(m.revenue_low)} à ${this.fmt(m.revenue_high)} € par an`;
+    },
+
+    exploitHost(url) {
+      try { return new URL(url).hostname.replace(/^www\./, ""); } catch (_) { return url; }
+    },
+
+    async ficheExploit() {
+      const name = this.fiche.name;
+      if (this.fiche.exploit && this.fiche.exploit.report && !confirm(`Relancer l'analyse de rentabilité de ${name} ? Le rapport actuel sera remplacé.`)) return;
+      this.exploitBusy = true;
+      try {
+        const state = await this.api("POST", "/api/exploit/request", { name });
+        if (this.fiche && this.fiche.name === name) this.fiche.exploit = state;
+        this.say(`Analyse de rentabilité demandée pour ${name}. Message Telegram quand elle est prête.`);
+      } catch (e) {
+        this.sayError(e, name, () => this.ficheExploit());
+      } finally {
+        this.exploitBusy = false;
+      }
     },
 
     aiAskLabel(f) {
