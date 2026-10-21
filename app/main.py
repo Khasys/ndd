@@ -31,7 +31,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import ai, bot, escalation, exploit, exploit_format, mcp, tokens, calendar_ics, ccdns, db, decisions, market, morning, notify, pepites, portfolio, digest, drops, explore, frdata, frdns, gandi, prenoms, reserved, seo, signals, states, updates, value, wordlists
+from . import ai, bot, escalation, exploit, exploit_format, mcp, registrations, stats, tokens, calendar_ics, ccdns, db, decisions, market, morning, notify, pepites, portfolio, digest, drops, explore, frdata, frdns, gandi, prenoms, reserved, seo, signals, states, updates, value, wordlists
 from .auth import (
     COOKIE_NAME,
     LoginGuard,
@@ -117,7 +117,7 @@ AI_PATHS = {"/api/ai/pending", "/api/ai/results", "/api/ai/escalation", "/api/ai
             "/api/exploit/results"}
 # Lecture seule avec le même jeton : de quoi observer et analyser, jamais modifier ni lire un réglage.
 # Explorer : les écrans seulement (liste, classement, carte, fiches, export), pas les vues enregistrées.
-READ_PATHS = re.compile(r"^/api/(meta|diag|today|domains|domains/\d+/history|drops|explore(/(rank|top|map|name|fiche|export))?|ai/(status|rated|outcomes))$")
+READ_PATHS = re.compile(r"^/api/(meta|diag|stats|today|domains|domains/\d+/history|drops|explore(/(rank|top|map|name|fiche|export))?|ai/(status|rated|outcomes))$")
 PUBLIC_PATHS = {"/login", "/health", "/favicon.svg", "/logo", *PWA_PATHS}
 SETUP_PATHS = {"/setup", "/health", "/favicon.svg", "/logo"}
 BCRYPT_HASH = re.compile(r"\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}")
@@ -228,6 +228,12 @@ async def lifespan(app: FastAPI):
             text, events = notify.urgent_tick(store, telegram.configured)
             if text and await telegram.send(text) is None:
                 morning.mark_urgent_sent(store, events)
+
+    async def enrich_registrations() -> None:
+        """Journal des enregistrements : le contexte des nouveaux noms (score, catégories, avis IA), par lots."""
+        count = await _off(registrations.enrich, app.state.explorer)
+        if count:
+            log.info("Journal des enregistrements : %s noms décrits", count)
 
     async def update_outcomes() -> None:
         """Nuit : les avis d'il y a 30 jours sur des noms libres, revus à l'état d'aujourd'hui (ai_outcomes)."""
@@ -342,6 +348,8 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(refresh_signals, "interval", hours=1, next_run_time=now + timedelta(minutes=2), max_instances=1)
     scheduler.add_job(send_alerts, "interval", minutes=1, next_run_time=now + timedelta(minutes=7), max_instances=1, id="send_alerts")
     scheduler.add_job(update_outcomes, "cron", hour=4, minute=40, max_instances=1, id="ai_outcomes")
+    scheduler.add_job(enrich_registrations, "interval", minutes=20, next_run_time=now + timedelta(minutes=9), max_instances=1,
+                      id="registrations")
     scheduler.add_job(scan_zones, "interval", minutes=15, next_run_time=now + timedelta(minutes=1), max_instances=1)
     scheduler.add_job(check_drops, "interval", minutes=5, next_run_time=now + timedelta(minutes=3), max_instances=1)
     scheduler.add_job(import_fr, "interval", hours=6, next_run_time=now + timedelta(minutes=4), max_instances=1)
@@ -2206,6 +2214,12 @@ async def ai_requests(request: Request):
 async def ai_request_seen(request: Request, payload: AiAsk):
     ai.seen(request.app.state.conn, payload.name.strip().lower())
     return ai.requests(request.app.state.conn)
+
+
+@app.get("/api/stats")
+async def stats_page(request: Request):
+    """Page Statistiques : enregistrements, libérations et reprises, zones, notation IA, Gandi."""
+    return await _off(stats.build, request.app.state.conn, request.app.state.explorer.tlds())
 
 
 @app.get("/api/ai/status")

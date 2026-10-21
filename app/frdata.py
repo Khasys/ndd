@@ -24,7 +24,7 @@ from pathlib import Path
 
 import httpx
 
-from . import digest, drops, rdapinfo, states, wordlists
+from . import digest, drops, rdapinfo, registrations, states, wordlists
 from .checker import iso, utcnow
 from .store import Store
 
@@ -428,7 +428,13 @@ class FrWatcher:
         """Met fr_names à jour et passe les nouvelles suppressions à l'écran Suppressions.
         Appelée dans un fil (to_thread) : la connexion, la transaction et drops.record y restent."""
         today = now.date()
-        before = dict(self.conn.execute("SELECT label, removed_on FROM fr_names").fetchall())
+        known_rows = self.conn.execute("SELECT label, created_on, removed_on FROM fr_names").fetchall()
+        before = {r[0]: r[2] for r in known_rows}
+        created_before = {r[0]: r[1] for r in known_rows}
+        # Journal des enregistrements : une date de création nouvelle ou changée. Au premier import avec le
+        # journal, toutes les créations de l'année écoulée y entrent (registrations.AFNIC_BACKFILL).
+        journal_all = self.store.get("registrations_afnic") != "1"
+        created_rows = []
         # Premier import (ou import d'avant ce suivi) : pas de fichier précédent pour comparer.
         first = not before or self.store.get("fr_backfill") != "1"
         since = (now - timedelta(days=BACKFILL_DAYS)).date()
@@ -444,6 +450,9 @@ class FrWatcher:
                 # L'anniversaire d'hier compte encore : sa lecture est prévue aujourd'hui à midi.
                 following = iso(_check_time(next_anniversary(created, today - timedelta(days=2))))
             rows.append((label, created and created.isoformat(), removed and removed.isoformat(), following))
+            if created and not removed and (journal_all or created_before.get(label) != created.isoformat()):
+                previous = before.get(label)
+                created_rows.append((label, created, date.fromisoformat(previous) if previous else None))
             if not removed or label in followed:
                 continue
             # Nouvelle suppression depuis le fichier précédent, quelle que soit sa date :
@@ -470,11 +479,13 @@ class FrWatcher:
             )
             for removed, labels in removals.items():
                 self.drops.record("fr", labels, [], now, removed_on=removed)
+            registrations.journal_afnic(self.conn, created_rows, today)
             self.conn.execute("COMMIT")
         except Exception:
             self.conn.execute("ROLLBACK")
             raise
         self.store.set("fr_backfill", "1")
+        self.store.set("registrations_afnic", "1")
 
     def due(self, now_local: datetime) -> bool:
         """Une fois par semaine : l'Afnic publie vers le milieu du mois, la date exacte varie."""

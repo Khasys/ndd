@@ -42,6 +42,9 @@
       <button type="button" class="side-link" :class="{ on: portfolioOpen }" @click="openSheet('portfolio')">
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="7" width="16" height="12" rx="2"/><path d="M9 7V5h6v2M4 12h16"/></svg><span>Portefeuille</span>
       </button>
+      <button type="button" class="side-link" :class="{ on: statsOpen }" @click="openSheet('stats')">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19V11M10 19V5M15 19v-6M20 19V9M3 19h18"/></svg><span>Statistiques</span>
+      </button>
       <button type="button" class="side-link" :class="{ on: legendOpen }" @click="openSheet('legend')">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 7.5v.5"/></svg><span>Aide</span>
       </button>
@@ -171,6 +174,143 @@
         <button type="button" class="btn-ghost today-more" @click="openSheet('drops')">Voir toute la Veille</button>
       </div>
     </template>
+  </section>
+
+  <!-- Statistiques : ce que fait le marché (enregistrements, reprises, libérations) et ce que fait l'appli (zones,
+       notation IA, Gandi). Graphes dessinés par l'appli, infobulle au survol, chiffres en tableau sous chaque graphe. -->
+  <section class="stats sheet" x-show="statsOpen" x-transition.opacity.duration.150ms x-cloak aria-label="Statistiques"
+           @mouseover="statsTip($event)" @click="statsTip($event)" @mouseleave="statsTipText = ''">
+    <div class="sheet-head"><h2>Statistiques</h2><div x-tpl="'settings-btn'"></div></div>
+    <p class="sheet-sub">Ce qui part, ce qui se libère, ce que fait l'appli</p>
+    <p class="muted small" x-show="!statsData">Chargement…</p>
+    <template x-if="statsData">
+      <div class="stats-cards" x-data="{ r: statsData.registrations, d: statsData.releases, a: statsData.ai, g: statsData.gandi }"
+           x-effect="r = statsData.registrations; d = statsData.releases; a = statsData.ai; g = statsData.gandi">
+
+        <article class="card stats-card" aria-labelledby="st-reg">
+          <h3 id="st-reg">Enregistrements</h3>
+          <p class="small muted">Noms de nos listes enregistrés par quelqu'un. Zones ICANN : le jour de la lecture qui les a vus entrer ; .fr : la date de création donnée par l'Afnic.</p>
+          <div class="stat-tiles">
+            <div class="stat-tile"><b x-text="fmt(r.total_7)"></b><span>sur 7 jours</span></div>
+            <div class="stat-tile"><b x-text="fmt(r.total_30)"></b><span>sur 30 jours</span></div>
+            <div class="stat-tile"><b x-text="fmt(r.total)"></b><span x-text="r.since ? 'depuis le ' + shortDate(r.since + 'T12:00:00') : 'au total'"></span></div>
+          </div>
+          <p class="small muted" x-show="!r.total">Journal vide pour l'instant : il se remplit à la prochaine lecture des zones et au prochain fichier .fr.</p>
+          <template x-if="r.total">
+            <div x-data="{ s: statsSeries(r.by_day) }" x-effect="s = statsSeries(r.by_day)">
+              <div class="viz-legend"><template x-for="x in s" :key="x.key"><span><i :style="'background:' + x.color"></i><span x-text="x.label"></span></span></template></div>
+              <div class="viz" x-html="statsBars(r.days, s)"></div>
+              <details class="viz-table"><summary>Voir les chiffres</summary>
+                <table><thead><tr><th>Extension</th><th>60 jours</th></tr></thead>
+                  <tbody><template x-for="x in s" :key="x.key"><tr><td x-text="x.label"></td><td x-text="fmt(x.values.reduce((p, q) => p + q, 0))"></td></tr></template></tbody></table>
+              </details>
+            </div>
+          </template>
+          <p class="small muted" x-show="r.pending_context" x-text="fmt(r.pending_context) + ' noms attendent leur contexte (score, catégories, avis IA), ajouté par lots toutes les 20 minutes.'"></p>
+        </article>
+
+        <article class="card stats-card" aria-labelledby="st-what">
+          <h3 id="st-what">Ce qui part</h3>
+          <p class="small muted">Les noms enregistrés ces 30 derniers jours, par catégorie et par score au moment de l'enregistrement.</p>
+          <p class="small muted" x-show="!r.categories.length">Pas encore de noms décrits.</p>
+          <div class="hbars" x-show="r.categories.length">
+            <template x-for="c in r.categories" :key="c.key">
+              <div class="hbar" :data-tip="c.label + ' : ' + fmt(c.count) + ' noms'"><span x-text="c.label"></span><i><b :style="'width:' + (100 * c.count / r.categories[0].count) + '%'"></b></i><em x-text="fmt(c.count)"></em></div>
+            </template>
+          </div>
+          <h4 class="fsub" x-show="r.score_bands.some((b) => b.count)">Score</h4>
+          <div class="hbars" x-show="r.score_bands.some((b) => b.count)">
+            <template x-for="b in r.score_bands" :key="b.band">
+              <div class="hbar" :data-tip="'Score ' + b.band + ' : ' + fmt(b.count) + ' noms'"><span x-text="'score ' + b.band"></span><i><b :style="'width:' + (100 * b.count / Math.max(1, ...r.score_bands.map((x) => x.count))) + '%'"></b></i><em x-text="fmt(b.count)"></em></div>
+            </template>
+          </div>
+          <p class="small" x-show="Object.keys(r.ai_verdicts).length"
+             x-text="'Avec un avis IA avant leur enregistrement : ' + Object.entries(r.ai_verdicts).map(([v, n]) => v + ' ' + fmt(n)).join(', ') + '.'"></p>
+        </article>
+
+        <article class="card stats-card" aria-labelledby="st-retake">
+          <h3 id="st-retake">Reprise des noms libérés</h3>
+          <p class="small muted" x-text="'Noms libérés entre le ' + shortDate(d.window[0] + 'T12:00:00') + ' et le ' + shortDate(d.window[1] + 'T12:00:00') + ' (au moins une semaine pour être repris) : la part reprise depuis, et le délai médian. Groupes de 30 noms au moins.'"></p>
+          <p class="small muted" x-show="!d.by_tld.length">Pas encore assez de noms libérés sur la période.</p>
+          <div class="hbars" x-show="d.by_tld.length">
+            <template x-for="t in d.by_tld" :key="t.key">
+              <div class="hbar" :data-tip="'.' + t.key + ' : ' + fmt(t.taken) + ' repris sur ' + fmt(t.count) + (t.median_days !== null ? ', en ' + t.median_days + ' jours (médiane)' : '')">
+                <span x-text="'.' + t.key"></span><i><b :style="'width:' + (100 * t.share) + '%; background: var(--series-' + statsTld(t.key) + ')'"></b></i><em x-text="statsPct(t.share)"></em></div>
+            </template>
+          </div>
+          <h4 class="fsub" x-show="d.by_category.length">Par catégorie</h4>
+          <div class="hbars" x-show="d.by_category.length">
+            <template x-for="c in d.by_category" :key="c.key">
+              <div class="hbar" :data-tip="c.label + ' : ' + fmt(c.taken) + ' repris sur ' + fmt(c.count) + (c.median_days !== null ? ', en ' + c.median_days + ' jours (médiane)' : '')">
+                <span x-text="c.label"></span><i><b :style="'width:' + (100 * c.share) + '%'"></b></i><em x-text="statsPct(c.share)"></em></div>
+            </template>
+          </div>
+          <p class="small" x-show="Object.keys(r.retaken).length"
+             x-text="'Repris après leur libération, sur 30 jours : ' + Object.entries(r.retaken).map(([t, x]) => '.' + t + ' ' + fmt(x.count) + ' noms, ' + x.median_days + ' jours de délai médian').join(' ; ') + '.'"></p>
+        </article>
+
+        <article class="card stats-card" aria-labelledby="st-rel">
+          <h3 id="st-rel">Libérations</h3>
+          <p class="small muted">Noms de nos listes sortis d'une zone ou supprimés par l'Afnic, par jour de suppression.</p>
+          <div x-data="{ s: statsSeries(d.by_day) }" x-effect="s = statsSeries(d.by_day)">
+            <p class="small muted" x-show="!s.length">Aucune libération sur 60 jours.</p>
+            <template x-if="s.length">
+              <div>
+                <div class="viz-legend"><template x-for="x in s" :key="x.key"><span><i :style="'background:' + x.color"></i><span x-text="x.label"></span></span></template></div>
+                <div class="viz" x-html="statsBars(d.days, s)"></div>
+                <details class="viz-table"><summary>Voir les chiffres</summary>
+                  <table><thead><tr><th>Extension</th><th>60 jours</th></tr></thead>
+                    <tbody><template x-for="x in s" :key="x.key"><tr><td x-text="x.label"></td><td x-text="fmt(x.values.reduce((p, q) => p + q, 0))"></td></tr></template></tbody></table>
+                </details>
+              </div>
+            </template>
+          </div>
+        </article>
+
+        <article class="card stats-card" aria-labelledby="st-ai">
+          <h3 id="st-ai">Notation IA</h3>
+          <div class="stat-tiles">
+            <template x-for="(n, v) in a.verdicts" :key="v"><div class="stat-tile"><b x-text="fmt(n)"></b><span class="verdict" :class="verdictClass(v)" x-text="v"></span></div></template>
+          </div>
+          <p class="small" x-text="'Escalade en cours : ' + fmt(a.escalation.rescue) + ' en repêchage, ' + fmt(a.escalation.panel) + ' au panel. Panels tenus : ' + fmt(a.panel.count) + ', dont ' + fmt(a.panel.kept) + ' confirmés « À prendre ».'"></p>
+          <h4 class="fsub">Avis reçus par jour</h4>
+          <div class="viz" x-html="statsBars(a.days, [{ key: 'ai', label: 'avis', color: 'var(--series-fr)', values: a.per_day }], 'avis')"></div>
+          <details class="viz-table"><summary>Voir les chiffres</summary>
+            <table><thead><tr><th>Jour</th><th>Avis</th></tr></thead>
+              <tbody><template x-for="(day, k) in a.days" :key="day"><tr x-show="a.per_day[k]"><td x-text="shortDate(day + 'T12:00:00')"></td><td x-text="fmt(a.per_day[k])"></td></tr></template></tbody></table>
+          </details>
+          <h4 class="fsub">Le verdict a-t-il vu juste ?</h4>
+          <p class="small muted" x-text="'Noms notés libres il y a ' + a.outcomes.min_age_days + ' jours au moins : part reprise par quelqu’un d’autre depuis (' + fmt(a.outcomes.total) + ' noms). Un bon « À prendre » part plus souvent qu’un « À laisser ».'"></p>
+          <div class="hbars" x-show="Object.keys(a.outcomes.by_verdict).length">
+            <template x-for="(c, v) in a.outcomes.by_verdict" :key="v">
+              <div class="hbar" :data-tip="v + ' : ' + fmt(c.taken) + ' repris sur ' + fmt(c.count)"><span x-text="v"></span><i><b :style="'width:' + (100 * (c.share || 0)) + '%'"></b></i><em x-text="statsPct(c.share)"></em></div>
+            </template>
+          </div>
+        </article>
+
+        <article class="card stats-card" aria-labelledby="st-zones">
+          <h3 id="st-zones">Zones lues</h3>
+          <table class="stats-table">
+            <thead><tr><th>Extension</th><th>Noms suivis</th><th>Entrés</th><th>Sortis</th><th>Sur 7 jours</th></tr></thead>
+            <tbody>
+              <template x-for="z in statsData.zones" :key="z.tld">
+                <tr><td x-text="'.' + z.tld"></td><td x-text="fmt(z.names)"></td><td x-text="fmt(z.added)"></td><td x-text="fmt(z.removed)"></td>
+                  <td x-text="z.week_change === null ? '' : (z.week_change > 0 ? '+' : '') + fmt(z.week_change)"></td></tr>
+              </template>
+            </tbody>
+          </table>
+          <p class="small muted">Dernière lecture réussie de chaque zone. Après l'ajout d'une liste, « Entrés » compte aussi ses noms déjà enregistrés.</p>
+        </article>
+
+        <article class="card stats-card" aria-labelledby="st-gandi">
+          <h3 id="st-gandi">Vérifications Gandi</h3>
+          <p class="small muted">Noms par jour de leur dernière vérification, sur 30 jours.</p>
+          <div class="viz" x-html="statsBars(g.days, [{ key: 'gandi', label: 'noms', color: 'var(--series-fr)', values: g.per_day }])"></div>
+          <p class="small" x-show="Object.keys(g.kinds).length" x-text="'Réponses : ' + Object.entries(g.kinds).map(([k, n]) => ({ available: 'libres', premium: 'premiums', unavailable: 'indisponibles', taken: 'pris', reserved: 'réservés', restricted: 'restreints', error: 'erreurs' }[k] || k) + ' ' + fmt(n)).join(', ') + '.'"></p>
+        </article>
+      </div>
+    </template>
+    <div class="viz-tip" role="tooltip" x-show="statsTipText" :style="statsTipAt ? `left:${statsTipAt.x}px;top:${statsTipAt.y}px` : ''" x-text="statsTipText"></div>
   </section>
 
   <section class="legend sheet" x-show="legendOpen" x-transition.opacity.duration.150ms x-cloak aria-label="Aide">
@@ -915,7 +1055,7 @@
   <section class="panel settings sheet" x-show="settingsOpen" x-transition.opacity.duration.150ms x-cloak aria-label="Paramètres">
     <div class="sheet-head"><h2>Paramètres</h2></div>
     <p class="sheet-sub">Sources, alertes, réglages</p>
-    <p class="settings-help"><button type="button" class="btn-ghost sm" @click="openSheet('legend')">Aide</button></p>
+    <p class="settings-help"><button type="button" class="btn-ghost sm" @click="openSheet('stats')">Statistiques</button> <button type="button" class="btn-ghost sm" @click="openSheet('legend')">Aide</button></p>
     <div x-show="setupIncomplete" x-tpl="'setup-steps'"></div>
     <!-- Ce qui fait marcher l'appli d'abord : sources, Telegram, alertes, avis IA ; le reste replié. -->
     <div class="settings-grid">

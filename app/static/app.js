@@ -39,6 +39,9 @@ const MERGED_LISTS = { firstname_us: "firstname", surname_us: "surname", niche_u
 const bestSource = (r, key) => [key, ...Object.keys(MERGED_LISTS).filter((k) => MERGED_LISTS[k] === key)]
   .filter((k) => r[k]).sort((a, b) => r[a] - r[b])[0];
 const VERDICT_CLASSES = { "À prendre": "take", "À surveiller": "watch", "À laisser": "skip" };
+// Statistiques : extensions avec leur couleur propre (--series-<tld>, ordre fixe de la palette validée) ;
+// les autres sont regroupées.
+const STATS_TLDS = ["fr", "com", "org", "net", "io", "ai", "co"];
 // Rentabilité à l'exploitation (app/exploit_format.py) : libellé et couleur du verdict, modèles.
 const EXPLOIT_VERDICTS = {
   facile: ["Facile à rentabiliser", "take"], possible: ["Rentable avec du travail", "watch"],
@@ -237,6 +240,10 @@ document.addEventListener("alpine:init", () => {
     // Démarrer en 3 étapes (sources, Telegram, avis IA) : /api/meta et /api/today, même calcul serveur.
     setup: [],
     legendOpen: false,
+    statsOpen: false,
+    statsData: null,
+    statsTipText: "",
+    statsTipAt: null,
     settingsOpen: false,
     settingsAdvanced: false,
     dropsOpen: false,
@@ -396,6 +403,7 @@ document.addEventListener("alpine:init", () => {
       });
       this.$watch("todayOpen", () => this.lockScroll());
       this.$watch("legendOpen", () => this.lockScroll());
+      this.$watch("statsOpen", () => this.lockScroll());
       this.$watch("settingsOpen", () => this.lockScroll());
       this.$watch("dropsOpen", () => this.lockScroll());
       this.$watch("exploreOpen", () => this.lockScroll());
@@ -467,11 +475,12 @@ document.addEventListener("alpine:init", () => {
     },
 
     // Domaines est la liste, affichée quand aucun autre écran ne l'est.
-    get paged() { return this.todayOpen || this.legendOpen || this.settingsOpen || this.dropsOpen || this.exploreOpen || this.portfolioOpen; },
+    get paged() { return this.todayOpen || this.legendOpen || this.statsOpen || this.settingsOpen || this.dropsOpen || this.exploreOpen || this.portfolioOpen; },
 
     showList() {
       this.todayOpen = false;
       this.legendOpen = false;
+      this.statsOpen = false;
       this.settingsOpen = false;
       this.dropsOpen = false;
       this.exploreOpen = false;
@@ -513,6 +522,7 @@ document.addEventListener("alpine:init", () => {
       const opening = true;
       this.todayOpen = false;
       this.legendOpen = false;
+      this.statsOpen = false;
       this.dropsOpen = false;
       this.exploreOpen = false;
       this.portfolioOpen = false;
@@ -529,6 +539,10 @@ document.addEventListener("alpine:init", () => {
       } else if (name === "legend") {
         this.settingsOpen = false;
         this.legendOpen = opening;
+      } else if (name === "stats") {
+        this.settingsOpen = false;
+        this.statsOpen = true;
+        await this.loadStats();
       } else if (name === "drops") {
         this.settingsOpen = false;
         this.dropsOpen = opening;
@@ -1187,6 +1201,95 @@ document.addEventListener("alpine:init", () => {
       if (state === "pending") return;
       if (state === "done" && !confirm(`Relancer l'analyse IA de ${this.fiche.name} ? L'avis actuel sera remplacé.`)) return;
       return this.ficheAskAi();
+    },
+
+    // Statistiques : chargées à l'ouverture (le NAS garde le calcul dix minutes).
+    async loadStats() {
+      try {
+        this.statsData = await this.api("GET", "/api/stats");
+      } catch (e) {
+        this.sayError(e, "Statistiques", () => this.loadStats());
+      }
+    },
+
+    // Couleur d'une extension : la même dans tous les graphes (palette validée, ordre fixe) ; les petites
+    // extensions sont regroupées dans « autres ».
+    statsTld(tld) { return STATS_TLDS.includes(tld) ? tld : "autres"; },
+
+    statsSeries(byDay) {
+      const groups = {};
+      for (const [tld, values] of Object.entries(byDay || {})) {
+        const key = this.statsTld(tld);
+        groups[key] = groups[key] ? groups[key].map((v, k) => v + values[k]) : values.slice();
+      }
+      return [...STATS_TLDS, "autres"].filter((k) => groups[k])
+        .map((k) => ({ key: k, label: k === "autres" ? "autres" : "." + k, color: `var(--series-${k})`, values: groups[k] }));
+    },
+
+    statsTotal(series) { return series.reduce((a, s) => a + s.values.reduce((x, y) => x + y, 0), 0); },
+
+    // Barres par jour, empilées par série ; chaque segment porte son infobulle (data-tip).
+    statsBars(days, series, unit = "noms") {
+      if (!days || !series.length) return "";
+      // Largeur du dessin = largeur affichée (à peu près) : le texte des axes garde sa taille réelle.
+      const box = document.querySelector(".stats-cards");
+      const W = Math.round(Math.max(280, (box && box.clientWidth ? box.clientWidth : window.innerWidth - 40) - 34));
+      const H = 190, L = 44, B = 22, T = 8;
+      const totals = days.map((_, k) => series.reduce((a, s) => a + (s.values[k] || 0), 0));
+      const top = this.statsNice(Math.max(1, ...totals));
+      const step = (W - L) / days.length;
+      const bw = Math.max(2, step - 2);
+      const y = (v) => H - B - (v / top) * (H - B - T);
+      const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+      let out = `<svg class="viz-bars" viewBox="0 0 ${W} ${H}" role="img">`;
+      for (let g = 0; g <= 4; g++) {
+        const v = (top / 4) * g;
+        out += `<line class="viz-grid" x1="${L}" x2="${W}" y1="${y(v)}" y2="${y(v)}"/>`
+          + `<text class="viz-axis" x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${this.statsShort(v)}</text>`;
+      }
+      days.forEach((day, k) => {
+        let base = 0;
+        const x = L + k * step + 1;
+        const label = this.shortDate(day + "T12:00:00");
+        series.forEach((s, i) => {
+          const v = s.values[k] || 0;
+          if (!v) return;
+          const y0 = y(base), y1 = y(base + v);
+          const h = Math.max(1, y0 - y1 - (base ? 2 : 0));  // 2 px de fond entre deux segments
+          const tip = `${label} · ${s.label} : ${this.fmt(v)} ${unit}${series.length > 1 ? ` (total ${this.fmt(totals[k])})` : ""}`;
+          const last = series.slice(i + 1).every((t) => !(t.values[k] || 0));
+          const r = last ? Math.min(3, bw / 2, h) : 0;
+          out += `<path data-tip="${esc(tip)}" fill="${s.color}" d="M${x} ${y0 - (base ? 2 : 0)}V${y1 + r}q0 -${r} ${r} -${r}H${x + bw - r}q${r} 0 ${r} ${r}V${y0 - (base ? 2 : 0)}Z"/>`;
+          base += v;
+        });
+        if (k % Math.ceil(days.length / 6) === 0) {
+          out += `<text class="viz-axis" x="${x + bw / 2}" y="${H - 6}" text-anchor="middle">${label}</text>`;
+        }
+      });
+      return out + `<line class="viz-base" x1="${L}" x2="${W}" y1="${H - B}" y2="${H - B}"/></svg>`;
+    },
+
+    // Haut de l'axe : quatre graduations entières et rondes (1, 2 ou 5 fois une puissance de dix).
+    statsNice(v) {
+      const raw = Math.max(1, v / 4);
+      const p = 10 ** Math.floor(Math.log10(raw));
+      return 4 * [1, 2, 5, 10].map((m) => m * p).find((m) => m >= raw);
+    },
+
+    statsShort(v) {
+      if (v >= 1e6) return `${+(v / 1e6).toFixed(1)} M`;
+      if (v >= 1e3) return `${+(v / 1e3).toFixed(1)} k`;
+      return String(Math.round(v));
+    },
+
+    statsPct(x) { return x === null || x === undefined ? "" : `${Math.round(x * 100)} %`; },
+
+    // Infobulle des graphes : le segment survolé (ou touché) donne son texte.
+    statsTip(event) {
+      const mark = event.target.closest && event.target.closest("[data-tip]");
+      if (!mark) { this.statsTipText = ""; return; }
+      this.statsTipText = mark.dataset.tip;
+      this.statsTipAt = { x: Math.min(event.clientX + 12, window.innerWidth - 220), y: event.clientY + 14 };
     },
 
     // Rentabilité à l'exploitation : état de la demande et rapport, prêts pour la section de la fiche.

@@ -26,7 +26,7 @@ from typing import AsyncIterator, Iterable
 
 import httpx
 
-from . import digest, rdapinfo, states, wordlists
+from . import digest, rdapinfo, registrations, states, wordlists
 from .checker import iso, parse_iso, utcnow
 from .store import Store
 
@@ -516,6 +516,7 @@ class DropWatcher:
             return result
 
         previous, previous_words = self._load(tld), self._load_words(tld)
+        searched_before = self.searched(tld)  # avant _save : les noms cherchés à la lecture précédente
         result.names = count(bits) + len(words)
         if previous is None:
             result.first = True
@@ -542,6 +543,8 @@ class DropWatcher:
                     self._set_status(tld, result, started, scanner.bytes_in)
                     return result
             self._set_gap_refused(tld, None)
+            # Journal des enregistrements (statistiques) : sans les noms d'une liste ajoutée entre deux lectures.
+            registrations.journal_zone(self.conn, tld, added_words, searched_before, added, utcnow())
             removed += removed_words
             added += added_words
             result.removed, result.added = len(removed), len(added)
