@@ -1355,7 +1355,9 @@ def test_interface_today_counts_tld_chips_tables_and_fiche_outside():
     for call in ("openVeille('free', 'freed')", "openVeille('coming', 'coming')", "openVeille('free', 'new_take')", "openRegrets()"):
         assert call in today, call
     assert "/api/drops?focus=${focus}&period=${period}" in js and "dropClearFocus()" in html and 'class="drops-focus"' in html
-    assert "this.dropFocus ? [...this.dropsData.items]" in js
+    # Arrivé depuis Aujourd'hui : les filtres de la Veille s'appliquent aussi (sans bornes de score, période ni onglet).
+    assert "this.dropFocus ? this.dropsData.items.filter((d) => this.dropMatches(d, true))" in js
+    assert 'DROP_FOCUS_SKIP = ["min", "junk", "period", "new", "level"]' in js
     assert 'x-show="!dropFocus"' in html and "Repris seulement" in html and 'd.outcome === "repris"' in js
     assert 'x-for="d in decisionItems"' in html
     # Extensions : puces à cocher, plusieurs à la fois, « Toutes » ; la Veille garde une liste d'extensions.

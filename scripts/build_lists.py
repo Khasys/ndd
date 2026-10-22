@@ -21,8 +21,10 @@ Les listes choisies à la main sont dans scripts/lists ; sources et licences : a
 
 import gzip
 import itertools
+import math
 import sys
 import unicodedata
+from functools import lru_cache
 from pathlib import Path
 
 
@@ -418,7 +420,7 @@ def main() -> None:
     for file, with_lang in PROVIDED.items():
         entries = check_provided(file)
         if with_lang:
-            for name, langs in provided_langs(entries, known, vocabularies(file)).items():
+            for name, langs in provided_langs(entries, known, vocabularies(file), file).items():
                 for lang in langs:
                     LANG[lang].add(name)
                 mixed.add(name)
@@ -449,48 +451,134 @@ def themes_only() -> None:
 # Listes fournies : fichier de app/data -> langue à relever (une marque inventée n'en a pas).
 PROVIDED = {"premium.txt": True, "motscles.txt": True, "local.txt": True, "local_us.txt": True,
             "marques_inventees.txt": False}
-PIECE = 3  # une partie de nom composé fait 3 lettres au moins (« de », « my » collent à tout)
+PIECE = 3  # une partie de nom composé fait 3 lettres au moins, hors mots-outils (« de », « my » collent à tout)
+# Découpe pondérée : chaque morceau coûte 1 + log10(rang + 10) dans sa langue (un mot courant coûte peu), plus pour un
+# morceau court ou une forme fléchie retrouvée par sa terminaison. Seuls les mots-outils passent sous PIECE lettres ;
+# « d' » et « l' » seulement devant une voyelle (decorationdinterieur).
+TOOLS = {"fr": {"de", "du", "la", "le", "les", "des", "un", "en", "au", "aux", "et", "ma", "mon", "mes", "sur", "pour", "chez"},
+         "en": {"my", "of", "to", "in", "on", "go", "the", "and", "for", "get"}}
+ELISION = {"d", "l"}
+TOOL_COST = 2.0  # celui de « de », premier mot du Lexique
+LOCAL_RANK = 400  # villes, régions, métiers et services des listes à la main : propres à leur langue
+SHORT = {3: 1.5, 4: 0.5}  # morceaux courts : ils découpent n'importe quoi (club + can + in)
+VARIANT = 0.5
+ENDINGS = {"fr": (("s", ""), ("x", ""), ("e", ""), ("es", ""), ("ee", "e"), ("ees", "e"), ("ive", "if"), ("ives", "if"),
+                  ("euse", "eur"), ("euses", "eur"), ("elle", "el"), ("elles", "el"), ("ienne", "ien"), ("iennes", "ien")),
+           "en": (("s", ""), ("ses", "s"), ("xes", "x"), ("ches", "ch"), ("shes", "sh"), ("ies", "y"))}
+# Mot anglais plus rare que ce rang : souvent un emprunt (creme, kwh) ; il sert à découper, pas à dire la langue.
+RARE_EN = 15_000
+PARTS = 4
 
 
-def vocabularies(file: str = "") -> dict[str, set[str]]:
-    """Mots connus par langue, pour découper un nom composé de la liste fournie file : Lexique (mots, formes), mots
-    anglais, villes, métiers et services des listes à la main. Villes et métiers des États-Unis seulement pour
-    local_us.txt : ailleurs, orthodontist + earles ferait d'orthodontistearles (Arles) un nom anglais."""
-    def words(name: str) -> set[str]:
-        return set((DATA / name).read_text(encoding="utf-8").split())
+def rank_cost(rank: int) -> float:
+    return 1 + math.log10(rank + 10)
 
-    fr = words("mots.txt") | words("formes.txt") | set(read("villes_fr.txt")) | set(read("metiers_fr.txt"))
-    en = words("anglais.txt") | set(read("cities_us.txt")) | set(read("trades_en.txt"))
+
+def vocabularies(file: str = "") -> dict:
+    """Coût des mots par langue, pour découper un nom composé de la liste fournie file : Lexique (mots, formes à rang
+    doublé), mots anglais, villes, métiers et services des listes à la main ; "weak" : les mots anglais rares. Villes
+    et métiers des États-Unis de metier_ville_us.txt seulement pour local_us.txt."""
+    own = {"fr": {}, "en": {}}
+
+    def put(lang: str, word: str, cost: float) -> None:
+        word = word.replace("-", "")
+        if len(word) >= PIECE and cost < own[lang].get(word, math.inf):
+            own[lang][word] = cost
+
+    def ranked_words(name: str) -> list[str]:
+        return (DATA / name).read_text(encoding="utf-8").split()
+
+    for i, w in enumerate(ranked_words("mots.txt")):
+        put("fr", w, rank_cost(i))
+    for i, w in enumerate(ranked_words("formes.txt")):
+        put("fr", w, rank_cost(2 * i))
+    english_words = ranked_words("anglais.txt")
+    for i, w in enumerate(english_words):
+        put("en", w, rank_cost(i))
+    local = {w for words in sections("metier_ville.txt").values() for w in words}
+    for w in set(read("villes_fr.txt")) | set(read("metiers_fr.txt")) | local:
+        put("fr", w, rank_cost(LOCAL_RANK))
+    local_en = set(read("cities_us.txt")) | set(read("trades_en.txt"))
     if file == wordlists.FILES["local_us"]:
         us = sections("metier_ville_us.txt")
-        en |= set(us["villes"] + us["metiers"])
-    return {"fr": {w.replace("-", "") for w in fr if len(w) >= PIECE}, "en": {w for w in en if len(w) >= PIECE}}
+        local_en |= set(us["villes"] + us["metiers"])
+    for w in local_en:
+        put("en", w, rank_cost(LOCAL_RANK))
+    return {**own, "weak": set(english_words[RARE_EN:]) - local_en}
 
 
-def pieces(name: str, vocabulary: set[str], parts: int = 3) -> int | None:
-    """Nombre de mots du vocabulaire (1 à parts) qui composent le nom (plombierparis : 2), None s'il ne se
-    découpe pas."""
-    if name in vocabulary:
-        return 1
-    if parts <= 1:
-        return None
-    found = [n for cut in range(PIECE, len(name) - PIECE + 1)
-             if name[:cut] in vocabulary and (n := pieces(name[cut:], vocabulary, parts - 1)) is not None]
-    return 1 + min(found) if found else None
+def piece_cost(piece: str, vocab: dict) -> dict[str, float]:
+    """{langue: coût} d'un morceau, formes fléchies comprises ; un mot-outil n'est que de sa langue."""
+    for lang, words in TOOLS.items():
+        if piece in words:
+            return {lang: TOOL_COST}
+    if piece in ELISION:
+        return {"fr": TOOL_COST}
+    found = {}
+    for lang in ("fr", "en"):
+        cost = vocab[lang].get(piece) if len(piece) >= PIECE else None
+        word = piece
+        for end, base in ENDINGS[lang] if len(piece) >= PIECE else ():
+            root = piece[:len(piece) - len(end)] + base
+            if piece.endswith(end) and len(root) >= PIECE and root in vocab[lang] and vocab[lang][root] + VARIANT < (cost or math.inf):
+                cost, word = vocab[lang][root] + VARIANT, root
+        if cost is not None:
+            found[lang] = cost + SHORT.get(len(piece), 0)
+            if lang == "en" and word in vocab["weak"]:
+                found["weak"] = 0.0  # marque : mot anglais rare (forme fléchie comprise)
+    return found
 
 
-def provided_langs(names: list[str], known: dict[str, set[str]], vocab: dict[str, set[str]]) -> dict[str, list[str]]:
-    """Langue des noms d'une liste fournie qui n'en ont pas encore (Lexique, anglais, langues.txt) : celle des
-    mots qui les composent, la plus économe en mots l'emportant (carinsurance : car + insurance, pas
-    car + insu + rance) ; ne se découpe pas : sans langue (absent du résultat)."""
+def split_langs(name: str, vocab: dict) -> list[str]:
+    """Langue d'un nom composé : découpe la moins chère (PARTS morceaux au plus) des mots des deux langues, puis langue
+    des morceaux propres à une seule (plombier + paris : français ; car + insurance : anglais ; meilleur + broker :
+    les deux) ; que des mots communs aux deux (education + positive) : les deux ; ne se découpe pas : aucune.
+    Deux mots-outils de langues différentes ne se suivent pas (au + to n'est pas auto)."""
+    @lru_cache(maxsize=None)
+    def best(i: int, left: int, tool: str):
+        if i == len(name):
+            return 0.0, ()
+        if not left:
+            return None
+        found = None
+        for j in range(i + 1, len(name) + 1):
+            piece = name[i:j]
+            if piece in ELISION and (j == len(name) or name[j] not in "aeiouyh"):
+                continue
+            costs = piece_cost(piece, vocab)
+            weak = costs.pop("weak", None) is not None
+            if not costs:
+                continue
+            here = next((k for k, words in TOOLS.items() if piece in words), "")
+            if here and tool and here != tool:
+                continue
+            rest = best(j, left - 1, here)
+            if rest is None:
+                continue
+            langs = frozenset(k for k in costs if not (k == "en" and weak))
+            total = min(costs.values()) + rest[0]
+            if found is None or total < found[0]:
+                found = (total, (langs,) + rest[1])
+        return found
+
+    found = best(0, PARTS, "")
+    if found is None:
+        return []
+    marks = set().union(*(langs for langs in found[1] if len(langs) == 1))
+    return [k for k in ("fr", "en") if k in (marks or {"fr", "en"})]
+
+
+def provided_langs(names: list[str], known: dict[str, set[str]], vocab: dict, file: str = "") -> dict[str, list[str]]:
+    """Langue des noms d'une liste fournie qui n'en ont pas encore (Lexique, anglais, autres listes) : celle des mots
+    qui les composent (split_langs) ; ne se découpe pas : sans langue (absent du résultat). Métier + ville des
+    États-Unis (local_us.txt) : anglais, par construction."""
     found = {}
     for name in names:
         if any(name in known[k] for k in ("fr", "en")):
             continue  # langue déjà connue de l'appli
-        counts = {k: pieces(name.replace("-", ""), vocab[k]) for k in ("fr", "en")}
-        best = min((n for n in counts.values() if n is not None), default=None)
-        if best is not None:
-            found[name] = [k for k, n in counts.items() if n == best]
+        langs = ["en"] if file == wordlists.FILES["local_us"] else split_langs(name.replace("-", ""), vocab)
+        if langs:
+            found[name] = langs
     return found
 
 
@@ -518,12 +606,14 @@ def check_provided(name: str) -> list[str]:
 
 def provided_only(added: dict[str, set[str]] | None = None) -> None:
     """Sans wordlists ni Lexique : vérifie les listes fournies (sans les réécrire) et complète langues.txt, avec la
-    langue des noms ajoutés (added : listes anglaises de --us). Un nom sorti de toutes les listes en est retiré."""
-    listed = set().union(*(wordlists._ordered(file) for file in wordlists.FILES.values()))
+    langue des noms ajoutés (added : listes anglaises de --us). Un nom sorti de toutes les listes en est retiré ; un
+    nom des seules listes fournies est reclassé (la découpe s'améliore), les autres gardent la langue de leur liste."""
+    elsewhere = set().union(*(wordlists._ordered(file) for key, file in wordlists.FILES.items()
+                              if key not in wordlists.PROVIDED))
     lines = {}
     for line in (DATA / "langues.txt").read_text(encoding="utf-8").splitlines():
         name, _, langs = line.partition("\t")
-        if name in listed:
+        if name in elsewhere:
             lines[name] = set(langs.split(","))
     for name, langs in (added or {}).items():
         lines.setdefault(name, set()).update(langs)
@@ -538,7 +628,7 @@ def provided_only(added: dict[str, set[str]] | None = None) -> None:
         entries = check_provided(file)
         if not with_lang:
             continue
-        found = provided_langs(entries, known, vocabularies(file))
+        found = provided_langs(entries, known, vocabularies(file), file)
         without += sum(1 for e in entries if e not in found and not any(e in known[k] for k in ("fr", "en")))
         for name, langs in found.items():
             lines.setdefault(name, set()).update(langs)

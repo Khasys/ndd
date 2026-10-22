@@ -188,10 +188,11 @@ def stats(explorer) -> dict:
             "token_set": tokens.any_of(explorer.conn, "ai"), "escalation": escalation.counts(explorer.conn)}
 
 
-# Extensions notées : .biz, .info et les autres valent trop peu pour dépenser la notation de nuit.
-AI_TLDS = ("fr", "com", "org")
-# Marché francophone : à valeur égale, un .fr ou un .com passe avant un .org.
-TLD_WEIGHT = {"fr": 1.0, "com": 1.0, "org": 0.8}
+# Extensions notées : .biz, .info et les autres valent trop peu pour dépenser la notation de nuit. .io, .ai et
+# .co : le marché des startups et de la tech, où un mot anglais vaut quelque chose.
+AI_TLDS = ("fr", "com", "org", "io", "ai", "co")
+# Marché francophone : à valeur égale, un .fr ou un .com passe avant un .org, puis .io et .ai, puis .co.
+TLD_WEIGHT = {"fr": 1.0, "com": 1.0, "org": 0.8, "io": 0.7, "ai": 0.7, "co": 0.6}
 OTHER_TLD_WEIGHT = 0.6
 
 

@@ -385,7 +385,7 @@
       <dt>Pour exploiter</dt><dd>Même ordre, avec la note d'exploitation : un nom pour un vrai site ou une marque.</dd>
       <dt>Masquer les noms faibles</dt><dd>Sans avis IA : score sous 30. Avec un avis : « À laisser », même à bon score.</dd>
       <dt>Masquer les premiums</dt><dd>Décoché par défaut : les premiums (confirmés ou probables) restent visibles. Coché, ils sortent de la liste et des compteurs ; Veille, Explorer et Aujourd'hui ont chacun leur case, gardée par le navigateur (Explorer : vues enregistrées et export CSV compris).</dd>
-      <dt>Prix d'achat au plus</dt><dd>Panneau Avancé de la Veille et de l'Explorer : seulement les noms au prix vérifié dont le prix (standard ou premium) ne dépasse pas ce montant.</dd>
+      <dt>Prix d'achat au plus</dt><dd>Panneau Filtres de la Veille et de l'Explorer : seulement les noms au prix vérifié dont le prix (standard ou premium) ne dépasse pas ce montant.</dd>
       <dt>Types et catégories</dt><dd>Puces à cocher, plusieurs à la fois (Prénoms et Noms de famille : un nom de l'une ou l'autre liste) ; « Toutes » les efface. La longueur reste un filtre à part.</dd>
       <dt>Extensions</dt><dd>Puces à cocher, plusieurs à la fois, ou « Toutes ». Depuis « Toutes », une puce choisit cette extension seule ; les suivantes s'ajoutent ou se retirent. Choix mémorisé ; dans l'Explorer, il suit les vues enregistrées et l'export CSV.</dd>
       <dt>Sur une carte</dt><dd>L'état en toutes lettres (probablement libre, libre vérifié, libération estimée, pris, réservé, premium probable, premium), le prix d'achat en pastille (« 13 € » discret, « Premium 878 € » ambre), le verdict IA en pastille (À prendre vert, À surveiller ambre, À laisser gris) et le prix utilisateur final, puis Réserver, Vérifier (nom probablement libre) et Surveiller.</dd>
@@ -416,7 +416,7 @@
     <p class="small muted">Poids réglables dans Paramètres, carte « Score de l'Explorer ». « Courant pour cette forme » : signal présent, mais banal.</p>
 
     <h3 id="help-ai">Avis IA</h3>
-    <p>1 000 noms notés par nuit, en .fr, .com et .org. Ordre : les noms libres et bientôt libres, par score ; puis les noms probablement libres ou libres des listes fournies (termes stars, mots-clés et marques mêlés par rang, puis métier + ville) ; puis les autres, par score décroissant. Chaque nuit, les 50 avis les plus éloignés du score sont revus une fois.</p>
+    <p>1 000 noms notés par nuit, en .fr, .com, .org, .io, .ai et .co (dans cet ordre de priorité à score égal). Ordre : les noms libres et bientôt libres, par score ; puis les noms probablement libres ou libres des listes fournies (termes stars, mots-clés et marques mêlés par rang, puis métier + ville) ; puis les autres, par score décroissant. Chaque nuit, les 50 avis les plus éloignés du score sont revus une fois. Escalade à 6 h 07 : un « À surveiller » qui rapporte au moins 5 € par an reçoit deux contre-avis (repêchage) ; tout « À prendre » passe devant un panel de dix correcteurs (7 sur 10 et la grille médiane pour le confirmer).</p>
     <dl class="help-dl">
       <dt>Grille</dt><dd>Neuf sous-notes sur 10 : prononciation, test radio, mémorisation, sens, marque, marché, extension, acheteurs, risque.</dd>
       <dt>Exploitation, revente</dt><dd>Notes sur 100, calculées depuis la grille : elles ne peuvent pas contredire le verdict.</dd>
@@ -499,16 +499,16 @@
           <!-- Chiffre d'Aujourd'hui : exactement ses noms ; la puce efface ce filtre et rend la Veille complète. -->
           <div class="drops-focus" x-show="dropFocus">
             <button type="button" class="ex-pill" @click="dropClearFocus()" title="Retirer ce filtre"><span x-text="dropFocusLabel()"></span> ×</button>
-            <span class="muted small" x-text="fmt(dropList.length) + ' ' + plural(dropList.length, 'nom', 'noms') + ', filtres de la Veille mis de côté'"></span>
+            <span class="muted small" x-text="fmt(dropList.length) + ' ' + plural(dropList.length, 'nom', 'noms') + (dropActive().length ? ' avec les filtres' : '')"></span>
           </div>
-          <div class="ex-searchbar" x-show="!dropFocus">
+          <div class="ex-searchbar">
             <input type="search" class="filter-input ex-search" x-model="df.q" placeholder="Chercher dans la veille" aria-label="Chercher dans la veille" autocapitalize="off" autocomplete="off" spellcheck="false">
             <button type="button" class="btn-ghost ex-filter-btn" :class="{ on: dfOpen || dropActive().length }" @click="dfOpen = !dfOpen" :aria-expanded="dfOpen"
-                    x-text="dropActive().length ? 'Avancé (' + dropActive().length + ')' : 'Avancé'"></button>
+                    x-text="dropActive().length ? 'Filtres (' + dropActive().length + ')' : 'Filtres'"></button>
           </div>
-          <!-- Usage, noms faibles, nouveaux, extensions : ici sur ordinateur, dans le panneau Avancé sur téléphone. -->
+          <!-- Usage, noms faibles, nouveaux, extensions : ici sur ordinateur, dans le panneau Filtres sur téléphone. -->
           <template x-if="!mobile && !dropFocus"><div x-tpl="'veille-simple'"></div></template>
-          <div class="ex-active" x-show="dropActive().length && !dropFocus">
+          <div class="ex-active" x-show="dropActive().length">
             <template x-for="a in dropActive()" :key="a.key">
               <button type="button" class="ex-pill" @click="dropClear(a.key)"><span x-text="a.label"></span> ×</button>
             </template>
@@ -520,7 +520,7 @@
         <div class="ex-panel-back" x-show="dfOpen && mobile" x-transition.opacity @click="dfOpen = false"></div>
         <div class="ex-panel" x-show="dfOpen" x-transition>
           <div class="ex-panel-head">
-            <strong>Avancé</strong>
+            <strong>Filtres</strong>
             <button type="button" class="btn-text" @click="dropReset()">Tout effacer</button>
             <button type="button" class="btn-ghost sm" @click="dfOpen = false">OK</button>
           </div>
@@ -779,9 +779,9 @@
             <input type="search" class="filter-input ex-search" x-model="ex.q" @input.debounce.300ms="exTyped()"
                    placeholder="Un mot, un thème, une idée" aria-label="Chercher" autocapitalize="off" autocomplete="off" spellcheck="false">
             <button type="button" class="btn-ghost ex-filter-btn" :class="{ on: exFiltersOpen || exActive().length }" @click="exFiltersOpen = !exFiltersOpen" :aria-expanded="exFiltersOpen"
-                    x-text="exActive().length ? 'Avancé (' + exActive().length + ')' : 'Avancé'"></button>
+                    x-text="exActive().length ? 'Filtres (' + exActive().length + ')' : 'Filtres'"></button>
           </div>
-          <!-- Usage, noms faibles, types, extensions : ici sur ordinateur, dans le panneau Avancé sur téléphone. -->
+          <!-- Usage, noms faibles, types, extensions : ici sur ordinateur, dans le panneau Filtres sur téléphone. -->
           <template x-if="!mobile"><div x-tpl="'explore-simple'"></div></template>
           <div class="ex-active" x-show="exActive().length">
             <template x-for="a in exActive()" :key="String(a.key)">
@@ -794,7 +794,7 @@
         <div class="ex-panel-back" x-show="exFiltersOpen && mobile" x-transition.opacity @click="exFiltersOpen = false"></div>
         <div class="ex-panel" x-show="exFiltersOpen" x-transition>
           <div class="ex-panel-head">
-            <strong>Avancé</strong>
+            <strong>Filtres</strong>
             <button type="button" class="btn-text" @click="exReset()">Tout effacer</button>
             <button type="button" class="btn-ghost sm" @click="exFiltersOpen = false">OK</button>
           </div>
@@ -2155,7 +2155,7 @@
     </div>
   </template>
 
-  <!-- Veille : réglages simples (en-tête sur ordinateur, panneau Avancé sur téléphone). -->
+  <!-- Veille : réglages simples (en-tête sur ordinateur, panneau Filtres sur téléphone). -->
   <template id="veille-simple">
     <div class="simple-block">
       <div x-tpl="['lens-row', { screen: 'veille' }]"></div>
@@ -2184,7 +2184,7 @@
     </div>
   </template>
 
-  <!-- Explorer : réglages simples (en-tête sur ordinateur, panneau Avancé sur téléphone). -->
+  <!-- Explorer : réglages simples (en-tête sur ordinateur, panneau Filtres sur téléphone). -->
   <template id="explore-simple">
     <div class="simple-block">
       <div x-tpl="['lens-row', { screen: 'explore' }]"></div>

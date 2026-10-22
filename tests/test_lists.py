@@ -52,12 +52,27 @@ def test_build_lists_finds_the_language_of_compound_names():
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
     import build_lists
 
-    vocab = {"fr": {"plombier", "paris", "insu", "rance", "car", "credit", "auto"},
-             "en": {"car", "insurance", "credit", "auto"}}
+    vocab = {"fr": {"plombier": 4.0, "paris": 3.0, "insu": 6.0, "rance": 6.0, "car": 3.0, "credit": 3.5, "auto": 3.5},
+             "en": {"car": 3.0, "insurance": 4.0, "credit": 3.5, "auto": 3.5}, "weak": set()}
     known = {"fr": {"maison"}, "en": {"house"}}
     found = build_lists.provided_langs(["plombierparis", "carinsurance", "creditauto", "zqxv", "maison"], known, vocab)
-    # La découpe la plus économe l'emporte (car + insurance, pas car + insu + rance) ; un nom connu est laissé.
+    # La découpe la moins chère l'emporte (car + insurance, pas car + insu + rance) ; un nom connu est laissé.
     assert found == {"plombierparis": ["fr"], "carinsurance": ["en"], "creditauto": ["fr", "en"]}
+
+
+def test_build_lists_language_of_real_compound_names():
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    import build_lists
+
+    vocab = build_lists.vocabularies()
+    # Ville de la liste « métier + ville », mot-outil, élision, forme fléchie : français ; au + to n'est pas auto.
+    expected = {"pilatesrennes": ["fr"], "sacdesport": ["fr"], "maisondesante": ["fr"], "decorationdinterieur": ["fr"],
+                "travauxprioritaires": ["fr"], "carinsurance": ["en"], "goodtogo": ["en"],
+                "meilleurbrokerfrance": ["fr", "en"], "autoentrepreneur": ["fr", "en"]}
+    assert {name: build_lists.split_langs(name, vocab) for name in expected} == expected
 
 
 def test_provided_lists_count_in_the_score():

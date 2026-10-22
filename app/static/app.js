@@ -42,6 +42,8 @@ const VERDICT_CLASSES = { "À prendre": "take", "À surveiller": "watch", "À la
 // Statistiques : extensions avec leur couleur propre (--series-<tld>, ordre fixe de la palette validée) ;
 // les autres sont regroupées.
 const STATS_TLDS = ["fr", "com", "org", "net", "io", "ai", "co"];
+// Veille ouverte depuis un chiffre d'Aujourd'hui : filtres de la Veille qui ne s'y appliquent pas.
+const DROP_FOCUS_SKIP = ["min", "junk", "period", "new", "level"];
 // Rentabilité à l'exploitation (app/exploit_format.py) : libellé et couleur du verdict, modèles.
 const EXPLOIT_VERDICTS = {
   facile: ["Facile à rentabiliser", "take"], possible: ["Rentable avec du travail", "watch"],
@@ -1511,7 +1513,7 @@ document.addEventListener("alpine:init", () => {
         const lost = !c.present && c.lost_at ? `, sorti du DNS ${this.relative(c.lost_at)} : à vérifier` : "";
         past.push([`DNS .${f.tld}, dernière`, esc((c.present ? "délégué : nom pris" : "aucun serveur") + lost + `, ${this.relative(c.at)}`)]);
       } else if (DNS_TLDS.includes(f.tld)) past.push([`DNS .${f.tld}`, "pas dans les noms suivis chaque nuit"]);
-      if (f.gandi) past.push(["Prix d'achat", esc(this.gandiFicheText(f.gandi))]);
+      if (f.gandi) past.push(["Prix d'achat", esc(this.gandiFicheText(f.gandi, f.rdap))]);
       if (f.seo) {
         const parts = [];
         if (f.seo.pr) parts.push(`PageRank ${String(f.seo.pr).replace(".", ",")}`);
@@ -1522,7 +1524,7 @@ document.addEventListener("alpine:init", () => {
     },
 
     // Registre et SEO, ligne Gandi : statut, prix TTC (et HT), date ; erreur ou réponse d'avant un changement d'état.
-    gandiFicheText(g) {
+    gandiFicheText(g, rdap = null) {
       const kinds = { available: "libre au prix standard", premium: "premium", unavailable: "indisponible", reserved: "réservé par le registre",
         restricted: "restreint (conditions d'éligibilité)", error: "sans réponse exploitable" };
       const money = (v) => Number(v).toLocaleString("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + "\u00a0€";
@@ -1532,7 +1534,9 @@ document.addEventListener("alpine:init", () => {
       if (g.error && g.kind !== "error") parts.push(`dernière vérification en erreur : ${g.error}`);
       else if (g.error) parts.push(g.error);
       if (g.stale) parts.push("avant le dernier changement d'état, revu à la prochaine passe");
-      if (g.pending) parts.push("sans doute enregistré depuis, revérification au registre en cours");
+      // Encore enregistré mais en grâce ou en rédemption : pas repris, le titulaire peut encore renouveler.
+      if (g.pending && this.rdapGrace(rdap)) parts.push("le nom est en période de grâce ou de rédemption : le titulaire peut encore le renouveler");
+      else if (g.pending) parts.push("sans doute enregistré depuis, revérification au registre en cours");
       return parts.join(", ");
     },
 
@@ -1818,7 +1822,7 @@ document.addEventListener("alpine:init", () => {
         const text = lo !== "" && hi !== "" ? `${lo} à ${hi}` : lo !== "" ? `≥ ${lo}` : `≤ ${hi}`;
         out.push({ key: [`ai_${f}_min`, `ai_${f}_max`], label: `IA ${name.toLowerCase()} ${text}` });
       }
-      // Réglages simples (en-tête sur ordinateur, panneau Avancé sur téléphone) : ils cachent aussi des noms.
+      // Réglages simples (en-tête sur ordinateur, panneau Filtres sur téléphone) : ils cachent aussi des noms.
       if (this.ex.level === "good") out.push({ key: "level", label: "Noms faibles masqués" });
       if (this.ex.nopremium === "1") out.push({ key: "nopremium", label: "Premiums masqués" });
       return out;
@@ -1829,7 +1833,7 @@ document.addEventListener("alpine:init", () => {
       return this.exSet(Object.fromEntries([].concat(key).map((k) => [k, ""])));
     },
 
-    // Filtres du panneau Avancé seulement : l'état, le tri, le niveau et l'usage restent.
+    // Filtres du panneau Filtres seulement : l'état, le tri, le niveau et l'usage restent.
     exReset() { return this.exSet({ cat: "", len: "", nat: "", lang: "", rank: "", taken: "", min: "", junk: "", seo: "", gprice: "", ...AI_FILTER_DEFAULTS }); },
 
     exSortParam() { return this.ex.sort === "best" ? this.lens : this.ex.sort; },
@@ -1856,7 +1860,7 @@ document.addEventListener("alpine:init", () => {
       return this.exCats().includes(t.k) && this.ex.len !== "-4";
     },
 
-    // Un type ne touche pas à la longueur choisie dans Avancé ; seul « Courts (1 à 4) » est une longueur.
+    // Un type ne touche pas à la longueur choisie dans Filtres ; seul « Courts (1 à 4) » est une longueur.
     // « Toutes » efface les types ; les autres se cochent à plusieurs.
     exSetType(t) {
       if (t.k === "short") return this.exSet({ cat: "", len: "-4" });
@@ -2027,6 +2031,12 @@ document.addEventListener("alpine:init", () => {
       return `Score ${i.score} : ` + Object.entries(i.parts).filter(([, v]) => v).map(([k, v]) => `${names[k]} ${v}`).join(", ");
     },
 
+    // Statuts EPP d'un nom expiré non payé : renouvelé d'office par le registre (grâce), ou en rédemption.
+    rdapGrace(r) {
+      const st = ((r && r.statuses) || []).map((x) => String(x).toLowerCase().replace(/[^a-z]/g, ""));
+      return !!r && !r.available && st.some((x) => ["autorenewperiod", "redemptionperiod", "pendingdelete"].includes(x));
+    },
+
     rdapHtml(r) {
       const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
       // Libre d'après le seul WHOIS : à confirmer (noms réservés ou premium du registre inconnus du WHOIS).
@@ -2035,7 +2045,11 @@ document.addEventListener("alpine:init", () => {
       if (r.registrar) rows.push(["Registrar", r.registrar]);
       if (r.registered_at) rows.push(["Créé", this.shortDate(r.registered_at)]);
       if (r.updated_at) rows.push(["Modifié", this.shortDate(r.updated_at)]);
-      if (r.expires_at) rows.push(["Expire", this.shortDate(r.expires_at)]);
+      if (r.expires_at) {
+        // Période de grâce : l'échéance affichée a été reculée d'un an par le registre, sans paiement.
+        const auto = (r.statuses || []).some((x) => String(x).toLowerCase().replace(/[^a-z]/g, "") === "autorenewperiod");
+        rows.push(["Expire", this.shortDate(r.expires_at) + (auto ? ", renouvelée d'office par le registre, pas payée" : "")]);
+      }
       if (r.statuses?.length) rows.push(["Statuts", r.statuses.join(", ")]);
       if (r.nameservers?.length) rows.push(["DNS", r.nameservers.join(", ")]);
       return rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("");
@@ -2560,7 +2574,9 @@ document.addEventListener("alpine:init", () => {
       return this._memo[kind].list;
     },
 
-    dropMatches(d) {
+    // focus (chiffre d'Aujourd'hui) : les filtres sur le nom s'appliquent, pas ceux de la Veille elle-même (période,
+    // score minimum, suites et mélanges), pour que le compte de départ soit celui d'Aujourd'hui.
+    dropMatches(d, focus = false) {
       const f = this.df;
       const len = f.len ? Number(f.len) : 0;
       const label = d.name.slice(0, -(d.tld.length + 1));
@@ -2574,11 +2590,11 @@ document.addEventListener("alpine:init", () => {
         && (!f.lang || (d.langs || []).includes(f.lang))
         && (!len || (len < 0 ? label.length <= -len : len >= 5 ? label.length >= 5 : label.length === len))
         && (!f.rank || (d.rank && d.rank <= Number(f.rank)))
-        && (!this.dropMin || d.score >= this.dropMin)
-        && (f.junk || d.good !== false)
+        && (focus || !this.dropMin || d.score >= this.dropMin)
+        && (focus || f.junk || d.good !== false)
         && (!f.nopremium || !d.premium)
         && (f.gprice === "" || f.gprice === null || f.gprice === undefined || this.dropGandiPrice(d) <= Number(f.gprice))
-        && this.dropPeriodOk(d);
+        && (focus || this.dropPeriodOk(d));
     },
 
     // Prix d'achat chez Gandi d'un nom de la Veille (libre au prix standard ou premium), sinon l'infini : le filtre
@@ -2636,8 +2652,8 @@ document.addEventListener("alpine:init", () => {
     get dropList() {
       if (!this.dropsData) return [];
       return this.dropsMemo("list", () => {
-        // Chiffre d'Aujourd'hui : tous ses noms, sans onglet ni filtre (même compte que sur Aujourd'hui).
-        const list = this.dropFocus ? [...this.dropsData.items] : this.dropsData.items.filter((d) => this.dropInTab(d, this.dropTab) && this.dropMatches(d) && this.dropLevelOk(d)
+        // Chiffre d'Aujourd'hui : ses noms, sans onglet, avec les filtres sur le nom (même compte qu'Aujourd'hui sans filtre).
+        const list = this.dropFocus ? this.dropsData.items.filter((d) => this.dropMatches(d, true)) : this.dropsData.items.filter((d) => this.dropInTab(d, this.dropTab) && this.dropMatches(d) && this.dropLevelOk(d)
           && (!this.dropNewOnly || this.dropNew(d)));
         const best = (a, b) => this.dropLensTier(b) - this.dropLensTier(a) || this.dropLensValue(b) - this.dropLensValue(a) || b.score - a.score;
         const sort = this.dropSort;
@@ -2660,7 +2676,7 @@ document.addEventListener("alpine:init", () => {
     // (les meilleurs d'abord) ; ce choix revient de lui-même au retour sur Bientôt libres.
     get dropSort() { return this.dropSortMode === "release" && this.dropTab !== "coming" ? "best" : this.dropSortMode; },
 
-    // Une seule liste cochée dans Avancé (Prénoms, Noms de famille…) : le rang se lit dans celle-ci.
+    // Une seule liste cochée dans Filtres (Prénoms, Noms de famille…) : le rang se lit dans celle-ci.
     dropFreqList() {
       const lists = this.dropKinds.filter((k) => !SHAPE_KINDS.includes(k));
       return lists.length === 1 ? lists[0] : "";
@@ -2743,12 +2759,13 @@ document.addEventListener("alpine:init", () => {
       if (f.quick) out.push({ key: "quick", label: `Revente rapide ≥ ${f.quick} €` });
       if (f.gprice !== "" && f.gprice !== null && f.gprice !== undefined) out.push({ key: "gprice", label: `Achat ≤ ${this.fmt(Number(f.gprice))} €` });
       if (f.period) out.push({ key: "period", label: `${this.dropTab === "coming" ? "Libération sous" : "Libérés depuis"} ${this.periodLong(f.period)}` });
-      // Réglages simples (en-tête sur ordinateur, panneau Avancé sur téléphone) : ils cachent aussi des noms, on les voit.
+      // Réglages simples (en-tête sur ordinateur, panneau Filtres sur téléphone) : ils cachent aussi des noms, on les voit.
       if (this.dropTld.length) out.push({ key: "tld", label: "Extension : " + this.dropTld.map((t) => "." + t).join(", ") });
       if (this.dropNewOnly) out.push({ key: "new", label: "Nouveaux seulement" });
       if (this.dropLevel) out.push({ key: "level", label: "Noms faibles masqués" });
       if (f.nopremium) out.push({ key: "nopremium", label: "Premiums masqués" });
-      return out;
+      // Chiffre d'Aujourd'hui : seuls les filtres sur le nom comptent (dropMatches, focus).
+      return this.dropFocus ? out.filter((a) => !DROP_FOCUS_SKIP.includes(a.key)) : out;
     },
 
     // Noms de l'onglet que les filtres cachent : « 12 masqués par les filtres ».
