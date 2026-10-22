@@ -815,8 +815,11 @@ class DropWatcher:
         """Au démarrage, idempotent : corrige ce que les versions précédentes ont écrit.
         - Libres sur la seule foi d'un WHOIS « inconnu » (dernière réponse WHOIS, libre) : libres à confirmer,
           sans date de libération constatée.
-        - .co, .ai, .io jamais vus dans le DNS : la date de sortie posée par une vérification à la main n'en est pas une."""
+        - .co, .ai, .io jamais vus dans le DNS : la date de sortie posée par une vérification à la main n'en est pas une.
+        - Libres que Gandi a dits indisponibles avant la revérification immédiate (Explorer.recheck, 19/10/2026), jamais
+          revus au registre depuis : revus maintenant, sinon la réponse de Gandi reste sans effet jusqu'à sa passe suivante."""
         from .ccdns import TLDS as cc  # import local : les processus de lecture des zones importent ce module
+        from .gandi import BLOCKED
 
         whois = self.conn.execute(
             """UPDATE drops SET state = ?, state_since = COALESCE(available_since, state_since), available_since = NULL,
@@ -827,10 +830,15 @@ class DropWatcher:
             f"""UPDATE drops SET removed_on = ? WHERE tld IN ({','.join('?' * len(cc))}) AND removed_on != ?
                 AND NOT EXISTS (SELECT 1 FROM cc_dns c WHERE c.name = drops.name AND c.seen_at IS NOT NULL)""",
             (MANUAL, *cc, MANUAL)).rowcount
-        if whois or removed:
-            log.info("Veille : %s noms libres selon le seul WHOIS passés « à confirmer », %s fausses sorties du DNS effacées",
-                     whois, removed)
-        return {"unconfirmed": whois, "removed_on": removed}
+        blocked = self.conn.execute(
+            f"""UPDATE drops SET next_check_at = ? WHERE state IN (?, ?) AND next_check_at IS NULL
+                AND EXISTS (SELECT 1 FROM gandi_checks g WHERE g.name = drops.name AND g.kind IN ({','.join('?' * len(BLOCKED))})
+                            AND (drops.checked_at IS NULL OR drops.checked_at < g.checked_at))""",
+            (iso(utcnow()), states.AVAILABLE, UNCONFIRMED, *BLOCKED)).rowcount
+        if whois or removed or blocked:
+            log.info("Veille : %s noms libres selon le seul WHOIS passés « à confirmer », %s fausses sorties du DNS effacées, "
+                     "%s libres refusés par Gandi revus au registre", whois, removed, blocked)
+        return {"unconfirmed": whois, "removed_on": removed, "recheck": blocked}
 
     def release(self, state, tld, expires, since, now) -> datetime | None:
         value = states.estimate_release(state, tld, expires, since, now, self.delays)

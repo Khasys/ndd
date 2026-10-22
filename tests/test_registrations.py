@@ -17,6 +17,11 @@ def test_zone_journal_skips_names_of_a_list_added_since_the_last_read(env):
     assert set(rows) == {"velo.com", "maison.com", "abcd.com"}
     assert rows["velo.com"]["removed_on"] == "2026-09-01" and rows["maison.com"]["removed_on"] is None
     assert rows["velo.com"]["day"] == "2026-10-21" and rows["velo.com"]["source"] == "zone"
+    # Ligne de Veille posée à la main (sans sortie constatée, removed_on vide) : pas de date de sortie au journal.
+    env.conn.execute("INSERT INTO drops (name, tld, label, kind, removed_on) VALUES ('main.com', 'com', 'main', 'word', '')")
+    registrations.journal_zone(env.conn, "com", ["main"], {"main"}, [], now)
+    assert env.conn.execute("SELECT removed_on FROM registrations WHERE name = 'main.com'").fetchone()[0] is None
+    env.conn.execute("DELETE FROM registrations WHERE name = 'main.com'")
     # Lecture d'avant ce suivi (noms cherchés inconnus) : seuls les noms courts comptent.
     assert registrations.journal_zone(env.conn, "org", ["velo"], None, [], now) == 0
     # Deux fois la même lecture : une seule ligne.
@@ -83,6 +88,21 @@ def test_stats_page_reads_every_block(logged):
     assert retake == [{"key": "com", "label": "com", "count": 40, "taken": 10, "share": 0.25, "median_days": 20}]
     assert found["releases"]["by_category"][0]["label"] == "Mots"
     assert set(found["ai"]) >= {"per_day", "verdicts", "escalation", "panel", "outcomes"} and "per_day" in found["gandi"]
+    assert found["errors"] == []
+    # Date de sortie vide écrite par la v0.12.56 à 0.12.59 : la page s'affiche quand même.
+    conn.execute("INSERT INTO registrations (name, tld, label, day, source, removed_on) VALUES ('vide.com', 'com', 'vide', ?, 'zone', '')",
+                 (day,))
+    stats.clear()
+    assert client.get("/api/stats").json()["registrations"]["total"] == 4
+    # Un bloc qui casse n'emporte pas la page : il est vide et nommé.
+    real, stats.zones = stats.zones, lambda c: 1 / 0
+    try:
+        stats.clear()
+        broken = client.get("/api/stats").json()
+        assert broken["zones"] is None and broken["errors"] == ["zones"] and broken["registrations"]["total"] == 4
+    finally:
+        stats.zones = real
+        stats.clear()
     # Lecture seule avec le jeton de lecture : la page fait partie des lectures ouvertes.
     token = client.post("/api/settings/ai-token").json()["token"]
     client.cookies.clear()

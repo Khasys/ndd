@@ -33,7 +33,8 @@ def journal_zone(conn, tld: str, labels, searched_before: set[str] | None, short
             f"SELECT name, removed_on FROM drops WHERE name IN ({','.join('?' * len(part))})", part).fetchall())
     conn.executemany(
         "INSERT OR IGNORE INTO registrations (name, tld, label, day, source, removed_on) VALUES (?, ?, ?, ?, 'zone', ?)",
-        [(name, tld, label, day, removed.get(name)) for name, label in zip(names, kept)])
+        # Ligne posée par une vérification à la main (drops.MANUAL, vide) : aucune sortie constatée.
+        [(name, tld, label, day, removed.get(name) or None) for name, label in zip(names, kept)])
     return len(kept)
 
 

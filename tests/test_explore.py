@@ -1405,12 +1405,31 @@ def test_repair_marks_whois_only_free_names_and_drops_false_dns_exits(env):
                      (now.isoformat(),))
     rdapinfo.save(env.conn, "menu.co", LookupResult(available=True, source="whois"))
     rdapinfo.save(env.conn, "cloud.co", LookupResult(available=True))
-    assert env.drops.repair() == {"unconfirmed": 1, "removed_on": 1}
+    assert env.drops.repair() == {"unconfirmed": 1, "removed_on": 1, "recheck": 0}
     menu, cloud = env.drops.row("menu.co"), env.drops.row("cloud.co")
     assert menu["state"] == drops.UNCONFIRMED and menu["available_since"] is None and menu["state_since"] == now.isoformat()
     assert menu["removed_on"] == drops.MANUAL
     assert cloud["state"] == states.AVAILABLE and cloud["removed_on"] == now.date().isoformat()  # vu puis sorti : gardé
-    assert env.drops.repair() == {"unconfirmed": 0, "removed_on": 0}  # idempotent
+    assert env.drops.repair() == {"unconfirmed": 0, "removed_on": 0, "recheck": 0}  # idempotent
+
+
+def test_repair_rechecks_free_names_refused_by_gandi_before_the_immediate_recheck(env):
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    env.drops.record("com", ["cida", "velo", "chat"], [], now - timedelta(days=8))
+    later = (now - timedelta(days=3)).isoformat()
+    for name in ("cida.com", "velo.com", "chat.com"):
+        env.conn.execute("UPDATE drops SET state = 'available', checked_at = ?, next_check_at = NULL WHERE name = ?",
+                         ((now - timedelta(days=8)).isoformat(), name))
+    # Indisponible chez Gandi après la dernière vérification au registre (avant que la revérification n'existe) ;
+    # velo.com : libre chez Gandi ; chat.com : registre revu depuis.
+    for name, kind in (("cida.com", "unavailable"), ("velo.com", "available"), ("chat.com", "reserved")):
+        env.conn.execute("INSERT INTO gandi_checks (name, status, kind, checked_at) VALUES (?, ?, ?, ?)",
+                         (name, kind, kind, later))
+    env.conn.execute("UPDATE drops SET checked_at = ? WHERE name = 'chat.com'", (now.isoformat(),))
+    assert env.drops.repair()["recheck"] == 1
+    assert env.drops.row("cida.com")["next_check_at"] is not None
+    assert env.drops.row("velo.com")["next_check_at"] is None and env.drops.row("chat.com")["next_check_at"] is None
+    assert env.drops.repair()["recheck"] == 0  # déjà en file
 
 
 def test_whois_only_free_names_are_not_freed_in_alerts_and_morning(env):
@@ -1472,7 +1491,7 @@ def test_renewed_by_owner_is_not_shown_as_taken_again():
     retaken = {"state": drops.TAKEN, "state_since": "2026-10-15T08:50:00+00:00", "removed_on": "2026-09-01"}
     assert event(retaken, {"registered_at": "2026-10-14T10:00:00+00:00"}) == "Repris"
     assert event(retaken, None) == "Repris"
-    assert event({"state": states.RENEWED, "state_since": "2026-10-15", "removed_on": ""}, {}) == "Renouvelé (même titulaire)"
+    assert event({"state": states.RENEWED, "state_since": "2026-10-15", "removed_on": ""}, {}) == "Renouvelé d'office, à confirmer"
 
 
 def test_ai_queue_new_lists_first_after_free_names(env):

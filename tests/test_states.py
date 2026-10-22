@@ -63,7 +63,7 @@ def test_auto_renew_is_renewed_in_fr_only():
     assert states.compute_state(["active", "auto renew period"], past, NOW, 30, "fr") == states.EXPIRED
     assert states.compute_state(["active"], later, NOW, 30, "fr") == states.ACTIVE
     assert states.compute_state(["autoRenewPeriod"], later, NOW, 30, "com") == states.EXPIRED
-    assert states.LABELS[states.RENEWED] == "Renouvelé" and states.estimate_release(states.RENEWED, "fr", later, NOW, NOW, DELAYS) is None
+    assert states.LABELS[states.RENEWED] == "Renouvelé d'office" and states.estimate_release(states.RENEWED, "fr", later, NOW, NOW, DELAYS) is None
 
 
 def test_release_from_redemption():

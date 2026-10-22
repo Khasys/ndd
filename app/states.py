@@ -20,7 +20,7 @@ LABELS = {
     ACTIVE: "Actif",
     EXPIRING: "Expire bientôt",
     EXPIRED: "Expiré",
-    RENEWED: "Renouvelé",
+    RENEWED: "Renouvelé d'office",
     REDEMPTION: "En rédemption",
     PENDING_DELETE: "Suppression imminente",
     AVAILABLE: "Disponible",

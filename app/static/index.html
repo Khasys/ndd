@@ -186,7 +186,10 @@
     <template x-if="statsData">
       <div class="stats-cards" x-data="{ r: statsData.registrations, d: statsData.releases, a: statsData.ai, g: statsData.gandi }"
            x-effect="r = statsData.registrations; d = statsData.releases; a = statsData.ai; g = statsData.gandi">
+        <!-- Bloc en erreur côté NAS (donnée inattendue) : les autres cartes s'affichent, la cause est au journal. -->
+        <p class="small muted" x-show="(statsData.errors || []).length" x-text="'Indisponible pour l\'instant : ' + (statsData.errors || []).map((k) => ({ registrations: 'enregistrements', releases: 'libérations', zones: 'zones', ai: 'notation IA', gandi: 'Gandi' }[k] || k)).join(', ') + '.'"></p>
 
+        <template x-if="r">
         <article class="card stats-card" aria-labelledby="st-reg">
           <h3 id="st-reg">Enregistrements</h3>
           <p class="small muted">Noms de nos listes enregistrés par quelqu'un. Zones ICANN : le jour de la lecture qui les a vus entrer ; .fr : la date de création donnée par l'Afnic.</p>
@@ -208,7 +211,9 @@
           </template>
           <p class="small muted" x-show="r.pending_context" x-text="fmt(r.pending_context) + ' noms attendent leur contexte (score, catégories, avis IA), ajouté par lots toutes les 20 minutes.'"></p>
         </article>
+        </template>
 
+        <template x-if="r">
         <article class="card stats-card" aria-labelledby="st-what">
           <h3 id="st-what">Ce qui part</h3>
           <p class="small muted">Les noms enregistrés ces 30 derniers jours, par catégorie et par score au moment de l'enregistrement.</p>
@@ -227,7 +232,9 @@
           <p class="small" x-show="Object.keys(r.ai_verdicts).length"
              x-text="'Avec un avis IA avant leur enregistrement : ' + Object.entries(r.ai_verdicts).map(([v, n]) => v + ' ' + fmt(n)).join(', ') + '.'"></p>
         </article>
+        </template>
 
+        <template x-if="d">
         <article class="card stats-card" aria-labelledby="st-retake">
           <h3 id="st-retake">Reprise des noms libérés</h3>
           <p class="small muted" x-text="'Noms libérés entre le ' + shortDate(d.window[0] + 'T12:00:00') + ' et le ' + shortDate(d.window[1] + 'T12:00:00') + ' (au moins une semaine pour être repris) : la part reprise depuis, et le délai médian. Groupes de 30 noms au moins.'"></p>
@@ -248,7 +255,9 @@
           <p class="small" x-show="Object.keys(r.retaken).length"
              x-text="'Repris après leur libération, sur 30 jours : ' + Object.entries(r.retaken).map(([t, x]) => '.' + t + ' ' + fmt(x.count) + ' noms, ' + x.median_days + ' jours de délai médian').join(' ; ') + '.'"></p>
         </article>
+        </template>
 
+        <template x-if="d">
         <article class="card stats-card" aria-labelledby="st-rel">
           <h3 id="st-rel">Libérations</h3>
           <p class="small muted">Noms de nos listes sortis d'une zone ou supprimés par l'Afnic, par jour de suppression.</p>
@@ -266,7 +275,9 @@
             </template>
           </div>
         </article>
+        </template>
 
+        <template x-if="a">
         <article class="card stats-card" aria-labelledby="st-ai">
           <h3 id="st-ai">Notation IA</h3>
           <div class="stat-tiles">
@@ -287,7 +298,9 @@
             </template>
           </div>
         </article>
+        </template>
 
+        <template x-if="statsData.zones">
         <article class="card stats-card" aria-labelledby="st-zones">
           <h3 id="st-zones">Zones lues</h3>
           <table class="stats-table">
@@ -301,13 +314,16 @@
           </table>
           <p class="small muted">Dernière lecture réussie de chaque zone. Après l'ajout d'une liste, « Entrés » compte aussi ses noms déjà enregistrés.</p>
         </article>
+        </template>
 
+        <template x-if="g">
         <article class="card stats-card" aria-labelledby="st-gandi">
           <h3 id="st-gandi">Vérifications Gandi</h3>
           <p class="small muted">Noms par jour de leur dernière vérification, sur 30 jours.</p>
           <div class="viz" x-html="statsBars(g.days, [{ key: 'gandi', label: 'noms', color: 'var(--series-fr)', values: g.per_day }])"></div>
           <p class="small" x-show="Object.keys(g.kinds).length" x-text="'Réponses : ' + Object.entries(g.kinds).map(([k, n]) => ({ available: 'libres', premium: 'premiums', unavailable: 'indisponibles', taken: 'pris', reserved: 'réservés', restricted: 'restreints', error: 'erreurs' }[k] || k) + ' ' + fmt(n)).join(', ') + '.'"></p>
         </article>
+        </template>
       </div>
     </template>
     <div class="viz-tip" role="tooltip" x-show="statsTipText" :style="statsTipAt ? `left:${statsTipAt.x}px;top:${statsTipAt.y}px` : ''" x-text="statsTipText"></div>

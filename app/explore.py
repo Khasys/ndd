@@ -205,7 +205,7 @@ COMPARABLE_LENGTH = 1
 # Ligne de temps : états de la Veille datés par state_since.
 TIMELINE_DROP_STATES = {states.EXPIRED: "Expiré", states.REDEMPTION: "Entré en rédemption",
                         states.PENDING_DELETE: "En suppression", drops.TAKEN: "Repris",
-                        states.RENEWED: "Renouvelé (même titulaire)",
+                        states.RENEWED: "Renouvelé d'office, à confirmer",
                         drops.UNCONFIRMED: "Libre selon le WHOIS, à confirmer"}
 AI_FIELDS = {"exploit": "Exploitation", "resale": "Revente", "quick_low": "Revente rapide bas",
              "quick_high": "Revente rapide haut", "final_low": "Prix final bas", "final_high": "Prix final haut"}
@@ -2222,7 +2222,7 @@ class Explorer:
                 # Période de grâce : le registre affiche déjà l'échéance prolongée d'un an, que personne n'a payée
                 # (states.effective_expiry, comme le suivi des domaines). La vraie échéance est un an plus tôt.
                 expires = iso(datetime.fromisoformat(str(expires)) - timedelta(days=365))
-                add(expires, "expires", "Expiration (renouvelée d'office par le registre, pas payée)")
+                add(expires, "expires", "Expiration (renouvelée d'office par le registre, paiement pas encore confirmé)")
             else:
                 add(expires, "expires", "Expiration")
         drop = self.conn.execute("SELECT * FROM drops WHERE name = ?", (name,)).fetchone()

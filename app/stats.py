@@ -5,6 +5,7 @@ quelques requêtes groupées ; le résultat est gardé CACHE en mémoire (la pag
 """
 
 import json
+import logging
 import statistics
 import threading
 import time
@@ -20,6 +21,7 @@ RETAKE_MIN_AGE = 7  # une libération de moins d'une semaine n'a pas encore eu l
 MIN_GROUP = 30     # part reprise affichée seulement sur au moins 30 noms
 SCORE_BANDS = ((0, 19), (20, 39), (40, 59), (60, 79), (80, 100))
 CACHE = 600
+log = logging.getLogger(__name__)
 _cache: dict = {}
 _lock = threading.Lock()
 
@@ -30,9 +32,17 @@ def build(conn, tlds: list[str]) -> dict:
         if hit and time.monotonic() - hit[0] < CACHE:
             return hit[1]
         today = utcnow().date()
-        found = {"generated_at": utcnow().isoformat(timespec="seconds"), "tlds": tlds,
-                 "registrations": registrations(conn, today), "releases": releases(conn, today),
-                 "zones": zones(conn), "ai": ai_stats(conn, today), "gandi": gandi(conn, today)}
+        found = {"generated_at": utcnow().isoformat(timespec="seconds"), "tlds": tlds, "errors": []}
+        blocks = {"registrations": lambda: registrations(conn, today), "releases": lambda: releases(conn, today),
+                  "zones": lambda: zones(conn), "ai": lambda: ai_stats(conn, today), "gandi": lambda: gandi(conn, today)}
+        for key, block in blocks.items():
+            # Un bloc en erreur (donnée inattendue) : les autres s'affichent, la cause va au journal.
+            try:
+                found[key] = block()
+            except Exception:
+                log.exception("Statistiques : bloc %s en erreur", key)
+                found[key] = None
+                found["errors"].append(key)
         _cache["stats"] = (time.monotonic(), found)
         return found
 
@@ -84,6 +94,8 @@ def registrations(conn, today: date) -> dict:
     delays: dict[str, list[int]] = {}
     for tld, day, removed in conn.execute(
             "SELECT tld, day, removed_on FROM registrations WHERE removed_on IS NOT NULL AND day >= ?", (since30,)):
+        if not removed:
+            continue  # sans sortie constatée
         gap = (date.fromisoformat(day) - date.fromisoformat(removed[:10])).days
         if gap >= 0:
             delays.setdefault(tld, []).append(gap)
