@@ -30,11 +30,12 @@ TAKEN = (1, 6, 4)         # enregistré, suspendu, libération à venir (pris ai
 FIRST_LISTS = (("premium", "keyword", "brand"), ("local",))
 
 from .ai_format import (COMMENT_MAX, CRITERIA_V5, FIELDS, FIELDS_V5, FORMAT_V5, PRICE_STEPS, check,  # noqa: F401  (réexportés)
-                        VERDICTS, check_any, default_prices, derive, is_v5, median_years, normalized)
+                        VERDICTS, check_any, covers_purchase, default_prices, derive, is_v5, median_years, normalized)
 
 # Règle de calcul des notes (ai_format.derive) : la monter recalcule les avis gardés depuis leurs sous-notes, sans
 # renoter. 2 : pénalité de longueur au-delà de 12 lettres.
-DERIVE_VERSION = "4"  # 4 : verdict sur le rendement attendu (chance de vente réelle, renouvellement), plus de délai IA
+DERIVE_VERSION = "5"  # 4 : verdict sur le rendement attendu (chance de vente réelle, renouvellement), plus de délai IA ;
+# 5 : un premium dont le prix final bas ne couvre pas deux fois l'achat n'est plus « À prendre », panel compris
 
 FORMAT = FORMAT_V5
 
@@ -470,7 +471,7 @@ def rederive(conn, store) -> int:
                         "FROM domain_ai WHERE grid IS NOT NULL AND panel IS NULL").fetchall()  # panel : médiane de dix avis, gardée
     for r in rows:
         item = normalized({"name": r["name"], **json.loads(r["grid"]), "final_low": r["final_low"], "taken": r["taken"],
-                           "renewal": r["renewal"]})
+                           "renewal": r["renewal"], "purchase": premium_price(conn, r["name"])})
         notes = derive(item)
         grid = json.dumps({k: item[k] for k in CRITERIA_V5})
         reason = r["comment"].split(". ", 1)[1] if r["comment"].startswith(VERDICTS) and ". " in r["comment"] else r["comment"]
@@ -486,6 +487,12 @@ def rederive(conn, store) -> int:
             conn.execute("UPDATE domain_ai SET quick_low = ?, quick_high = ?, final_low = ?, final_high = ? WHERE name = ?",
                          (prices["quick_low"], prices["quick_high"], prices["final_low"], prices["final_high"], r["name"]))
         changed += 1
+    # Décision du panel (médiane de dix avis) : gardée, sauf un « À prendre » premium que le prix final ne couvre pas.
+    for r in conn.execute("SELECT name, comment, final_low FROM domain_ai WHERE panel IS NOT NULL AND comment LIKE 'À prendre.%'").fetchall():
+        if not covers_purchase({"purchase": premium_price(conn, r["name"]), "final_low": r["final_low"]}):
+            conn.execute("UPDATE domain_ai SET comment = ? WHERE name = ?",
+                         ("À surveiller." + r["comment"][len("À prendre."):], r["name"]))
+            changed += 1
     store.set("ai_derive", DERIVE_VERSION)
     return changed
 
@@ -556,9 +563,15 @@ def context_lookup(explorer, store):
         if i is not None:
             taken = sum(1 for t in data if t != tld and (tld == "com" or t != "com") and data[t][i] in TAKEN)
         price = (prices.get(tld) or {}).get("price")
-        return {"taken": taken, "renewal": float(price) if price else None}
+        return {"taken": taken, "renewal": float(price) if price else None, "purchase": premium_price(explorer.conn, name)}
 
     return context
+
+
+def premium_price(conn, name: str) -> float | None:
+    """Prix d'achat d'un nom premium chez Gandi (dernière lecture), None s'il est au tarif normal ou pas vu."""
+    row = conn.execute("SELECT price FROM gandi_checks WHERE name = ? AND kind = 'premium'", (name,)).fetchone()
+    return float(row[0]) if row and row[0] else None
 
 
 def status_lookup(explorer):

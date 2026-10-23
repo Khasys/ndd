@@ -98,6 +98,9 @@ SELL_RATE_MIN, SELL_RATE_MAX = 0.005, 0.15
 COMMISSION = 0.20        # commission de la place de marché : hypothèse prudente
 DEFAULT_RENEWAL = 15.0   # euros par an, quand le prix Gandi de l'extension n'est pas connu
 TAKE_YIELD = 2.0         # « À prendre » : rapporte au moins deux fois son renouvellement chaque année
+# Premium (prix d'achat au-dessus du tarif normal) : pas de « À prendre » si le prix final bas ne couvre pas deux fois
+# l'achat (test.co : achat 4 376 €, revente finale 3 000 € au plus bas). Le rendement ne compte que le renouvellement.
+PREMIUM_COVER = 2.0
 
 
 def sell_rate(resale: int, taken: int) -> float:
@@ -202,7 +205,8 @@ def derive(item: dict) -> dict:
     """Notes sur 100 et verdict, calculés depuis les sous-notes : même règle partout. La note de revente est le
     potentiel du nom. Avec la demande mesurée (taken : autres extensions où il est pris) et le prix utilisateur final,
     l'appli en tire une chance de vente par an et un rendement attendu (euros par an, renouvellement ôté), qui
-    décident du verdict. Sans ces données (avis d'avant, essais), le verdict suit la note de revente."""
+    décident du verdict. Sans ces données (avis d'avant, essais), le verdict suit la note de revente. Un premium
+    (purchase : prix d'achat) n'est « À prendre » que si le prix final bas couvre l'achat (covers_purchase)."""
     item = normalized(item)
     risk = item["risque"]
     form = (FORM_FLOOR + (1 - FORM_FLOOR) * (item["oral"] + item["radio"]) / 20) * length_factor(item.get("name") or "")
@@ -226,7 +230,15 @@ def derive(item: dict) -> dict:
         verdict = "À laisser"
     else:
         verdict = "À surveiller"
+    if verdict == "À prendre" and not covers_purchase(item):
+        verdict = "À surveiller"
     return {**found, "verdict": verdict}
+
+
+def covers_purchase(item: dict) -> bool:
+    """Le prix final bas couvre PREMIUM_COVER fois le prix d'achat premium (purchase, euros) ; sans premium : oui."""
+    purchase, low = item.get("purchase"), item.get("final_low")
+    return not purchase or low is None or low >= PREMIUM_COVER * purchase
 
 
 def _step_down(x: float) -> int:

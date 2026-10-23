@@ -24,6 +24,25 @@ def test_grids_used_here_give_the_three_verdicts():
     assert [ai_format.derive(avis(grid=g))["verdict"] for g in (TAKE, WATCH, SKIP)] == ["À prendre", "À surveiller", "À laisser"]
 
 
+def test_a_premium_is_not_a_take_unless_the_final_price_covers_twice_the_purchase(env):
+    item = avis()
+    low = item["final_low"]
+    assert ai_format.derive({**item, "purchase": low / 2})["verdict"] == "À prendre"  # couvert deux fois : gardé
+    assert ai_format.derive({**item, "purchase": low / 2 + 1})["verdict"] == "À surveiller"
+    # Décision du panel déjà écrite (test.co : achat 4 376 €) : corrigée une fois par le recalcul.
+    ai.save(env.conn, [item], lambda n: True, context_of=NO_CONTEXT)
+    env.conn.execute("UPDATE domain_ai SET panel = '{}' WHERE name = ?", (item["name"],))
+    env.conn.execute("INSERT INTO gandi_checks (name, status, kind, price, checked_at) VALUES (?, 'available', 'premium', ?, ?)",
+                     (item["name"], float(low), iso(utcnow())))
+    from app.store import Store
+
+    store = Store(env.conn)
+    store.set("ai_derive", "4")
+    assert ai.rederive(env.conn, store) == 1
+    comment = env.conn.execute("SELECT comment FROM domain_ai WHERE name = ?", (item["name"],)).fetchone()[0]
+    assert comment.startswith("À surveiller. Marché moto") and ai.rederive(env.conn, store) == 0
+
+
 def test_take_goes_to_the_panel_and_a_promising_watch_to_the_rescue_once(env):
     assert escalation.consider(env.conn, "a.fr", "À prendre", 40) == "panel"
     assert escalation.consider(env.conn, "b.fr", "À surveiller", 5) == "rescue"
