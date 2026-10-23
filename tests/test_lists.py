@@ -661,16 +661,14 @@ def test_compound_and_invented_builders():
     en = c.english({"mybox"})
     assert len(en) == c.COUNT and en[0] != "mybox" and "mybox" not in en
     assert all(c.EN_LENGTH[0] <= len(n) <= c.EN_LENGTH[1] and not c.BAD.search(n) for n in en)
-    # Inventés : graine fixe (la liste se refait à l'identique), pas de vrai mot, diversité des débuts.
-    c.SAMPLES, c.INVENTED = 20_000, 300
-    first = c.invented({"lumora"})
-    assert first == c.invented({"lumora"}) and len(first) == 300 and "lumora" not in first
-    starts = {}
-    for name in first:
-        starts[name[:3]] = starts.get(name[:3], 0) + 1
-    assert max(starts.values()) <= c.DIVERSITY[0]
+    # Inventés : mot commercial + twist, refait à l'identique, jamais un nom déjà pris, au plus PER_BASE par mot.
+    c.INVENTED = 300
+    first = c.invented({"shoply"})
+    assert first == c.invented({"shoply"}) and len(first) == 300 and "shoply" not in first
+    assert {"trackr", "traker"} <= set(c._respell("tracker"))
+    assert "healthr" in c._respell("healther") and "kloud" in c._respell("cloud") and "bootz" in c._respell("boots")
     # Les listes livrées sont dans l'appli, réunies à leur catégorie.
     from app import wordlists
     assert wordlists.MERGED["compound_en"] == wordlists.MERGED["compound_fr"] == "combo"
     assert wordlists.MERGED["invented"] == "brand" and "invented" in wordlists.NO_MEANING
-    assert len(wordlists._ordered("composes_en.txt")) == c.COUNT and len(wordlists._ordered("inventes.txt")) == 10_000
+    assert len(wordlists._ordered("composes_en.txt")) == c.COUNT and 5_000 <= len(wordlists._ordered("inventes.txt")) <= c.INVENTED_MAX

@@ -9,9 +9,9 @@ avec le vocabulaire des ventes jusqu'à 2025 seulement, la liste retrouve 18 % d
 (3 % pour les listes d'avant). Français : scripts/lists/composes_fr.txt (jugement manuel, trop peu de ventes) ;
 mon/ma, petit/petite… accordés au genre du nom (Lexique383, comme scripts/build_lists.py).
 
-Inventés : racine évocatrice + finale de marque (scripts/lists/inventes.txt : lumora, vitaly), et noms tirés d'un
-modèle de lettres appris des marques inventées déjà gardées (marques_inventees.txt) ; triés par leur sonorité en
-français et en anglais (app/quality.py), au plus DIVERSITY par début de trois lettres.
+Inventés : mot commercial courant + twist (scripts/lists/inventes.txt) : suffixe (cloudify, travelio), préfixe
+(upmarket, ihealth) ou orthographe (healthr, kloud), comme la plupart des noms inventés qui se vendent ; triés par le
+rang du mot et de l'ajout, la longueur et la lisibilité en anglais (app/quality.py), au plus PER_BASE par mot.
 
 Un nom déjà dans une autre liste, un mot seul (mots, formes, anglais, prénoms, noms), une marque connue ou un nom trop
 long n'entre pas.
@@ -19,7 +19,6 @@ long n'entre pas.
 
 import collections
 import math
-import random
 import re
 import sys
 from pathlib import Path
@@ -37,16 +36,13 @@ OFFSET = 3           # rang 0 : log(3), pour qu'un mot du haut ne pèse pas infi
 BAD = re.compile(r"(.)\1\1|sex|porn|fuck|shit|nazi|cunt|whore|slut|penis|nigg|salope|merde|connard")
 OWN = ("compound_en", "compound_fr", "invented")
 INVENTED = 10_000
-INVENTED_LENGTH = (5, 8)
-DIVERSITY = (20, 500)  # au plus 20 noms par début de trois lettres, 500 par fin de deux lettres
-SAMPLES = 400_000      # tirages du modèle de lettres (graine fixe : la liste se refait à l'identique)
-BRAND_END = ("a", "o", "io", "ia", "ix", "ex", "on", "ly", "ra", "va", "na", "ro", "eo", "um", "us", "os", "ar", "el", "yx",
-             "is", "ys", "ea")
-# Finales de mots ordinaires : un nom qui finit ainsi sonne comme un mot raté plutôt que comme une marque.
-WORD_END = ("ate", "ite", "ice", "ine", "age", "ere", "ive", "ise", "ure", "ent", "ant", "eur", "oir", "ism", "ness", "ing",
-            "ed", "ery", "ary", "ory", "ty", "ble", "que", "ue", "le", "de", "te", "ne", "me", "se")
-# Débuts de préfixes savants : tirés du modèle, ils donnent des mots ratés (comon, repon, dison).
-WORD_START = ("com", "con", "re", "de", "dis", "sub", "pre", "par", "per", "pro", "sup", "in", "im")
+INVENTED_MAX = INVENTED
+INVENTED_LENGTH = (5, 10)
+BASE_LENGTH = (3, 7)   # mot de base : court, pour que le nom tordu le reste
+PER_BASE = 5           # au plus cinq noms par mot de base
+# Mots-outils : un twist sur « the » ou « your » ne fait pas une marque.
+BASE_STOP = frozenset("the you your our all for one two get new big top best free more just only this that with and"
+                      .split())
 INVENTED_BAD = re.compile(r"(.)\1\1|[^aeiouy]{3}|[aeiouy]{3}|q[^u]|sex|porn|fuck|nazi|cul|con$|pute|bite")
 
 
@@ -137,56 +133,70 @@ def french(taken: set[str], lexique: Path) -> list[str]:
     return _best(scored)
 
 
+def _respell(word: str) -> list[str]:
+    """Déformations d'orthographe qui gardent le mot lisible : healthr (flickr), kloud, trakk, boostz, fone."""
+    out = []
+    if word.endswith("er") and len(word) > 4:
+        out.append(word[:-2] + "r")
+    if word.endswith("s") and len(word) > 4:
+        out.append(word[:-1] + "z")
+    if "ck" in word:
+        out += [word.replace("ck", "k", 1), word.replace("ck", "q", 1)]
+    if "ph" in word:
+        out.append(word.replace("ph", "f", 1))
+    for i, char in enumerate(word):
+        if char == "c" and (i + 1 == len(word) or word[i + 1] not in "hiey"):
+            out.append(word[:i] + "k" + word[i + 1:])
+            break
+    if word.endswith(("que", "c")):
+        out.append(word[:-3] + "q" if word.endswith("que") else word[:-1] + "q")
+    return [w for w in out if w != word]
+
+
 def invented(taken: set[str]) -> list[str]:
-    vocab = b.sections("inventes.txt")
-    roots, ends = list(dict.fromkeys(vocab["racines"])), list(dict.fromkeys(vocab["finales"]))
+    """Mot commercial courant + twist : suffixe (cloudify, travelio), préfixe (upmarket, ihealth) ou orthographe
+    (healthr, kloud). Mots de base : ceux des composés anglais, les plus vendus d'abord ; un mot sert PER_BASE fois au
+    plus, pour ne pas faire 50 variantes de cloud."""
+    vocab, words = b.sections("inventes.txt"), b.sections("composes_en.txt")
+    ranks: dict[str, int] = {}
+    for section in ("tetes", "queues"):
+        for i, word in enumerate(words[section]):
+            # Un pluriel tordu se lit mal (heroesa) : mots au singulier seulement.
+            plural = word.endswith("s") and not word.endswith("ss")
+            if word.isalpha() and BASE_LENGTH[0] <= len(word) <= BASE_LENGTH[1] and word not in BASE_STOP and not plural:
+                ranks[word] = min(ranks.get(word, i), i)
+    suffixes, prefixes = list(dict.fromkeys(vocab["suffixes"])), list(dict.fromkeys(vocab["prefixes"]))
     found: dict[str, tuple[float, str]] = {}
 
-    def add(name: str, prior: float, family: str) -> None:
-        if (INVENTED_LENGTH[0] <= len(name) <= INVENTED_LENGTH[1] and name.isalpha() and name not in taken
-                and not INVENTED_BAD.search(name) and prior > found.get(name, (-math.inf, ""))[0]):
-            found[name] = (prior, family)
+    def add(name: str, base: str, cost: float) -> None:
+        if (INVENTED_LENGTH[0] <= len(name) <= INVENTED_LENGTH[1] and name not in taken and not INVENTED_BAD.search(name)
+                and cost < found.get(name, (math.inf, ""))[0]):
+            found[name] = (cost, base)
 
-    # Racine + finale ; deux voyelles à la jonction se fondent (nova + a : nova, nova + ia : novia).
-    for i, root in enumerate(roots):
-        for j, end in enumerate(ends):
-            name = root + (end[1:] if root[-1] in "aeiouy" and end[0] in "aeiouy" else end)
-            add(name, -0.4 * math.log(i + OFFSET) - 0.3 * math.log(j + OFFSET), "root")
-    # Modèle de lettres (ordre 3) appris des marques inventées gardées.
-    model = collections.defaultdict(collections.Counter)
-    for word in wordlists._ordered(wordlists.FILES["brand"]):
-        if INVENTED_LENGTH[0] <= len(word) <= INVENTED_LENGTH[1]:
-            chain = "^^" + word + "$"
-            for k in range(2, len(chain)):
-                model[chain[k - 2:k]][chain[k]] += 1
-    rng = random.Random(7)
-    for _ in range(SAMPLES):
-        chain = "^^"
-        while len(chain) < 12 and model[chain[-2:]]:
-            nxt = model[chain[-2:]]
-            char = rng.choices(list(nxt), weights=list(nxt.values()))[0]
-            if char == "$":
-                add(chain[2:], -1.0, "model")
-                break
-            chain += char
+    for base, r in ranks.items():
+        weight = 0.8 * math.log(r + OFFSET)
+        for j, suffix in enumerate(suffixes):
+            # La voyelle finale du mot et celle du suffixe se fondent : data + a ne fait pas dataa.
+            name = base[:-1] + suffix if len(base) > 3 and base[-1] in "aeiou" and suffix[0] in "aeiouy" else base + suffix
+            # Pas de lettre doublée à la jonction (superr), ni de mot presque existant (better tordu en beter).
+            if base[-1] != suffix[0] and not (suffix in ("r", "er") and base.endswith("t")):
+                add(name, base, weight + 0.6 * math.log(j + OFFSET))
+        for j, prefix in enumerate(prefixes):
+            if prefix[-1] != base[0] and not base.startswith(prefix):  # rered, ppay
+                add(prefix + base, base, weight + 0.6 * math.log(j + OFFSET) + 0.3)
+        for name in _respell(base):
+            add(name, base, weight + 0.6 * math.log(3 + OFFSET) + 0.4)
 
-    def sound(name: str, prior: float, family: str) -> float:
+    def cost(name: str, value: float) -> float:
         f = quality.features(name, "com")
-        score = 2.4 * min(f["like_fr"], f["like_en"]) + 0.8 * f["alternation"] + 0.6 * f["cv_perfect"]
-        score += 0.6 * name.endswith(BRAND_END) - 0.9 * name.endswith(WORD_END)
-        score -= 1.5 * f["ambiguous"] + f["double"] + 2 * f["cons_run3"] + 2 * f["vow_run3"]
-        score += {5: 0.6, 6: 0.5, 7: 0.2, 8: -0.2}[len(name)]
-        if family == "model" and (not name.endswith(BRAND_END) or name.startswith(WORD_START)):
-            score -= 3
-        return score + prior + (1.5 if family == "root" else 0)
+        return value + LENGTH_COST["en"] * len(name) - 1.5 * f["like_en"] + 2 * f["cons_run3"] + 2 * f["vow_run3"]
 
-    ranked = sorted(((sound(n, p, fam), n) for n, (p, fam) in found.items()), key=lambda x: (-x[0], x[1]))
-    starts, endings, out = collections.Counter(), collections.Counter(), []
-    for _, name in ranked:
-        if starts[name[:3]] >= DIVERSITY[0] or endings[name[-2:]] >= DIVERSITY[1]:
+    ranked = sorted((cost(n, v), n, base) for n, (v, base) in found.items())
+    per_base, out = collections.Counter(), []
+    for _, name, base in ranked:
+        if per_base[base] >= PER_BASE:
             continue
-        starts[name[:3]] += 1
-        endings[name[-2:]] += 1
+        per_base[base] += 1
         out.append(name)
         if len(out) == INVENTED:
             break

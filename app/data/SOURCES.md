@@ -297,11 +297,14 @@ français pour l'apprendre. Moins de 100 000 noms : au-delà, les associations n
 
 ## inventes.txt
 
-Noms inventés (10 000), réunis à la catégorie Noms de marque : racine évocatrice + finale de marque
-(scripts/lists/inventes.txt : lumora, vitaly, solora) et noms tirés d'un modèle de lettres appris des marques
-inventées (marques_inventees.txt), triés par leur sonorité en français et en anglais à la fois (app/quality.py),
-finales de marque favorisées, au plus 20 noms par début de trois lettres. Vrais mots, prénoms, noms de famille et
-marques connues écartés. Pas de langue.
+Noms inventés « mot + twist » (7 642), réunis à la catégorie Noms de marque : un mot anglais courant et commercial (ceux
+des composés anglais) prolongé, préfixé ou déformé : shoply, techify, uptech, ishop, cloudify, healthr, kloud.
+Ajouts relevés dans les noms inventés vendus de 2015 à 2022 (rapports publics de DNJournal), rangés à la main, ceux
+qui donnent un effet de marque d'abord (scripts/lists/inventes.txt) ; cinq noms au plus par mot. Pourquoi : 77 % des
+noms inventés vendus de 2023 à 2026 contiennent un mot anglais courant, contre 49 % des inventions purement sonores ;
+un test à l'aveugle (150 vendus, 150 de nos listes) a montré que la beauté du son seule ne distingue pas les noms qui
+se vendent. Vrais mots, prénoms, noms de famille et marques de marques.txt écartés ; une marque connue absente de
+cette liste peut passer (bitly) : contrôle INPI ou EUIPO avant d'acheter. Pas de langue.
 
 ## Mes ajouts (hors de ce dossier)
 
