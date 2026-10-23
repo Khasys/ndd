@@ -86,7 +86,7 @@ def test_handshake_and_tool_list(connected):
     assert init["result"]["capabilities"] == {"tools": {"listChanged": False}}
     assert client.post(path, json=rpc("notifications/initialized", ident=None)).status_code == 202
     names = [t["name"] for t in client.post(path, json=rpc("tools/list")).json()["result"]["tools"]]
-    assert names[:2] == ["search", "fetch"] and len(names) == 7
+    assert names[:3] == ["search", "list_names", "fetch"] and len(names) == 8
     assert client.post(path, json=rpc("resources/list")).json()["error"]["code"] == -32601
     bad = client.post(path, content=b"{pas du json", headers={"Content-Type": "application/json"})
     assert bad.status_code == 400 and bad.json()["error"]["code"] == -32700
@@ -103,6 +103,12 @@ def test_tools_return_light_json(connected):
     assert '"id":"velo.fr"' in text and '"rdap":' not in text and "null" not in text
     found = client.post(path, json=rpc("tools/call", {"name": "search", "arguments": {"query": "vel", "tld": "fr"}})).json()
     assert '"id":"velo.fr"' in found["result"]["content"][0]["text"]
+    # Lister sans mot à chercher : longueur, catégorie, état, noms faibles compris ; compteurs de la sélection.
+    listed = client.post(path, json=rpc("tools/call", {"name": "list_names", "arguments": {
+        "tld": "fr", "length": 4, "category": "word", "status": "all", "weak": True, "limit": 5}})).json()["result"]
+    body = json.loads(listed["content"][0]["text"])
+    assert listed["isError"] is False and "velo.fr" in [r["name"] for r in body["results"]] and body["counts"]["all"] >= 1
+    assert mcp.request_for("list_names", {"length": 3, "weak": True})[1] == {"limit": 50, "sort": "score", "len": 3, "junk": "1"}
     for name, args in (("today", {}), ("drops", {"focus": "coming"}), ("top_list", {"list": "word", "tld": "fr"}),
                        ("ai_rated", {"verdict": "take"}), ("watched", {})):
         result = client.post(path, json=rpc("tools/call", {"name": name, "arguments": args})).json()["result"]

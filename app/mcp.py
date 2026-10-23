@@ -83,6 +83,29 @@ def tools() -> list[dict]:
             "annotations": READ_ONLY,
         },
         {
+            "name": "list_names",
+            "title": "Lister des noms par critères",
+            "description": "Liste les noms de l'Explorer sans mot à chercher : par longueur, catégorie et état (ex. tous "
+                           "les .fr de 3 lettres libres), les meilleurs d'abord, avec les compteurs de la sélection "
+                           "(counts : nombre de noms par état, avant la limite). Par défaut, les suites imprononçables, "
+                           "les mélanges et les tirets sont écartés : weak=true les garde.",
+            "inputSchema": {"type": "object", "properties": {
+                "tld": {"type": "string", "description": TLD_HELP},
+                "length": {"type": "integer", "minimum": 1, "maximum": 63, "description": "Longueur exacte, sans l'extension."},
+                "category": {"type": "string", "enum": list(explore.KINDS),
+                             "description": "letters, digits, mixed, word, english… (une seule)."},
+                "status": {"type": "string", "enum": list(explore.STATUS_FILTERS),
+                           "description": "available = tous non pris (défaut), free = libres vérifiés, "
+                                          "maybe_free = probablement libres, coming = bientôt libres, all = tout."},
+                "weak": {"type": "boolean", "description": "true : garder aussi les noms faibles (imprononçables…)."},
+                "query": {"type": "string", "description": "Facultatif : morceau de nom que les résultats contiennent."},
+                "sort": {"type": "string", "enum": ["score", "resale", "exploit", "ai", "length", "release", "recent"],
+                         "description": "Tri : score (défaut)."},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 200, "description": "50 par défaut."},
+            }},
+            "annotations": READ_ONLY,
+        },
+        {
             "name": "fetch",
             "title": "Fiche d'un nom",
             "description": "Fiche complète d'un nom de domaine (ex. medecindusport.com) : état et dates, autres "
@@ -164,6 +187,22 @@ def request_for(name: str, args: dict) -> tuple[str, dict]:
         if args.get("status"):
             params["status"] = args["status"]
         return "/api/explore/rank", params
+    if name == "list_names":
+        params = {"limit": _limit(args, 50, 200), "sort": args.get("sort") or "score", **_tld(args)}
+        if args.get("length") is not None:
+            try:
+                params["len"] = int(args["length"])
+            except (TypeError, ValueError):
+                raise ValueError("length doit être un nombre.") from None
+        for key, param in (("category", "cat"), ("status", "status")):
+            if args.get(key):
+                params[param] = str(args[key])
+        if args.get("weak") is True:
+            params["junk"] = "1"
+        query = str(args.get("query") or "").strip().lower()
+        if query:
+            params.update(q=query, mode="contains")
+        return "/api/explore/rank", params
     if name == "fetch":
         ident = str(args.get("id") or "").strip().lower()
         if not ident:
@@ -194,6 +233,14 @@ def shape(name: str, args: dict, data, base_url: str):
     if name == "search":
         items = data.get("items", []) if isinstance(data, dict) else []
         return {"results": [{**head(i.get("name")), **compact(i)} for i in items]}
+    if name == "list_names":
+        # Une ligne courte par nom (beaucoup de noms tiennent dans la réponse), et les compteurs de la sélection.
+        items = data.get("items", []) if isinstance(data, dict) else []
+        rows = [compact({"name": i.get("name"), "state": i.get("status_label"), "score": i.get("score"),
+                         "categories": i.get("categories"), "verdict": ((i.get("ai") or {}).get("comment") or "").split(".")[0],
+                         "final_low": (i.get("ai") or {}).get("final_low"), "final_high": (i.get("ai") or {}).get("final_high"),
+                         "premium_price": i.get("premium_price")}) for i in items]
+        return {"counts": (data.get("counts") if isinstance(data, dict) else None) or {}, "results": rows}
     if name == "fetch":
         return {**head(data.get("name")), **compact(data)}
     if name == "drops":

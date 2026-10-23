@@ -175,8 +175,8 @@ la tâche de notation et un connecteur déjà branchés continuent de marcher.
 Paramètres, Jetons d'accès, type « Connecteur MCP », « Créer » : une adresse MCP secrète,
 `https://<appli>/mcp/<jeton>`, montrée une seule fois. Un jeton par assistant (ChatGPT, Claude) permet
 de couper l'un sans l'autre. Un assistant compatible MCP (ChatGPT en mode
-développeur, Claude avec un connecteur personnalisé) lit alors l'appli avec sept outils :
-`search` (Explorer), `fetch` (fiche d'un nom), `today` (Aujourd'hui), `drops` (Veille), `top_list`
+développeur, Claude avec un connecteur personnalisé) lit alors l'appli avec huit outils :
+`search` (Explorer), `list_names` (noms par longueur, catégorie et état, sans mot à chercher), `fetch` (fiche d'un nom), `today` (Aujourd'hui), `drops` (Veille), `top_list`
 (top d'une liste), `ai_rated` (avis IA) et `watched` (noms surveillés).
 
 - **Lecture seule** : chaque outil lit un écran déjà ouvert à l'API en lecture ; rien n'écrit, aucun
