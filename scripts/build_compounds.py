@@ -40,6 +40,7 @@ INVENTED_MAX = INVENTED
 INVENTED_LENGTH = (5, 10)
 BASE_LENGTH = (3, 7)   # mot de base : court, pour que le nom tordu le reste
 PER_BASE = 5           # au plus cinq noms par mot de base
+SOUND_EVERY = 4        # un nom au beau son pour quatre « mot + twist »
 # Mots-outils : un twist sur « the » ou « your » ne fait pas une marque.
 BASE_STOP = frozenset("the you your our all for one two get new big top best free more just only this that with and"
                       .split())
@@ -192,15 +193,21 @@ def invented(taken: set[str]) -> list[str]:
         return value + LENGTH_COST["en"] * len(name) - 1.5 * f["like_en"] + 2 * f["cons_run3"] + 2 * f["vow_run3"]
 
     ranked = sorted((cost(n, v), n, base) for n, (v, base) in found.items())
-    per_base, out = collections.Counter(), []
+    per_base, twists = collections.Counter(), []
     for _, name, base in ranked:
         if per_base[base] >= PER_BASE:
             continue
         per_base[base] += 1
-        out.append(name)
-        if len(out) == INVENTED:
-            break
-    return out
+        twists.append(name)
+    # Noms au beau son gardés : un pour SOUND_EVERY « mot + twist ».
+    sounds = [n for n in vocab.get("sonores", []) if n not in taken and n not in found]
+    out = []
+    while twists or sounds:
+        out += twists[:SOUND_EVERY]
+        del twists[:SOUND_EVERY]
+        out += sounds[:1]
+        del sounds[:1]
+    return list(dict.fromkeys(out))[:INVENTED]
 
 
 def _best(scored: list[tuple[float, str]]) -> list[str]:

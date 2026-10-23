@@ -351,7 +351,7 @@
       <dt>Explorer</dt><dd>Tous les noms suivis, pris ou non, extension par extension ; taper un mot pour voir son état partout et le vérifier.</dd>
       <dt>Portefeuille</dt><dd>Les noms possédés : achat, renouvellement, mise en vente, bilan, et les décisions gardées ; un nom s'y ajoute à la main.</dd>
       <dt>Paramètres</dt><dd>Sources, Telegram, alertes et avis IA d'abord ; le reste sous « Afficher les réglages avancés », la version en bas.</dd>
-      <dt>Fiche</dt><dd>Tout sur un nom, la même depuis chaque écran ; pour un nom surveillé, le suivi en plus (dates, registrar, DNS, tags, signaux, historique), Vérifier et Supprimer de la surveillance. Se ferme par « × », Échap, le retour arrière ou, sur ordinateur, un clic hors de la fiche.</dd>
+      <dt>Fiche</dt><dd>Tout sur un nom, la même depuis chaque écran. En haut, la décision : notes, verdict, prix et une seule action principale (Réserver, Suivre sa libération ou Demander l'avis IA). Dessous, des onglets : Aperçu (dates clés, le nom, et pour un nom surveillé le suivi : registrar, DNS, tags, signaux, historique), Valeur (score, détail IA, rentabilité, comparables), Extensions et Registre quand il y en a. Vérifier et Supprimer de la surveillance restent dans la barre d'actions. Se ferme par « × », Échap, le retour arrière ou, sur ordinateur, un clic hors de la fiche.</dd>
     </dl>
     <p class="small muted">Démarrer en 3 étapes : une source (.fr ou zones ICANN), Telegram, puis l'avis IA (facultatif). Le bloc reste sur Aujourd'hui et en tête des Paramètres tant qu'une étape manque. Sur téléphone, Paramètres s'ouvre par l'icône en haut à droite de chaque écran. Badges « Surveillé » et « Portefeuille » sur les cartes de noms.</p>
 
@@ -1817,8 +1817,9 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
         </button>
       </header>
-      <!-- Carte décision, tout l'avis IA : les deux notes (l'usage choisi en premier), verdict, prix, pourquoi, avis ;
-           « Détail IA » déroule la grille. Sans avis : le score, où en est la notation, les raisons du score. -->
+      <!-- Carte décision : le verdict et la note qui trie, les prix, la raison de l'IA, puis UNE action, celle que
+           l'état du nom appelle (réserver un nom libre, suivre un nom qui va se libérer, sinon demander l'avis IA).
+           Sans avis : le score seul et où en est la notation ; ses raisons sont dans l'onglet Valeur, pas ici. -->
       <section class="fiche-deal" x-data="{ k: ficheDecision(null) }" x-effect="k = ficheDecision(fiche)"
                :class="{ 'fiche-hot': fiche.hot && k.verdict }" aria-label="Décision">
         <div class="fd-head">
@@ -1833,34 +1834,39 @@
         <p class="fd-prices" x-show="k.prices.length">
           <template x-for="pr in k.prices" :key="pr[0]"><span><span x-text="pr[0]"></span> <b x-text="pr[1]"></b></span></template>
         </p>
-        <p class="fd-why" x-show="k.why" x-text="k.why"></p>
+        <p class="fd-why" x-show="k.verdict && k.why" x-text="k.why"></p>
         <p class="fd-comment" x-show="k.comment" x-text="k.comment"></p>
         <p class="fd-queue" x-show="k.panel" x-text="k.panel"></p>
         <p class="fd-queue" x-show="k.queue" x-text="k.queue"></p>
         <p class="fd-old" x-show="k.old">Avis à l'ancienne grille, renoté bientôt</p>
         <p class="fd-warn" x-show="k.premium" x-text="k.premium"></p>
-        <div class="fd-more" x-show="k.grid">
-          <button type="button" class="fd-toggle" @click="ficheAiOpen = !ficheAiOpen" :aria-expanded="ficheAiOpen ? 'true' : 'false'" aria-controls="fd-grid">
-            <svg viewBox="0 0 24 24" aria-hidden="true" :class="{ open: ficheAiOpen }"><path d="M9 6l6 6-6 6"/></svg>
-            <span>Détail IA</span><span class="fd-meta" x-text="'grille sur 10' + (k.rated ? ' · ' + k.rated : '')"></span>
-          </button>
-          <div id="fd-grid" class="fd-grid" x-show="ficheAiOpen" x-html="ficheGridHtml(k.grid)"></div>
-        </div>
+        <!-- L'action principale, en grand : une seule. -->
+        <template x-if="fichePrimary(fiche) === 'reserve'">
+          <a class="btn fd-cta" :href="orderLink(fiche.name)" target="_blank" rel="noopener"
+             x-text="registrarName ? 'Réserver chez ' + registrarName : 'Réserver'"></a>
+        </template>
+        <template x-if="fichePrimary(fiche) === 'watch'">
+          <button type="button" class="btn fd-cta" :disabled="ficheBusy()" @click="ficheWatch()">Suivre sa libération</button>
+        </template>
+        <template x-if="fichePrimary(fiche) === 'ai'">
+          <button type="button" class="btn fd-cta" :disabled="ficheAiState(fiche) === 'pending'" @click="ficheAi()"
+                  x-text="ficheAiState(fiche) === 'pending' ? 'Avis IA en cours' : 'Demander l\'avis IA'"></button>
+        </template>
       </section>
-      <!-- Actions en pictos, une ligne : l'état du nom décide de l'allure ; « Plus » ouvre les actions secondaires. -->
+      <!-- Actions secondaires, petites, sans répéter l'action principale ; « Plus » ouvre le reste. -->
       <div class="fiche-actbar" @click.outside="ficheMenu = false">
-        <div class="fiche-acts" role="toolbar" aria-label="Actions">
-          <a class="fa" :class="{ primary: fichePrimary(fiche) === 'reserve' }" :href="orderLink(fiche.name)" target="_blank" rel="noopener"
+        <div class="fiche-acts" role="toolbar" aria-label="Autres actions">
+          <a class="fa" x-show="fichePrimary(fiche) !== 'reserve'" :href="orderLink(fiche.name)" target="_blank" rel="noopener"
              :title="registrarName ? 'Réserver chez ' + registrarName : 'Réserver'">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h2l2 10h10l2-7H7"/><circle cx="10" cy="19" r="1.4"/><circle cx="17" cy="19" r="1.4"/></svg>
             <span>Réserver</span>
           </a>
-          <button type="button" class="fa" :class="{ on: fiche.domain_id, primary: fichePrimary(fiche) === 'watch' }" :disabled="ficheBusy()"
+          <button type="button" class="fa" x-show="fichePrimary(fiche) !== 'watch'" :class="{ on: fiche.domain_id }" :disabled="ficheBusy()"
                   @click="fiche.domain_id ? ficheUnwatch() : ficheWatch()" :title="fiche.domain_id ? 'Suivi : appuyer pour arrêter le suivi' : 'Suivre ce nom'">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="3" :class="{ filled: fiche.domain_id }"/></svg>
             <span x-text="fiche.domain_id ? 'Suivi' : 'Suivre'"></span>
           </button>
-          <button type="button" class="fa" :class="{ on: ficheAiState(fiche) === 'done', wait: ficheAiState(fiche) === 'pending', primary: fichePrimary(fiche) === 'ai' }"
+          <button type="button" class="fa" x-show="fichePrimary(fiche) !== 'ai'" :class="{ on: ficheAiState(fiche) === 'done', wait: ficheAiState(fiche) === 'pending' }"
                   :disabled="ficheAiState(fiche) === 'pending'" @click="ficheAi()" :title="aiAskLabel(fiche)">
             <!-- Picto « IA » : cadre en pointillés pendant l'analyse, plein une fois l'avis reçu. -->
             <span class="ia-mark" :class="'ia-' + ficheAiState(fiche)" aria-hidden="true">IA</span>
@@ -1889,7 +1895,15 @@
         <span class="small muted">Hors des listes suivies : ni zones, ni DNS, ni notation IA de nuit.</span>
         <button type="button" class="btn-ghost sm" :disabled="mineBusy" @click="mineAdd(fiche.name)" x-text="mineBusy ? 'Ajout…' : 'Ajouter aux noms suivis'"></button>
       </p>
-      <!-- Ligne de temps : les dates du nom, passées puis à venir ; au-delà de 6, les 3 dernières passées et tout l'avenir. -->
+      <!-- Onglets au lieu de sections empilées : Aperçu (dates, suivi, le nom), Valeur (score, détail IA, rentabilité,
+           comparables), Extensions, Registre. L'onglet revient à Aperçu à chaque autre nom. -->
+      <div class="fiche-tabs" role="tablist" aria-label="Détail du nom">
+        <template x-for="t in ficheTabs(fiche)" :key="t.key">
+          <button type="button" role="tab" class="ftab" :class="{ on: ficheTab === t.key }" :aria-selected="ficheTab === t.key ? 'true' : 'false'"
+                  @click="ficheTab = t.key"><span x-text="t.label"></span><span class="ftab-n" x-show="t.n" x-text="t.n"></span></button>
+        </template>
+      </div>
+      <div class="fiche-pane" x-show="ficheTab === 'apercu'" role="tabpanel">
       <section class="fiche-timeline" x-show="(fiche.timeline || []).length" aria-labelledby="fiche-tl-title">
         <div class="ftl-head">
           <h3 id="fiche-tl-title">Dates clés</h3>
@@ -1905,60 +1919,6 @@
           </template>
         </ol>
       </section>
-      <!-- Rentabilité à l'exploitation : analyse à la demande (recherche web comprise) par la tâche du quart d'heure. -->
-      <details class="fsec fiche-exploit" :open="!mobile || !!(fiche.exploit && fiche.exploit.report)" x-data="{ x: exploitView(null) }" x-effect="x = exploitView(fiche)">
-        <summary><span class="fsec-title">Rentabilité</span><span class="fsec-sum" x-text="x.sum"></span></summary>
-        <div class="fsec-body">
-          <div class="fx-ask">
-            <p class="small muted" x-text="x.hint"></p>
-            <button type="button" class="btn-ghost sm" :disabled="x.pending || exploitBusy" @click="ficheExploit()" x-text="x.button"></button>
-          </div>
-          <template x-if="x.report">
-            <div class="fx-report">
-              <p class="fx-verdict"><span class="verdict" :class="x.cls" x-text="x.label"></span></p>
-              <p class="fx-summary" x-text="x.report.summary"></p>
-              <template x-for="(m, i) in x.report.models" :key="i">
-                <div class="fx-model">
-                  <p class="fx-model-head"><b x-text="exploitKind(m.kind)"></b><span class="muted" x-text="' · effort ' + m.effort + ' · ' + m.delay"></span></p>
-                  <p x-text="m.how"></p>
-                  <p><span class="muted">Revenu plausible : </span><b x-text="exploitRevenue(m)"></b></p>
-                  <p class="small muted" x-text="'Hypothèses : ' + m.assumptions"></p>
-                </div>
-              </template>
-              <p class="fsub">Programmes d'affiliation</p>
-              <p class="small muted" x-show="!x.report.programs.length">Aucun programme trouvé avec une rémunération publiée.</p>
-              <ul class="fx-list" x-show="x.report.programs.length">
-                <template x-for="(p, i) in x.report.programs" :key="i">
-                  <li><a :href="p.url" target="_blank" rel="noopener noreferrer" x-text="p.name"></a><span x-text="' : ' + p.pay"></span></li>
-                </template>
-              </ul>
-              <dl class="fdl fx-dl">
-                <dt>Concurrence</dt>
-                <dd><b x-text="x.report.competition.level"></b><span x-show="x.report.competition.players.length" x-text="' (' + x.report.competition.players.join(', ') + ')'"></span>. <span x-text="x.report.competition.note"></span></dd>
-                <dt>Demande</dt>
-                <dd><b x-text="x.report.demand.level"></b>. <span x-text="x.report.demand.note"></span></dd>
-                <dt>Coût de départ</dt>
-                <dd x-text="fmt(x.report.start_cost) + ' €'"></dd>
-                <dt>Premier euro</dt>
-                <dd x-text="x.report.first_euro"></dd>
-              </dl>
-              <p class="fsub" x-show="x.report.sources.length">Sources</p>
-              <ul class="fx-list small" x-show="x.report.sources.length">
-                <template x-for="(s, i) in x.report.sources" :key="i">
-                  <li><a :href="s" target="_blank" rel="noopener noreferrer" x-text="exploitHost(s)"></a></li>
-                </template>
-              </ul>
-              <p class="small muted fx-date" x-text="x.date"></p>
-            </div>
-          </template>
-        </div>
-      </details>
-      <!-- Le détail, en sections repliables : même en-tête (titre, résumé d'un coup d'œil), même rythme. -->
-      <details class="fsec" :open="!mobile" x-show="fiche.item && fiche.item.score !== undefined">
-        <summary><span class="fsec-title">Score</span><span class="fsec-sum" x-text="fiche.item && fiche.item.score !== undefined ? fiche.item.score + '/100' : ''"></span></summary>
-        <div class="fsec-body" x-html="ficheDl(ficheParts(fiche).score)"></div>
-      </details>
-      <!-- Nom surveillé : état du suivi sans les champs vides ni les dates déjà dans Dates clés, puis l'historique. -->
       <template x-if="ficheDomain">
         <details class="fsec fiche-watch" x-data="{ d: ficheDomain }" x-effect="d = ficheDomain || d">
           <summary><span class="fsec-title">Suivi</span><span class="fsec-sum" :class="{ 'error-text': d.check_error }" x-text="stateLabel(d) + (d.abandoned ? ' · signes d\'abandon' : '')"></span></summary>
@@ -2015,14 +1975,67 @@
           </div>
         </details>
       </template>
-      <details class="fsec" x-show="ficheParts(fiche).name.length">
-        <summary><span class="fsec-title">Le nom</span><span class="fsec-sum" x-text="ficheNameSum(fiche)"></span></summary>
-        <div class="fsec-body" x-html="ficheDl(ficheParts(fiche).name)"></div>
-      </details>
-      <!-- Comparables (noms déjà notés, même liste, longueur proche) puis repères du portefeuille ; un nom ouvre sa fiche. -->
-      <details class="fsec" x-show="(fiche.comparables || []).length || (fiche.references || []).length || (fiche.sales || []).length">
-        <summary><span class="fsec-title">Comparables et repères</span><span class="fsec-sum" x-text="ficheCompSum(fiche)"></span></summary>
-        <div class="fsec-body">
+        <section class="fblock" x-show="ficheParts(fiche).name.length">
+          <h3 class="fblock-title">Le nom <span class="fblock-sum" x-text="ficheNameSum(fiche)"></span></h3>
+          <div x-html="ficheDl(ficheParts(fiche).name)"></div>
+        </section>
+      </div>
+      <div class="fiche-pane" x-show="ficheTab === 'valeur'" role="tabpanel">
+        <section class="fblock" x-show="fiche.item && fiche.item.score !== undefined">
+          <h3 class="fblock-title">Score <span class="fblock-sum" x-text="fiche.item && fiche.item.score !== undefined ? fiche.item.score + '/100' : ''"></span></h3>
+          <div x-html="ficheDl(ficheParts(fiche).score)"></div>
+        </section>
+        <section class="fblock" x-data="{ k: ficheDecision(null) }" x-effect="k = ficheDecision(fiche)" x-show="k.grid">
+          <h3 class="fblock-title">Détail IA <span class="fblock-sum" x-text="'grille sur 10' + (k.rated ? ' · ' + k.rated : '')"></span></h3>
+          <div class="fd-grid" x-html="ficheGridHtml(k.grid)"></div>
+        </section>
+        <!-- Rentabilité à l'exploitation : une ligne et son bouton tant qu'elle n'est pas analysée ; le rapport ensuite. -->
+        <section class="fblock fiche-exploit" x-data="{ x: exploitView(null) }" x-effect="x = exploitView(fiche)">
+          <h3 class="fblock-title">Rentabilité <span class="fblock-sum" x-text="x.sum"></span></h3>
+          <div class="fx-ask">
+            <button type="button" class="btn-ghost sm" :title="x.hint" :disabled="x.pending || exploitBusy" @click="ficheExploit()" x-text="x.button"></button>
+          </div>
+          <template x-if="x.report">
+            <div class="fx-report">
+              <p class="fx-verdict"><span class="verdict" :class="x.cls" x-text="x.label"></span></p>
+              <p class="fx-summary" x-text="x.report.summary"></p>
+              <template x-for="(m, i) in x.report.models" :key="i">
+                <div class="fx-model">
+                  <p class="fx-model-head"><b x-text="exploitKind(m.kind)"></b><span class="muted" x-text="' · effort ' + m.effort + ' · ' + m.delay"></span></p>
+                  <p x-text="m.how"></p>
+                  <p><span class="muted">Revenu plausible : </span><b x-text="exploitRevenue(m)"></b></p>
+                  <p class="small muted" x-text="'Hypothèses : ' + m.assumptions"></p>
+                </div>
+              </template>
+              <p class="fsub">Programmes d'affiliation</p>
+              <p class="small muted" x-show="!x.report.programs.length">Aucun programme trouvé avec une rémunération publiée.</p>
+              <ul class="fx-list" x-show="x.report.programs.length">
+                <template x-for="(p, i) in x.report.programs" :key="i">
+                  <li><a :href="p.url" target="_blank" rel="noopener noreferrer" x-text="p.name"></a><span x-text="' : ' + p.pay"></span></li>
+                </template>
+              </ul>
+              <dl class="fdl fx-dl">
+                <dt>Concurrence</dt>
+                <dd><b x-text="x.report.competition.level"></b><span x-show="x.report.competition.players.length" x-text="' (' + x.report.competition.players.join(', ') + ')'"></span>. <span x-text="x.report.competition.note"></span></dd>
+                <dt>Demande</dt>
+                <dd><b x-text="x.report.demand.level"></b>. <span x-text="x.report.demand.note"></span></dd>
+                <dt>Coût de départ</dt>
+                <dd x-text="fmt(x.report.start_cost) + ' €'"></dd>
+                <dt>Premier euro</dt>
+                <dd x-text="x.report.first_euro"></dd>
+              </dl>
+              <p class="fsub" x-show="x.report.sources.length">Sources</p>
+              <ul class="fx-list small" x-show="x.report.sources.length">
+                <template x-for="(s, i) in x.report.sources" :key="i">
+                  <li><a :href="s" target="_blank" rel="noopener noreferrer" x-text="exploitHost(s)"></a></li>
+                </template>
+              </ul>
+              <p class="small muted fx-date" x-text="x.date"></p>
+            </div>
+          </template>
+        </section>
+        <section class="fblock" x-show="(fiche.comparables || []).length || (fiche.references || []).length || (fiche.sales || []).length">
+          <h3 class="fblock-title">Comparables et repères <span class="fblock-sum" x-text="ficheCompSum(fiche)"></span></h3>
           <h4 class="fsub" x-show="(fiche.comparables || []).length">Comparables</h4>
           <ol class="flist" x-show="(fiche.comparables || []).length">
             <template x-for="c in fiche.comparables || []" :key="c.name">
@@ -2055,23 +2068,21 @@
               </li>
             </template>
           </ol>
-        </div>
-      </details>
-      <details class="fsec" x-show="(fiche.others || []).length">
-        <summary><span class="fsec-title">Autres extensions</span><span class="fsec-sum" x-text="ficheOthersSum(fiche)"></span></summary>
-        <div class="fsec-body">
-          <ol class="flist">
-            <template x-for="o in fiche.others || []" :key="o.name">
-              <li class="fiche-other" x-tpl="['fiche-other', { o }]"></li>
-            </template>
-          </ol>
-        </div>
-      </details>
-      <!-- Registre : pour un nom surveillé, la section Suivi le dit déjà, à jour du dernier check. -->
-      <details class="fsec" x-show="ficheRegistryHtml(fiche)">
-        <summary><span class="fsec-title">Registre et SEO</span><span class="fsec-sum" x-text="ficheRegistrySum(fiche)"></span></summary>
-        <div class="fsec-body" x-html="ficheRegistryHtml(fiche)"></div>
-      </details>
+        </section>
+      </div>
+      <div class="fiche-pane" x-show="ficheTab === 'extensions'" role="tabpanel">
+        <p class="fblock-sum" x-text="ficheOthersSum(fiche)"></p>
+        <ol class="flist">
+          <template x-for="o in fiche.others || []" :key="o.name">
+            <li class="fiche-other" x-tpl="['fiche-other', { o }]"></li>
+          </template>
+        </ol>
+      </div>
+      <!-- Registre : pour un nom surveillé, l'onglet Aperçu (Suivi) le dit déjà, à jour du dernier check. -->
+      <div class="fiche-pane" x-show="ficheTab === 'registre'" role="tabpanel">
+        <p class="fblock-sum" x-text="ficheRegistrySum(fiche)"></p>
+        <div x-html="ficheRegistryHtml(fiche)"></div>
+      </div>
     </aside>
   </template>
 

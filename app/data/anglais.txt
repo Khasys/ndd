@@ -174,7 +174,6 @@ school
 again
 next
 each
-mr
 without
 against
 end
@@ -598,7 +597,6 @@ perfect
 personal
 security
 share
-st
 tv
 won
 april
@@ -1304,7 +1302,6 @@ holding
 japan
 laws
 male
-mrs
 parties
 plant
 reality
@@ -1439,7 +1436,6 @@ speech
 traffic
 tree
 types
-vs
 wearing
 whom
 wonderful
@@ -2083,7 +2079,6 @@ legs
 lying
 measures
 mistake
-ms
 muslim
 organizations
 platform
@@ -2135,7 +2130,6 @@ leg
 letters
 liberal
 listening
-ll
 loves
 lunch
 max
@@ -2577,7 +2571,6 @@ counter
 creation
 crown
 crying
-dc
 defined
 depending
 depression
@@ -2646,7 +2639,6 @@ factory
 headed
 interior
 joy
-jr
 legislation
 maintenance
 manner
@@ -2798,7 +2790,6 @@ experts
 expressed
 external
 fantasy
-ft
 grab
 hollywood
 immediate
@@ -2943,7 +2934,6 @@ admitted
 appointment
 authors
 barely
-bc
 bush
 cabinet
 celebrate
@@ -3080,7 +3070,6 @@ killer
 lesson
 limits
 loving
-ltd
 managers
 membership
 miami
@@ -3390,7 +3379,6 @@ guests
 handed
 hockey
 houston
-https
 hunting
 industries
 islam
@@ -3664,7 +3652,6 @@ passenger
 pen
 pope
 possession
-pp
 races
 rapid
 regulation
@@ -4269,7 +4256,6 @@ lighting
 lisa
 loop
 mall
-mp
 overseas
 performances
 philippines
@@ -4865,7 +4851,6 @@ useless
 viewers
 winds
 woke
-wtf
 abilities
 advocate
 aims
@@ -5031,7 +5016,6 @@ solely
 stepped
 striking
 terrorists
-th
 tourist
 transit
 trucks
@@ -5214,10 +5198,8 @@ reserved
 restore
 rifle
 rival
-rs
 runner
 sadly
-sc
 shoulders
 significance
 sits
@@ -5229,7 +5211,6 @@ stored
 stressed
 structural
 suite
-tbh
 tropical
 ukrainian
 unnecessary
@@ -5354,7 +5335,6 @@ emerged
 exhibit
 flew
 gentleman
-gm
 halloween
 hammer
 hitler
@@ -5378,7 +5358,6 @@ manhattan
 marathon
 michelle
 moreover
-mps
 neil
 organisations
 ours
@@ -5461,7 +5440,6 @@ ion
 jeremy
 lesbian
 lovers
-lt
 mathematics
 medication
 minded
@@ -5664,7 +5642,6 @@ manufactured
 mechanics
 mere
 miracle
-mt
 mud
 murphy
 nathan
@@ -5745,7 +5722,6 @@ juan
 julia
 jungle
 linear
-mg
 occasional
 oriented
 pete
@@ -5800,7 +5776,6 @@ competitors
 connecticut
 convert
 cooked
-ct
 cups
 deciding
 defender
@@ -5821,7 +5796,6 @@ grip
 handful
 happily
 harmony
-hmm
 humble
 hurting
 hybrid
@@ -5854,7 +5828,6 @@ promising
 proportion
 purchases
 rage
-rd
 reflects
 respected
 restoration
@@ -5949,7 +5922,6 @@ severely
 shark
 shocking
 southwest
-ss
 studios
 survivors
 tales
@@ -5988,7 +5960,6 @@ euro
 evolved
 exports
 fixing
-fl
 flags
 flies
 forecast
@@ -6284,7 +6255,6 @@ bailey
 ballot
 batteries
 blessing
-btw
 cemetery
 chambers
 cheat
@@ -6309,7 +6279,6 @@ elder
 encountered
 expertise
 exploring
-fc
 fiber
 filmed
 fried
@@ -6329,7 +6298,6 @@ intensive
 interactive
 intimate
 laundry
-lbs
 lifting
 linda
 martial
@@ -6436,7 +6404,6 @@ milan
 mobility
 montana
 murders
-nc
 ne
 nyc
 omg
@@ -6540,7 +6507,6 @@ ip
 jesse
 joins
 joking
-lgbt
 likewise
 lineup
 logan
@@ -6560,13 +6526,11 @@ pipeline
 placement
 planted
 pricing
-pt
 puerto
 questioning
 recreation
 renewed
 resigned
-rt
 shallow
 shanghai
 shitty
@@ -6645,7 +6609,6 @@ mineral
 mob
 modest
 motors
-mph
 navigation
 nicholas
 orbit
@@ -6671,8 +6634,6 @@ sentiment
 servants
 shipped
 socks
-sp
-sr
 suited
 supplement
 surviving
@@ -6707,7 +6668,6 @@ bernard
 bizarre
 bounce
 broadcasting
-bs
 bullets
 buses
 cannon
@@ -6800,7 +6760,6 @@ surfaces
 ta
 territories
 tire
-tl
 towers
 transfers
 utterly
@@ -6905,7 +6864,6 @@ timber
 transparent
 travis
 tweets
-tx
 upside
 urged
 visitor
@@ -6962,7 +6920,6 @@ escort
 exams
 firmly
 flour
-gdp
 geneva
 hindu
 holdings
@@ -6985,7 +6942,6 @@ louise
 magnitude
 mc
 minus
-nhs
 noting
 nude
 organs
@@ -7035,7 +6991,6 @@ cluster
 complained
 compounds
 consistency
-cr
 cracked
 cylinder
 dancer
@@ -7298,11 +7253,9 @@ manga
 memorable
 merger
 minorities
-nj
 occurring
 organizing
 performs
-ph
 po
 poker
 portable
@@ -7477,7 +7430,6 @@ brake
 builds
 businessman
 cab
-ch
 chi
 col
 collision
@@ -7744,7 +7696,6 @@ incoming
 isaac
 jar
 kay
-lb
 leicester
 liam
 litigation
@@ -8066,7 +8017,6 @@ conclude
 confidential
 coordination
 cracks
-cs
 dancers
 delaware
 directing
@@ -8119,7 +8069,6 @@ misleading
 moisture
 monument
 mortality
-ng
 notices
 obsession
 opt
@@ -8190,7 +8139,6 @@ bastard
 behaviors
 bikes
 biography
-br
 broker
 browser
 bury
@@ -8256,7 +8204,6 @@ monroe
 mosque
 moss
 museums
-mvp
 nursery
 obamacare
 onion
@@ -8277,7 +8224,6 @@ rex
 rogue
 roosevelt
 salaries
-sd
 seated
 sharply
 showers
@@ -8287,7 +8233,6 @@ solidarity
 specialty
 supernatural
 surprises
-td
 tens
 thirteen
 tomb
@@ -8330,7 +8275,6 @@ credited
 critically
 dem
 distracted
-dm
 dolphins
 estates
 ferguson
@@ -8339,7 +8283,6 @@ fools
 fourteen
 fu
 geometry
-gf
 ghosts
 gossip
 gp
@@ -8379,8 +8322,6 @@ obstacles
 opener
 overwhelmed
 performers
-pg
-pl
 pointless
 poles
 preferences
@@ -8397,7 +8338,6 @@ sadness
 scenarios
 selective
 seniors
-sf
 shiny
 socialism
 sour
@@ -8483,7 +8423,6 @@ mia
 minneapolis
 molly
 morrison
-mtv
 muhammad
 neighboring
 neighbours
@@ -8533,7 +8472,6 @@ upstairs
 vague
 wee
 woo
-xd
 zip
 abs
 abundance
@@ -8641,7 +8579,6 @@ rows
 sacramento
 scroll
 searches
-sh
 smiled
 snacks
 snakes
@@ -8691,7 +8628,6 @@ cakes
 carriage
 celebrations
 censorship
-cf
 cl
 clarify
 climbed
@@ -8737,7 +8673,6 @@ kirk
 lang
 lengthy
 levy
-lp
 manipulation
 merchants
 misses
@@ -8795,7 +8730,6 @@ analyze
 atmospheric
 bangkok
 batting
-bb
 bitches
 bracket
 branded
@@ -8981,7 +8915,6 @@ katherine
 licenses
 livestock
 liz
-llc
 mafia
 manners
 merry
@@ -9028,7 +8961,6 @@ simpler
 sinking
 slots
 sorted
-sq
 staged
 startup
 statute
@@ -9145,7 +9077,6 @@ murderer
 nap
 nickel
 niece
-nm
 nominations
 numbered
 offerings
@@ -9276,7 +9207,6 @@ myanmar
 narrator
 nate
 nets
-nsw
 obesity
 partisan
 planting
@@ -9289,7 +9219,6 @@ promo
 protestant
 pumping
 pupil
-qb
 recruited
 reliance
 relies
@@ -9473,7 +9402,6 @@ axe
 backgrounds
 baldwin
 belle
-bf
 bites
 bombers
 bonuses
@@ -9521,7 +9449,6 @@ fuller
 gamble
 goalkeeper
 grandchildren
-gt
 guardians
 harmless
 hearings
@@ -9547,11 +9474,9 @@ lopez
 loudly
 mechanic
 megan
-mls
 modify
 neglect
 northwestern
-nz
 offenders
 oppression
 patriotic
@@ -9655,7 +9580,6 @@ exempt
 exposing
 faint
 fertility
-ff
 fines
 finn
 floods
@@ -9954,7 +9878,6 @@ discharged
 dispatch
 disputed
 dots
-ds
 duchess
 dunno
 economists
@@ -9964,7 +9887,6 @@ exceeded
 explanations
 extinction
 factions
-fb
 foil
 formats
 freddie
@@ -10113,7 +10035,6 @@ enacted
 endorsement
 enlisted
 eyebrows
-fcc
 finite
 flagship
 forensic
@@ -10162,7 +10083,6 @@ nat
 noises
 norton
 noticeable
-nt
 observing
 omar
 opted
@@ -10185,7 +10105,6 @@ retailer
 rica
 rigid
 rita
-rm
 rom
 ronaldo
 sailors
@@ -10376,11 +10295,9 @@ uprising
 vain
 vanity
 violin
-wh
 whereby
 whisper
 worthwhile
-xx
 acceleration
 aerospace
 ak
@@ -10451,7 +10368,6 @@ greed
 greet
 hank
 hose
-hq
 impacted
 imposing
 inflammation
@@ -10460,14 +10376,12 @@ ko
 lambert
 lamps
 lava
-ln
 longtime
 madonna
 magnet
 mann
 metaphor
 millionaire
-mn
 motives
 myers
 mysteries
@@ -10522,7 +10436,6 @@ termination
 thames
 thigh
 thrive
-tr
 troll
 ty
 uncovered
@@ -10538,7 +10451,6 @@ warns
 warranty
 weakened
 windsor
-xxx
 yen
 zimbabwe
 admired
@@ -10633,7 +10545,6 @@ murdering
 nationality
 natives
 nottingham
-nw
 obstacle
 occupational
 og
@@ -10735,7 +10646,6 @@ brock
 calf
 cambodia
 capt
-cb
 clarence
 coating
 commentators
@@ -10799,7 +10709,6 @@ limitation
 linguistic
 listeners
 litter
-ls
 lump
 macro
 mag
@@ -10810,7 +10719,6 @@ milestone
 mug
 municipality
 mushrooms
-nd
 ned
 neurons
 ninety
@@ -10819,7 +10727,6 @@ observatory
 oi
 openings
 outdoors
-pcs
 pedestrian
 penetration
 pod
@@ -10838,7 +10745,6 @@ resembles
 respectable
 respectful
 richer
-rn
 rodriguez
 roma
 romeo
@@ -10858,7 +10764,6 @@ sleeps
 slick
 slowed
 slowing
-sm
 spontaneous
 starred
 stationed
@@ -10873,7 +10778,6 @@ texting
 theorem
 theresa
 tiles
-tn
 tore
 tract
 treaties
@@ -10995,7 +10899,6 @@ offender
 oracle
 overlap
 patrons
-pd
 peek
 pentagon
 peters
@@ -11009,7 +10912,6 @@ psychiatrist
 quad
 quartz
 quitting
-rb
 residency
 resolutions
 responsive
@@ -11022,7 +10924,6 @@ rulers
 salem
 sank
 santos
-sb
 seahawks
 sidney
 sleeves
@@ -11125,7 +11026,6 @@ helpless
 hemisphere
 hides
 housed
-hs
 hyper
 inconvenience
 incorporating
@@ -11166,7 +11066,6 @@ objections
 patterson
 persona
 plaque
-pls
 plymouth
 poetic
 preach
@@ -11253,7 +11152,6 @@ copying
 countdown
 courier
 danced
-dd
 debating
 decreasing
 defect
@@ -11343,7 +11241,6 @@ stunned
 suppression
 sushi
 suspend
-sw
 swelling
 tails
 terminology
@@ -11457,7 +11354,6 @@ kathy
 lag
 lays
 lenders
-lg
 locality
 lure
 malicious
@@ -11535,7 +11431,6 @@ translates
 translator
 transmit
 trophies
-ts
 tuning
 tutor
 unsafe
@@ -11543,7 +11438,6 @@ verge
 vibrant
 wander
 wong
-xp
 yeast
 abdul
 absorption
@@ -11557,7 +11451,6 @@ assign
 aston
 backlash
 balloons
-bbq
 believers
 blockchain
 bonnie
@@ -11657,7 +11550,6 @@ pint
 pleaded
 poop
 pornography
-ppl
 prepares
 prevalence
 proceeding
@@ -11710,7 +11602,6 @@ veil
 versatile
 warsaw
 wed
-wr
 yi
 zoe
 acknowledging
@@ -11727,7 +11618,6 @@ brennan
 bronx
 buzzing
 caliber
-cbd
 cellphone
 chord
 clare
@@ -11765,7 +11655,6 @@ frankie
 furnished
 fuzzy
 gibbs
-gmt
 gothic
 graffiti
 grenade
@@ -11773,7 +11662,6 @@ guitars
 hague
 hamlet
 hampton
-hc
 helm
 herbs
 herman
@@ -11781,7 +11669,6 @@ higgins
 highlands
 honours
 hooks
-hrs
 html
 hugely
 hypocrisy
@@ -11793,7 +11680,6 @@ indefinitely
 intervene
 jerseys
 jessie
-jp
 jules
 katy
 kin
@@ -12087,7 +11973,6 @@ buds
 cache
 carmen
 carrots
-cds
 chewing
 coherent
 comfy
@@ -12152,7 +12037,6 @@ inspectors
 instincts
 interpretations
 je
-jj
 knots
 lana
 laurel
@@ -12334,7 +12218,6 @@ mantle
 mascot
 metabolic
 meth
-mf
 midfield
 militant
 missionaries
@@ -12379,7 +12262,6 @@ shaving
 shutdown
 sic
 slammed
-snp
 stresses
 suffolk
 surpassed
@@ -12392,7 +12274,6 @@ termed
 tha
 thriving
 timed
-tm
 trending
 trolls
 tucked
@@ -12476,7 +12357,6 @@ geo
 granny
 handicap
 hansen
-hmmm
 homage
 homo
 hostility
@@ -12505,7 +12385,6 @@ mueller
 narratives
 noun
 novelist
-nsfw
 oaks
 omaha
 onwards
@@ -12519,7 +12398,6 @@ physiology
 pigeon
 plateau
 playlist
-plc
 possesses
 possessing
 precinct
@@ -12546,7 +12424,6 @@ rusty
 scarce
 sibling
 simulator
-sl
 slippery
 slips
 snyder
@@ -12567,7 +12444,6 @@ tottenham
 toughest
 trajectory
 triggers
-tt
 underrated
 unidentified
 unrest
@@ -12790,7 +12666,6 @@ browse
 brutally
 buff
 calorie
-cdc
 chamberlain
 cis
 claw
@@ -12833,7 +12708,6 @@ fluffy
 fundamentals
 fundraiser
 funniest
-fx
 gadgets
 gaga
 garment
@@ -12994,7 +12868,6 @@ dictate
 directs
 discounted
 distributing
-dnc
 dominating
 doris
 dorm
@@ -13027,7 +12900,6 @@ giles
 gina
 glacier
 gomez
-gs
 hindus
 hu
 hunted
@@ -13049,7 +12921,6 @@ liaison
 lima
 memoirs
 miner
-mk
 mosaic
 mustang
 mw
@@ -13181,7 +13052,6 @@ finalists
 flipping
 flux
 fueled
-gc
 georgetown
 gimme
 goofy
@@ -13231,7 +13101,6 @@ mohamed
 mummy
 neville
 nominate
-np
 offend
 oo
 orchard
@@ -13361,7 +13230,6 @@ disguised
 dissent
 disturb
 docks
-dt
 earns
 emergencies
 eminent
@@ -13420,7 +13288,6 @@ mri
 multimedia
 multinational
 nationalists
-nh
 oasis
 oddly
 ons
@@ -13516,7 +13383,6 @@ blasting
 bloke
 blond
 blur
-blvd
 boogie
 booker
 bothers
@@ -13590,7 +13456,6 @@ jensen
 kang
 kara
 karate
-kc
 kingdoms
 kite
 labeling
@@ -13608,7 +13473,6 @@ meltdown
 messiah
 meteor
 ministerial
-mmm
 mocking
 monty
 motions
@@ -13652,18 +13516,15 @@ repeats
 replicate
 replying
 retaliation
-rf
 risking
 rooftop
 rooting
 routing
-rv
 safeguard
 scaled
 sedan
 sentiments
 sewage
-sgt
 shoppers
 simpsons
 sitcom
@@ -13715,7 +13576,6 @@ avoidance
 babylon
 barney
 bearings
-bjp
 boutique
 bowie
 brewer
@@ -13741,7 +13601,6 @@ covert
 cringe
 crosby
 cunningham
-cw
 dagger
 dealings
 deferred
@@ -13777,7 +13636,6 @@ hayden
 hazel
 headset
 hernandez
-hk
 homecoming
 hurdles
 hussein
@@ -13791,7 +13649,6 @@ intuition
 invaluable
 jaime
 jenna
-js
 kaiser
 kettle
 kylie
@@ -13835,7 +13692,6 @@ poultry
 prominence
 prophets
 prosecute
-ptsd
 quartet
 radically
 raping
@@ -13853,7 +13709,6 @@ scriptures
 sect
 seismic
 seminary
-sg
 sheldon
 shelley
 shouts
@@ -14082,7 +13937,6 @@ unreliable
 upbeat
 usable
 vanguard
-vc
 vomit
 vulgar
 waiver
@@ -14181,7 +14035,6 @@ freshwater
 fyi
 gareth
 gotham
-gr
 grouped
 halted
 harden
@@ -14208,9 +14061,7 @@ janeiro
 jeopardy
 joanna
 kensington
-ks
 lafayette
-lc
 listener
 lockdown
 mandarin
@@ -14223,11 +14074,9 @@ mixes
 morons
 morse
 mounts
-nfc
 niagara
 nicest
 nicotine
-nl
 nora
 nordic
 nos
@@ -14239,8 +14088,6 @@ packaged
 packets
 paige
 passports
-pb
-pbs
 peanuts
 pep
 piracy
@@ -14257,7 +14104,6 @@ resembling
 residual
 restricting
 robe
-rpg
 rye
 sails
 sayin
@@ -14277,7 +14123,6 @@ stripping
 subscriber
 systematically
 taxed
-tc
 tex
 thanking
 tibet
@@ -14338,7 +14183,6 @@ bruh
 carving
 cas
 cass
-cctv
 cecil
 cheeky
 chemist
@@ -14369,7 +14213,6 @@ discriminate
 distributions
 diversion
 doorway
-dp
 drilled
 dumpster
 emailed
@@ -14456,7 +14299,6 @@ seasoned
 shootout
 sigma
 simulations
-sk
 somethin
 sourced
 specializing
@@ -14477,7 +14319,6 @@ tighten
 townsend
 trenches
 trustworthy
-tvs
 twelfth
 tyre
 ultrasound
@@ -14625,7 +14466,6 @@ moe
 monumental
 moth
 multiply
-mv
 narcotics
 nicky
 nuggets
@@ -14679,7 +14519,6 @@ shortened
 shovel
 skinner
 smelled
-smh
 specializes
 splits
 staggering
@@ -14730,7 +14569,6 @@ breakout
 bumped
 bursting
 catchy
-cbc
 ceremonial
 cheque
 chilled
@@ -14865,7 +14703,6 @@ remorse
 reopened
 revoked
 rhymes
-rpm
 sanity
 scandinavian
 scotia
@@ -14982,7 +14819,6 @@ diner
 dipping
 disneyland
 disposition
-djs
 documentaries
 dripping
 ecstasy
@@ -15033,7 +14869,6 @@ jays
 jeremiah
 jude
 kathryn
-kd
 keynote
 kidnap
 kiev
@@ -15086,7 +14921,6 @@ revise
 righteousness
 rinse
 robbins
-rss
 sal
 scalp
 schultz
@@ -15141,7 +14975,6 @@ waived
 wharf
 wiser
 wrestle
-xv
 yates
 yoo
 aap
@@ -15226,8 +15059,6 @@ intrigued
 intrinsic
 irresistible
 javier
-jd
-jk
 joanne
 kb
 kittens
@@ -15267,7 +15098,6 @@ politely
 pollen
 principals
 provoking
-pts
 puberty
 raided
 railroads
@@ -15358,7 +15188,6 @@ changer
 che
 chem
 chestnut
-cj
 cleaners
 cleanup
 clemson
@@ -15389,7 +15218,6 @@ disconnect
 discriminatory
 disruptive
 dorset
-dvds
 endlessly
 enthusiast
 epilepsy
@@ -15447,8 +15275,6 @@ masturbation
 mitigation
 mont
 motorway
-nk
-npr
 nypd
 obscene
 occupants
@@ -15520,7 +15346,6 @@ underworld
 vectors
 vertically
 vigorous
-vt
 wandered
 wei
 wrongly
@@ -15601,7 +15426,6 @@ fallon
 farrell
 fatalities
 festivities
-ffs
 finalist
 footballers
 forks
@@ -15661,7 +15485,6 @@ nipple
 noses
 nostalgic
 nra
-nv
 oppressive
 pasadena
 patronage
@@ -15814,7 +15637,6 @@ frenzy
 fridays
 fuckers
 fulfillment
-gg
 godfather
 gould
 gran
@@ -15832,7 +15654,6 @@ intimidated
 invariably
 invincible
 jams
-jfk
 jubilee
 kinetic
 lam
@@ -15869,7 +15690,6 @@ parted
 patio
 peacock
 pedestrians
-pf
 pines
 pitchers
 plugged
@@ -15885,7 +15705,6 @@ proponents
 provocative
 pu
 purposely
-qc
 questionnaire
 reclaim
 redevelopment
@@ -15935,7 +15754,6 @@ tanker
 taxis
 terra
 timetable
-tj
 torpedo
 traitors
 trolley
@@ -15979,7 +15797,6 @@ baylor
 bearer
 bernstein
 bins
-bk
 bleak
 blender
 bmi
@@ -16040,7 +15857,6 @@ fortified
 fran
 garfield
 generalized
-gl
 glossy
 gregg
 grit
@@ -16056,7 +15872,6 @@ horrendous
 horrified
 hostel
 hound
-htc
 hugged
 illegitimate
 illicit
@@ -16105,7 +15920,6 @@ nay
 nests
 ngo
 nielsen
-nr
 nutshell
 ob
 obsessive
@@ -16160,7 +15974,6 @@ suzuki
 tacos
 therapists
 torrent
-tp
 trainee
 transmitting
 trey
@@ -16229,7 +16042,6 @@ continuum
 corona
 cosplay
 cowardly
-cpr
 cruises
 css
 cultivate
@@ -16250,7 +16062,6 @@ dickinson
 disparity
 diva
 divert
-dlc
 drawers
 eater
 eaton
@@ -16351,7 +16162,6 @@ sneaking
 solitude
 spacing
 standby
-std
 straps
 strikers
 stronghold
@@ -16428,7 +16238,6 @@ coop
 cooperating
 coronary
 cottages
-cps
 crook
 cucumber
 cupcakes
@@ -16468,7 +16277,6 @@ foreclosure
 forgets
 fortnight
 fresno
-fs
 funnier
 genie
 georges
@@ -16502,7 +16310,6 @@ leaned
 leases
 ledge
 levin
-lgbtq
 lunches
 mackay
 madeleine
@@ -16515,7 +16322,6 @@ melts
 michaels
 mindfulness
 mined
-mj
 moderator
 momma
 monstrous
@@ -16597,7 +16403,6 @@ unpublished
 untrue
 verbally
 vitality
-wc
 weeping
 whispering
 windshield
@@ -16683,7 +16488,6 @@ fiance
 finer
 fittings
 flushing
-fn
 freeing
 fused
 goa
@@ -16714,7 +16518,6 @@ lars
 latex
 leftover
 legalization
-lf
 localized
 lori
 malibu
@@ -16745,7 +16548,6 @@ papal
 patton
 pepe
 peril
-pk
 playable
 plunged
 polly
@@ -16770,7 +16572,6 @@ revolves
 riff
 rosen
 rossi
-rr
 rutgers
 sahara
 scattering
@@ -16806,7 +16607,6 @@ uterus
 validate
 vid
 vocalist
-vw
 warranted
 weakening
 westbrook
@@ -16937,7 +16737,6 @@ kremlin
 langley
 liners
 liv
-lv
 madagascar
 magnum
 malay
@@ -17080,7 +16879,6 @@ biographical
 biomass
 bitcoins
 blanche
-blm
 blouse
 bodyguard
 borrowers
@@ -17093,7 +16891,6 @@ chatter
 cheered
 chops
 cleric
-cn
 colbert
 comedic
 compile
@@ -17144,13 +16941,11 @@ gemini
 gifs
 gland
 gotcha
-gst
 guerrilla
 gutter
 hearty
 highschool
 hillside
-hms
 hodges
 hoo
 hovering
@@ -17200,7 +16995,6 @@ misfortune
 mondays
 moons
 mountainous
-ndp
 nearer
 newfoundland
 obnoxious
@@ -17230,7 +17024,6 @@ royale
 rumour
 safeguards
 savages
-sbs
 semen
 senegal
 sequencing
@@ -17290,7 +17083,6 @@ bianca
 biker
 bipartisan
 birthplace
-bl
 bono
 bracelets
 brides
@@ -17335,7 +17127,6 @@ delusion
 demi
 depreciation
 designate
-dh
 discard
 discontent
 div
@@ -17399,7 +17190,6 @@ kaplan
 kinky
 landings
 launcher
-ld
 legality
 lenny
 lessen
@@ -17424,7 +17214,6 @@ nb
 nirvana
 nonstop
 notoriously
-nrl
 oatmeal
 opaque
 ordnance
@@ -17454,7 +17243,6 @@ reuse
 reyes
 risked
 ritchie
-rl
 roadway
 rollins
 rustic
@@ -17533,7 +17321,6 @@ baird
 barlow
 benton
 biochemistry
-bm
 boise
 bop
 bordeaux
@@ -17549,7 +17336,6 @@ civilizations
 clapping
 clinging
 clover
-cms
 coatings
 coils
 colonization
@@ -17621,7 +17407,6 @@ interruption
 intrigue
 itch
 jacqueline
-jc
 joaquin
 kurds
 lattice
@@ -17718,7 +17503,6 @@ unification
 vineyards
 wastes
 wastewater
-wb
 weaponry
 webpage
 wheeled
@@ -17728,7 +17512,6 @@ wildfire
 withheld
 withholding
 wreath
-wt
 yer
 administrations
 afar
@@ -17751,7 +17534,6 @@ berger
 besieged
 biologist
 blowjob
-bn
 boilers
 bois
 bonnet
@@ -17811,7 +17593,6 @@ fiercely
 flashed
 fostering
 fourteenth
-fps
 frontline
 geese
 genealogy
@@ -18003,7 +17784,6 @@ charisma
 cheltenham
 chesapeake
 chun
-ck
 classmate
 claudio
 cognition
@@ -18028,7 +17808,6 @@ dickson
 disproportionate
 disturbances
 divisive
-dk
 dod
 dracula
 ebony
@@ -18116,7 +17895,6 @@ mods
 mongolia
 motivating
 munitions
-mx
 myrtle
 nemesis
 originality
@@ -18213,7 +17991,6 @@ watered
 werner
 wick
 worldly
-wp
 achieves
 additive
 adept
@@ -18231,7 +18008,6 @@ archipelago
 assembling
 bailed
 barkley
-bdsm
 behaviours
 belmont
 bidders
@@ -18313,7 +18089,6 @@ hairstyle
 handwritten
 hardships
 harmonic
-hb
 headlights
 heartless
 hectic
@@ -18430,7 +18205,6 @@ supplemented
 surveying
 swans
 tata
-tds
 temperate
 temps
 thematic
@@ -18458,7 +18232,6 @@ weirdo
 weld
 werewolf
 wrongful
-ww
 xu
 aba
 acknowledgement
@@ -18483,7 +18256,6 @@ benefiting
 berg
 bergen
 bethany
-bg
 biases
 binder
 blindly
@@ -18518,7 +18290,6 @@ dawg
 dentists
 deploying
 deserts
-df
 dictates
 dion
 dissatisfaction
@@ -18577,7 +18348,6 @@ kneeling
 knuckles
 lauderdale
 lifestyles
-lr
 ludwig
 macbeth
 mamma
@@ -18593,13 +18363,11 @@ mirrored
 miscarriage
 mla
 mojo
-msnbc
 napa
 narration
 nassau
 nicki
 nip
-nxt
 nye
 oblivion
 observes
@@ -18627,7 +18395,6 @@ primal
 princesses
 prohibiting
 psalms
-psg
 psychopath
 pups
 qui
@@ -18731,7 +18498,6 @@ capitalists
 categorized
 cba
 cbi
-cg
 chopper
 chromosomes
 chunky
@@ -18780,7 +18546,6 @@ extremism
 fairfield
 fairies
 faulkner
-fg
 filtration
 finalized
 flagged
@@ -18885,7 +18650,6 @@ rooster
 routed
 rufus
 rushes
-rx
 sakura
 salads
 sanskrit
@@ -18921,10 +18685,8 @@ strung
 summaries
 tanning
 tendon
-thc
 thine
 timmy
-tnt
 toughness
 tracey
 tractors
@@ -18947,7 +18709,6 @@ wilhelm
 willard
 woe
 wrinkles
-ws
 abi
 abstraction
 adjunct
@@ -19059,9 +18820,7 @@ introductions
 inverness
 isabelle
 jog
-jt
 jug
-kgb
 kinder
 knoxville
 labrador
@@ -19147,7 +18906,6 @@ teaspoon
 templates
 thorne
 tightening
-tlc
 tolls
 tos
 totaling
@@ -19162,7 +18920,6 @@ unspecified
 vacated
 veg
 venetian
-vhs
 waffle
 wanda
 warships
@@ -19171,7 +18928,6 @@ wasps
 welp
 wha
 winery
-wm
 writ
 xiao
 zipper
@@ -19364,11 +19120,9 @@ plywood
 pollutants
 ponies
 pooh
-ppp
 prettiest
 proficient
 protagonists
-pst
 punctuation
 purification
 purported
@@ -19436,7 +19190,6 @@ wearable
 wilcox
 wiltshire
 wreckage
-xml
 yvonne
 zeppelin
 aches
@@ -19460,7 +19213,6 @@ badminton
 barbarian
 bedrock
 bihar
-bj
 blaine
 boardwalk
 boasting
@@ -19576,10 +19328,8 @@ mayoral
 medley
 mercenaries
 meyers
-mh
 minimalist
 misled
-msm
 multiplied
 narendra
 objectively
@@ -19618,7 +19368,6 @@ resale
 retake
 rhine
 rips
-rj
 robb
 rodrigo
 rosy
@@ -19798,12 +19547,10 @@ inserting
 intersections
 inventing
 invoice
-jb
 johan
 junkie
 kelsey
 khalid
-kr
 kristin
 kun
 lacey
@@ -19816,7 +19563,6 @@ lew
 lexus
 limitless
 literate
-lm
 localization
 loki
 loretta
@@ -19826,7 +19572,6 @@ lymphoma
 makin
 martini
 merciful
-mgm
 midget
 midwife
 minimizing
@@ -19905,7 +19650,6 @@ sob
 socrates
 sophistication
 sourcing
-str
 straighten
 streamlined
 sweaters
@@ -19961,7 +19705,6 @@ bandwagon
 bane
 basins
 bayer
-bcs
 billings
 bios
 birdie
@@ -20003,7 +19746,6 @@ dehydrated
 democracies
 detriment
 dex
-dhs
 dialects
 discretionary
 dismal
@@ -20126,7 +19868,6 @@ pellets
 pelvis
 penetrated
 pla
-plz
 polarization
 potty
 powering
@@ -20170,7 +19911,6 @@ snails
 snoring
 sociological
 sorority
-spd
 sped
 speechless
 spores
@@ -20179,7 +19919,6 @@ stair
 starship
 stemming
 strategist
-sts
 subdivisions
 sunken
 supremacist
@@ -20287,7 +20026,6 @@ disagrees
 donny
 downey
 dresden
-dw
 eased
 easing
 eid
@@ -20363,7 +20101,6 @@ lament
 leach
 lefty
 legislatures
-lsd
 luigi
 mabel
 mach
@@ -20447,7 +20184,6 @@ sod
 spectra
 spines
 spoiling
-ssr
 stag
 stomp
 strangest
@@ -20475,7 +20211,6 @@ tracts
 triathlon
 trickle
 troupe
-tsp
 tweed
 ultimatum
 uncut
@@ -20553,12 +20288,10 @@ discriminated
 dismantle
 dismantling
 disrupting
-dmv
 dns
 drags
 drugged
 durban
-dx
 eachother
 eastward
 elisabeth
@@ -20590,7 +20323,6 @@ gibbons
 giorgio
 gladstone
 gladys
-gmbh
 gogh
 gracie
 grassy
@@ -20656,7 +20388,6 @@ mugs
 naw
 netting
 nevermind
-nf
 nigh
 nocturnal
 nozzle
@@ -20718,7 +20449,6 @@ shadowy
 shun
 sidekick
 skewed
-snl
 softened
 soros
 spartans
@@ -20744,7 +20474,6 @@ thumbnail
 tickle
 titties
 toro
-tpp
 trays
 tubular
 tue
@@ -20807,9 +20536,7 @@ biologically
 bowled
 bubbling
 budge
-bw
 calhoun
-ccp
 chaplin
 cheater
 cheeses
@@ -20867,7 +20594,6 @@ forts
 fragmentation
 franks
 frederic
-ftc
 gated
 girly
 glam
@@ -20881,8 +20607,6 @@ hawthorn
 healy
 hermann
 herr
-hf
-hg
 hoard
 horde
 humming
@@ -20899,7 +20623,6 @@ isolating
 itinerary
 juggling
 justifies
-kkk
 koran
 lacy
 lair
@@ -20928,7 +20651,6 @@ miliband
 molded
 moot
 mortimer
-msc
 musicals
 myles
 nebula
@@ -20955,7 +20677,6 @@ pedals
 pesos
 peterborough
 philosophies
-pj
 plagiarism
 poked
 polk
@@ -20966,7 +20687,6 @@ prefix
 proctor
 prologue
 proto
-psp
 pueblo
 pulpit
 puncture
@@ -21102,7 +20822,6 @@ cretaceous
 cripple
 crooks
 crunchy
-ctrl
 curvature
 cyborg
 dares
@@ -21171,10 +20890,8 @@ justine
 kiddo
 kimmel
 knuckle
-kt
 landscaping
 laureate
-lds
 lear
 lesley
 leveling
@@ -21301,7 +21018,6 @@ uttar
 versed
 vicki
 vlad
-vm
 weiner
 wharton
 whiff
@@ -21385,7 +21101,6 @@ domingo
 dominique
 drawback
 drawbacks
-drs
 edm
 edo
 elliptical
@@ -21413,7 +21128,6 @@ forwarding
 fragrant
 gallant
 gazing
-gd
 generalization
 genitals
 geologist
@@ -21503,8 +21217,6 @@ prolong
 propane
 publicized
 purest
-pvc
-qt
 queues
 ramadan
 rambling
@@ -21540,7 +21252,6 @@ smacked
 smiths
 soma
 someones
-ssd
 staggered
 staining
 stalked
@@ -21894,7 +21605,6 @@ briefed
 brownies
 browsers
 brunei
-bst
 cabs
 captions
 carefree
@@ -21925,7 +21635,6 @@ counteract
 courtship
 crammed
 craven
-csr
 cumbria
 cushions
 daley
@@ -22007,7 +21716,6 @@ josef
 keel
 kilometer
 kingsley
-kk
 kruger
 labourers
 leland
@@ -22018,7 +21726,6 @@ lifeboat
 liters
 liturgy
 livin
-llp
 lockhart
 longstanding
 lumps
@@ -22118,12 +21825,10 @@ structurally
 suez
 sulfate
 sumner
-sv
 swag
 sweatshirt
 tangent
 tenn
-tg
 tori
 touted
 tracer
@@ -22182,7 +21887,6 @@ bangor
 barometer
 basque
 bavaria
-bbw
 biggie
 bigot
 boa
@@ -22261,7 +21965,6 @@ fringes
 gaston
 genoa
 geothermal
-gh
 gist
 github
 grievous
@@ -22302,11 +22005,9 @@ klan
 kristina
 laughable
 lennox
-lng
 locus
 lucius
 lund
-lvl
 makeshift
 marquee
 massey
@@ -22365,7 +22066,6 @@ revamped
 revising
 rhinos
 rockin
-rts
 saber
 sadistic
 samba
@@ -22429,7 +22129,6 @@ vulture
 wares
 waterway
 whistleblower
-wv
 xs
 yves
 absentee
@@ -22539,13 +22238,11 @@ eurozone
 euthanasia
 fabian
 faye
-fd
 felon
 flammable
 flanagan
 footnote
 fostered
-fp
 friggin
 frontman
 furthest
@@ -22567,7 +22264,6 @@ haryana
 helpers
 hendricks
 hess
-hh
 hilly
 hogs
 hone
@@ -22576,7 +22272,6 @@ hotspot
 howie
 humbly
 huron
-hw
 hyatt
 inciting
 incomprehensible
@@ -22664,11 +22359,9 @@ shenzhen
 shilling
 shroud
 shutters
-sj
 skim
 slaps
 slovak
-sn
 solicitation
 sooooo
 specifying
@@ -22760,7 +22453,6 @@ consolidating
 contends
 contradicts
 cortez
-cpc
 crossfit
 cumbersome
 curt
@@ -22804,7 +22496,6 @@ foresight
 forsaken
 forsyth
 fundamentalist
-fw
 gabby
 gaddafi
 gayle
@@ -22816,7 +22507,6 @@ groomed
 hackney
 hamstring
 heidelberg
-hl
 hordes
 horseshoe
 ico
@@ -22836,7 +22526,6 @@ kano
 kennel
 kern
 khmer
-kl
 knitted
 lager
 laird
@@ -22859,7 +22548,6 @@ mol
 mortem
 motherboard
 moyes
-msg
 mussolini
 mutilated
 napkin
@@ -22896,17 +22584,13 @@ propensity
 pryor
 punjabi
 purchasers
-pvt
-qld
 rattled
-rbs
 realises
 receptions
 remodeling
 renters
 resorting
 retreats
-rg
 ringo
 roadmap
 roberta
@@ -22954,7 +22638,6 @@ thong
 thrills
 thumping
 timeframe
-tk
 tod
 tot
 transcribed
@@ -22971,7 +22654,6 @@ vertigo
 vigilance
 viscount
 walkway
-wd
 westerners
 whistler
 windmill
@@ -23025,7 +22707,6 @@ carcinoma
 carrick
 caveat
 caviar
-ccc
 chairperson
 chong
 chore
@@ -23178,9 +22859,7 @@ overarching
 overseen
 overwhelm
 pathologist
-pcb
 pcr
-pct
 peacekeeping
 pegasus
 peptides
@@ -23191,7 +22870,6 @@ pixie
 ply
 poaching
 powders
-ppm
 preventable
 primed
 prog
@@ -23269,7 +22947,6 @@ thierry
 thrash
 thresholds
 thwarted
-thx
 tombstone
 torches
 torpedoes
@@ -23304,7 +22981,6 @@ willed
 woolf
 worsening
 wounding
-wwf
 wwi
 xinjiang
 yao
@@ -23357,7 +23033,6 @@ chromium
 circumstantial
 claimant
 closeness
-cnbc
 coachella
 collectible
 commemorating
@@ -23388,8 +23063,6 @@ displeasure
 diss
 doth
 downgraded
-dps
-dsm
 dumber
 dunkirk
 dwarves
@@ -23431,7 +23104,6 @@ hewlett
 himalayan
 hollis
 horticultural
-hpv
 hurling
 hurried
 hypocrites
@@ -23719,7 +23391,6 @@ juries
 juror
 kilo
 kinship
-kv
 lactose
 lat
 lenient
@@ -23759,7 +23430,6 @@ nawaz
 negotiator
 niggas
 nomadic
-npc
 observance
 ont
 overloaded
@@ -23783,7 +23453,6 @@ prophecies
 proverbial
 puffy
 puzzling
-qpr
 quail
 quirk
 rabid
@@ -23799,11 +23468,9 @@ resolves
 resonant
 resultant
 retinal
-rgb
 rhodesia
 rothschild
 rsa
-rw
 scammers
 schema
 schizophrenic
@@ -23838,7 +23505,6 @@ tapering
 tectonic
 tele
 templar
-tmz
 tna
 toxicology
 transfusion
@@ -23862,7 +23528,6 @@ vogel
 vouch
 wafer
 wai
-wcw
 wiz
 worsened
 xo
@@ -24020,7 +23685,6 @@ isotopes
 jagged
 joachim
 josiah
-jv
 kant
 katharine
 kavanaugh
@@ -24072,7 +23736,6 @@ partitions
 patriarchy
 patsy
 paz
-pdp
 peaking
 pedagogy
 perm
@@ -24081,7 +23744,6 @@ piedmont
 pinto
 poc
 pontiac
-prc
 predictor
 premiers
 priscilla
@@ -24139,16 +23801,13 @@ subordinates
 summarizes
 surcharge
 tarot
-tcp
 theologians
 throbbing
 tilting
 trailed
 treasured
 tungsten
-tw
 twigs
-txt
 ucl
 uhm
 umpires
@@ -24159,7 +23818,6 @@ unspeakable
 untimely
 ust
 uva
-vfl
 vida
 vodafone
 vous
@@ -24244,7 +23902,6 @@ disqualification
 dizziness
 ducts
 dusted
-dv
 econ
 emi
 enacting
@@ -24272,10 +23929,8 @@ gainesville
 galore
 genomic
 gestapo
-gk
 glimmer
 goon
-gq
 graces
 grandkids
 groovy
@@ -24310,7 +23965,6 @@ judgements
 karan
 kayla
 kiln
-kp
 landowner
 latvian
 leveraged
@@ -24442,7 +24096,6 @@ unwarranted
 unwillingness
 vases
 vetting
-vg
 vibrator
 wailing
 warhol
@@ -24490,7 +24143,6 @@ bien
 binoculars
 blackstone
 bonkers
-bpd
 brazen
 burlesque
 burrow
@@ -24624,7 +24276,6 @@ jig
 jodi
 juliette
 junctions
-jw
 kathmandu
 kearney
 khz
@@ -24658,7 +24309,6 @@ merseyside
 metaphorical
 mindy
 mismatch
-mlm
 monastic
 monopolies
 mooney
@@ -24715,7 +24365,6 @@ plenary
 plunder
 poseidon
 postman
-ppg
 prays
 privatisation
 pseudonym
@@ -24771,7 +24420,6 @@ spindle
 spoilt
 spoof
 sporty
-spp
 staffer
 sterilization
 stockholders
@@ -24877,7 +24525,6 @@ chronically
 chuckles
 cloths
 clustered
-cmc
 coherence
 complainant
 complemented
@@ -24886,7 +24533,6 @@ conforming
 connotations
 consonant
 correlations
-cpl
 crazier
 cricketers
 crisps
@@ -24896,7 +24542,6 @@ crowning
 crucifixion
 csgo
 cursor
-cx
 deduct
 delegations
 diaphragm
@@ -24930,7 +24575,6 @@ expressway
 fairer
 fairest
 filament
-fk
 flemish
 foyer
 fra
@@ -24974,8 +24618,6 @@ irritable
 jace
 jain
 jammu
-jl
-jm
 johanna
 johnnie
 joss
@@ -24988,9 +24630,7 @@ leung
 leviathan
 ligaments
 lis
-lj
 lonesome
-lps
 lug
 lukewarm
 lumbar
@@ -25017,10 +24657,8 @@ monmouth
 motley
 mouthed
 mowing
-msp
 multiculturalism
 mussels
-nbsp
 netball
 nieces
 nit
@@ -25054,7 +24692,6 @@ pleasurable
 plough
 pogba
 potentials
-ppv
 prefect
 prevails
 pri
@@ -25108,7 +24745,6 @@ swindon
 symptomatic
 tenets
 tennant
-tfw
 thunderbolt
 tiered
 toggle
@@ -25218,7 +24854,6 @@ dispatches
 dissolving
 distort
 diverting
-dms
 dobbs
 draught
 dreary
@@ -25269,7 +24904,6 @@ hobo
 housework
 howdy
 hoy
-hsbc
 huddle
 humiliate
 hurled
@@ -25376,7 +25010,6 @@ repealing
 repressive
 resonates
 resourceful
-rms
 rosenthal
 rotates
 runtime
@@ -25391,7 +25024,6 @@ seung
 sexton
 sheeran
 shelled
-shhh
 shingles
 siegel
 silencing
@@ -25502,7 +25134,6 @@ casablanca
 casserole
 catalina
 cellulose
-cfr
 charred
 choreographed
 churn
@@ -25538,7 +25169,6 @@ dilution
 dissipated
 dolce
 drugstore
-dvr
 eczema
 ejection
 electrolyte
@@ -25554,7 +25184,6 @@ failings
 fannie
 faucet
 faust
-fdr
 feeders
 feisty
 fink
@@ -25591,7 +25220,6 @@ headlining
 heiress
 hells
 herzegovina
-hhs
 higgs
 hinged
 hola
@@ -25612,7 +25240,6 @@ issuer
 keenan
 keg
 kissinger
-kms
 koi
 kwon
 lancet
@@ -25652,7 +25279,6 @@ nicks
 nimble
 nomad
 nouveau
-nrc
 objectionable
 obliterated
 obtainable
@@ -25710,7 +25336,6 @@ roper
 rosters
 sacking
 scarring
-sch
 scheming
 scorched
 scotsman
@@ -25743,7 +25368,6 @@ subbed
 summoning
 swann
 tatiana
-tbsp
 telecast
 tenancy
 terre
@@ -25774,7 +25398,6 @@ upland
 upped
 ushered
 vauxhall
-vb
 verbatim
 villiers
 virgo
@@ -25806,7 +25429,6 @@ aussies
 averse
 bandages
 barges
-bds
 beaded
 beagle
 beaufort
@@ -25831,7 +25453,6 @@ carthage
 castes
 cauldron
 celebratory
-cfs
 chalet
 chao
 childless
@@ -25853,9 +25474,7 @@ corals
 corral
 cortical
 countering
-crc
 cremation
-crt
 cubans
 curricular
 curving
@@ -25918,7 +25537,6 @@ frey
 furnaces
 fuzz
 gills
-gmc
 goodyear
 gout
 guillermo
@@ -25991,7 +25609,6 @@ marlborough
 masterful
 matic
 maximal
-mcc
 millers
 mime
 minivan
@@ -26001,7 +25618,6 @@ mobiles
 modestly
 moniker
 morrissey
-mpg
 multidisciplinary
 mythological
 nave
@@ -26011,7 +25627,6 @@ nel
 neuro
 nib
 nonviolent
-nps
 nuremberg
 ozzy
 palatable
@@ -26030,7 +25645,6 @@ protruding
 puig
 pundit
 purify
-pw
 quack
 quarries
 raged
@@ -26160,7 +25774,6 @@ azalea
 bacterium
 balochistan
 barter
-bbl
 beet
 bessie
 biggs
@@ -26200,7 +25813,6 @@ cropping
 crossbow
 crowding
 crux
-cst
 curators
 cusp
 danville
@@ -26262,7 +25874,6 @@ hiccups
 hiss
 holographic
 hotspur
-hrc
 impediment
 importation
 inactivity
@@ -26305,7 +25916,6 @@ minimized
 minion
 mistreated
 misused
-mmmm
 mons
 morn
 motherland
@@ -26317,7 +25927,6 @@ narcissism
 navarro
 niches
 ninjas
-nsf
 observant
 opioids
 ostrich
@@ -26345,7 +25954,6 @@ queuing
 quizzes
 radiohead
 rarer
-rcmp
 redacted
 regretting
 reimbursed
@@ -26391,7 +25999,6 @@ swede
 sweepstakes
 syndicated
 tailoring
-tbs
 teeny
 tendered
 thoracic
@@ -26558,8 +26165,6 @@ hajj
 hampstead
 hap
 hatfield
-hdd
-hdr
 headway
 hearsay
 hershey
@@ -26635,7 +26240,6 @@ monde
 mongols
 monochrome
 mortuary
-mtg
 muffled
 mugabe
 mulder
@@ -26662,7 +26266,6 @@ perfecting
 petal
 petitioned
 plumbers
-pms
 poise
 polygon
 ported
@@ -26673,7 +26276,6 @@ proportionate
 provence
 pta
 purcell
-pvp
 quartermaster
 radiance
 rambo
@@ -26797,7 +26399,6 @@ bantu
 beaming
 benin
 benn
-bh
 bigots
 biopic
 bleached
@@ -26817,7 +26418,6 @@ braced
 brentwood
 bromwich
 bryson
-bsc
 buckinghamshire
 bulging
 burners
@@ -26831,7 +26431,6 @@ cheaters
 cheung
 civility
 clustering
-cns
 cohn
 collin
 commandos
@@ -26994,7 +26593,6 @@ nats
 natured
 nested
 niki
-nmr
 notifying
 nourishment
 numerals
@@ -27019,7 +26617,6 @@ pinching
 pointe
 pornhub
 postponement
-ppc
 preclude
 preorder
 pressurized
@@ -27028,7 +26625,6 @@ pricks
 priory
 profiled
 programmable
-psn
 puss
 questionnaires
 quintessential
@@ -27258,7 +26854,6 @@ galvanized
 gambia
 gaul
 gaulle
-gcc
 geophysical
 gladiators
 godwin
@@ -27301,7 +26896,6 @@ irma
 jakob
 janus
 jens
-jg
 jia
 jolt
 juggle
@@ -27356,7 +26950,6 @@ panned
 papacy
 pasted
 patreon
-pdt
 perfumes
 phonetic
 photovoltaic
@@ -27364,7 +26957,6 @@ piccadilly
 pied
 piloting
 pius
-pkk
 planck
 poodle
 populism
@@ -27378,11 +26970,9 @@ relayed
 rescinded
 resuming
 retrieving
-rnc
 roadblock
 roadshow
 roadways
-rsvp
 sabre
 saleh
 salons
@@ -27390,7 +26980,6 @@ sandbox
 sato
 saxons
 scooters
-sds
 seagull
 shag
 shahid
@@ -27416,7 +27005,6 @@ sparingly
 speck
 spectacularly
 spiced
-ssc
 sse
 stoves
 streep
@@ -27460,7 +27048,6 @@ winfrey
 winn
 withdraws
 wither
-wk
 wobble
 yadav
 yeon
@@ -27504,9 +27091,6 @@ canoes
 capricorn
 captivated
 catapult
-cbn
-ccs
-cdr
 censors
 centro
 cervix
@@ -27543,7 +27127,6 @@ dissimilar
 dissuade
 distillation
 drab
-dslr
 dubs
 ducked
 dumfries
@@ -27594,7 +27177,6 @@ granular
 greenish
 grocer
 groping
-gtx
 headless
 healthiest
 hemsworth
@@ -27617,9 +27199,7 @@ intermission
 iqbal
 irreplaceable
 kanji
-kh
 kilogram
-kn
 kombat
 kpop
 kush
@@ -27731,7 +27311,6 @@ seward
 sharpening
 sharpness
 shelved
-shh
 shipper
 shopped
 shui
@@ -27775,7 +27354,6 @@ toppings
 traffickers
 transcends
 tropes
-tsk
 tumbled
 twas
 typography
@@ -27849,27 +27427,21 @@ blockage
 blondes
 bloodbath
 bluffs
-bmc
-bnp
 booms
 bower
 brah
 bravest
-brb
 breasted
 brookings
 budgeted
 bugger
 buoy
-bv
 campaigner
 capacitors
 capes
 carvings
-cbt
 celeb
 cellars
-cfl
 chalice
 chas
 chichester
@@ -27899,7 +27471,6 @@ discounting
 disorganized
 disseminated
 dissolves
-dmc
 doggie
 domes
 duchy
@@ -27974,7 +27545,6 @@ lawton
 legalizing
 lentils
 leprosy
-lh
 lisp
 locust
 lombard
@@ -28107,7 +27677,6 @@ surged
 surpasses
 swain
 swarming
-sxsw
 synchronous
 tania
 tasteful
@@ -28140,7 +27709,6 @@ whatnot
 whiteness
 wicker
 wrinkled
-wsj
 wynne
 yank
 yaya
@@ -28172,7 +27740,6 @@ baku
 bancroft
 barbershop
 batsmen
-bbs
 beal
 beanie
 behest
@@ -28219,13 +27786,11 @@ covenants
 cranial
 criminality
 croix
-cts
 culprits
 custer
 cyberspace
 dao
 dara
-dbs
 decapitated
 detach
 deterrence
@@ -28323,7 +27888,6 @@ jungles
 kalamazoo
 kawhi
 khartoum
-kj
 kushner
 lackluster
 langdon
@@ -28506,7 +28070,6 @@ willows
 wishlist
 woulda
 wrexham
-xm
 zealous
 aberration
 ade
@@ -28533,14 +28096,12 @@ baptiste
 baptists
 baritone
 bayley
-bbb
 benefitted
 bestow
 beverley
 bezos
 blistering
 bloodline
-bmx
 booby
 borderlands
 breaching
@@ -28565,7 +28126,6 @@ carmine
 caved
 caverns
 cca
-cdt
 chairmanship
 chardonnay
 checkmate
@@ -28726,7 +28286,6 @@ nagasaki
 nea
 negate
 networked
-nn
 nomads
 nonsensical
 noor
@@ -28804,11 +28363,9 @@ shoplifting
 simplification
 simulating
 sindh
-sls
 snatching
 snooze
 spasms
-srs
 staked
 stillness
 strikeouts
@@ -28889,7 +28446,6 @@ baum
 bebe
 behemoth
 benfica
-bhp
 bib
 blackwood
 blip
@@ -28917,7 +28473,6 @@ caterpillars
 caustic
 censoring
 centrifugal
-cfb
 chechnya
 chelmsford
 chimpanzees
@@ -28938,7 +28493,6 @@ coordinators
 corinth
 cote
 crumb
-ctr
 cul
 cushing
 dames
@@ -28964,7 +28518,6 @@ dived
 doge
 dogged
 dosing
-drc
 drury
 duma
 dynasties
@@ -29054,7 +28607,6 @@ intoxicating
 iota
 jaded
 jihadists
-jn
 jovi
 juju
 kaepernick
@@ -29090,7 +28642,6 @@ mortified
 moshe
 motionless
 mpa
-msn
 mullet
 naga
 natures
@@ -29131,7 +28682,6 @@ pragmatism
 projectors
 proprietors
 protestantism
-qs
 quan
 quantified
 receding
@@ -29184,7 +28734,6 @@ sprinkling
 ssi
 standup
 stifling
-stl
 strayed
 stunted
 suh
@@ -29197,7 +28746,6 @@ teleport
 tenths
 tes
 thoughtfully
-thr
 thrillers
 thump
 totalled
@@ -29320,7 +28868,6 @@ cuddles
 cull
 culver
 cymru
-cz
 dac
 deference
 delirium
@@ -29424,9 +28971,7 @@ majorities
 marcy
 maris
 maw
-mbc
 mcclure
-mcg
 melatonin
 mesmerizing
 metaphorically
@@ -29439,7 +28984,6 @@ modulated
 mousse
 nai
 naught
-ncr
 necessitated
 nitrous
 northamptonshire
@@ -29461,7 +29005,6 @@ pathogenic
 peeking
 persevere
 pfeiffer
-pfft
 piped
 pisces
 plasticity
@@ -29492,7 +29035,6 @@ regressive
 regrettable
 reprise
 restorative
-rfc
 rhyming
 rigby
 rojo
@@ -29511,7 +29053,6 @@ shovels
 silt
 sisterhood
 sketched
-slr
 sma
 smuggler
 snape
@@ -29615,7 +29156,6 @@ battleships
 bayesian
 befriended
 beheading
-bff
 blaring
 bolder
 bookies
@@ -29680,7 +29220,6 @@ differentiating
 disconcerting
 disingenuous
 dissipate
-dn
 dooley
 doran
 dreamworks
@@ -29706,7 +29245,6 @@ faisal
 falcao
 falco
 farr
-fcs
 filaments
 findlay
 finishers
@@ -29790,7 +29328,6 @@ mascots
 mcfadden
 mcnally
 mcneil
-mcs
 mediators
 minster
 mongering
@@ -29828,7 +29365,6 @@ pomp
 popper
 priestess
 prohibitive
-psd
 quakers
 quarantined
 quotient
@@ -29878,11 +29414,8 @@ slurry
 smarts
 sosa
 sown
-spc
-spf
 spitfire
 sprinkles
-src
 stashed
 steampunk
 steed
@@ -29925,14 +29458,12 @@ unproven
 usain
 vac
 valium
-vcr
 ven
 wanker
 watchmen
 wba
 whitfield
 willem
-wl
 wrigley
 xy
 yarmouth

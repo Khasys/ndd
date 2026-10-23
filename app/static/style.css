@@ -1044,6 +1044,11 @@ button:disabled { cursor: default; opacity: .55; }
 .veille-tab .num { color: var(--muted); font-weight: 500; margin-left: 4px; }
 .veille-tab.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--accent); }
 .nc-actions { display: flex; gap: 6px; flex: none; align-self: center; }
+/* Ordinateur : colonne d'actions de largeur fixe, le score reste aligné qu'il y ait « Vérifier » ou non. */
+@media (min-width: 900px) {
+  .nc-actions { min-width: 236px; justify-content: flex-end; }
+}
+a.btn-ghost, a.btn { text-decoration: none; }
 /* États : trois choix, toujours visibles. */
 .ex-states { flex-wrap: wrap; overflow: visible; }
 @media (max-width: 899px) {
@@ -1212,10 +1217,10 @@ button:disabled { cursor: default; opacity: .55; }
   .settings-more .btn-ghost { width: 100%; }
 }
 
-/* Fiche d'un nom : panneau à droite sur ordinateur (environ 520 px, 42 % de la largeur au plus), plein écran
-   sur téléphone. Même ordre partout : en-tête collant, carte décision, pictos, dates clés, sections repliables. */
+/* Fiche d'un nom : panneau à droite sur ordinateur (46 % de la largeur, 720 px au plus), plein écran sur
+   téléphone. Même ordre partout : en-tête collant, carte décision et son action, petites actions, onglets. */
 .drawer.fiche {
-  position: fixed; z-index: 47; top: 0; right: 0; bottom: 0; width: clamp(400px, 42vw, 520px);
+  position: fixed; z-index: 47; top: 0; right: 0; bottom: 0; width: clamp(420px, 46vw, 720px);
   overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;
   padding: 0 24px 32px;
   background: var(--surface); color: var(--text); border-left: 1px solid var(--line);
@@ -1449,9 +1454,9 @@ button:disabled { cursor: default; opacity: .55; }
   /* « Signes d'abandon » sous le badge, pas à côté : la colonne État garde la largeur d'un badge. */
   .domains .state .abandon { display: table; margin: 4px 0 0; }
 }
-/* Grand écran : la place gagnée va au tableau, qui retrouve registrar et dernier check. */
-@media (min-width: 1700px) {
-  .main { max-width: 1560px; }
+/* Grand écran : toute la largeur va aux listes et au tableau (registrar et dernier check reviennent). */
+@media (min-width: 1280px) {
+  .main { max-width: none; }
 }
 /* Plus étroit : prochain check, puis le bouton Vérifier (dans la fiche aussi), puis les jours restants
    (la date de libération reste) ; le prix passe sous le verdict. */
@@ -1595,3 +1600,22 @@ button:disabled { cursor: default; opacity: .55; }
   position: fixed; z-index: 60; max-width: 220px; padding: 6px 9px; border-radius: 8px; pointer-events: none;
   background: var(--text); color: var(--surface); font-size: 12.5px; line-height: 1.35;
 }
+
+/* Fiche : l'action principale en grand dans la carte décision, puis les onglets du détail. */
+.fd-cta { display: flex; justify-content: center; align-items: center; width: 100%; min-height: 44px; margin-top: 14px;
+  font-weight: 600; text-decoration: none; }
+.fiche-tabs { position: sticky; top: var(--fiche-head, 0); z-index: 1; display: flex; gap: 4px; margin: 18px 0 12px;
+  border-bottom: 1px solid var(--line); background: var(--surface); overflow-x: auto; }
+.ftab { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 14px; border: 0;
+  border-bottom: 2px solid transparent; background: none; color: var(--muted); font: inherit; font-weight: 500;
+  cursor: pointer; white-space: nowrap; }
+.ftab.on { color: var(--text); border-bottom-color: var(--accent); }
+.ftab:hover { color: var(--text); }
+.ftab-n { min-width: 20px; padding: 0 6px; border-radius: 10px; background: var(--chip, color-mix(in srgb, var(--muted) 15%, transparent));
+  font-size: 12px; line-height: 20px; text-align: center; }
+.fiche-pane { display: grid; gap: 18px; }
+.fblock { display: grid; gap: 8px; }
+.fblock-title { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 0;
+  font-size: 15px; font-weight: 600; }
+.fblock-sum { color: var(--muted); font-size: 13px; font-weight: 400; margin: 0; }
+.fiche-exploit .fx-ask { display: flex; justify-content: flex-start; }

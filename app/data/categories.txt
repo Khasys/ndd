@@ -627,7 +627,6 @@ accountantonline	job,keyword
 accountantphiladelphia	job
 accountantphoenix	job
 accountantplus	job
-accountantppc	job
 accountantpro	job
 accountantpros	job
 accountantquotes	job,keyword
@@ -4058,7 +4057,6 @@ attorneyplano	job
 attorneyplus	job
 attorneyportland	job,local
 attorneyportstlucie	job
-attorneyppc	job
 attorneypro	job
 attorneypros	job
 attorneyprovidence	job
@@ -13450,7 +13448,6 @@ chiropractororlando	job,local
 chiropractorphiladelphia	job,local
 chiropractorphoenix	job,local
 chiropractorportland	job,local
-chiropractorppc	job
 chiropractorraleigh	job,local
 chiropractorsacramento	job,local
 chiropractorsanantonio	job,local
@@ -17754,7 +17751,6 @@ contractorphoenix	job,local
 contractorplatform	job
 contractorplus	job
 contractorportland	job,local
-contractorppc	job
 contractorpro	job
 contractorpros	job
 contractorquotes	job,keyword
@@ -27281,7 +27277,6 @@ electricianplano	job
 electricianplus	job
 electricianportland	job,local
 electricianportstlucie	job
-electricianppc	job
 electricianpricing	job
 electricianpro	job
 electricianpros	job
@@ -30265,7 +30260,6 @@ fitnesspassion	sport
 fitnesspay	sport
 fitnessplan	sport
 fitnessplus	sport
-fitnessppc	sport
 fitnesspratique	sport
 fitnesspremium	sport
 fitnesspro	sport
@@ -39830,7 +39824,6 @@ lawyerplano	job
 lawyerplus	job
 lawyerportland	job,local
 lawyerportstlucie	job
-lawyerppc	job
 lawyerpro	job
 lawyerpros	job
 lawyerprovidence	job
@@ -40756,7 +40749,6 @@ locksmithplano	job
 locksmithplus	job
 locksmithportland	job,local
 locksmithportstlucie	job
-locksmithppc	job
 locksmithpro	job
 locksmithpros	job
 locksmithquotes	job,keyword
@@ -43933,7 +43925,6 @@ misscloud	trend,startup
 missdata	trend,startup
 missionsfreelance	trend,job
 mixedcloud	trend,startup
-mlsdata	trend,startup
 mmaacademie	sport
 mmaaddict	sport
 mmaattitude	sport
@@ -44860,7 +44851,6 @@ moverspittsburgh	job
 moversplano	job
 moversplus	job
 moversportland	job,local
-moversppc	job
 moverspro	job
 moverspros	job
 moversquotes	job,keyword
@@ -50266,6 +50256,7 @@ petanquestore	sport
 petanquezone	sport
 petapp	animal
 petapps	animal
+petarts	animal
 petbaby	animal
 petback	animal
 petbags	animal
@@ -53273,7 +53264,6 @@ plumberplano	job
 plumberplus	job
 plumberportland	job,local
 plumberportstlucie	job
-plumberppc	job
 plumberpricing	job
 plumberpro	job
 plumberpros	job
@@ -54380,7 +54370,6 @@ powertea	food
 powertoken	trend,startup
 powertrader	job
 powerwallet	trend,startup
-ppcfreelancer	job
 precloud	trend,startup
 predata	trend,startup
 prefood	food
@@ -58029,7 +58018,6 @@ restaurantplatform	food
 restaurantplus	food
 restaurantpoitiers	food
 restaurantpos	food
-restaurantppc	food
 restaurantpremium	food
 restaurantpro	food
 restaurantpros	food
@@ -58928,7 +58916,6 @@ saasonboarding	trend
 saasonline	trend,keyword
 saasplatform	trend
 saasplus	trend
-saasppc	trend
 saaspricing	trend
 saaspro	trend
 saasproducts	trend
@@ -61650,7 +61637,6 @@ solarpool	trend
 solarportland	trend,local
 solarpost	trend
 solarpower	trend
-solarppc	trend
 solarprint	trend
 solarpro	trend
 solarprojects	trend
@@ -63193,7 +63179,6 @@ startupnow	startup
 startupone	startup
 startupopportunities	startup
 startuppay	startup
-startupppc	startup
 startuppro	startup
 startupreport	startup
 startupseo	startup
@@ -70181,7 +70166,6 @@ veterinaryadvertising	animal
 veterinaryleads	animal
 veterinarymarketing	animal
 veterinaryplatform	animal
-veterinaryppc	animal
 veterinaryseo	animal
 veterinarysoftware	animal
 veterinarywebdesign	animal

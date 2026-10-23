@@ -296,7 +296,7 @@ document.addEventListener("alpine:init", () => {
     // Fiche : menu « Plus » ouvert, dates clés toutes affichées, détail IA déroulé (gardé d'une fiche à l'autre).
     ficheMenu: false,
     ficheTlAll: false,
-    ficheAiOpen: false,
+    ficheTab: "apercu",
     // Paramètres, Gandi : jeton saisi (jamais relu), test en cours, résumé du dernier test.
     gandiKey: "",
     gandiTesting: false,
@@ -883,7 +883,10 @@ document.addEventListener("alpine:init", () => {
         if (ticket !== this._ficheTicket) return;
         fiche.hot = hot;
         // Autre nom : dates clés de nouveau résumées ; le menu « Plus » se referme dans tous les cas.
-        if (!this.fiche || this.fiche.name !== fiche.name) this.ficheTlAll = false;
+        if (!this.fiche || this.fiche.name !== fiche.name) {
+          this.ficheTlAll = false;
+          this.ficheTab = "apercu";
+        }
         this.ficheMenu = false;
         this.fiche = fiche;
         // Nom surveillé : l'historique des changements (table history) s'affiche dans la fiche.
@@ -1182,6 +1185,14 @@ document.addEventListener("alpine:init", () => {
       else if (e.key === "Home") go(0);
       else if (e.key === "End") go(items.length - 1);
       else if (e.key === "Tab") this.ficheMenu = false;
+    },
+
+    // Onglets de la fiche, avec un compteur quand il dit quelque chose ; un onglet vide n'apparaît pas.
+    ficheTabs(f) {
+      const tabs = [{ key: "apercu", label: "Aperçu" }, { key: "valeur", label: "Valeur" }];
+      if ((f.others || []).length) tabs.push({ key: "extensions", label: "Extensions", n: f.others.length });
+      if (this.ficheRegistryHtml(f)) tabs.push({ key: "registre", label: "Registre" });
+      return tabs;
     },
 
     // Action mise en avant : réserver un nom libre, surveiller un nom qui va se libérer, sinon faire noter.

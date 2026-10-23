@@ -1610,8 +1610,9 @@ def test_cc_dns_extensions_in_explorer_top_fiche_and_veille(logged):
     client.__exit__(None, None, None)
 
 def test_interface_fiche_layout():
-    """Fiche rangée : en-tête collant avec fermer en icône, carte décision, pictos sur une ligne avec menu « Plus »,
-    dates clés résumées, détail en sections repliables ; plus de boutons SEO ni Réservé dans le corps."""
+    """Fiche rangée : en-tête collant avec fermer en icône, carte décision avec UNE action principale (selon l'état),
+    petites actions sans la répéter et menu « Plus », puis quatre onglets au lieu de sections empilées ; panneau
+    élargi sur ordinateur."""
     from pathlib import Path
 
     static = Path(__file__).resolve().parent.parent / "app" / "static"
@@ -1622,33 +1623,42 @@ def test_interface_fiche_layout():
     # En-tête : nom, une ligne d'état, bouton fermer « × » de 44 px avec son libellé accessible.
     assert 'class="fiche-close"' in fiche and 'aria-label="Fermer"' in fiche and ">Fermer<" not in fiche
     assert "ficheWhen(fiche)" in fiche and "width: 44px; height: 44px" in css
-    # Ordre : en-tête, carte décision, pictos, dates clés, sections (la rentabilité en premier).
-    order = [fiche.index(k) for k in ('class="fiche-head"', 'class="fiche-deal"', 'class="fiche-acts"', 'class="fiche-timeline"',
-                                      *(f'fsec-title">{t}<' for t in ("Rentabilité", "Score", "Suivi", "Le nom", "Comparables et repères",
-                                                                      "Autres extensions", "Registre et SEO")))]
+    # Ordre : en-tête, carte décision, petites actions, onglets, puis les volets.
+    order = [fiche.index(k) for k in ('class="fiche-head"', 'class="fiche-deal"', 'class="fiche-acts"', 'class="fiche-tabs"',
+                                      "ficheTab === 'apercu'", "ficheTab === 'valeur'", "ficheTab === 'extensions'",
+                                      "ficheTab === 'registre'")]
     assert order == sorted(order)
-    assert fiche.count('<details class="fsec') == 7 and fiche.count('class="fsec-sum"') >= 5
-    # Tout l'avis IA dans la carte décision : deux notes, verdict, prix, pourquoi, commentaire, « Détail IA »
-    # qui déroule la grille ; plus de section Avis IA en dessous.
+    # Carte décision : notes, verdict, prix, commentaire, file ; la raison du score n'y est qu'avec un avis IA
+    # (sinon elle est dans Valeur), et une seule action principale, celle que l'état du nom appelle.
     deal = fiche.split('class="fiche-deal"')[1].split("</section>")[0]
-    for part in ("k.notes", "k.verdict", "k.prices", "k.why", "k.comment", "k.queue", "ficheGridHtml(k.grid)", ">Détail IA<"):
+    for part in ("k.notes", "k.verdict", "k.prices", "k.comment", "k.queue", 'x-show="k.verdict && k.why"', "fd-cta"):
         assert part in deal, part
-    assert 'aria-expanded="ficheAiOpen' in deal.replace(":aria-expanded", "aria-expanded").replace(" ? 'true'", "")
-    assert 'fsec-title">Avis IA<' not in fiche and "ficheAiHtml" not in js + html
-    # Pictos sur une ligne (colonnes égales) ; « Plus » ouvre un menu accessible avec les actions secondaires.
+    for primary in ("'reserve'", "'watch'", "'ai'"):
+        assert f"fichePrimary(fiche) === {primary}" in deal and f"fichePrimary(fiche) !== {primary}" in fiche
+    # Volets : Aperçu (dates clés, suivi, le nom), Valeur (score, détail IA, rentabilité, comparables), Extensions,
+    # Registre ; plus de sections repliables empilées, sauf le suivi d'un nom surveillé.
+    apercu = fiche.split("ficheTab === 'apercu'")[1].split("ficheTab === 'valeur'")[0]
+    valeur = fiche.split("ficheTab === 'valeur'")[1].split("ficheTab === 'extensions'")[0]
+    assert 'class="fiche-timeline"' in apercu and "ficheDomain" in apercu and "ficheParts(fiche).name" in apercu
+    for part in ("ficheParts(fiche).score", "ficheGridHtml(k.grid)", "exploitView(fiche)", "fiche.comparables"):
+        assert part in valeur, part
+    assert fiche.count('<details class="fsec') == 1 and "ficheTabs(fiche)" in fiche and 'role="tablist"' in fiche
+    assert "ficheTabs(f) {" in js and 'this.ficheTab = "apercu"' in js
+    # Rentabilité pas encore analysée : son bouton seul, l'explication en infobulle.
+    assert ':title="x.hint"' in valeur
+    # « Plus » ouvre un menu accessible avec les actions secondaires.
     assert "repeat(5, minmax(0, 1fr))" in css and 'aria-haspopup="menu"' in fiche and 'role="menu"' in fiche
     menu = fiche.split('id="fiche-menu"')[1].split("</div>")[0]
     for label in ("Analyse SEO", "Réservé par registre", "Voir dans Portefeuille"):
         assert label in menu, label
-    # Arrêter le suivi : seulement par le picto « Suivi », pas en double dans le menu.
     assert "Arrêter le suivi" not in menu
     assert 'class="fiche-more"' not in fiche and "ficheMenuKey" in js and "ficheMenuClose(true)" in js
-    # Picto IA en HTML, sans la petite coche ; dates clés résumées au-delà de 6.
+    # Picto IA en HTML ; dates clés résumées au-delà de 6.
     assert 'class="ia-mark"' in fiche and "ia-check" not in fiche + css
     assert "all.length <= 6" in js and "slice(-3)" in js and "Tout afficher" in fiche
-    # Libellés en casse normale, au-dessus de la valeur sous 360 px ; panneau élargi sur ordinateur.
+    # Libellés en casse normale, au-dessus de la valeur sous 360 px ; panneau large sur ordinateur.
     assert ".fdl dt { color: var(--muted)" in css and "@media (max-width: 359px)" in css
-    assert "clamp(400px, 42vw, 520px)" in css
+    assert "clamp(420px, 46vw, 720px)" in css
     # Points d'entrée gardés.
     for entry in ("async openFiche(name", "    back() {", "async ficheReload()"):
         assert entry in js, entry

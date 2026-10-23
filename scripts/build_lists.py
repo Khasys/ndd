@@ -86,7 +86,11 @@ def english(wordfreq_dir: Path, banned: set[str]) -> list[str]:
     raw = msgpack.unpackb(gzip.open(wordfreq_dir / "data" / "large_en.msgpack.gz").read(), raw=False)
     words = (w for bucket in raw[1:] for w in bucket)
     picked = []
+    sigles = set(read("sigles.txt", DATA))
     for w in words:
+        # Sans voyelle : une abréviation (qld, nsw, tbh), pas un mot ; gardée seulement si c'est un sigle connu (pdf).
+        if not any(c in "aeiouy" for c in w) and w not in sigles:
+            continue
         if w.isascii() and w.isalpha() and len(w) >= 2 and w not in banned:
             picked.append(w)
             if len(picked) >= ENGLISH_SIZE:

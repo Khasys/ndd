@@ -336,7 +336,6 @@ accountantonline	en
 accountantphiladelphia	en
 accountantphoenix	en
 accountantplus	en
-accountantppc	en
 accountantpro	en
 accountantpros	en
 accountantquotes	en
@@ -2965,8 +2964,8 @@ anaheimrealtor	en
 anaheimroofer	en
 anaheimroofing	en
 anaheimsolar	en
-analyseaction	fr
-analyseactions	fr
+analyseaction	fr,en
+analyseactions	fr,en
 analyseboursiere	fr
 analyseconcurrence	fr
 analysededonnees	fr
@@ -2976,12 +2975,12 @@ analyseeaupiscine	fr
 analysefinanciere	fr
 analysefinanciereexcel	fr,en
 analysefondamentale	fr
-analysepredictive	fr
+analysepredictive	fr,en
 analysesmedicales	fr
-analysetechnique	fr
+analysetechnique	fr,en
 analysetechniquebourse	fr
-analysetechniquecrypto	fr,en
-analysetechniqueforex	fr,en
+analysetechniquecrypto	en
+analysetechniqueforex	en
 analysevulnerabilites	fr
 analyste	fr
 analystecybersecurite	fr,en
@@ -3354,7 +3353,6 @@ answeringservice	en
 answeringservices	en
 antcontrol	en
 antennesatellite	fr
-antennetnt	fr
 antenniste	fr
 antiacne	en
 antiacnepascher	fr,en
@@ -5656,7 +5654,6 @@ attorneyplano	en
 attorneyplus	en
 attorneyportland	en
 attorneyportstlucie	en
-attorneyppc	en
 attorneypro	en
 attorneypros	en
 attorneyprovidence	en
@@ -6553,7 +6550,6 @@ autorepairorlando	en
 autorepairphiladelphia	en
 autorepairphoenix	en
 autorepairportland	en
-autorepairppc	en
 autorepairraleigh	en
 autorepairsacramento	en
 autorepairsanantonio	en
@@ -8674,7 +8670,6 @@ bestcashloans	en
 bestcashoutrefinance	fr,en
 bestcasino	en
 bestcbd	en
-bestcdrates	en
 bestcemetery	en
 bestcfoservices	en
 bestcharging	en
@@ -8796,7 +8791,7 @@ bestdental	en
 bestdentalcare	en
 bestdentalclinic	en
 bestdentalfinancing	en
-bestdentalimplant	fr,en
+bestdentalimplant	en
 bestdentalimplants	en
 bestdentalinsurance	en
 bestdentalmarketing	en
@@ -8987,7 +8982,6 @@ besthotel	en
 besthotels	en
 besthouse	en
 besthouses	en
-besthrsoftware	en
 besthumanoid	en
 besthvac	en
 besthydrogen	en
@@ -8995,7 +8989,7 @@ bestia	en
 bestimmigrationhelp	en
 bestimmigrationlaw	en
 bestimpact	en
-bestimplantdentist	fr,en
+bestimplantdentist	en
 bestimplants	en
 bestincometax	en
 bestincometaxreturn	en
@@ -9089,7 +9083,6 @@ bestlifeinsurance	en
 bestlimo	en
 bestlineofcredit	en
 bestliposuction	fr,en
-bestllcformation	en
 bestloan	en
 bestloanbroker	en
 bestloancalculator	en
@@ -11449,7 +11442,7 @@ business	fr
 business24	fr
 businessaccount	en
 businessaccountant	en
-businessaccountants	fr,en
+businessaccountants	en
 businessaccounting	en
 businessaccounts	en
 businessacquisition	fr,en
@@ -12581,7 +12574,6 @@ cardealeradvertising	en
 cardealerleads	en
 cardealerlist	en
 cardealermarketing	fr,en
-cardealerppc	fr,en
 cardealers	fr,en
 cardealerseo	en
 cardealership	fr,en
@@ -13963,15 +13955,12 @@ cbdexpert	en
 cbdexperts	en
 cbdexpress	en
 cbdfinder	en
-cbdfrance	en
 cbdguide	en
-cbdgummies	en
 cbdhq	en
 cbdhub	en
 cbdlab	en
 cbdlabs	en
 cbdnow	en
-cbdoil	en
 cbdonline	en
 cbdplus	en
 cbdpro	en
@@ -13980,10 +13969,6 @@ cbdquotes	en
 cbdtoday	en
 cbdworld	en
 cbdzone	en
-cctvcameras	en
-cctvinstallation	en
-cctvsystems	en
-cdrates	en
 ceeisolation	fr,en
 ceepompeachaleur	fr
 ceeprimes	fr,en
@@ -15934,7 +15919,6 @@ chiropractororlando	en
 chiropractorphiladelphia	en
 chiropractorphoenix	en
 chiropractorportland	en
-chiropractorppc	en
 chiropractorraleigh	en
 chiropractors	en
 chiropractorsacramento	en
@@ -16314,7 +16298,6 @@ cleaningphiladelphia	en
 cleaningphoenix	en
 cleaningplus	en
 cleaningportland	en
-cleaningppc	en
 cleaningpro	en
 cleaningproducts	en
 cleaningpros	en
@@ -16772,7 +16755,6 @@ cloturegrillagerigide	fr
 cloturejardin	fr
 cloturepanneau	fr
 cloturepanneaurigide	fr
-cloturepvc	fr
 cloud	fr,en
 cloud24	fr
 cloud247	en
@@ -19143,7 +19125,6 @@ contespourenfants	fr
 contestationamende	fr
 contestationtestament	fr
 contesteramende	fr
-contesterfps	fr
 contesterimpot	fr
 contesterimpots	fr
 contestersaisie	fr
@@ -19226,7 +19207,6 @@ contractorphoenix	en
 contractorplatform	en
 contractorplus	en
 contractorportland	en
-contractorppc	en
 contractorpro	en
 contractorpros	en
 contractorquotes	en
@@ -20690,7 +20670,6 @@ cpaorlando	en
 cpaphiladelphia	en
 cpaphoenix	en
 cpaportland	en
-cpappc	en
 cparaleigh	en
 cpasacramento	en
 cpasanantonio	en
@@ -20706,9 +20685,6 @@ cpatulsa	en
 cpavirginiabeach	en
 cpawashington	en
 cpawebdesign	en
-cplwifi	en
-cprcertification	en
-cprtraining	en
 crabe	fr
 craft101	en
 craftbeer	en
@@ -20739,7 +20715,6 @@ crawlspacerepair	en
 createbusiness	en
 createcompany	en
 createcourses	en
-createllc	en
 createur	fr
 creatine	fr
 creatinepascher	fr,en
@@ -21623,7 +21598,7 @@ cryptoai	en
 cryptoairdrop	en
 cryptoairdrops	en
 cryptoalerts	en
-cryptoanalyse	fr,en
+cryptoanalyse	en
 cryptoanalytics	en
 cryptoapi	en
 cryptoapp	en
@@ -21775,7 +21750,6 @@ cryptowire	en
 cryptoworld	en
 cryptozone	en
 cssante	fr
-ctscan	en
 cuisine	fr
 cuisine-aix-en-provence	fr
 cuisine-ajaccio	fr
@@ -22529,7 +22503,7 @@ data247	en
 dataagent	en
 dataagents	en
 dataai	en
-dataanalyse	fr,en
+dataanalyse	en
 dataanalyst	en
 dataanalyste	fr,en
 dataanalytics	en
@@ -23207,7 +23181,6 @@ decochambreenfant	fr
 decodagevin	fr
 decodeur	fr,en
 decodeursatellite	fr,en
-decodeurtnt	fr,en
 decodeurvin	fr,en
 decofacile	fr
 decoinfo	fr
@@ -23816,9 +23789,9 @@ dentalhealth	en
 dentalhq	en
 dentalhub	en
 dentalhygiene	en
-dentalimplant	fr,en
-dentalimplantclinic	fr,en
-dentalimplantcost	fr,en
+dentalimplant	en
+dentalimplantclinic	en
+dentalimplantcost	en
 dentalimplants	en
 dentalimplantsakron	en
 dentalimplantsalbuquerque	en
@@ -23965,7 +23938,6 @@ dentalonline	en
 dentalplans	en
 dentalplatform	en
 dentalplus	en
-dentalppc	en
 dentalpractice	en
 dentalpractices	en
 dentalpro	en
@@ -26260,7 +26232,7 @@ digitalstudio	fr,en
 digitaltoday	en
 digitaltransformation	fr,en
 digitalwallet	en
-digitalwallets	en
+digitalwallets	fr,en
 digitalworkplace	en
 digitalworld	en
 digitalzone	en
@@ -28477,7 +28449,6 @@ ecommercepascher	fr
 ecommercepayments	en
 ecommerceplatform	en
 ecommerceplus	fr
-ecommerceppc	fr,en
 ecommercepro	fr
 ecommercesecurity	en
 ecommerceseo	en
@@ -29220,7 +29191,6 @@ electricianplano	en
 electricianplus	en
 electricianportland	en
 electricianportstlucie	en
-electricianppc	en
 electricianpricing	en
 electricianpro	en
 electricianpros	en
@@ -30443,7 +30413,7 @@ epargneretraitejeunes	fr
 epargneretraitesalarie	fr
 epargnerfacilement	fr
 epargnerpetitbudget	fr
-epargnesalariale	fr
+epargnesalariale	fr,en
 epargnesanrisque	fr,en
 epargnesecurisee	fr
 epice	fr
@@ -30977,7 +30947,7 @@ etudenotariale	fr,en
 etudes	fr
 etudes24	fr
 etudesabroad	fr,en
-etudesaletranger	fr
+etudesaletranger	fr,en
 etudesconseil	fr
 etudesdevis	fr
 etudesdirect	fr
@@ -31943,7 +31913,6 @@ factoringrates	fr,en
 factoringtarif	fr
 factrice	fr
 factureelectronique	fr
-factureelectroniquepdp	fr
 factureenligne	fr
 facturepdf	fr,en
 factures	fr
@@ -32316,8 +32285,6 @@ fenetrepau	fr
 fenetreperpignan	fr
 fenetrepessac	fr
 fenetrepoitiers	fr
-fenetrepvc	fr
-fenetrepvcdevis	fr
 fenetrequimper	fr
 fenetrereims	fr
 fenetrerennes	fr
@@ -32558,7 +32525,6 @@ ficheposte	fr
 fichesociete	fr
 fichessocietes	fr
 fichierclients	fr
-fichierfcc	fr,en
 fichierprospection	fr
 fichierprospects	fr,en
 fieldplatform	en
@@ -33345,7 +33311,6 @@ fitnesspascher	fr
 fitnesspassion	fr
 fitnessplan	en
 fitnessplus	fr,en
-fitnessppc	en
 fitnesspratique	fr
 fitnesspro	fr,en
 fitnesspros	en
@@ -33381,7 +33346,6 @@ flashcards	en
 flashsales	fr,en
 flatbedtowing	en
 flatfeebrokerage	fr,en
-flatfeemls	en
 flechettes	fr
 fleetinsurance	en
 fleetmaintenance	en
@@ -34342,7 +34306,6 @@ formbuilder	en
 formcompany	en
 formeetbienetre	fr
 formeetsante	fr
-formllc	en
 formmaker	en
 formplatform	en
 formsoftware	en
@@ -34662,7 +34625,6 @@ fournisseurenergie	fr
 fournisseurgaz	fr
 fournisseursenergie	fr
 foyerlogement	fr
-fpsparking	fr,en
 fractionalcfo	fr,en
 fractionalcfoapp	en
 fractionalcfofirm	en
@@ -34731,7 +34693,6 @@ franchisemalin	fr
 franchisemarketing	fr,en
 franchisepascher	fr
 franchiseplus	fr
-franchiseppc	fr,en
 franchisepro	fr
 franchiseseo	en
 franchisewebdesign	fr,en
@@ -37094,7 +37055,7 @@ gitepetitsprix	fr
 giteplus	fr
 gitepro	fr
 gites	fr
-gitesalpes	fr
+gitesalpes	fr,en
 gitesavecpiscine	fr
 gitesavecspa	fr,en
 gitesbretagne	fr
@@ -37656,7 +37617,6 @@ goused	en
 gouter	fr
 gouttierealu	fr
 gouttieredentaire	fr
-gouttierepvc	fr
 gouttierezinc	fr
 gouvernante	fr
 govacation	en
@@ -38709,7 +38669,6 @@ healthcarenow	en
 healthcareonline	en
 healthcareplans	en
 healthcareplus	en
-healthcareppc	en
 healthcarepro	en
 healthcarepros	en
 healthcareprovider	en
@@ -40064,7 +40023,6 @@ hotelplage	fr
 hotelplatform	en
 hotelplus	fr,en
 hotelpoitiers	fr
-hotelppc	fr,en
 hotelprix	fr,en
 hotelpro	fr,en
 hotelpros	en
@@ -40457,9 +40415,7 @@ houstonwindowcleaning	en
 houstonwindows	en
 howto	en
 howtos	en
-hrsoftware	en
 huile	fr
-huilecbd	fr,en
 huilecheveux	fr
 huilecheveuxpascher	fr
 huiledargan	fr
@@ -40835,7 +40791,6 @@ hvacplano	en
 hvacplus	en
 hvacportland	en
 hvacportstlucie	en
-hvacppc	en
 hvacpro	en
 hvacpros	en
 hvacprovidence	en
@@ -41518,8 +41473,8 @@ implantdentairetours	fr
 implantdentairetroyes	fr
 implantdentairevalence	fr
 implantdentairevannes	fr
-implantdentist	fr,en
-implantdentistry	fr
+implantdentist	en
+implantdentistry	fr,en
 implantdentures	fr
 implantdevis	fr
 implantdirect	fr
@@ -43405,7 +43360,6 @@ insuranceplus	en
 insurancepolicies	en
 insurancepolicy	en
 insuranceportland	en
-insuranceppc	en
 insurancepremiums	en
 insurancepro	en
 insurancepros	en
@@ -46219,7 +46173,6 @@ landscapingphiladelphia	en
 landscapingphoenix	en
 landscapingplus	en
 landscapingportland	en
-landscapingppc	en
 landscapingpro	en
 landscapingpros	en
 landscapingquotes	en
@@ -47061,7 +47014,6 @@ lawyerplano	en
 lawyerplus	en
 lawyerportland	en
 lawyerportstlucie	en
-lawyerppc	en
 lawyerpro	en
 lawyerpros	en
 lawyerprovidence	en
@@ -49580,9 +49532,6 @@ livretremunere	fr
 livretsansrisque	fr
 livreur	fr
 livreurs	fr
-llcformation	en
-llcformationonline	en
-llcformationservices	en
 llm	fr,en
 loadtesting	en
 loan	en
@@ -50215,7 +50164,6 @@ locksmithplano	en
 locksmithplus	en
 locksmithportland	en
 locksmithportstlucie	en
-locksmithppc	en
 locksmithpro	en
 locksmithpros	en
 locksmithquotes	en
@@ -52383,7 +52331,7 @@ mandataire	fr
 mandataireauto	fr
 mandataireautomobile	fr
 mandataireimmobilier	fr
-mandatairepsa	fr
+mandatairepsa	fr,en
 mandatairesauto	fr
 mandatairesimmobilier	fr
 mandatairevoiture	fr
@@ -53601,7 +53549,6 @@ medicalnow	en
 medicalonline	en
 medicalplatform	en
 medicalplus	en
-medicalppc	fr,en
 medicalpractice	en
 medicalpro	en
 medicalpros	en
@@ -54124,7 +54071,6 @@ menuiserieplus	fr
 menuiseriepoitiers	fr
 menuiseriepratique	fr
 menuiseriepro	fr
-menuiseriepvc	fr
 menuiseriequimper	fr
 menuiseriereims	fr
 menuiserierennes	fr
@@ -54825,9 +54771,6 @@ missionsinterim	fr,en
 missyou	en
 mitoyennete	fr
 mixeur	fr
-mlsdata	en
-mlslistings	en
-mlssearch	en
 mma	fr
 mmablog	en
 mmaforum	en
@@ -56559,7 +56502,6 @@ mortgageplano	en
 mortgageplatform	en
 mortgageplus	en
 mortgageportland	en
-mortgageppc	en
 mortgagepreapproval	en
 mortgagepro	en
 mortgagepros	en
@@ -56910,7 +56852,6 @@ moverspittsburgh	en
 moversplano	en
 moversplus	en
 moversportland	en
-moversppc	en
 moverspro	en
 moverspros	en
 moversquotes	en
@@ -58651,7 +58592,6 @@ northlasvegasroofer	en
 northlasvegasroofing	en
 nosamis	fr
 nosfavoris	fr
-nosqldatabase	fr,en
 nosselections	fr
 nostress	en
 notaire	fr
@@ -59888,7 +59828,6 @@ onlinecashflow	en
 onlinecashloan	en
 onlinecashloans	en
 onlinecashoutrefinance	fr,en
-onlinecdrates	en
 onlinecenter	en
 onlinecfoservices	en
 onlinecheckingaccount	en
@@ -60032,7 +59971,6 @@ onlinehomemortgage	en
 onlinehomemortgages	en
 onlinehomewarranty	en
 onlinehq	en
-onlinehrsoftware	en
 onlinehub	en
 onlineide	en
 onlineincometax	en
@@ -61730,7 +61668,6 @@ papertrading	en
 papierpeint	fr
 papillon	fr
 paprika	fr
-paraboletnt	fr
 parachutisme	fr
 parallelisme	en
 paralympique	fr
@@ -62361,7 +62298,6 @@ paydepot	en
 paydirect	en
 payeramende	fr
 payeramendeenligne	fr
-payerfps	fr
 payerimpots	fr
 payerlesimpots	fr
 payerlimpot	fr
@@ -63591,7 +63527,6 @@ pestnow	en
 pesto	fr
 pestonline	en
 pestplus	en
-pestppc	en
 pestpro	en
 pestpros	en
 pestquotes	en
@@ -66474,7 +66409,6 @@ plumberplano	en
 plumberplus	en
 plumberportland	en
 plumberportstlucie	en
-plumberppc	en
 plumberpricing	en
 plumberpro	en
 plumberpros	en
@@ -66601,7 +66535,6 @@ plumbingphiladelphia	en
 plumbingphoenix	en
 plumbingplus	en
 plumbingportland	en
-plumbingppc	en
 plumbingpricing	en
 plumbingpro	en
 plumbingpros	en
@@ -67869,30 +67802,6 @@ powertooltips	en
 powerwashing	en
 powerworld	en
 powerzone	en
-ppcagency	en
-ppcaudit	en
-ppccompany	en
-ppcconsulting	en
-ppccourse	fr,en
-ppccourses	fr,en
-ppcdashboard	fr,en
-ppcexpert	fr,en
-ppcexperts	fr,en
-ppcfirm	en
-ppcfreelancer	fr,en
-ppcjobs	fr,en
-ppcmanagement	en
-ppcmarketing	fr,en
-ppcpackages	en
-ppcplatform	en
-ppcpricing	en
-ppcreports	fr,en
-ppcservices	fr,en
-ppcsoftware	en
-ppcspecialist	en
-ppcstrategy	en
-ppctools	en
-ppctraining	en
 practiceexams	en
 practicemanagement	en
 practiceplatform	en
@@ -71345,7 +71254,6 @@ realestateplatform	en
 realestateplus	en
 realestateportal	en
 realestateportland	en
-realestateppc	en
 realestatepro	en
 realestatepros	en
 realestatepulse	en
@@ -71685,7 +71593,6 @@ reconnaissanceimage	fr
 reconnaissancevocale	fr
 reconversionpro	fr
 record	fr
-recoursfps	fr
 recouvrement	fr
 recouvrement24	fr
 recouvrementamiable	fr
@@ -73457,7 +73364,6 @@ restaurantplatform	en
 restaurantplus	fr,en
 restaurantpoitiers	fr
 restaurantpos	en
-restaurantppc	fr,en
 restaurantpro	fr,en
 restaurantpros	en
 restaurantquimper	fr
@@ -74373,7 +74279,6 @@ roofingplano	en
 roofingplus	en
 roofingportland	en
 roofingportstlucie	en
-roofingppc	en
 roofingpricing	en
 roofingpro	en
 roofingpros	en
@@ -74627,7 +74532,6 @@ saasonboarding	en
 saasonline	en
 saasplatform	en
 saasplus	en
-saasppc	fr,en
 saaspricing	en
 saaspro	en
 saasproducts	en
@@ -75931,9 +75835,9 @@ savonnaturelpascher	fr
 savonsolide	fr
 savonsolidepascher	fr
 scaleup	en
-scalping	fr,en
-scalpingforex	fr,en
-scalpingtrading	fr,en
+scalping	en
+scalpingforex	en
+scalpingtrading	en
 scandevulnerabilites	fr,en
 scannermedical	fr,en
 scannermedicalpascher	fr
@@ -79110,7 +79014,6 @@ solarplano	en
 solarplus	en
 solarportland	en
 solarpower	en
-solarppc	en
 solarprojects	en
 solarpros	en
 solarproviders	en
@@ -79195,7 +79098,6 @@ solotravelforum	en
 solotravelguide	en
 solotravelhub	en
 solotraveltips	en
-solpvc	fr,en
 solresine	fr
 solresinedecoratif	fr
 solutioncloud	en
@@ -79751,7 +79653,7 @@ spacecenter	en
 spacedepot	en
 spacedigest	en
 spacedirect	en
-spacedrepetition	fr
+spacedrepetition	fr,en
 spaceexpert	en
 spaceexperts	en
 spaceexpress	en
@@ -80067,7 +79969,6 @@ standardvirtuel	fr
 standbygenerators	en
 startbusiness	en
 startcompany	en
-startllc	en
 startnow	en
 startover	en
 startupadvertising	en
@@ -80102,7 +80003,6 @@ startupmarketing	en
 startupmarketingagency	en
 startupnews	en
 startupopportunities	en
-startupppc	en
 startupreport	en
 startupseo	en
 startupstudio	en
@@ -84697,7 +84597,6 @@ towingphiladelphia	en
 towingphoenix	en
 towingplus	en
 towingportland	en
-towingppc	en
 towingpro	en
 towingpros	en
 towingquotes	en
@@ -86625,7 +86524,6 @@ tvpro	en
 tvpros	en
 tvquotes	en
 tvreport	en
-tvsmart	en
 tvtoday	en
 tvweekly	en
 tvworld	en
@@ -87900,7 +87798,6 @@ veterinaryadvertising	en
 veterinaryleads	en
 veterinarymarketing	en
 veterinaryplatform	en
-veterinaryppc	en
 veterinaryseo	en
 veterinarysoftware	en
 veterinarywebdesign	en
@@ -88723,7 +88620,6 @@ voletsparis	fr
 voletspau	fr
 voletsperpignan	fr
 voletspoitiers	fr
-voletspvc	fr
 voletsreims	fr
 voletsrennes	fr
 voletsroubaix	fr
