@@ -505,9 +505,12 @@ def test_us_names_join_their_categories():
     assert all(wordlists.valid_label(w) for k in wordlists.MERGED for w in lists[k])
     derived = wordlists.derived()
     for key, into in wordlists.MERGED.items():
-        assert classes[into] == lists[into] | lists[key] | derived.get(into, frozenset())
+        # Toutes les listes réunies à la catégorie (Noms composés : composés anglais et français).
+        joined = frozenset().union(*(lists[k] for k, i in wordlists.MERGED.items() if i == into))
+        assert classes[into] == lists[into] | joined | derived.get(into, frozenset())
         assert key in wordlists.HIDDEN and key not in wordlists.SHOWN and key in wordlists.NEVER_DERIVED
-        assert wordlists.canonical(key) == into and key not in wordlists.NO_LANG and into not in wordlists.NO_LANG
+        # Langue : celle de la catégorie ; une marque inventée n'en a pas, réunie ou non.
+        assert wordlists.canonical(key) == into and (key in wordlists.NO_LANG) == (into in wordlists.NO_LANG)
     assert {"smith", "ford", "martin"} <= classes["surname"] and {"bernice", "thomas", "jean-pierre"} <= classes["firstname"]
     assert wordlists.categories("bernice") == ["firstname"] and wordlists.categories("alvarado") == ["surname"]
     assert wordlists.categories("ford") == ["surname", "firstname"]  # nom et prénom des États-Unis
@@ -645,3 +648,29 @@ def test_us_lists_are_reproducible():
     assert lists["local_us"][:2] == ["newyorkcriminallawyer", "criminallawyernewyork"]
     assert all(len(n) <= build_local_us.LONGEST for n in lists["local_us"])
 
+
+
+def test_compound_and_invented_builders():
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    import build_compounds as c
+
+    # Anglais : les premiers mots des deux vocabulaires d'abord, jamais un nom déjà pris, ni une suite interdite.
+    en = c.english({"mybox"})
+    assert len(en) == c.COUNT and en[0] != "mybox" and "mybox" not in en
+    assert all(c.EN_LENGTH[0] <= len(n) <= c.EN_LENGTH[1] and not c.BAD.search(n) for n in en)
+    # Inventés : graine fixe (la liste se refait à l'identique), pas de vrai mot, diversité des débuts.
+    c.SAMPLES, c.INVENTED = 20_000, 300
+    first = c.invented({"lumora"})
+    assert first == c.invented({"lumora"}) and len(first) == 300 and "lumora" not in first
+    starts = {}
+    for name in first:
+        starts[name[:3]] = starts.get(name[:3], 0) + 1
+    assert max(starts.values()) <= c.DIVERSITY[0]
+    # Les listes livrées sont dans l'appli, réunies à leur catégorie.
+    from app import wordlists
+    assert wordlists.MERGED["compound_en"] == wordlists.MERGED["compound_fr"] == "combo"
+    assert wordlists.MERGED["invented"] == "brand" and "invented" in wordlists.NO_MEANING
+    assert len(wordlists._ordered("composes_en.txt")) == c.COUNT and len(wordlists._ordered("inventes.txt")) == 10_000

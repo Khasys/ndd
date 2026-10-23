@@ -275,6 +275,34 @@ peu courants détournés (1 289 : colibri, toucan), noms inventés par syllabes 
 rythmés (771 : boumboum, kirakira), mots-valises (517 : boulango, cloudio). Marques connues, communes françaises
 (de mémoire, sans liste officielle) et sens négatifs écartés. Pas de langue. Liste rédigée par IA, relue, 2026-10.
 
+## composes_en.txt
+
+Composés anglais (100 000), réunis à la catégorie Noms composés : premier mot × second mot de
+scripts/lists/composes_en.txt, chaque paire notée par le rang de ses deux mots et sa longueur. Les deux vocabulaires
+(1 477 premiers mots, 1 487 seconds) sont appris des ventes publiques de noms de deux mots courants de 2015 à 2026
+(rapports de DNJournal, au moins 2 ventes par mot), relus à la main : prénoms, morceaux de découpe ratée, contenu
+adulte ou violent, marques et lieux retirés ; quelques mots forts rares dans les ventes ajoutés (ai, zen, forge).
+Seuls les mots sont gardés dans le dépôt, ni ventes ni prix. Mesure à l'aveugle : construite avec les ventes jusqu'à
+2025, la liste contient 18 % des composés anglais vendus en 2026 (3 % pour les listes d'avant). Écrit par
+`python scripts/build_compounds.py LEXIQUE_TXT`.
+
+## composes_fr.txt
+
+Composés français (45 705), réunis à la catégorie Noms composés : têtes et queues propres à chaque groupe de mots
+(métiers : allo, pascher ; cuisine : atelier, facile ; sport : club, academie…), accordées au genre du nom
+(Lexique383 : monchiot, petitebrioche), et paires service + objet (locationvoiture, coursguitare, recettecrepe).
+Mots des listes du dépôt (métiers, secteurs, thèmes, cuisine, sport, animaux) et 280 biens et services du
+quotidien écrits pour ces composés (scripts/lists/composes_fr.txt). Jugement manuel : trop peu de ventes de noms
+français pour l'apprendre. Moins de 100 000 noms : au-delà, les associations n'ont plus de sens.
+
+## inventes.txt
+
+Noms inventés (10 000), réunis à la catégorie Noms de marque : racine évocatrice + finale de marque
+(scripts/lists/inventes.txt : lumora, vitaly, solora) et noms tirés d'un modèle de lettres appris des marques
+inventées (marques_inventees.txt), triés par leur sonorité en français et en anglais à la fois (app/quality.py),
+finales de marque favorisées, au plus 20 noms par début de trois lettres. Vrais mots, prénoms, noms de famille et
+marques connues écartés. Pas de langue.
+
 ## Mes ajouts (hors de ce dossier)
 
 Pas de fichier ici : les noms ajoutés depuis l'Explorer (« Ajouter aux noms suivis ») sont rangés dans le

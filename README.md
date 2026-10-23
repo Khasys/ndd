@@ -389,6 +389,8 @@ dérivés (ci-dessous) ; le filtre de langue suit la langue relevée dans `app/d
 | keyword | Mots-clés à forte valeur | `motscles.txt`, fourni (réunion de listes françaises et anglaises) |
 | local | Métier + ville | `local.txt`, fourni (plombierparis) |
 | brand | Noms de marque | `marques_inventees.txt`, fourni : lieux et légendes, mots étrangers, mots réels détournés, noms inventés, composés rythmés, mots-valises ; la sonorité compte, pas le sens |
+| compound_en, compound_fr | réunies à Noms composés | `composes_en.txt` (100 000, appris des ventes publiques de noms de deux mots) et `composes_fr.txt` (45 705, têtes et queues propres à chaque groupe de mots, accordées au genre), écrits par `scripts/build_compounds.py` |
+| invented | réunie à Noms de marque | `inventes.txt` : 10 000 noms inventés (racine + finale de marque, modèle de lettres), triés par sonorité, écrit par `scripts/build_compounds.py` |
 | mine | Mes ajouts | `data/mes_ajouts.txt`, dans le dossier de données : les noms ajoutés depuis l'Explorer |
 | firstname_us, surname_us | Prénoms et Noms de famille des États-Unis, sans puce | `prenoms_us.txt` (10 000 prénoms, Social Security Administration, 1880-2017) et `noms_us.txt` (21 689 noms, recensement de 2010), construits par `scripts/build_names_us.py` ; réunis à Prénoms et Noms de famille |
 | niche_us, media_us | Sites de niche et Noms de médias des États-Unis, sans puce | `niches_us.txt` (2 775 : gardeningforum, dogtraining, allaboutdogs) et `medias_us.txt` (1 381 : golfdaily, healthinsider, thegardener), en anglais, construits par `scripts/build_lists.py --us` ; réunis à Sites de niche et Noms de médias |

@@ -19,6 +19,7 @@ const KIND_LABELS = {
   premium: "Termes stars", keyword: "Mots-clés à forte valeur", local: "Métier + ville", brand: "Noms de marque", mine: "Mes ajouts",
   firstname_us: "Prénoms des États-Unis", surname_us: "Noms de famille des États-Unis",
   niche_us: "Sites de niche des États-Unis", media_us: "Noms de médias des États-Unis", local_us: "Métier + ville des États-Unis",
+  compound_en: "Composés anglais", compound_fr: "Composés français", invented: "Inventés, sélection",
 };
 const NATURE_LABELS = { noun: "nom commun", verb: "verbe", adj: "adjectif", adv: "adverbe", other: "mot outil" };
 // Rang dans une liste, en clair : « 12e prénom le plus donné » (mêmes mots que les raisons du score, value.py).
@@ -30,10 +31,12 @@ const FREQ_PHRASES = {
   premium: "terme star", keyword: "mot-clé à forte valeur", local: "métier + ville", brand: "nom de marque", mine: "de mes ajouts",
   firstname_us: "prénom le plus donné aux États-Unis", surname_us: "nom de famille le plus porté aux États-Unis",
   niche_us: "site de niche des États-Unis", media_us: "nom de média des États-Unis", local_us: "métier + ville des États-Unis",
+  compound_en: "composé anglais", compound_fr: "composé français", invented: "nom inventé de la sélection",
 };
 // Listes réunies dans une catégorie, chacune avec ses rangs (wordlists.MERGED) : Prénoms, ceux de France et des
 // États-Unis ; de même Noms de famille, Sites de niche, Noms de médias, Métier + ville.
-const MERGED_LISTS = { firstname_us: "firstname", surname_us: "surname", niche_us: "niche", media_us: "media", local_us: "local" };
+const MERGED_LISTS = { firstname_us: "firstname", surname_us: "surname", niche_us: "niche", media_us: "media", local_us: "local",
+  compound_en: "combo", compound_fr: "combo", invented: "brand" };
 // Liste d'une catégorie où le nom est le mieux placé : la sienne ou l'une de celles qui y sont réunies (prénoms et noms
 // de tailles voisines, le rang suffit ; les autres n'ont pas de nom en commun).
 const bestSource = (r, key) => [key, ...Object.keys(MERGED_LISTS).filter((k) => MERGED_LISTS[k] === key)]

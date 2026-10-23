@@ -27,7 +27,9 @@ LABELS = {"word": "Mots", "form": "Formes fléchies", "surname": "Noms de famill
           "food": "Cuisine", "premium": "Termes stars", "keyword": "Mots-clés à forte valeur",
           "local": "Métier + ville", "brand": "Noms de marque", "firstname_us": "Prénoms des États-Unis",
           "surname_us": "Noms de famille des États-Unis", "niche_us": "Sites de niche des États-Unis",
-          "media_us": "Noms de médias des États-Unis", "local_us": "Métier + ville des États-Unis", "mine": "Mes ajouts"}
+          "media_us": "Noms de médias des États-Unis", "local_us": "Métier + ville des États-Unis",
+          "compound_en": "Composés anglais", "compound_fr": "Composés français", "invented": "Inventés, sélection",
+          "mine": "Mes ajouts"}
 # Nature des mots et des formes, tirée du Lexique.
 NATURES = {"verb": "Verbes", "noun": "Noms communs", "adj": "Adjectifs", "adv": "Adverbes", "other": "Mots outils"}
 
@@ -38,7 +40,8 @@ FILES = {"word": "mots.txt", "form": "formes.txt", "surname": "noms.txt", "first
          "startup": "startup.txt", "job": "metiers.txt", "sport": "sport.txt", "animal": "animaux.txt",
          "food": "cuisine.txt", "premium": "premium.txt", "keyword": "motscles.txt", "local": "local.txt",
          "brand": "marques_inventees.txt", "firstname_us": "prenoms_us.txt", "surname_us": "noms_us.txt",
-         "niche_us": "niches_us.txt", "media_us": "medias_us.txt", "local_us": "local_us.txt"}
+         "niche_us": "niches_us.txt", "media_us": "medias_us.txt", "local_us": "local_us.txt",
+         "compound_en": "composes_en.txt", "compound_fr": "composes_fr.txt", "invented": "inventes.txt"}
 # Listes fournies telles quelles (rédigées ailleurs) : scripts/build_lists.py ne les écrit jamais, il en
 # relève seulement la langue (--provided).
 PROVIDED = ("premium", "keyword", "local", "local_us", "brand")
@@ -50,9 +53,9 @@ MINE_FILE = "mes_ajouts.txt"
 LEGACY = ("word", "form", "surname", "firstname")
 # Listes ajoutées après les imports .fr sans relevé des noms cherchés (zones/fr.searched) : leurs noms
 # attendent l'import suivant.
-LATE = (*PROVIDED, MINE, "firstname_us", "surname_us", "niche_us", "media_us")
+LATE = (*PROVIDED, MINE, "firstname_us", "surname_us", "niche_us", "media_us", "compound_en", "compound_fr", "invented")
 # Listes sans sens : une marque inventée vaut par sa sonorité ; « Mes ajouts » ne dit rien du nom.
-NO_MEANING = ("brand", MINE)
+NO_MEANING = ("brand", "invented", MINE)
 # Rang sans valeur pour le score : l'ordre d'ajout ne classe rien.
 NO_RANK = (MINE,)
 # Catégories dérivées (nom, catégories gagnées), écrites par scripts/build_lists.py. Hors de l'empreinte du score
@@ -61,12 +64,13 @@ DERIVED_FILE = "categories.txt"
 # Jamais dérivées : la langue a son propre filtre, une marque inventée vaut par sa sonorité, Mes ajouts sont à part ;
 # listes des États-Unis : réunies à leur catégorie (MERGED), pas dérivées.
 NEVER_DERIVED = ("word", "form", "english", "surname", "firstname", "firstname_us", "surname_us", "niche_us",
-                 "media_us", "local_us", "brand", MINE)
+                 "media_us", "local_us", "compound_en", "compound_fr", "brand", "invented", MINE)
 # Thèmes : les noms composés gagnés viennent après les mots du thème dans l'ordre « les plus fréquents » (le Top
 # Sport commence par football, pas par coachsportif).
 THEMES = ("startup", "job", "sport", "animal", "food", "trend")
 # Noms composés, découpés en mots pour leur donner un thème.
-COMPOUNDS = ("combo", "keyword", "local", "premium", "niche", "expr", "media", "niche_us", "media_us", "local_us")
+COMPOUNDS = ("combo", "keyword", "local", "premium", "niche", "expr", "media", "niche_us", "media_us", "local_us",
+             "compound_en", "compound_fr")
 # Listes d'où vient chaque catégorie dérivée (règles de scripts/build_lists.py) : un nom dérivé y prend son rang
 # (Top, « les plus fréquents », filtre de fréquence) : assurance, 1er terme star, parmi les premiers termes stars.
 DERIVED_FROM = {"premium": ("sector", "trend"), "keyword": ("combo",), "local": ("combo", "keyword"),
@@ -76,7 +80,7 @@ DERIVED_FROM = {"premium": ("sector", "trend"), "keyword": ("combo",), "local": 
 # niche, Noms de médias et Métier + ville. Chacune garde ses rangs (score, ordre « les plus fréquents », « 12e prénom
 # le plus donné aux États-Unis ») ; un nom des deux sources est un seul nom de la catégorie.
 MERGED = {"firstname_us": "firstname", "surname_us": "surname", "niche_us": "niche", "media_us": "media",
-          "local_us": "local"}
+          "local_us": "local", "compound_en": "combo", "compound_fr": "combo", "invented": "brand"}
 # Listes sans puce : les secteurs porteurs sont tous dans Termes stars (catégorie dérivée), la liste reste pour le
 # score et le calage IA ; les listes des États-Unis sont dans leur catégorie, chacune reste pour ses rangs.
 # cat=sector (vues enregistrées, adresses anciennes) se lit comme cat=premium, cat=firstname_us comme cat=firstname.
@@ -87,7 +91,7 @@ SHOWN = {key: label for key, label in LABELS.items() if key not in HIDDEN}
 # Listes des États-Unis : le poids de leur catégorie (prénoms, noms, sites de niche, médias ; métier + ville : noms
 # composés), au meilleur des deux rangs.
 SCORE_AS = {"premium": "sector", "keyword": "sector", "local": "combo", "brand": "startup", **MERGED,
-            "local_us": "combo"}
+            "local_us": "combo", "invented": "startup"}
 
 
 def _ordered(name: str) -> list[str]:
@@ -328,11 +332,11 @@ def natures() -> dict[str, frozenset[str]]:
 LANGS = {"fr": "Français", "en": "Anglais"}
 # Listes sans langue : le filtre de langue ne s'y applique pas. Marques inventées : pas de sens, pas de
 # langue ; Mes ajouts : un nom y garde la langue qu'il a dans une autre liste, la liste entière reste visible.
-NO_LANG = ("brand", MINE)
+NO_LANG = ("brand", "invented", MINE)
 # Listes d'une seule langue, tout entières : Lexique en français, mots anglais en anglais, prénoms et noms de famille
 # en français pour l'Insee, en anglais pour les États-Unis (un nom des deux sources a les deux langues).
 LIST_LANG = {"word": "fr", "form": "fr", "surname": "fr", "firstname": "fr", "english": "en", "firstname_us": "en",
-             "surname_us": "en"}
+             "surname_us": "en", "compound_en": "en", "compound_fr": "fr"}
 
 
 @lru_cache(maxsize=1)
