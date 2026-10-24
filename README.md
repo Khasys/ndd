@@ -1018,8 +1018,9 @@ Zones ICANN : l'appli demande elle-même au registre (RDAP) l'état de tous les 
 meilleurs scores d'abord. La limite des registres n'est pas publiée : chaque registre (serveur RDAP) a son
 rythme. Départ à 1 requête par seconde (16 en vol au plus, tous registres confondus), +25 % tous les 500 succès
 jusqu'à 25 par seconde ; au premier refus, rythme du registre divisé par deux et pause (Retry-After, sinon
-2 minutes, 30 minutes sur un 403), sans arrêter les autres. Vu le 24/10/2026 : un 429 à 3 par seconde, puis des
-403. Suivi par registre dans `/api/diag`, `absent_pass.registries`. Le rythme appris est gardé ; client à part, la Veille et Vérifier gardent leur cadence (`RDAP_MIN_DELAY`). Gandi ne passe ensuite que
+2 minutes, 30 minutes sur un 403), sans arrêter les autres. Une coupure réseau isolée : 30 secondes de pause, rythme
+gardé. Un registre qui refuse tout depuis le matin (3 refus, aucune réponse) est écarté jusqu'au lendemain. Vu le
+24/10/2026 : 429 de Google (.app, .dev), 403 du registre du .biz dès la première requête. Suivi par registre dans `/api/diag`, `absent_pass.registries`. Le rythme appris est gardé ; client à part, la Veille et Vérifier gardent leur cadence (`RDAP_MIN_DELAY`). Gandi ne passe ensuite que
 sur les libres des extensions à premiums : un .com ou un .net libre au registre est achetable au prix de la grille
 (filtre de prix compris). Un nom absent de la zone est souvent en rédemption, en suppression ou suspendu : il passe
 « Libération à venir », « Suspendu » ou « Enregistré » ; sinon « Libre (vérifié) ». Ces réponses restent hors de

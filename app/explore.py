@@ -691,8 +691,11 @@ class Explorer:
         # de l'écran (une extension sans zone, comme .eu, a aussi son contexte de calcul à préparer).
         self.value_of([r[0] for r in self.conn.execute(
             "SELECT name FROM drops WHERE state IS NOT NULL AND COALESCE(origin, '') != 'rdap' UNION SELECT name FROM domains")])
-        # Écran par défaut de l'Explorer (à réserver, bons noms, pour revendre) sur les extensions les plus ouvertes :
-        # son premier classement à froid prenait 9 s sur le NAS. Les scores calculés servent ensuite aux autres filtres.
+
+    def warm_ranks(self) -> None:
+        """Écran par défaut de l'Explorer (à réserver, bons noms, pour revendre) sur les extensions les plus ouvertes :
+        son premier classement à froid prenait 9 s sur le NAS ; les scores calculés servent ensuite aux autres filtres.
+        Hors du fil de l'Explorer (main) : dans warm, il faisait attendre Domaines et Aujourd'hui 15 à 19 s au démarrage."""
         for tld in [t for t in WARM_TLDS if t in self.tlds()]:
             self.rank(tld, limit=50, status="bookable", level="good", sort="resale")
 

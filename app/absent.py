@@ -12,8 +12,9 @@ Rythme, registre par registre (serveur RDAP : Verisign pour .com et .net, PIR po
 publiée. La passe la cherche : elle part de START_RATE requêtes par seconde (PARALLEL en vol au plus, tous registres
 confondus), accélère de GROW tous les GROW_EVERY succès d'affilée, jusqu'à MAX_RATE, et divise le rythme du registre
 par deux au premier refus, avec une pause : Retry-After, sinon PAUSE (429, 5xx, réseau) ou BLOCKED_PAUSE (403, accès
-refusé : insister aggraverait le blocage). Un registre en pause n'arrête pas les autres. Le rythme appris est gardé
-(réglage absent_pass_rates). Client HTTP à part : la Veille et Vérifier gardent leur file (RDAP_MIN_DELAY).
+refusé : insister aggraverait le blocage). Une coupure réseau isolée ne fait qu'une courte pause (NET_PAUSE). Un
+registre qui refuse tout depuis le matin (SKIP_AFTER refus, aucune réponse) est écarté jusqu'au lendemain. Un registre
+en pause n'arrête pas les autres. Le rythme appris est gardé (réglage absent_pass_rates). Client HTTP à part : la Veille et Vérifier gardent leur file (RDAP_MIN_DELAY).
 Un nom vu enregistré est revu après RECHECK_DAYS jours : il peut entrer en suppression sans revenir dans la zone.
 """
 
@@ -42,6 +43,9 @@ GROW_EVERY = 500          # succès d'affilée avant d'accélérer
 PARALLEL = 16             # requêtes en vol au plus : un registre met 0,2 à 1 s à répondre
 PAUSE = 120               # pause après un refus sans Retry-After, en secondes
 BLOCKED_PAUSE = 1800      # 403 : accès refusé, pause longue
+NET_PAUSE = 30            # coupure réseau isolée : courte pause, rythme gardé
+NET_STRIKES = 3           # coupures d'affilée avant de ralentir comme pour un refus
+SKIP_AFTER = 3            # refus d'affilée sans aucune réponse du jour : registre écarté jusqu'au lendemain (.biz, 24/10)
 MAX_PAUSE = 3600
 QUEUE = 20_000            # file calculée d'un coup
 QUEUE_SECONDS = 3600      # file recalculée au plus tard après ce délai (zone relue, listes changées)
@@ -104,8 +108,16 @@ class AbsentPass:
         self.store.set(RATES_KEY, json.dumps(rates))
 
     def _host(self, host: str) -> dict:
-        return self._hosts.setdefault(host, {"ok_run": 0, "pause_end": 0.0, "next_at": 0.0, "refused": 0,
-                                             "checked": 0, "last_error": None, "paused_until": None})
+        state = self._hosts.setdefault(host, {"ok_run": 0, "pause_end": 0.0, "next_at": 0.0, "refused": 0,
+                                              "checked": 0, "last_error": None, "paused_until": None,
+                                              "strikes": 0, "net_strikes": 0, "day": None, "answered": 0, "off_day": None})
+        day = utcnow().date().isoformat()
+        if state["day"] != day:  # chaque jour, un registre écarté la veille a de nouveau sa chance
+            state.update(day=day, answered=0, strikes=0, off_day=None if state["off_day"] != day else day)
+        return state
+
+    def _off_today(self, host: str) -> bool:
+        return self._host(host)["off_day"] == utcnow().date().isoformat()
 
     def tlds(self) -> list[str]:
         """Extensions lues dans une zone ICANN : ni le .fr (open data et DNS), ni .co/.ai/.io (DNS seulement)."""
@@ -164,7 +176,7 @@ class AbsentPass:
             tld = name.rsplit(".", 1)[1]
             if tld not in bases:
                 bases[tld] = await self._server(name)
-            if bases[tld]:
+            if bases[tld] and not self._off_today(bases[tld]):
                 queues.setdefault(bases[tld], collections.deque()).append(name)
         self._queues = queues
         self._queue_at = time.time()
@@ -220,15 +232,30 @@ class AbsentPass:
             self._queues.setdefault(base, collections.deque()).appendleft(name)  # redemandé après la pause
             self._count("refused")
             state["refused"] += 1
-            if self.clock() >= state["pause_end"]:  # une salve de refus : un seul ralentissement
+            if self.clock() < state["pause_end"]:
+                return  # une salve de refus : un seul ralentissement
+            state["last_error"] = str(exc)
+            host = urlsplit(base).netloc
+            if exc.status is None and state["net_strikes"] + 1 < NET_STRIKES:
+                # Coupure réseau isolée : le registre n'a rien refusé, courte pause sans ralentir.
+                state["net_strikes"] += 1
+                pause = NET_PAUSE
+            else:
+                state["net_strikes"] = 0
+                state["strikes"] += 1
                 state["ok_run"] = 0
+                if state["strikes"] >= SKIP_AFTER and not state["answered"]:
+                    # Refuse tout depuis ce matin (le .biz, 403 dès la première requête) : écarté jusqu'à demain,
+                    # ses noms restent « à vérifier ».
+                    state["off_day"] = state["day"]
+                    self._queues.pop(base, None)
+                    log.warning("Passe des absents : %s refuse tout (%s), écarté jusqu'à demain", host, exc)
+                    return
                 self._set_rate(base, self.rate_of(base) / 2)
                 pause = min(MAX_PAUSE, exc.retry_after or (BLOCKED_PAUSE if exc.status == 403 else PAUSE))
-                state["pause_end"] = self.clock() + pause
-                state["last_error"] = str(exc)
-                state["paused_until"] = iso(utcnow() + timedelta(seconds=pause))
-                log.warning("Passe des absents : %s refuse (%s), rythme ramené à %.2f/s, pause %d s",
-                            urlsplit(base).netloc, exc, self.rate_of(base), pause)
+            state["pause_end"] = self.clock() + pause
+            state["paused_until"] = iso(utcnow() + timedelta(seconds=pause))
+            log.warning("Passe des absents : %s refuse (%s), rythme %.2f/s, pause %d s", host, exc, self.rate_of(base), pause)
             return
         try:
             kind = self.record(name, result)
@@ -237,6 +264,8 @@ class AbsentPass:
             return
         self._count(kind or "skipped")
         state["checked"] += 1
+        state["answered"] += 1
+        state["strikes"] = state["net_strikes"] = 0
         state["ok_run"] += 1
         if state["ok_run"] >= GROW_EVERY:
             state["ok_run"] = 0
@@ -307,7 +336,8 @@ class AbsentPass:
             hosts[urlsplit(base).netloc or base] = {
                 "rate": self.rate_of(base), "queued": len(self._queues.get(base, ())), "checked": state["checked"],
                 "refused": state["refused"], "last_error": state["last_error"],
-                "paused_until": state["paused_until"] if self.clock() < state["pause_end"] else None}
+                "paused_until": state["paused_until"] if self.clock() < state["pause_end"] else None,
+                "off_today": self._off_today(base)}
         return {"enabled": self.enabled, "running": self.running, "tlds": self.tlds(), "max_rate": MAX_RATE,
                 "queued": self.queued(), "today": self.today, "registries": hosts, "totals": self.totals()}
 

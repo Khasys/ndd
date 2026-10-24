@@ -250,6 +250,7 @@ async def lifespan(app: FastAPI):
         if watcher.due(datetime.now(digest.local_zone())):
             await watcher.run()
             await _off(app.state.explorer.warm)  # nouvelle zone : l'Explorer se prépare avant qu'on l'ouvre
+            await _ranks_aside(app.state.explorer)
 
     async def check_drops() -> None:
         await watcher.check_due(limit=20)
@@ -478,6 +479,9 @@ async def lifespan(app: FastAPI):
         await _off(ai.queue_position, app.state.explorer, "")
         if fr_dns.ready():
             await _off(fr_dns.position, "")
+        # Classement par défaut de l'Explorer : une minute après, à part, pour que les premiers écrans passent devant.
+        await asyncio.sleep(RANKS_WARM_DELAY)
+        await _ranks_aside(app.state.explorer)
 
     app.state.explorer_warm = asyncio.create_task(warm_explorer())
     # Règle de calcul des notes IA changée : avis gardés recalculés depuis leurs sous-notes (une fois).
@@ -1765,6 +1769,18 @@ def _explore_meta(explorer, tld: str, chosen: list[str] | None = None) -> dict:
 # (nouvelle extension, filtres larges) ne bloque plus le reste de l'appli ni la connexion.
 # Un seul fil : les calculs de l'écran passent l'un après l'autre, comme avant.
 _EXPLORER_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="explorer")
+
+
+# Classement par défaut préparé après le démarrage (secondes), hors du fil de l'Explorer.
+RANKS_WARM_DELAY = 60
+
+
+async def _ranks_aside(explorer) -> None:
+    """Explorer.warm_ranks dans un fil à part : un classement à froid ne fait pas attendre les écrans."""
+    try:
+        await asyncio.get_running_loop().run_in_executor(None, explorer.warm_ranks)
+    except Exception:
+        log.exception("Classement par défaut de l'Explorer non préparé")
 
 
 async def _off(fn, *args):

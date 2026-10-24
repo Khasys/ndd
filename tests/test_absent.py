@@ -207,3 +207,36 @@ def test_free_com_names_skip_gandi_and_use_the_grid_price(env):
     env.fr.store.set(gandi.GRID_KEY, '{"com": {"price": 13.2, "price_ht": 11, "currency": "EUR", "at": "x"}}')
     i = env.universe.index("jardin")
     assert i in env._gandi_indices("com", 20) and i not in env._gandi_indices("com", 10)
+
+
+def test_an_isolated_network_error_pauses_briefly_without_slowing_down(env):
+    """Une coupure réseau (vue chez Verisign le 24/10) : courte pause, rythme gardé, nom redemandé."""
+    tries = {"n": 0}
+
+    def flaky():
+        tries["n"] += 1
+        if tries["n"] == 1:
+            raise httpx.ConnectError("coupé")
+        return 404
+
+    run, calls, _, slept = make(env, {"jardin.com": flaky}, ["jardin.com"])
+    asyncio.run(run.run(_off))
+    assert calls == ["jardin.com", "jardin.com"] and run.rate_of(BASE) == absent.START_RATE
+    assert absent.NET_PAUSE in [round(s) for s in slept] and run.today["kinds"] == {states.AVAILABLE: 1}
+
+
+def test_a_registry_that_refuses_everything_is_left_out_until_tomorrow(env):
+    """Le .biz le 24/10 : 403 dès la première requête. Après SKIP_AFTER refus sans aucune réponse, écarté du jour ;
+    ses noms restent à vérifier, les autres registres continuent."""
+    names = [f"nom{n}.biz" for n in range(5)] + ["jardin.com"]
+    run, calls, _, _ = make(env, {**{n: 403 for n in names[:5]}, "jardin.com": 404}, names)
+
+    async def servers(name):
+        return "https://rdap.nic.test/" if name.endswith(".biz") else BASE
+
+    run._servers = servers
+    asyncio.run(run.run(_off))
+    assert calls.count("nom0.biz") == absent.SKIP_AFTER and "nom1.biz" not in calls and "jardin.com" in calls
+    registry = run.status()["registries"]["rdap.nic.test"]
+    assert registry["off_today"] and registry["queued"] == 0
+    assert env.drops.row("nom0.biz") is None  # rien d'écrit : toujours « à vérifier »
