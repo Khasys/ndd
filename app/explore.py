@@ -683,7 +683,7 @@ class Explorer:
         # Scores des noms de la Veille, d'Aujourd'hui et de Domaines : notés une fois ici plutôt qu'à l'ouverture
         # de l'écran (une extension sans zone, comme .eu, a aussi son contexte de calcul à préparer).
         self.value_of([r[0] for r in self.conn.execute(
-            "SELECT name FROM drops WHERE state IS NOT NULL UNION SELECT name FROM domains")])
+            "SELECT name FROM drops WHERE state IS NOT NULL AND COALESCE(origin, '') != 'rdap' UNION SELECT name FROM domains")])
 
     # --- Extensions et octets d'état -------------------------------------------------
 
@@ -2352,7 +2352,8 @@ class Explorer:
         state = None
         # Hors .fr, la zone ne dit rien d'un nom enregistré sans DNS (hold) : on garde la réponse.
         if row is not None or not registered or tld != "fr":
-            row = row or self.drops.ensure(name, now)
+            # ensure aussi pour une ligne existante : vérifié à la main, un nom d'origine discrète entre dans la Veille.
+            row = self.drops.ensure(name, now)
             state = self.drops.apply(row, result, now)
         if tld == "fr":
             # Un nom repris est déjà revenu dans les dates anniversaire par on_fr_taken (drops.apply).

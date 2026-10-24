@@ -52,14 +52,14 @@ def sections(conn, explorer, cc_status: dict, base: str, now: datetime, min_scor
     """Rubriques du récapitulatif des 24 dernières heures ; exclude : noms déjà annoncés ailleurs (pépites)."""
     since = iso(now - timedelta(hours=24))
     freed = [r["name"] for r in conn.execute(
-        "SELECT name FROM drops WHERE state = ? AND available_since >= ? AND origin IS NOT 'gandi'", (states.AVAILABLE, since))
+        f"SELECT name FROM drops WHERE state = ? AND available_since >= ? AND {drops.QUIET_SQL}", (states.AVAILABLE, since))
         if r["name"] not in exclude]
     coming = {r["name"]: r for r in conn.execute(
         f"SELECT name, state, release_at FROM drops WHERE state IN ({','.join('?' * len(drops.TRACKED))}) "
-        "AND state_since >= ?", (*drops.TRACKED, since)) if r["name"] not in exclude}
+        f"AND state_since >= ? AND {drops.QUIET_SQL}", (*drops.TRACKED, since)) if r["name"] not in exclude}
     # Libres selon le seul WHOIS : pas des « libérés » ; listés à part, à confirmer chez un registrar.
     unsure = [r["name"] for r in conn.execute(
-        "SELECT name FROM drops WHERE state = ? AND state_since >= ? AND origin IS NOT 'gandi' "
+        f"SELECT name FROM drops WHERE state = ? AND state_since >= ? AND {drops.QUIET_SQL} "
         "AND name NOT IN (SELECT name FROM drop_hidden)",
         (drops.UNCONFIRMED, since)) if r["name"] not in exclude]
     held = getattr(explorer, "reserved", None)

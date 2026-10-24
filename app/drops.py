@@ -62,6 +62,10 @@ TRACKED = (states.EXPIRED, states.REDEMPTION, states.PENDING_DELETE)
 
 # removed_on d'une ligne créée par une vérification à la main : aucune sortie constatée (colonne NOT NULL).
 MANUAL = ""
+# Origines discrètes : vérifiées sans sortie de zone (revérification après un refus d'achat, passe des absents de la
+# zone, absent.py). Hors Veille, alertes et quotidien : ce n'est pas une libération constatée. QUIET_SQL : la condition.
+QUIET = ("gandi", "rdap")
+QUIET_SQL = "COALESCE(origin, '') NOT IN ('gandi', 'rdap')"
 # Un nom libre reste affiché ce nombre de jours (réglable), puis seulement dans l'Explorer.
 DEFAULT_KEEP_DAYS = 30
 # Au-delà de cette part de noms disparus en un jour, la zone est jugée anormale et ignorée.
@@ -780,8 +784,9 @@ class DropWatcher:
             (state, iso(since), iso(release), available_since, iso(now), iso(self._next(state, now, release)), row["id"]),
         )
         if (state in (states.AVAILABLE, UNCONFIRMED) and state != row["state"] and self.on_freed
-                and row["origin"] != "gandi"):
-            # Pas pour une revérification après un refus d'achat : Gandi vient de répondre pour ce nom.
+                and row["origin"] != "gandi" and not (row["origin"] == "rdap" and row["state"] is None)):
+            # Pas pour une revérification après un refus d'achat : Gandi vient de répondre pour ce nom. Ni pour la
+            # première réponse de la passe des absents (des milliers de noms) : la passe Gandi de nuit les prend en tête.
             self.on_freed(row["name"])
         if state in (TAKEN, states.RENEWED) and row["tld"] == "fr" and self.on_fr_taken:
             # Repris ou renouvelé : de nouveau à quelqu'un, le suivi repart sur les dates anniversaire.
@@ -805,7 +810,7 @@ class DropWatcher:
             self.conn.execute("UPDATE drops SET next_check_at = NULL, removed_on = ?, origin = ? WHERE name = ?",
                               (MANUAL, origin, name))
             found = self.row(name)
-        elif origin == "manual" and found["origin"] == "gandi":
+        elif origin == "manual" and found["origin"] in QUIET:
             # Vérifié à la main ensuite : le nom entre dans la Veille comme les autres vérifications manuelles.
             self.conn.execute("UPDATE drops SET origin = 'manual' WHERE name = ?", (name,))
             found = self.row(name)

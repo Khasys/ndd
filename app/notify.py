@@ -18,7 +18,7 @@ une fois parti (ou mis en file de rejeu) : rien ne repart au redémarrage ni au 
 import json
 from datetime import datetime, timedelta
 
-from . import digest, morning, pepites, portfolio, states
+from . import digest, drops, morning, pepites, portfolio, states
 from .checker import iso, parse_iso
 from .morning import link
 
@@ -137,7 +137,7 @@ def changed(conn, since: datetime) -> list[dict]:
     rows = conn.execute(
         f"""SELECT name, state, state_since, available_since, release_at FROM drops
             WHERE ((state = ? AND available_since >= ?)
-               OR (state IN ({','.join('?' * len(coming))}) AND state_since >= ?)) AND origin IS NOT 'gandi'
+               OR (state IN ({','.join('?' * len(coming))}) AND state_since >= ?)) AND {drops.QUIET_SQL}
             ORDER BY COALESCE(available_since, state_since) DESC""",
         (states.AVAILABLE, stamp, *coming, stamp),
     ).fetchall()

@@ -1014,6 +1014,14 @@ enregistré d'après l'open data ; pour une zone ICANN, absent de la zone ; pour
 du DNS du registre (carte « probablement libre (absent du DNS) »). Un nom enregistré sans serveurs DNS
 est absent de la zone et du DNS lui aussi. Toujours vérifier avant de conclure.
 
+Zones ICANN : l'appli demande elle-même au registre (RDAP) l'état des noms absents de la zone, les meilleurs
+scores d'abord, 100 noms toutes les 5 minutes (environ 1 200 par heure, sous `RDAP_MIN_DELAY`, partagé avec la
+Veille et Vérifier). Un nom absent de la zone est souvent en rédemption, en suppression ou suspendu : il passe
+« Libération à venir », « Suspendu » ou « Enregistré » ; sinon « Libre (vérifié) ». Ces réponses restent hors de
+la Veille, des alertes et du quotidien (ce ne sont pas des libérations constatées) ; un nom vu enregistré est
+redemandé après 30 jours, une vérification à la main le fait entrer dans la Veille. Suivi : `/api/diag`,
+`absent_pass`.
+
 ### Appli sur le téléphone
 
 L'interface est une PWA : sur téléphone, navigation en bas, panneaux plein écran, boutons larges. La barre

@@ -48,7 +48,9 @@ def listing(conn, explorer) -> dict:
     mine = {r[0] for r in conn.execute("SELECT name FROM domains")} | {r[0] for r in conn.execute("SELECT name FROM portfolio")}
     u = explorer.universe
     data = {t: explorer.status_bytes(t) for t in explorer.tlds()}
-    taken_dates = dict(conn.execute("SELECT name, state_since FROM drops WHERE state = ?", (drops.TAKEN,)).fetchall())
+    # Vu enregistré par la passe des absents : la date de la vérification, pas celle d'une reprise.
+    taken_dates = dict(conn.execute("SELECT name, state_since FROM drops WHERE state = ? AND COALESCE(origin, '') != 'rdap'",
+                                    (drops.TAKEN,)).fetchall())
     taken_dates.update({k: v for k, v in conn.execute("SELECT name, taken_at FROM ai_outcomes WHERE taken_at IS NOT NULL") if k not in taken_dates})
     items, regrets = [], 0
     for r in rows:

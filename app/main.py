@@ -31,7 +31,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import ai, bot, escalation, exploit, exploit_format, mcp, registrations, stats, tokens, calendar_ics, ccdns, db, decisions, market, morning, notify, pepites, portfolio, digest, drops, explore, frdata, frdns, gandi, prenoms, reserved, seo, signals, states, updates, value, wordlists
+from . import absent, ai, bot, escalation, exploit, exploit_format, mcp, registrations, stats, tokens, calendar_ics, ccdns, db, decisions, market, morning, notify, pepites, portfolio, digest, drops, explore, frdata, frdns, gandi, prenoms, reserved, seo, signals, states, updates, value, wordlists
 from .auth import (
     COOKIE_NAME,
     LoginGuard,
@@ -254,6 +254,12 @@ async def lifespan(app: FastAPI):
     async def check_drops() -> None:
         await watcher.check_due(limit=20)
 
+    async def check_absent() -> None:
+        """Noms absents d'une zone : leur état au registre, un lot toutes les 5 minutes (absent.py). Pas pendant la
+        lecture des zones, qui occupe le NAS."""
+        if not watcher.running:
+            await app.state.absent_pass.run(_off)
+
     fr = frdata.FrWatcher(conn, store, settings.data_dir, rdap, watcher)
     checker.fr = fr  # les .fr de l'écran Domaines passent par la file Afnic
 
@@ -352,6 +358,8 @@ async def lifespan(app: FastAPI):
                       id="registrations")
     scheduler.add_job(scan_zones, "interval", minutes=15, next_run_time=now + timedelta(minutes=1), max_instances=1)
     scheduler.add_job(check_drops, "interval", minutes=5, next_run_time=now + timedelta(minutes=3), max_instances=1)
+    scheduler.add_job(check_absent, "interval", minutes=5, next_run_time=now + timedelta(minutes=6), max_instances=1,
+                      id="check_absent", name="check_absent")
     scheduler.add_job(import_fr, "interval", hours=6, next_run_time=now + timedelta(minutes=4), max_instances=1)
     scheduler.add_job(refresh_reserved, "interval", hours=6, next_run_time=now + timedelta(minutes=2), max_instances=1)
     scheduler.add_job(refresh_prenoms, "interval", hours=6, next_run_time=now + timedelta(minutes=11), max_instances=1,
@@ -385,6 +393,7 @@ async def lifespan(app: FastAPI):
     app.state.fr = fr
     app.state.reserved = reserved.Reserved(conn, store)
     app.state.explorer = explore.Explorer(conn, watcher, fr, app.state.reserved)
+    app.state.absent_pass = absent.AbsentPass(app.state.explorer, store)
     app.state.prenoms = prenoms.RecentNames(store, settings.data_dir)
     app.state.market = market.Market(conn, store)
     app.state.explorer.market = app.state.market  # ventes comparables : file IA et fiche
@@ -1345,8 +1354,8 @@ def _drop_rows(state) -> list:
     shown_since = iso(utcnow() - timedelta(days=watcher.keep_days))
     # Libres selon le seul WHOIS : affichés « à confirmer », depuis leur constat (pas de date de libération).
     rows = conn.execute(
-        """SELECT * FROM drops WHERE (state IN (?, ?, ?) OR (state = ? AND available_since >= ?)
-             OR (state = ? AND state_since >= ?)) AND origin IS NOT 'gandi'
+        f"""SELECT * FROM drops WHERE (state IN (?, ?, ?) OR (state = ? AND available_since >= ?)
+             OR (state = ? AND state_since >= ?)) AND {drops.QUIET_SQL}
            ORDER BY release_at IS NULL, release_at, name""",
         (*drops.TRACKED, states.AVAILABLE, shown_since, drops.UNCONFIRMED, shown_since),
     ).fetchall()
@@ -1442,7 +1451,7 @@ async def list_drops(request: Request):
     if focus:
         rows = (await _off(_today_sets, state, rows, utcnow(), TODAY_PERIODS[period],
                            request.query_params.get("nopremium") == "1"))[focus]
-    pending = conn.execute("SELECT COUNT(*) FROM drops WHERE state IS NULL AND origin IS NOT 'gandi'").fetchone()[0]
+    pending = conn.execute(f"SELECT COUNT(*) FROM drops WHERE state IS NULL AND {drops.QUIET_SQL}").fetchone()[0]
     suspended = dict(conn.execute("SELECT tld, COUNT(*) FROM drops WHERE state = ? GROUP BY tld", (drops.SUSPENDED,)).fetchall())
     hidden = conn.execute("SELECT COUNT(*) FROM drop_hidden").fetchone()[0]
     # Rafraîchissement de l'état seul (écran ouvert) : pas de liste, quelques Ko au lieu de plusieurs Mo.
@@ -2292,6 +2301,8 @@ async def diag(request: Request):
         "gandi_samples": state.gandi.samples(),
         # Passe de nuit Gandi : dernier passage, réglages de rythme, totaux par sorte ; ni le jeton ni sa présence.
         "gandi_pass": state.gandi_pass.status(),
+        # Passe des absents de zone (absent.py) : lots du jour et totaux par état au registre.
+        "absent_pass": state.absent_pass.status(),
         "recent_errors": list(RECENT.records),
     }
 
