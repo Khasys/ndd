@@ -8,17 +8,22 @@ dans la Veille, les alertes ni le quotidien (drops.QUIET) : ce n'est pas une lib
 et les pépites lisent l'état comme pour un nom vérifié à la main. Gandi ne passe ensuite que sur les libres des
 extensions à premiums (gandi.NightPass) : un .com libre au registre est achetable au prix normal.
 
-Rythme : la limite des registres n'est pas publiée. La passe la cherche : elle part de START_RATE requêtes par seconde
-(PARALLEL en vol au plus), accélère de GROW tous les GROW_EVERY succès d'affilée, jusqu'à MAX_RATE, et divise son
-rythme par deux au premier refus (429, 403, 5xx, réseau), avec une pause (Retry-After, sinon PAUSE). Le rythme appris
-est gardé (réglage absent_pass_rate). Client HTTP à part : la Veille et Vérifier gardent leur file (RDAP_MIN_DELAY).
+Rythme, registre par registre (serveur RDAP : Verisign pour .com et .net, PIR pour .org…) : leur limite n'est pas
+publiée. La passe la cherche : elle part de START_RATE requêtes par seconde (PARALLEL en vol au plus, tous registres
+confondus), accélère de GROW tous les GROW_EVERY succès d'affilée, jusqu'à MAX_RATE, et divise le rythme du registre
+par deux au premier refus, avec une pause : Retry-After, sinon PAUSE (429, 5xx, réseau) ou BLOCKED_PAUSE (403, accès
+refusé : insister aggraverait le blocage). Un registre en pause n'arrête pas les autres. Le rythme appris est gardé
+(réglage absent_pass_rates). Client HTTP à part : la Veille et Vérifier gardent leur file (RDAP_MIN_DELAY).
 Un nom vu enregistré est revu après RECHECK_DAYS jours : il peut entrer en suppression sans revenir dans la zone.
 """
 
 import asyncio
+import collections
+import json
 import logging
 import time
 from datetime import datetime, timedelta
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -29,26 +34,29 @@ from .rdap import LookupResult, _retry_after, parse_domain
 log = logging.getLogger(__name__)
 
 ORIGIN = "rdap"
-START_RATE = 3.0          # requêtes par seconde au départ
+START_RATE = 1.0          # requêtes par seconde au départ, par registre (429 vu à 3/s, 403 ensuite, le 24/10)
 MIN_RATE = 0.5
 MAX_RATE = 25.0
 GROW = 1.25
 GROW_EVERY = 500          # succès d'affilée avant d'accélérer
 PARALLEL = 16             # requêtes en vol au plus : un registre met 0,2 à 1 s à répondre
 PAUSE = 120               # pause après un refus sans Retry-After, en secondes
-MAX_PAUSE = 1800
+BLOCKED_PAUSE = 1800      # 403 : accès refusé, pause longue
+MAX_PAUSE = 3600
 QUEUE = 20_000            # file calculée d'un coup
 QUEUE_SECONDS = 3600      # file recalculée au plus tard après ce délai (zone relue, listes changées)
 RECHECK_DAYS = 30
 TIMEOUT = 20
+RATES_KEY = "absent_pass_rates"
 
 
 class Refused(Exception):
     """Le registre limite, refuse ou ne répond pas : rien n'est conclu sur le nom."""
 
-    def __init__(self, reason: str, retry_after: float | None = None):
+    def __init__(self, reason: str, retry_after: float | None = None, status: int | None = None):
         super().__init__(reason)
         self.retry_after = retry_after
+        self.status = status
 
 
 class AbsentPass:
@@ -62,15 +70,13 @@ class AbsentPass:
             headers={"Accept": "application/rdap+json, application/json", "User-Agent": "domain-watch"},
             limits=httpx.Limits(max_connections=PARALLEL, max_keepalive_connections=PARALLEL)))
         self._servers = servers  # async (nom) -> adresse du serveur RDAP ; par défaut l'annuaire de la Veille
-        self.sleep = sleep or asyncio.sleep  # remplaçable dans les tests
+        self.sleep = sleep or asyncio.sleep  # remplaçables dans les tests
+        self.clock = time.monotonic
         self.running = False
         self.stop = False
-        self._queue: list[str] = []
+        self._queues: dict[str, collections.deque] = {}  # serveur -> noms à demander
         self._queue_at = 0.0
-        self._ok_run = 0
-        self._pause_end = 0.0  # time.monotonic() de fin de la pause en cours
-        self.last_error: str | None = None
-        self.paused_until: str | None = None
+        self._hosts: dict[str, dict] = {}  # serveur -> succès d'affilée, pause, prochain départ, refus, dernière erreur
         self.today: dict = {}
 
     # --- Réglages ---------------------------------------------------------------------
@@ -79,16 +85,27 @@ class AbsentPass:
     def enabled(self) -> bool:
         return self.store.get(f"{self.key}_enabled", "1") == "1"
 
-    @property
-    def rate(self) -> float:
+    def _rates(self) -> dict[str, float]:
         try:
-            value = float(self.store.get(f"{self.key}_rate") or START_RATE)
+            return json.loads(self.store.get(RATES_KEY) or "{}")
         except ValueError:
+            return {}
+
+    def rate_of(self, host: str) -> float:
+        try:
+            value = float(self._rates().get(host, START_RATE))
+        except (TypeError, ValueError):
             value = START_RATE
         return min(MAX_RATE, max(MIN_RATE, value))
 
-    def _set_rate(self, value: float) -> None:
-        self.store.set(f"{self.key}_rate", f"{min(MAX_RATE, max(MIN_RATE, value)):.2f}")
+    def _set_rate(self, host: str, value: float) -> None:
+        rates = self._rates()
+        rates[host] = round(min(MAX_RATE, max(MIN_RATE, value)), 2)
+        self.store.set(RATES_KEY, json.dumps(rates))
+
+    def _host(self, host: str) -> dict:
+        return self._hosts.setdefault(host, {"ok_run": 0, "pause_end": 0.0, "next_at": 0.0, "refused": 0,
+                                             "checked": 0, "last_error": None, "paused_until": None})
 
     def tlds(self) -> list[str]:
         """Extensions lues dans une zone ICANN : ni le .fr (open data et DNS), ni .co/.ai/.io (DNS seulement)."""
@@ -133,18 +150,32 @@ class AbsentPass:
             (ORIGIN, drops.TAKEN, stale, limit - len(picked)))]
         return picked
 
-    # --- Requête et enregistrement ------------------------------------------------------
-
     async def _server(self, name: str) -> str | None:
         if self._servers is not None:
             return await self._servers(name)
         return await self.explorer.drops.rdap.server_for(name)
 
-    async def fetch(self, http, name: str) -> LookupResult:
+    async def _fill(self, off) -> None:
+        """File du moment, rangée par serveur RDAP (un registre en pause n'arrête pas les autres)."""
+        names = await off(self.pending, QUEUE)
+        bases: dict[str, str | None] = {}
+        queues: dict[str, collections.deque] = {}
+        for name in names:
+            tld = name.rsplit(".", 1)[1]
+            if tld not in bases:
+                bases[tld] = await self._server(name)
+            if bases[tld]:
+                queues.setdefault(bases[tld], collections.deque()).append(name)
+        self._queues = queues
+        self._queue_at = time.time()
+
+    def queued(self) -> int:
+        return sum(len(q) for q in self._queues.values())
+
+    # --- Requête et enregistrement ------------------------------------------------------
+
+    async def fetch(self, http, base: str, name: str) -> LookupResult:
         """Une requête RDAP : 404 libre, 200 enregistré. Refused : le registre limite, refuse ou ne répond pas."""
-        base = await self._server(name)
-        if not base:
-            raise Refused(f"pas de serveur RDAP pour {name}")
         try:
             response = await http.get(f"{base.rstrip('/')}/domain/{name}")
         except httpx.HTTPError as exc:
@@ -156,7 +187,7 @@ class AbsentPass:
                 return LookupResult(found=True, info=parse_domain(response.json()))
             except ValueError:
                 raise Refused("Réponse RDAP illisible") from None
-        raise Refused(f"Réponse {response.status_code} du registre", _retry_after(response))
+        raise Refused(f"Réponse {response.status_code} du registre", _retry_after(response), response.status_code)
 
     def record(self, name: str, result: LookupResult) -> str | None:
         """La réponse du registre, écrite comme une vérification à la main, avec l'origine rdap. None : nom passé
@@ -181,31 +212,35 @@ class AbsentPass:
             self.today["checked"] += 1
             self.today["kinds"][kind] = self.today["kinds"].get(kind, 0) + 1
 
-    async def _one(self, http, name: str) -> None:
+    async def _one(self, http, base: str, name: str) -> None:
+        state = self._host(base)
         try:
-            result = await self.fetch(http, name)
+            result = await self.fetch(http, base, name)
         except Refused as exc:
-            self._queue.insert(0, name)  # redemandé après la pause
+            self._queues.setdefault(base, collections.deque()).appendleft(name)  # redemandé après la pause
             self._count("refused")
-            if time.monotonic() >= self._pause_end:  # une salve de refus : un seul ralentissement
-                self._ok_run = 0
-                self._set_rate(self.rate / 2)
-                pause = min(MAX_PAUSE, exc.retry_after or PAUSE)
-                self._pause_end = time.monotonic() + pause
-                self.last_error = str(exc)
-                self.paused_until = iso(utcnow() + timedelta(seconds=pause))
-                log.info("Passe des absents : %s, rythme ramené à %.2f/s, pause %d s", exc, self.rate, pause)
+            state["refused"] += 1
+            if self.clock() >= state["pause_end"]:  # une salve de refus : un seul ralentissement
+                state["ok_run"] = 0
+                self._set_rate(base, self.rate_of(base) / 2)
+                pause = min(MAX_PAUSE, exc.retry_after or (BLOCKED_PAUSE if exc.status == 403 else PAUSE))
+                state["pause_end"] = self.clock() + pause
+                state["last_error"] = str(exc)
+                state["paused_until"] = iso(utcnow() + timedelta(seconds=pause))
+                log.warning("Passe des absents : %s refuse (%s), rythme ramené à %.2f/s, pause %d s",
+                            urlsplit(base).netloc, exc, self.rate_of(base), pause)
             return
         try:
-            state = self.record(name, result)
+            kind = self.record(name, result)
         except Exception:
             log.exception("Passe des absents : %s non enregistré", name)
             return
-        self._count(state or "skipped")
-        self._ok_run += 1
-        if self._ok_run >= GROW_EVERY:
-            self._ok_run = 0
-            self._set_rate(self.rate * GROW)
+        self._count(kind or "skipped")
+        state["checked"] += 1
+        state["ok_run"] += 1
+        if state["ok_run"] >= GROW_EVERY:
+            state["ok_run"] = 0
+            self._set_rate(base, self.rate_of(base) * GROW)
 
     # --- Passe ------------------------------------------------------------------------
 
@@ -223,32 +258,40 @@ class AbsentPass:
                     if busy():
                         await self.sleep(60)
                         continue
-                    wait = self._pause_end - time.monotonic()
-                    if wait > 0:
+                    if not self.queued() or time.time() - self._queue_at > QUEUE_SECONDS:
                         await _drain(flight)
-                        await self.sleep(wait)
-                        continue
-                    if not self._queue or time.time() - self._queue_at > QUEUE_SECONDS:
-                        await _drain(flight)
-                        if not self._queue or time.time() - self._queue_at > QUEUE_SECONDS:
-                            self._queue = await off(self.pending, QUEUE)
-                            self._queue_at = time.time()
-                        if not self._queue:
+                        if not self.queued() or time.time() - self._queue_at > QUEUE_SECONDS:
+                            await self._fill(off)
+                        if not self.queued():
                             break
                         continue
                     if len(flight) >= PARALLEL:
                         await asyncio.wait(flight, return_when=asyncio.FIRST_COMPLETED)
                         continue
-                    name = self._queue.pop(0)
-                    asked += 1
-                    task = asyncio.create_task(self._one(http, name))
-                    flight.add(task)
-                    task.add_done_callback(flight.discard)
-                    await self.sleep(1 / self.rate)
+                    now = self.clock()
+                    waiting = [b for b, q in self._queues.items() if q]
+                    ready = [b for b in waiting if max(self._host(b)["pause_end"], self._host(b)["next_at"]) <= now]
+                    if not ready:
+                        # Tous les registres en attente (pause ou cadence) : jusqu'au premier qui reprend.
+                        soonest = min(max(self._host(b)["pause_end"], self._host(b)["next_at"]) for b in waiting)
+                        if soonest - now > 1:
+                            await _drain(flight)  # un refus en vol peut repousser la reprise
+                        await self.sleep(max(0.01, soonest - now))
+                        continue
+                    for base in ready:
+                        if len(flight) >= PARALLEL or (limit is not None and asked >= limit):
+                            break
+                        name = self._queues[base].popleft()
+                        self._host(base)["next_at"] = now + 1 / self.rate_of(base)
+                        asked += 1
+                        task = asyncio.create_task(self._one(http, base, name))
+                        flight.add(task)
+                        task.add_done_callback(flight.discard)
+                    await self.sleep(0)
                 await _drain(flight)
         finally:
             self.running = False
-        return {"started": True, "asked": asked, "queued": len(self._queue), "rate": self.rate}
+        return {"started": True, "asked": asked, "queued": self.queued()}
 
     # --- Suivi ------------------------------------------------------------------------
 
@@ -258,9 +301,15 @@ class AbsentPass:
         return {r[0] or "pending": r[1] for r in rows}
 
     def status(self) -> dict:
-        return {"enabled": self.enabled, "running": self.running, "tlds": self.tlds(), "rate": self.rate,
-                "max_rate": MAX_RATE, "queued": len(self._queue), "today": self.today, "last_error": self.last_error,
-                "paused_until": self.paused_until, "totals": self.totals()}
+        hosts = {}
+        for base in sorted(set(self._hosts) | set(self._rates()) | set(self._queues)):
+            state = self._host(base)
+            hosts[urlsplit(base).netloc or base] = {
+                "rate": self.rate_of(base), "queued": len(self._queues.get(base, ())), "checked": state["checked"],
+                "refused": state["refused"], "last_error": state["last_error"],
+                "paused_until": state["paused_until"] if self.clock() < state["pause_end"] else None}
+        return {"enabled": self.enabled, "running": self.running, "tlds": self.tlds(), "max_rate": MAX_RATE,
+                "queued": self.queued(), "today": self.today, "registries": hosts, "totals": self.totals()}
 
 
 async def _drain(flight: set) -> None:

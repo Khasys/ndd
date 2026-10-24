@@ -15,8 +15,11 @@ async def _off(fn, *args):
     return fn(*args)
 
 
+BASE = "https://rdap.test/"
+
+
 async def _server(name):
-    return "https://rdap.test/"
+    return BASE
 
 
 def registered(*statuses):
@@ -41,9 +44,11 @@ def make(env, answers, names):
         return httpx.Response(200, json=answer)
 
     slept = []
+    clock = {"now": 1000.0}
 
     async def sleep(seconds):
         slept.append(seconds)
+        clock["now"] += seconds  # temps simulé : une pause de 30 min ne dure rien
         await asyncio.sleep(0)
 
     run = absent.AbsentPass(env, env.fr.store, servers=_server, sleep=sleep,
@@ -55,6 +60,7 @@ def make(env, answers, names):
         return found
 
     run.pending = pending
+    run.clock = lambda: clock["now"]
     freed = []
     env.drops.on_freed = freed.append
     return run, calls, freed, slept
@@ -129,9 +135,33 @@ def test_refusal_halves_the_rate_pauses_and_asks_the_name_again(env):
     run, calls, _, slept = make(env, {"jardin.com": limited}, ["jardin.com"])
     asyncio.run(run.run(_off))
     assert calls == ["jardin.com", "jardin.com"]
-    assert run.rate == absent.START_RATE / 2 and 30 in [round(s) for s in slept]
+    assert run.rate_of(BASE) == max(absent.MIN_RATE, absent.START_RATE / 2) and 30 in [round(s) for s in slept]
     assert run.today["refused"] == 1 and run.today["kinds"] == {states.AVAILABLE: 1}
-    assert "429" in run.last_error
+    registry = run.status()["registries"]["rdap.test"]
+    assert "429" in registry["last_error"] and registry["refused"] == 1 and registry["checked"] == 1
+
+
+def test_a_blocked_registry_pauses_long_without_stopping_the_others(env):
+    """403 sur un registre : pause longue (BLOCKED_PAUSE) pour lui seul ; l'autre continue pendant ce temps."""
+    blocked = {"n": 0}
+
+    def com():
+        blocked["n"] += 1
+        return 403 if blocked["n"] == 1 else 404
+
+    run, calls, _, slept = make(env, {"jardin.com": com, "a.org": 404, "b.org": 404, "c.org": 404},
+                                ["jardin.com", "a.org", "b.org", "c.org"])
+
+    async def servers(name):
+        return "https://rdap.verisign.test/" if name.endswith(".com") else "https://rdap.pir.test/"
+
+    run._servers = servers
+    asyncio.run(run.run(_off))
+    assert calls.index("c.org") < len(calls) - 1 and calls[-1] == "jardin.com"  # l'.org n'a pas attendu le .com
+    assert round(max(slept)) >= absent.BLOCKED_PAUSE - 5
+    registries = run.status()["registries"]
+    assert registries["rdap.verisign.test"]["refused"] == 1 and "403" in registries["rdap.verisign.test"]["last_error"]
+    assert registries["rdap.pir.test"]["refused"] == 0 and registries["rdap.pir.test"]["checked"] == 3
 
 
 def test_rate_grows_while_the_registry_keeps_up(env, monkeypatch):
@@ -139,9 +169,9 @@ def test_rate_grows_while_the_registry_keeps_up(env, monkeypatch):
     names = [f"nom{n}.com" for n in range(12)]
     run, _, _, _ = make(env, {n: 404 for n in names}, names)
     asyncio.run(run.run(_off))
-    assert run.rate == round(absent.START_RATE * absent.GROW * absent.GROW, 2)
-    run.store.set("absent_pass_rate", "1000")
-    assert run.rate == absent.MAX_RATE
+    assert run.rate_of(BASE) == round(round(absent.START_RATE * absent.GROW, 2) * absent.GROW, 2)
+    run.store.set(absent.RATES_KEY, '{"https://rdap.test/": 1000}')
+    assert run.rate_of(BASE) == absent.MAX_RATE
 
 
 def test_names_seen_registered_are_asked_again_after_a_month(env):
