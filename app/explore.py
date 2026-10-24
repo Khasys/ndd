@@ -174,6 +174,8 @@ CACHE_SECONDS = 600
 MEMO_SECONDS = 6 * 3600
 # Classements gardés en mémoire : courts, les dates (libération, libre depuis) et les vérifications avancent.
 RANK_SECONDS = 600
+# Extensions dont l'écran par défaut est classé d'avance (warm) : la première ouverte (.fr) et le .com.
+WARM_TLDS = ("fr", "com")
 MAP_SECONDS = 600  # carte refaite en arrière-plan au-delà
 MEMO_RANKS = 40
 # « Les plus courts » avec un niveau ou un score minimum : noms notés au plus, pour une page.
@@ -591,6 +593,10 @@ class Explorer:
         # Score de chaque nom déjà noté par value_of (Veille, Aujourd'hui), avec la version des données
         # du calcul : 3 600 noms à noter à chaque ouverture coûtaient plusieurs secondes sur le NAS.
         self._values: dict[str, tuple[tuple, dict]] = {}
+        # Score complet de chaque nom déjà classé, par extension (-1 : pas encore calculé), avec la version des
+        # données : un classement en calculait environ 10 000 à chaque nouveau filtre (9 s sur le NAS). Un nom qui
+        # change (touch) est oublié dans toutes les extensions : sa demande dépend de leur état.
+        self._scores: dict[str, tuple[tuple, array]] = {}
         # Carte des Explorer (map) : (moment, carte), à refaire (touch), refaite en ce moment en arrière-plan.
         self._map_cache: tuple[float, dict, tuple] | None = None
         self._map_dirty = False
@@ -624,6 +630,7 @@ class Explorer:
                     self.generation += 1
                     self._memos.clear()
                     self._values.clear()
+                    self._scores.clear()
                     self._map_cache = None
                     self._cache.clear()
                     self._unread.clear()
@@ -684,6 +691,10 @@ class Explorer:
         # de l'écran (une extension sans zone, comme .eu, a aussi son contexte de calcul à préparer).
         self.value_of([r[0] for r in self.conn.execute(
             "SELECT name FROM drops WHERE state IS NOT NULL AND COALESCE(origin, '') != 'rdap' UNION SELECT name FROM domains")])
+        # Écran par défaut de l'Explorer (à réserver, bons noms, pour revendre) sur les extensions les plus ouvertes :
+        # son premier classement à froid prenait 9 s sur le NAS. Les scores calculés servent ensuite aux autres filtres.
+        for tld in [t for t in WARM_TLDS if t in self.tlds()]:
+            self.rank(tld, limit=50, status="bookable", level="good", sort="resale")
 
     # --- Extensions et octets d'état -------------------------------------------------
 
@@ -915,6 +926,7 @@ class Explorer:
             self.generation += 1
             self._memos.clear()
             self._values.clear()
+            self._scores.clear()
             self._map_cache = None
         if tld:
             self._cache.pop(tld, None)
@@ -1343,6 +1355,15 @@ class Explorer:
             items = self._memo(key, lambda: self._rank(tld, f, limit, sort)["items"], RANK_SECONDS)
         return {"items": [dict(i) for i in items]}
 
+    def _score_cache(self, tld: str) -> array:
+        """Scores déjà calculés de l'extension (self._scores), refaits à neuf si les données ont changé."""
+        stamp = (self.generation, date.today(), tuple((t, self._version(t)) for t in self.tlds()))
+        with self._memo_lock:
+            found = self._scores.get(tld)
+            if found is None or found[0] != stamp or len(found[1]) != self.universe.size:
+                found = self._scores[tld] = (stamp, array("h", [-1]) * self.universe.size)
+        return found[1]
+
     def _rank(self, tld: str, f: "Filters", limit: int, sort: str) -> dict:
         if sort == "length":
             return self._ordered(tld, f, limit)
@@ -1377,6 +1398,7 @@ class Explorer:
         lens = sort if sort in LENSES else None
         opinions = self._opinions(tld) if (lens or f.level) else {}
         seen: set[int] = set()
+        scores = self._score_cache(tld)
 
         def consider(i: int) -> None:
             if i in seen:
@@ -1401,7 +1423,15 @@ class Explorer:
                 if (f.min_score and bound < f.min_score) or (f.level and not opinion and bound < LEVEL_GOOD) \
                         or (len(best) >= limit and ((1, bound), -i) <= best[0][:2]):
                     return
+            known = scores[i]
+            if known >= 0:
+                # Score déjà calculé : le calcul complet seulement pour un nom qui entre dans la page.
+                if (f.min_score and known < f.min_score) or not self._level_ok(known, opinion, f.level):
+                    return
+                if len(best) >= limit and ((key or (1, known)), -i) <= best[0][:2]:
+                    return
             found = self._value(tld, i, label, ctx)
+            scores[i] = max(0, min(32767, int(found["score"])))
             if f.min_score and found["score"] < f.min_score:
                 return
             if not self._level_ok(found["score"], opinion, f.level):
@@ -1852,6 +1882,8 @@ class Explorer:
             # Score du nom dans chaque extension : la demande d'une extension dépend de l'état des autres.
             for key in [k for k in self._values if k.partition(".")[0] == label]:
                 self._values.pop(key, None)
+            for _, known in self._scores.values():
+                known[i] = -1
         base, new = self._code_for(tld, i, label)
         cached = self._cache.get(tld)
         if cached:
@@ -1915,6 +1947,7 @@ class Explorer:
                                       + value["reach_parts"][2] * weights["seo"])
             # Scores gardés, classements et carte dépendent du barème et du mode des réservés.
             self._values.clear()
+            self._scores.clear()
             self._map_cache = None
         self._forget("rank")
 

@@ -1626,3 +1626,25 @@ def test_timeline_uses_the_real_expiry_during_the_registry_grace_period(env):
     # Sans période de grâce, l'échéance du registre telle quelle.
     plain = env.timeline("velo.io", rdap={**rdap, "statuses": ["clientTransferProhibited"]})
     assert [e["at"][:10] for e in plain if e["kind"] == "expires"] == ["2099-09-25"]
+
+
+def test_rank_keeps_scores_between_filters_and_forgets_a_changed_name(env):
+    """Le classement garde le score de chaque nom calculé (9 s sur le NAS à chaque nouveau filtre) : même résultat
+    qu'un calcul à neuf ; un nom qui change (touch) est recalculé ; une nouvelle version des données repart de zéro."""
+    zone(env, [], ["maison"])
+    first = env.rank("com", limit=30, status="bookable")
+    scores = env._score_cache("com")
+    u = env.universe
+    ctx = env._bonus_context("com")
+    for item in first["items"]:
+        i = u.index(item["label"])
+        assert scores[i] == item["score"] == env._value("com", i, item["label"], ctx)["score"]
+    env._forget("rank")
+    again = env.rank("com", limit=30, status="bookable")
+    assert [i["name"] for i in again["items"]] == [i["name"] for i in first["items"]]
+    assert [i["score"] for i in again["items"]] == [i["score"] for i in first["items"]]
+    name = first["items"][0]["name"]
+    env.touch(name)
+    assert scores[u.index(name[:-4])] == -1
+    env.invalidate()
+    assert "com" not in env._scores
