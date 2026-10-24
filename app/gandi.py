@@ -564,13 +564,15 @@ class NightPass:
         """Noms à vérifier, dans l'ordre de la file IA : libres d'abord, par score complet ; puis probablement libres,
         libres selon le WHOIS, premiums et indisponibles déjà vus chez Gandi, par score de base, toutes extensions
         mêlées. Un nom déjà demandé n'est revu que selon revisit_due. Seuls les noms qui ont un sens."""
-        from .explore import ABSENT, FREE, GONE, PREMIUM, RESERVED, UNCONFIRMED  # import local : explore importe ce module
+        from .explore import ABSENT, FREE, GONE, PREMIUM, PREMIUM_OFF, RESERVED, UNCONFIRMED  # import local : explore importe ce module
 
         now = now or utcnow()
         ex = self.explorer
         u = ex.universe
         buckets = u.buckets()
-        tlds = self.tlds()
+        # .com et .net : prix unique du registre, jamais de premium. Leurs absents de la zone passent au registre
+        # (absent.py) ; un nom libre au registre y est achetable au prix de la grille : Gandi n'apprendrait rien.
+        tlds = [t for t in self.tlds() if t not in PREMIUM_OFF]
         if not tlds:
             return []
         data = {t: ex.status_bytes(t) for t in tlds}

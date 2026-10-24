@@ -1014,9 +1014,13 @@ enregistré d'après l'open data ; pour une zone ICANN, absent de la zone ; pour
 du DNS du registre (carte « probablement libre (absent du DNS) »). Un nom enregistré sans serveurs DNS
 est absent de la zone et du DNS lui aussi. Toujours vérifier avant de conclure.
 
-Zones ICANN : l'appli demande elle-même au registre (RDAP) l'état des noms absents de la zone, les meilleurs
-scores d'abord, 100 noms toutes les 5 minutes (environ 1 200 par heure, sous `RDAP_MIN_DELAY`, partagé avec la
-Veille et Vérifier). Un nom absent de la zone est souvent en rédemption, en suppression ou suspendu : il passe
+Zones ICANN : l'appli demande elle-même au registre (RDAP) l'état de tous les noms absents de la zone, les
+meilleurs scores d'abord. La limite des registres n'est pas publiée : la passe part de 3 requêtes par seconde
+(16 en vol au plus), accélère de 25 % tous les 500 succès jusqu'à 25 par seconde, divise son rythme par deux au
+premier refus (429, 403, 5xx, réseau) et fait une pause (Retry-After, sinon 2 minutes). Le rythme appris est
+gardé ; client à part, la Veille et Vérifier gardent leur cadence (`RDAP_MIN_DELAY`). Gandi ne passe ensuite que
+sur les libres des extensions à premiums : un .com ou un .net libre au registre est achetable au prix de la grille
+(filtre de prix compris). Un nom absent de la zone est souvent en rédemption, en suppression ou suspendu : il passe
 « Libération à venir », « Suspendu » ou « Enregistré » ; sinon « Libre (vérifié) ». Ces réponses restent hors de
 la Veille, des alertes et du quotidien (ce ne sont pas des libérations constatées) ; un nom vu enregistré est
 redemandé après 30 jours, une vérification à la main le fait entrer dans la Veille. Suivi : `/api/diag`,

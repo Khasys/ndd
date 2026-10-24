@@ -255,10 +255,19 @@ async def lifespan(app: FastAPI):
         await watcher.check_due(limit=20)
 
     async def check_absent() -> None:
-        """Noms absents d'une zone : leur état au registre, un lot toutes les 5 minutes (absent.py). Pas pendant la
-        lecture des zones, qui occupe le NAS."""
-        if not watcher.running:
-            await app.state.absent_pass.run(_off)
+        """Noms absents d'une zone : leur état au registre (absent.py). La passe tourne à part jusqu'à vider sa file ;
+        la tâche la relance si elle s'est arrêtée (file vide, redémarrage). Elle attend pendant la lecture des zones."""
+        absent_pass = app.state.absent_pass
+        if absent_pass.running or not absent_pass.enabled:
+            return
+        task = asyncio.create_task(absent_pass.run(_off, busy=lambda: watcher.running))
+        passes.add(task)
+
+        def done(t: asyncio.Task) -> None:
+            passes.discard(t)
+            if not t.cancelled() and t.exception() is not None:
+                log.error("Passe des absents de zone interrompue", exc_info=t.exception())
+        task.add_done_callback(done)
 
     fr = frdata.FrWatcher(conn, store, settings.data_dir, rdap, watcher)
     checker.fr = fr  # les .fr de l'écran Domaines passent par la file Afnic
@@ -423,6 +432,8 @@ async def lifespan(app: FastAPI):
     async def gandi_freed(name: str) -> None:
         """Nom tout juste libre : son prix (standard, premium, indisponible) sans attendre la passe de nuit. Une
         minute d'attente : Vérifier interroge déjà Gandi, une réponse de moins de dix minutes suffit."""
+        if tld_of(name) in explore.PREMIUM_OFF:
+            return  # .com, .net : prix unique du registre, celui de la grille (absent.py)
         await asyncio.sleep(FREED_GANDI_DELAY)
         client = app.state.gandi
         last = gandi.load(conn, [name]).get(name)

@@ -220,7 +220,9 @@ def make_pass(ex, handler=None):
     return night, waits
 
 
-def test_night_queue_free_first_then_by_score_skipping_fresh_checks(env):
+def test_night_queue_free_first_then_by_score_skipping_fresh_checks(env, monkeypatch):
+    """Règles de la file, sur une extension à premiums : le .com n'y entre pas (prix unique du registre, absent.py)."""
+    monkeypatch.setattr(explore, "PREMIUM_OFF", frozenset())
     zone(env, [], ["maison"])
     now = utcnow()
     env.drops.record("com", ["velo", "chat"], [], now)
@@ -249,6 +251,8 @@ def test_night_queue_free_first_then_by_score_skipping_fresh_checks(env):
     assert "jardin.com" not in night.pending(10**6, now)
     _take(env.conn, "jardin.com")
     assert "jardin.com" in night.pending(10**6, now)
+    monkeypatch.setattr(explore, "PREMIUM_OFF", frozenset(("com", "net")))
+    assert night.pending(10**6, now) == []
 
 
 def test_night_pass_paces_records_and_stops_on_refused_token(env):
@@ -485,9 +489,11 @@ def test_watched_domain_check_asks_gandi_once_a_day(logged):
 
 
 def test_a_name_just_freed_gets_its_price_without_waiting_for_the_night(logged, monkeypatch):
+    """Sur une extension à premiums ; un .com libéré n'est pas demandé (prix unique du registre)."""
     from app import main
 
     monkeypatch.setattr(main, "FREED_GANDI_DELAY", 0)
+    monkeypatch.setattr(explore, "PREMIUM_OFF", frozenset())
     client = logged()
     st = client.app.state
     asked = []
@@ -515,6 +521,16 @@ def test_a_name_just_freed_gets_its_price_without_waiting_for_the_night(logged, 
     # Libéré : prix demandé une fois ; revérification après un refus d'achat (ciel.com) : pas de nouvelle demande.
     assert asked == ["lune.com"]
     assert gandi.load(st.conn, ["lune.com"])["lune.com"]["kind"] == "available"
+    monkeypatch.setattr(explore, "PREMIUM_OFF", frozenset(("com", "net")))
+    st.drops.record("com", ["soleil"], [], now)
+    st.conn.execute("UPDATE drops SET state = 'redemption', state_since = ? WHERE name = 'soleil.com'", (iso(now),))
+
+    async def free_com():
+        st.drops.apply(st.drops.row("soleil.com"), LookupResult(available=True), utcnow())
+        await asyncio.sleep(0.2)
+
+    asyncio.run(free_com())
+    assert asked == ["lune.com"]
     client.__exit__(None, None, None)
 
 

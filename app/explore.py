@@ -859,7 +859,17 @@ class Explorer:
         found = (self.universe.index(name[:-cut]) for name, _, at, since, _ in self._gandi_rows(
             tld, "AND g.kind IN ('available', 'premium') AND g.price IS NOT NULL AND g.price <= ?", (gprice,))
             if not (since and since > at))
-        return sorted(i for i in found if i is not None and data[i] in (FREE, PREMIUM))
+        picked = {i for i in found if i is not None and data[i] in (FREE, PREMIUM)}
+        if tld in PREMIUM_OFF:
+            # .com, .net : prix unique du registre. Un nom libre au registre, sans réponse de Gandi (absent.py), est
+            # achetable au prix de la grille de l'extension.
+            price = (gandi.grid(self.fr.store).get(tld) or {}).get("price")
+            if price is not None and price <= gprice:
+                at = data.find(FREE)
+                while at != -1:
+                    picked.add(at)
+                    at = data.find(FREE, at + 1)
+        return sorted(picked)
 
     def forget_taken_prices(self) -> int:
         """Prix d'achat devenus faux : un nom dit libre ou premium par Gandi, enregistré depuis (zone, DNS, registre).

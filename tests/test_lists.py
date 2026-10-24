@@ -213,7 +213,7 @@ def test_mine_enters_the_universe_without_restart(env, mine_dir):
     assert env.universe.index("monsuperprojet") is None and not env.card("monsuperprojet")["known"]
 
 
-def test_mine_checked_at_once_then_in_gandi_and_ai_queues(env, mine_dir):
+def test_mine_checked_at_once_then_in_gandi_and_ai_queues(env, mine_dir, monkeypatch):
     zone(env, [], ["maison"])
     wordlists.add_mine("monsuperprojet")
     env.reload_lists()
@@ -224,6 +224,9 @@ def test_mine_checked_at_once_then_in_gandi_and_ai_queues(env, mine_dir):
     names = [n["name"] for n in ai.pending(env, 50)]
     assert "monsuperprojet.com" in names
     night = gandi.NightPass(gandi.Gandi(env.fr.store, conn=env.conn), env.conn, env.fr.store, env, timezone.utc)
+    # .com : prix unique du registre, Gandi ne le demande pas. Sur une extension à premiums, en tête de la passe.
+    assert night.pending(50) == []
+    monkeypatch.setattr(explore, "PREMIUM_OFF", frozenset())
     assert night.pending(50)[0] == "monsuperprojet.com"
 
 
