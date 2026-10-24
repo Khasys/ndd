@@ -1969,8 +1969,21 @@ class Explorer:
 
     # --- Fiches ----------------------------------------------------------------------
 
+    def _shown_price(self, tld: str, code: int, shown: dict | None, grid: dict | None = None) -> dict | None:
+        """Réponse de Gandi montrée ; pour un .com ou un .net libre au registre sans réponse utile de Gandi (absent.py,
+        Vérifier), le prix normal de l'extension (grille) : prix unique du registre, jamais de premium."""
+        if tld not in PREMIUM_OFF or code != FREE or (shown and shown["kind"] != "error"):
+            return shown
+        g = (grid if grid is not None else gandi.grid(self.fr.store)).get(tld) or {}
+        if g.get("price") is None:
+            return shown
+        return {"kind": "available", "status": "available", "label": "Libre au prix normal de l'extension",
+                "price": g["price"], "price_ht": g.get("price_ht"), "currency": g.get("currency") or "EUR",
+                "checked_at": g.get("at"), "error": None, "stale": False, "pending": False, "grid": True}
+
     def describe(self, tld: str, indices: list[int], data: bytearray | None = None) -> list[dict]:
         u = self.universe
+        grid = gandi.grid(self.fr.store) if tld in PREMIUM_OFF else {}
         data = data if data is not None else self.status_bytes(tld)
         labels = [u.label(i) for i in indices]
         names = [f"{label}.{tld}" for label in labels]
@@ -2034,7 +2047,7 @@ class Explorer:
                 "reserved": self._reserved_why(name, code, check if seen else None),
                 "ai": opinions.get(name),
                 "premium_price": round(check["price"]) if seen and code == PREMIUM and check["price"] is not None else None,
-                "gandi": gandi.public(check, since, checked),
+                "gandi": self._shown_price(tld, code, gandi.public(check, since, checked), grid),
                 "gandi_state": check["kind"] if seen else None,  # sorte qui fait l'état affiché (gandi_effect)
             })
         return items
@@ -2374,7 +2387,8 @@ class Explorer:
         # Nom non pris (libre, à confirmer, bientôt libre) : Gandi dit aussi s'il est premium, à quel prix, ou
         # indisponible. Une panne de Gandi n'empêche pas la vérification : elle est dite à côté.
         gandi_note = None
-        if not registered and self.gandi is not None and self.gandi.key:
+        # .com, .net : prix unique du registre, celui de la grille ; Gandi n'y répond plus (réponses vides, 10/2026).
+        if not registered and self.gandi is not None and self.gandi.key and tld not in PREMIUM_OFF:
             try:
                 await self.gandi.refresh(name)
             except gandi.GandiError as exc:
@@ -2431,7 +2445,7 @@ class Explorer:
             "reserved": self._reserved_why(name, code, check if seen else None),
             "ai": ai.load(self.conn, [name]).get(name),
             "premium_price": round(check["price"]) if seen and code == PREMIUM and check["price"] is not None else None,
-            "gandi": gandi.public(check, since, checked),
+            "gandi": self._shown_price(tld, code, gandi.public(check, since, checked)),
             "gandi_state": check["kind"] if seen else None,
             "score": 0, "reasons": [], "parts": {},
         }

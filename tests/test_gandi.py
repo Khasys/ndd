@@ -182,7 +182,10 @@ def test_unavailable_on_a_free_drop_rechecks_the_registry_first(env):
     assert env.drops.row("jardin.com")["next_check_at"] is None
 
 
-def test_verify_asks_gandi_for_names_not_taken(env):
+def test_verify_asks_gandi_for_names_not_taken(env, monkeypatch):
+    """Gandi demandé sur Vérifier (le .com fait ici office d'extension où il l'est) ; vrai .com : voir le test suivant."""
+    monkeypatch.setattr(explore, "PREMIUM_OFF", frozenset())
+    monkeypatch.setattr(explore.Explorer, "premium_tlds_off", lambda self: frozenset(("com",)))  # pas de premium estimé
     zone(env, [], ["maison"])
     calls = []
 
@@ -204,6 +207,21 @@ def test_verify_asks_gandi_for_names_not_taken(env):
     assert calls == ["abd.com"]  # enregistré : Gandi n'est pas interrogé
     item = asyncio.run(env.verify("abg.com"))
     assert item["status"] == explore.FREE and "injoignable" in item["gandi_note"]
+
+
+def test_verify_skips_gandi_on_com_and_shows_the_grid_price(env):
+    """.com, .net : prix unique du registre. Gandi n'y répond plus (réponses vides, 10/2026) : Vérifier ne le demande
+    pas ; un libre au registre montre le prix normal de l'extension, une vieille réponse en erreur ne le cache pas."""
+    zone(env, [], [])
+    calls = []
+    env.gandi = client_for(env, lambda r: calls.append(r.url.params["name"]) or httpx.Response(200, json={}))
+    env.fr.store.set(gandi.GRID_KEY, '{"com": {"price": 13.2, "price_ht": 11, "currency": "EUR", "at": "2026-10-24T00:00:00+00:00"}}')
+    env.drops.rdap = FakeRdap({"jardin.com": LookupResult(available=True)})
+    env.gandi.record("jardin.com", {"kind": "error", "status": "", "price": None, "price_ht": None, "currency": "EUR",
+                                    "error": "illisible"}, utcnow() - timedelta(hours=1))
+    item = asyncio.run(env.verify("jardin.com"))
+    assert calls == [] and item["status"] == explore.FREE and item["gandi_note"] is None
+    assert item["gandi"]["kind"] == "available" and item["gandi"]["price"] == 13.2 and item["gandi"]["grid"]
 
 
 # --- Passe de nuit ----------------------------------------------------------------------------------
@@ -539,8 +557,11 @@ def _take(conn, name):
                     rated_at, version) VALUES (?, 70, 70, 0, 0, 0, 100, 'À prendre. Test. Acheteur type : test.', 'x', 5)""", (name,))
 
 
-def test_verify_reads_the_registry_then_gandi_gives_the_price(env):
-    """Vérifier interroge toujours le registre (RDAP) : sa lecture fait l'état, Gandi précise le prix."""
+def test_verify_reads_the_registry_then_gandi_gives_the_price(env, monkeypatch):
+    """Vérifier interroge toujours le registre (RDAP) : sa lecture fait l'état, Gandi précise le prix (extension où
+    Gandi est demandé : le .com en fait office ici)."""
+    monkeypatch.setattr(explore, "PREMIUM_OFF", frozenset())
+    monkeypatch.setattr(explore.Explorer, "premium_tlds_off", lambda self: frozenset(("com",)))
     zone(env, [], [])
     env.gandi = client_for(env)
     expires = datetime.now(timezone.utc) + timedelta(days=200)
