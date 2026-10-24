@@ -240,3 +240,19 @@ def test_a_registry_that_refuses_everything_is_left_out_until_tomorrow(env):
     registry = run.status()["registries"]["rdap.nic.test"]
     assert registry["off_today"] and registry["queued"] == 0
     assert env.drops.row("nom0.biz") is None  # rien d'écrit : toujours « à vérifier »
+
+
+def test_each_extension_gets_its_best_names_and_com_comes_first(env):
+    """Le 24/10 : 5 .com vérifiés sur 23 466 noms, les .net, .org… passant devant (un bon mot est pris en .com). La file
+    prend les meilleurs noms de chaque extension, au plus limit chacune, le .com en tête."""
+    from app import drops as d
+
+    env.fr.store.set("czds_approved", '["com", "net"]')
+    zone(env, [], ["maison"])
+    env.drops._save("net", bytearray(d.BITMAP_BYTES), {"maison"})
+    run = absent.AbsentPass(env, env.fr.store)
+    assert run.tlds() == ["com", "net"]
+    names = run.pending(50)
+    com = [n for n in names if n.endswith(".com")]
+    net = [n for n in names if n.endswith(".net")]
+    assert len(com) == len(net) == 50 and names == com + net

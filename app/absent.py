@@ -47,7 +47,9 @@ NET_PAUSE = 30            # coupure réseau isolée : courte pause, rythme gard�
 NET_STRIKES = 3           # coupures d'affilée avant de ralentir comme pour un refus
 SKIP_AFTER = 3            # refus d'affilée sans aucune réponse du jour : registre écarté jusqu'au lendemain (.biz, 24/10)
 MAX_PAUSE = 3600
-QUEUE = 20_000            # file calculée d'un coup
+QUEUE = 10_000            # file calculée d'un coup, par extension
+# Ordre des extensions dans la file d'un même registre (Verisign : le .com avant le .net) ; les autres ensuite.
+FIRST = ("com", "net", "org")
 QUEUE_SECONDS = 3600      # file recalculée au plus tard après ce délai (zone relue, listes changées)
 RECHECK_DAYS = 30
 TIMEOUT = 20
@@ -126,9 +128,11 @@ class AbsentPass:
     # --- File -------------------------------------------------------------------------
 
     def pending(self, limit: int, now: datetime | None = None) -> list[str]:
-        """Noms absents de la zone jamais demandés au registre, du meilleur score de base au moins bon, toutes extensions
-        mêlées ; puis ceux vus enregistrés par cette passe il y a plus de RECHECK_DAYS jours. Seuls les noms qui ont un
-        sens, et pas les noms de 1 ou 2 caractères (gardés par les registres)."""
+        """Noms absents de la zone jamais demandés au registre, limit au plus par extension, du meilleur score de base au
+        moins bon ; puis ceux vus enregistrés par cette passe il y a plus de RECHECK_DAYS jours. Extension par extension,
+        le .com d'abord (FIRST) : mêlées, un bon mot étant presque toujours pris en .com, le .com passait après tous les
+        autres (5 .com vérifiés sur 23 466 noms le 24/10). Seuls les noms qui ont un sens, et pas les noms de 1 ou 2
+        caractères (gardés par les registres)."""
         from .explore import ABSENT  # import local : explore importe drops, qui ne connaît pas ce module
 
         now = now or utcnow()
@@ -141,26 +145,34 @@ class AbsentPass:
         data = {t: ex.status_bytes(t) for t in tlds}
         known = {r[0] for r in ex.conn.execute(
             f"SELECT name FROM drops WHERE tld IN ({','.join('?' * len(tlds))})", tlds)}
-        picked: list[str] = []
+        picked: dict[str, list[str]] = {t: [] for t in tlds}
+        open_tlds = list(tlds)
         for score in range(len(buckets) - 1, -1, -1):
+            if not open_tlds:
+                break
             for i in buckets[score]:
                 if not u.good[i]:
                     continue
-                for tld in tlds:
+                for tld in open_tlds:
                     if data[tld][i] != ABSENT:
                         continue
                     label = u.label(i)
                     name = f"{label}.{tld}"
                     if len(label) <= 2 or name in known:
                         continue
-                    picked.append(name)
-                    if len(picked) >= limit:
-                        return picked
+                    picked[tld].append(name)
+                if any(len(picked[t]) >= limit for t in open_tlds):
+                    open_tlds = [t for t in open_tlds if len(picked[t]) < limit]
+                    if not open_tlds:
+                        break
         stale = iso(now - timedelta(days=RECHECK_DAYS))
-        picked += [r[0] for r in ex.conn.execute(
-            "SELECT name FROM drops WHERE origin = ? AND state = ? AND checked_at < ? ORDER BY checked_at LIMIT ?",
-            (ORIGIN, drops.TAKEN, stale, limit - len(picked)))]
-        return picked
+        for name, tld in ex.conn.execute(
+                "SELECT name, tld FROM drops WHERE origin = ? AND state = ? AND checked_at < ? ORDER BY checked_at",
+                (ORIGIN, drops.TAKEN, stale)):
+            if tld in picked and len(picked[tld]) < limit:
+                picked[tld].append(name)
+        order = sorted(tlds, key=lambda t: (FIRST.index(t) if t in FIRST else len(FIRST), t))
+        return [name for t in order for name in picked[t]]
 
     async def _server(self, name: str) -> str | None:
         if self._servers is not None:

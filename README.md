@@ -1015,7 +1015,8 @@ du DNS du registre (carte « probablement libre (absent du DNS) »). Un nom enre
 est absent de la zone et du DNS lui aussi. Toujours vérifier avant de conclure.
 
 Zones ICANN : l'appli demande elle-même au registre (RDAP) l'état de tous les noms absents de la zone, les
-meilleurs scores d'abord. La limite des registres n'est pas publiée : chaque registre (serveur RDAP) a son
+meilleurs scores d'abord, extension par extension (10 000 noms par extension à chaque file, le .com en tête chez
+Verisign : mêlées, les autres extensions passaient devant lui). La limite des registres n'est pas publiée : chaque registre (serveur RDAP) a son
 rythme. Départ à 1 requête par seconde (16 en vol au plus, tous registres confondus), +25 % tous les 500 succès
 jusqu'à 25 par seconde ; au premier refus, rythme du registre divisé par deux et pause (Retry-After, sinon
 2 minutes, 30 minutes sur un 403), sans arrêter les autres. Une coupure réseau isolée : 30 secondes de pause, rythme
