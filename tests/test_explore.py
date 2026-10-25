@@ -796,6 +796,18 @@ def test_review_pass_brings_back_ratings_far_from_the_estimate(env):
     assert all(n["name"] != "maison.fr" for n in ai.pending(env, 10))
 
 
+def test_pending_can_keep_only_some_extensions(env):
+    """Lot lancé à la main en .fr et .com : la file ne garde que ces extensions, dans le même ordre."""
+    from app import ai
+
+    add_fr(env, "zzzzz")
+    zone(env, [], ["maison"])
+    full = [n["name"] for n in ai.pending(env, 300)]
+    only = [n["name"] for n in ai.pending(env, 100, only=("com",))]
+    assert only and all(n.endswith(".com") for n in only)
+    assert only[:20] == [n for n in full if n.endswith(".com")][:20]
+
+
 def test_unranked_short_names_keep_a_true_bound(env):
     """Un 4 caractères mélangé n'est pas calculé à la construction (table à 0) : la borne qui sert à
     l'écarter vaut quand même au moins son score."""

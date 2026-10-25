@@ -2015,7 +2015,11 @@ async def ai_pending(request: Request):
             offset = max(0, min(int(request.query_params.get("offset") or 0), 20 * ai.MAX_PENDING))
         except ValueError:
             raise HTTPException(422, "Paramètre numérique invalide.") from None
-        names = await _off(ai.pending, explorer, _limit(request, ai.MAX_PENDING), offset)
+        # tld=fr,com : ces extensions seulement (lot lancé à la main).
+        only = tuple(t for t in (request.query_params.get("tld") or "").split(",") if t)
+        if any(t not in ai.AI_TLDS for t in only):
+            raise HTTPException(422, "Extension non notée.")
+        names = await _off(ai.pending, explorer, _limit(request, ai.MAX_PENDING), offset, only)
     # Ventes et offres réelles du portefeuille : repères de prix ajoutés à la consigne.
     guide = ai.GUIDE + portfolio.guide_addendum(portfolio.market_examples(request.app.state.conn))
     return {"version": ai.VERSION, "guide": guide, "format": ai.FORMAT, "names": names}

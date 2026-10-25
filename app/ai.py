@@ -245,15 +245,18 @@ def to_review(explorer, limit: int = REVIEW_PER_NIGHT) -> list[tuple[str, int, i
 COMPARABLES = 4  # ventes réelles les plus proches, jointes à chaque nom du lot (repères de prix)
 
 
-def pending(explorer, limit: int, offset: int = 0) -> list[dict]:
+def pending(explorer, limit: int, offset: int = 0, only: tuple[str, ...] = ()) -> list[dict]:
     """Noms complets sans avis à jour, dans l'ordre où ils servent ; les avis à revoir d'abord (la confirmation
     des « À prendre » passe par l'escalade, hors de ce lot).
     `offset` : tranche de la file pour des sessions en parallèle ; seuls les noms rendus sont décrits (ventes
-    comparables comprises), la file elle-même est vite calculée."""
+    comparables comprises), la file elle-même est vite calculée. `only` : ces extensions seulement (lot à la main,
+    « 30 000 en .fr et .com » ; la file pondérée met sinon les .org libres, mieux notés, devant les .com libres)."""
     limit += offset
     review = to_review(explorer, min(REVIEW_PER_NIGHT, limit))
+    if only:
+        review = [r for r in review if r[0].rpartition(".")[2] in only]
     rest = limit - len(review)
-    picked, data = _queue(explorer, rest) if rest > 0 else ([], {t: explorer.status_bytes(t) for t in explorer.tlds()})
+    picked, data = _queue(explorer, rest, only) if rest > 0 else ([], {t: explorer.status_bytes(t) for t in explorer.tlds()})
     u = explorer.universe
     head = []
     for name, best, estimate in review:  # noms de l'univers sur une extension suivie (to_review)
@@ -304,7 +307,7 @@ def _done(conn) -> set[str]:
     return {r[0] for r in rows}
 
 
-def _queue(explorer, limit: int):
+def _queue(explorer, limit: int, only: tuple[str, ...] = ()):
     """1. libres ou bientôt libres, du meilleur score au moins bon (extension pondérée) ;
     2. probablement libres ou libres des nouvelles listes (termes stars, mots-clés et marques mêlés par rang, puis
     métier + ville), par palier d'extension ; 3. les autres probablement libres, puis 4. enregistrés, par score de
@@ -312,7 +315,8 @@ def _queue(explorer, limit: int):
     u = explorer.universe
     u.buckets()  # construit u.good
     done = _done(explorer.conn)
-    tlds = sorted((t for t in explorer.tlds() if t in AI_TLDS), key=lambda t: -TLD_WEIGHT.get(t, OTHER_TLD_WEIGHT))
+    tlds = sorted((t for t in explorer.tlds() if t in AI_TLDS and (not only or t in only)),
+                  key=lambda t: -TLD_WEIGHT.get(t, OTHER_TLD_WEIGHT))
     # Toutes les extensions pour « pris ailleurs » (signe de demande), même celles qu'on ne note pas.
     data = {t: explorer.status_bytes(t) for t in explorer.tlds()}
     picked: list[tuple[int, str, str]] = []
