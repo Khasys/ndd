@@ -870,8 +870,8 @@ async def manifest():
         "start_url": "/",
         "scope": "/",
         "display": "standalone",
-        "background_color": "#14171c",
-        "theme_color": "#1d5c66",
+        "background_color": "#0a0c1b",
+        "theme_color": "#5b6cff",
         "icons": icons,
     }
     return JSONResponse(body, media_type="application/manifest+json", headers={"Cache-Control": "no-cache"})
@@ -1704,10 +1704,13 @@ def _explore_params_of(p, explorer) -> dict:
 
 
 def _ai_param(p) -> str:
-    """Filtre avis IA : ai_v=take,watch et, pour chaque champ, ai_<champ>_min / ai_<champ>_max."""
+    """Filtre avis IA : ai_g=A,B (note), ai_v=take,watch et, pour chaque champ, ai_<champ>_min / ai_<champ>_max."""
     verdicts = [v for v in (p.get("ai_v") or "").split(",") if v]
     if any(v not in explore.AI_VERDICTS for v in verdicts):
         raise HTTPException(422, "Verdict inconnu.")
+    grades = [g for g in (p.get("ai_g") or "").split(",") if g]
+    if any(g not in ai.GRADES for g in grades):
+        raise HTTPException(422, "Note inconnue.")
     ranges = {}
     for field in explore.AI_FIELDS:
         bounds = []
@@ -1721,7 +1724,7 @@ def _ai_param(p) -> str:
                 raise HTTPException(422, "Paramètre numérique hors limites.")
             bounds.append(value)
         ranges[field] = tuple(bounds)
-    return explore.ai_filter(verdicts, ranges)
+    return explore.ai_filter(verdicts, ranges, grades)
 
 
 RANK_SORTS = ("score", "freq", "length", "seo", "ai", "release", "resale", "exploit", "recent")
@@ -1756,6 +1759,7 @@ def _explore_meta(explorer, tld: str, chosen: list[str] | None = None) -> dict:
         "natures": explore.NATURES,
         "seo_filters": {k: v[0] for k, v in explore.SEO_FILTERS.items()},
         "ai_verdicts": explore.AI_VERDICTS,
+        "ai_grades": ai.GRADES,
         "langs": wordlists.LANGS,
         "ai_fields": explore.AI_FIELDS,
         "statuses": explore.STATUS_NAMES,
@@ -2268,7 +2272,7 @@ async def ai_status(request: Request):
 
 @app.get("/api/ai/rated")
 async def ai_rated(request: Request):
-    """Avis IA enregistrés, meilleure revente rapide d'abord ; verdict et extension en option."""
+    """Avis IA enregistrés, meilleure revente rapide d'abord ; verdict, note (grade=A,B) et extension en option."""
     conn = request.app.state.conn
     limit = _limit(request, 5000)
     where, args = ["1"], []
@@ -2276,6 +2280,10 @@ async def ai_rated(request: Request):
     if verdict in explore.AI_VERDICTS:
         where.append("comment LIKE ?")
         args.append(explore.AI_VERDICTS[verdict] + ".%")
+    grades = [g for g in request.query_params.get("grade", "").split(",") if g in ai.GRADES]
+    if grades:
+        where.append(f"({ai.grade_sql()}) IN ({','.join('?' * len(grades))})")
+        args += grades
     tld = request.query_params.get("tld", "")
     if tld:
         where.append("name LIKE ?")

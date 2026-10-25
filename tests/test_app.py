@@ -1425,7 +1425,7 @@ def test_interface_home_today_single_fiche_and_settings_order():
     # Paramètres : Sources, Telegram, Alertes, Avis IA, puis le bloc avancé replié, Version en pied.
     settings = html.split('aria-label="Paramètres"')[1].split("</section>")[0]
     order = [settings.index(k) for k in ('id="set-fr"', 'id="set-czds"', 'id="settings-sources"', 'id="set-telegram"',
-                                          'id="set-alerts"', 'id="set-ai"', "Afficher les réglages avancés", "<h3>Version</h3>")]
+                                          'id="set-alerts"', 'id="set-ai"', "Afficher les réglages avancés", "Version</h3>")]
     assert order == sorted(order)
     # Aide : « Par écran » d'abord.
     toc = html.split('class="help-toc')[1].split("</nav>")[0]
@@ -1565,8 +1565,9 @@ def test_interface_verdict_badges_sorts_and_fiche_labels():
     js = (static / "app.js").read_text(encoding="utf-8")
     html = (static / "index.html").read_text(encoding="utf-8")
     css = (static / "style.css").read_text(encoding="utf-8")
-    # Une seule classe de pastille pour le verdict, sans gras ; plus de verdict en texte gras coloré.
-    assert ".verdict {" in css and "font-weight: 400" in css.split(".verdict {")[1].split("}")[0]
+    # Une seule classe de pastille pour le verdict (repli sans note), la note de A à E en pastille de couleur ; plus de
+    # verdict en texte gras coloré.
+    assert ".verdict {" in css and ".grade-chip {" in css and html.count('class="grade-chip"') >= 5
     for gone in (".nc-ai", ".fd-ai", ".fiche-comp-ai", ".ex-reason.ai", "lineClass"):
         assert gone not in css + js + html, gone
     # Fiche : le verdict de la carte décision vient de ficheDecision (cls), le gabarit le met en pastille.

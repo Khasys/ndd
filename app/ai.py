@@ -30,7 +30,8 @@ TAKEN = (1, 6, 4)         # enregistré, suspendu, libération à venir (pris ai
 FIRST_LISTS = (("premium", "keyword", "brand"), ("local",))
 
 from .ai_format import (COMMENT_MAX, CRITERIA_V5, FIELDS, FIELDS_V5, FORMAT_V5, PRICE_STEPS, check,  # noqa: F401  (réexportés)
-                        VERDICTS, check_any, covers_purchase, default_prices, derive, is_v5, median_years, normalized)
+                        GRADES, VERDICTS, check_any, covers_purchase, default_prices, derive, grade, grade_sql, is_v5,
+                        median_years, normalized)
 
 # Règle de calcul des notes (ai_format.derive) : la monter recalcule les avis gardés depuis leurs sous-notes, sans
 # renoter. 2 : pénalité de longueur au-delà de 12 lettres.
@@ -163,7 +164,9 @@ def public(row) -> dict:
     found["version"] = row["version"] if "version" in keys else None
     found["reviewed_at"] = row["reviewed_at"] if "reviewed_at" in keys else None
     found["panel"] = json.loads(row["panel"]) if "panel" in keys and row["panel"] else None
-    found["why"] = why((found["comment"] or "").split(".")[0], found["grid"])
+    verdict = (found["comment"] or "").split(".")[0]
+    found["why"] = why(verdict, found["grid"])
+    found["grade"] = grade(verdict, found["resale"], found["yield"], row["renewal"] if "renewal" in keys else None)
     return found
 
 

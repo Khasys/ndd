@@ -218,12 +218,15 @@ def ai_summary(opinion: dict | None) -> dict | None:
     if not opinion:
         return None
     return {"verdict": (opinion.get("comment") or "").split(".")[0], "resale": opinion.get("resale"),
-            "final_low": opinion.get("final_low"), "final_high": opinion.get("final_high")}
+            "final_low": opinion.get("final_low"), "final_high": opinion.get("final_high"), "grade": opinion.get("grade")}
 
 
-def ai_filter(verdicts: list[str], ranges: dict[str, tuple[int | None, int | None]]) -> str:
+def ai_filter(verdicts: list[str], ranges: dict[str, tuple[int | None, int | None]], grades: list[str] = ()) -> str:
     """Forme canonique et stable (clé de mémoire) ; vide si aucun critère."""
     parts = []
+    marks = [g for g in ai.GRADES if g in grades]
+    if marks:
+        parts.append("g=" + ",".join(marks))
     picked = [v for v in AI_VERDICTS if v in verdicts]
     if picked:
         parts.append("v=" + ",".join(picked))
@@ -239,7 +242,12 @@ def ai_condition(spec: str) -> tuple[str, list]:
     where, args = [], []
     for part in filter(None, spec.split(";")):
         key, _, val = part.partition("=")
-        if key == "v":
+        if key == "g":
+            grades = [g for g in val.split(",") if g in ai.GRADES]
+            if grades:
+                where.append(f"({ai.grade_sql()}) IN ({','.join('?' * len(grades))})")
+                args += grades
+        elif key == "v":
             verdicts = [AI_VERDICTS[v] for v in val.split(",") if v in AI_VERDICTS]
             if verdicts:
                 where.append("(" + " OR ".join("comment LIKE ?" for _ in verdicts) + ")")
@@ -304,17 +312,30 @@ class Filters:
 
 def lens_key(opinion: dict, lens: str) -> tuple:
     """Classement « pour revendre / pour exploiter » d'un nom noté : palier, note choisie, puis l'autre note et le
-    prix final bas. Sans ces départages, des centaines de noms à 60 sortaient dans l'ordre alphabétique."""
+    prix final bas. Sans ces départages, des centaines de noms à 60 sortaient dans l'ordre alphabétique.
+    Pour revendre, la note de A à E fait le palier et le rendement attendu départage, avant la note de revente."""
     other = "exploit" if lens == "resale" else "resale"
-    return (lens_tier(opinion), opinion[lens], opinion.get(other) or 0, opinion.get("final_low") or 0)
+    tail = (opinion[lens], opinion.get(other) or 0, opinion.get("final_low") or 0)
+    if lens == "resale":
+        gain = opinion.get("yield")
+        return (lens_tier(opinion, lens), gain if gain is not None else NO_YIELD, *tail)
+    return (lens_tier(opinion, lens), *tail)
 
 
-def lens_tier(opinion: dict | None) -> int:
-    """Ordre « pour revendre / pour exploiter » : 2 conseillé par l'IA, 1 sans avis, 0 déconseillé."""
+# Palier « pour revendre » d'un nom noté, selon sa note ; 1 : sans avis, 0 : « À laisser ». Un nom conseillé est
+# toujours au-dessus de 1 (parcours des conseillés d'abord, dans rank).
+GRADE_TIERS = {"A": 5, "B": 4, "C": 3, "D": 2}
+NO_YIELD = -1e9  # avis sans rendement calculé : après ceux qui en ont un, dans leur palier
+
+
+def lens_tier(opinion: dict | None, lens: str = "") -> int:
+    """Ordre « pour revendre / pour exploiter » : 2 et plus conseillé par l'IA, 1 sans avis, 0 déconseillé."""
     if not opinion:
         return 1
     verdict = opinion.get("verdict") or (opinion.get("comment") or "").split(".")[0]
-    return 0 if verdict == "À laisser" else 2
+    if verdict == "À laisser":
+        return 0
+    return GRADE_TIERS.get(opinion.get("grade"), 2) if lens == "resale" else 2
 
 
 class Universe:
@@ -1316,10 +1337,14 @@ class Explorer:
 
     def _load_opinions(self, tld: str) -> dict[str, dict]:
         # Prix final et version : pour les comparables de la fiche, sans relire la table.
-        return {r[0]: {"resale": r[1], "exploit": r[2], "verdict": (r[3] or "").split(".")[0],
-                       "final_low": r[4], "final_high": r[5], "version": r[6]}
-                for r in self.conn.execute("SELECT name, resale, exploit, comment, final_low, final_high, version "
-                                           "FROM domain_ai WHERE name LIKE ?", (f"%.{tld}",))}
+        # Note de A à E et rendement : palier et départage du classement « pour revendre ».
+        found = {}
+        for r in self.conn.execute("SELECT name, resale, exploit, comment, final_low, final_high, version, yield, renewal "
+                                   "FROM domain_ai WHERE name LIKE ?", (f"%.{tld}",)):
+            verdict = (r[3] or "").split(".")[0]
+            found[r[0]] = {"resale": r[1], "exploit": r[2], "verdict": verdict, "final_low": r[4], "final_high": r[5],
+                           "version": r[6], "yield": r[7], "grade": ai.grade(verdict, r[1], r[7], r[8])}
+        return found
 
     @staticmethod
     def _level_ok(score: int, opinion: dict | None, level: str) -> bool:
@@ -1458,7 +1483,7 @@ class Explorer:
                 # Dans l'ordre final (clé, puis ordre des mots) : la page pleine écarte les suivants sans calcul.
                 advised = []
                 for name, o in opinions.items():
-                    i = u.index(name[: -len(tld) - 1]) if lens_tier(o) == 2 else None
+                    i = u.index(name[: -len(tld) - 1]) if lens_tier(o) >= 2 else None
                     if i is not None:
                         advised.append((lens_key(o, lens), -i, i))
                 for _, _, i in sorted(advised, reverse=True):
@@ -2238,7 +2263,7 @@ class Explorer:
                 continue
             found.append((abs(o["resale"] - target), other, o, data[j]))
         found.sort(key=lambda x: (x[0], x[1]))
-        return [{"name": other, "verdict": o["verdict"], "resale": o["resale"], "exploit": o["exploit"],
+        return [{"name": other, "verdict": o["verdict"], "grade": o.get("grade"), "resale": o["resale"], "exploit": o["exploit"],
                  "final_low": o["final_low"], "final_high": o["final_high"], "status_label": self._status_label(tld, code)}
                 for _, other, o, code in found[:COMPARABLES]]
 

@@ -235,6 +235,41 @@ def derive(item: dict) -> dict:
     return {**found, "verdict": verdict}
 
 
+# --- Note de A à E : chaque verdict coupé en deux selon le rendement attendu --------------------------------------
+# Trois verdicts ne suffisent pas pour trier : 19 « À prendre » et 1 110 « À surveiller » au NAS le 25/10/2026, dont
+# le rendement va de 0,1 à plus de 2 000 € par an. La note garde les verdicts et les affine : A et B sont des
+# « À prendre », C et D des « À surveiller », E les « À laisser ». Repère : le rendement (euros par an, renouvellement
+# ôté) rapporté au renouvellement de l'extension. Sans rendement calculé (avis d'avant la demande mesurée), la note
+# de revente départage.
+GRADES = {"A": "Excellent", "B": "À prendre", "C": "Bon pari", "D": "À surveiller", "E": "À laisser"}
+GRADE_TOP = 4.0          # A : rapporte au moins quatre fois son renouvellement chaque année (B : deux, TAKE_YIELD)
+GRADE_BET = 0.5          # C : rapporte au moins la moitié de son renouvellement chaque année
+GRADE_TOP_RESALE = 70    # sans rendement : note de revente d'un A (le seuil des pépites)
+GRADE_BET_RESALE = 55    # sans rendement : note de revente d'un C
+
+
+def grade(verdict: str | None, resale: int | None, gain: float | None, renewal: float | None) -> str | None:
+    """Note de A à E d'un avis (None sans verdict lisible). gain : rendement en euros par an (yield)."""
+    if verdict not in VERDICTS:
+        return None
+    if verdict == "À laisser":
+        return "E"
+    cost = renewal or DEFAULT_RENEWAL
+    top, floor, low = (GRADE_TOP, GRADE_TOP_RESALE, "AB") if verdict == "À prendre" else (GRADE_BET, GRADE_BET_RESALE, "CD")
+    high = gain >= top * cost if gain is not None else (resale or 0) >= floor
+    return low[0] if high else low[1]
+
+
+def grade_sql() -> str:
+    """La même règle en SQL, sur une ligne de domain_ai (comment, resale, yield, renewal)."""
+    cost = f"COALESCE(renewal, {DEFAULT_RENEWAL})"
+    return ("CASE WHEN comment LIKE 'À prendre.%' THEN CASE WHEN (yield IS NOT NULL AND yield >= "
+            f"{GRADE_TOP} * {cost}) OR (yield IS NULL AND resale >= {GRADE_TOP_RESALE}) THEN 'A' ELSE 'B' END "
+            "WHEN comment LIKE 'À surveiller.%' THEN CASE WHEN (yield IS NOT NULL AND yield >= "
+            f"{GRADE_BET} * {cost}) OR (yield IS NULL AND resale >= {GRADE_BET_RESALE}) THEN 'C' ELSE 'D' END "
+            "WHEN comment LIKE 'À laisser.%' THEN 'E' END")
+
+
 def covers_purchase(item: dict) -> bool:
     """Le prix final bas couvre PREMIUM_COVER fois le prix d'achat premium (purchase, euros) ; sans premium : oui."""
     purchase, low = item.get("purchase"), item.get("final_low")

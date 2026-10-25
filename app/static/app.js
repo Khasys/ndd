@@ -1,5 +1,5 @@
 // Filtre « avis IA » : verdicts et bornes min/max de chaque note et de chaque prix (paramètres d'URL ai_*).
-const AI_FILTER_DEFAULTS = Object.fromEntries([["ai_v", ""], ...["exploit", "resale", "quick_low", "quick_high", "final_low", "final_high"]
+const AI_FILTER_DEFAULTS = Object.fromEntries([["ai_g", ""], ["ai_v", ""], ...["exploit", "resale", "quick_low", "quick_high", "final_low", "final_high"]
   .flatMap((f) => [[`ai_${f}_min`, ""], [`ai_${f}_max`, ""]])]);
 const AI_VERDICTS = { take: "À prendre", watch: "À surveiller", skip: "À laisser" };
 // Sous-notes de la grille v5 (sur 10), dans l'ordre de la consigne.
@@ -42,6 +42,16 @@ const MERGED_LISTS = { firstname_us: "firstname", surname_us: "surname", niche_u
 const bestSource = (r, key) => [key, ...Object.keys(MERGED_LISTS).filter((k) => MERGED_LISTS[k] === key)]
   .filter((k) => r[k]).sort((a, b) => r[a] - r[b])[0];
 const VERDICT_CLASSES = { "À prendre": "take", "À surveiller": "watch", "À laisser": "skip" };
+// Note de A à E (serveur, ai_format.grade) : chaque verdict coupé en deux selon le rendement attendu.
+const GRADES = { A: "Excellent", B: "À prendre", C: "Bon pari", D: "À surveiller", E: "À laisser" };
+const GRADE_KEYS = Object.keys(GRADES);
+const GRADE_TITLES = {
+  A: "À prendre, et rapporte au moins 4 fois son renouvellement par an",
+  B: "À prendre : rapporte au moins 2 fois son renouvellement par an",
+  C: "À surveiller, mais rapporte au moins la moitié de son renouvellement par an : un bon pari",
+  D: "À surveiller : rendement attendu faible",
+  E: "À laisser : ne rapporte pas son renouvellement",
+};
 // Statistiques : extensions avec leur couleur propre (--series-<tld>, ordre fixe de la palette validée) ;
 // les autres sont regroupées.
 const STATS_TLDS = ["fr", "com", "org", "net", "io", "ai", "co"];
@@ -289,7 +299,7 @@ document.addEventListener("alpine:init", () => {
     seoKey: "",
     ex: { tld: "", q: "", status: "bookable", cat: "", len: "", sort: "best", nat: "", rank: "", taken: "", min: "", junk: "", seo: "", lang: "", nopremium: "", gprice: "", level: "good", ...AI_FILTER_DEFAULTS },
     lens: (() => { try { return localStorage.getItem("lens") || "resale"; } catch (_) { return "resale"; } })(),
-    EX_STATES, EX_TYPES, LENSES,
+    EX_STATES, EX_TYPES, LENSES, GRADE_KEYS,
     exFiltersOpen: false,
     exMapOpen: false,
     fiche: null,
@@ -773,7 +783,7 @@ document.addEventListener("alpine:init", () => {
         primary: scoreFirst ? score : note,
         secondary: scoreFirst ? note : score,
         // Verdict en pastille (classe .verdict), le prix et les raisons en texte normal.
-        verdict, verdictClass: this.aiClass(ai),
+        verdict, verdictClass: this.aiClass(ai), grade: (ai && ai.grade) || "",
         // Le rang affiché à part (tri par fréquence) n'est pas répété dans les raisons.
         line: ai ? `utilisateur final ${this.priceRange(ai.final_low, ai.final_high)}${ai.yield != null ? " · " + this.yieldText(ai) : ""}` : (i.reasons || []).filter((r) => r !== freq).slice(0, 2).join(" · "),
         freq,
@@ -1038,7 +1048,7 @@ document.addEventListener("alpine:init", () => {
     // en premier et en grand), verdict, les deux prix, le pourquoi, le commentaire ; la grille dans « Détail IA ».
     // Sans avis : le score, où en est la notation, les deux premières raisons du score.
     ficheDecision(f) {
-      const k = { notes: [], verdict: null, prices: [], why: "", comment: "", queue: "", panel: "", old: false, grid: null, rated: "", premium: "" };
+      const k = { notes: [], verdict: null, grade: "", prices: [], why: "", comment: "", queue: "", panel: "", old: false, grid: null, rated: "", premium: "" };
       if (!f) return k;
       const item = f.item;
       const opinion = f.ai || (item && item.ai);
@@ -1049,6 +1059,7 @@ document.addEventListener("alpine:init", () => {
             title: key === main ? `Note IA de ${use} sur 100 : la valeur qui trie pour cet usage` : `Note IA de ${use} sur 100` }));
         k.notes = notes.sort((a, b) => b.main - a.main);
         k.verdict = { text: this.aiVerdict(opinion), cls: "verdict " + this.aiClass(opinion) };
+        k.grade = opinion.grade || "";
         k.prices = [["revente rapide", this.priceRange(opinion.quick_low, opinion.quick_high)],
           ["utilisateur final", this.priceRange(opinion.final_low, opinion.final_high)],
           ["rendement", this.yieldText(opinion, true)]].filter(([, v]) => v);
@@ -1636,6 +1647,10 @@ document.addEventListener("alpine:init", () => {
 
     aiClass(a) { return this.verdictClass(this.aiVerdict(a)); },
 
+    gradeLabel(g) { return GRADES[g] || ""; },
+
+    gradeTitle(g) { return g && GRADES[g] ? `Note ${g} : ${GRADE_TITLES[g]}` : ""; },
+
     verdictClass(v) { return VERDICT_CLASSES[v] || ""; },
 
     // « 12e prénom le plus donné » : rang dans la liste key si le nom y est (la mieux placée de ses sources : Prénoms
@@ -1828,6 +1843,7 @@ document.addEventListener("alpine:init", () => {
       if (e.junk) out.push({ key: "junk", label: "Suites et mélanges inclus" });
       if (e.seo) out.push({ key: "seo", label: this.exData.seo_filters[e.seo] });
       if (String(e.gprice ?? "").trim() !== "") out.push({ key: "gprice", label: `Achat ≤ ${this.fmt(Number(e.gprice))} €` });
+      if (e.ai_g) out.push({ key: "ai_g", label: "Note IA : " + this.exAiGrades().join(", ") });
       if (e.ai_v) out.push({ key: "ai_v", label: "IA : " + this.exAiVerdicts().map((v) => this.exData.ai_verdicts[v]).join(", ") });
       for (const f of Object.keys(this.exData.ai_fields || {})) {
         const lo = String(e[`ai_${f}_min`] ?? "").trim(), hi = String(e[`ai_${f}_max`] ?? "").trim();
@@ -1893,6 +1909,15 @@ document.addEventListener("alpine:init", () => {
     },
 
     exAiVerdicts() { return (this.ex.ai_v || "").split(",").filter(Boolean); },
+
+    exAiGrades() { return (this.ex.ai_g || "").split(",").filter(Boolean); },
+
+    // Note de A à E : plusieurs à la fois, dans l'ordre de l'échelle.
+    exToggleGrade(g) {
+      const on = this.exAiGrades();
+      const next = on.includes(g) ? on.filter((x) => x !== g) : [...on, g];
+      return this.exSet({ ai_g: GRADE_KEYS.filter((x) => next.includes(x)).join(",") });
+    },
 
     exToggleVerdict(k) {
       const on = this.exAiVerdicts();
@@ -2598,7 +2623,7 @@ document.addEventListener("alpine:init", () => {
       return (!this.dropTld.length || this.dropTld.includes(d.tld))
         && (!q || d.name.includes(q))
         && (!this.dropKinds.length || d.categories.some((c) => this.dropKinds.includes(c)))
-        && (!f.ai.length || f.ai.includes(this.aiClass(d.ai)))
+        && (!f.ai.length || f.ai.includes(d.ai && d.ai.grade))
         && (!f.quick || (d.ai && d.ai.quick_low >= Number(f.quick)))
         && (!f.nat || (d.natures || []).includes(f.nat))
         && (!f.lang || (d.langs || []).includes(f.lang))
@@ -2644,10 +2669,19 @@ document.addEventListener("alpine:init", () => {
       return d.score >= 30;
     },
 
-    // Pour revendre / pour exploiter : conseillés par l'IA d'abord, puis sans avis, puis déconseillés.
-    dropLensTier(d) { return !d.ai ? 1 : this.aiVerdict(d.ai) === "À laisser" ? 0 : 2; },
+    // Pour revendre / pour exploiter : conseillés par l'IA d'abord, puis sans avis, puis déconseillés. Pour revendre,
+    // comme l'Explorer (explore.lens_key) : la note de A à E fait le palier, le rendement attendu départage.
+    dropLensTier(d) {
+      if (!d.ai) return 1;
+      if (this.aiVerdict(d.ai) === "À laisser") return 0;
+      return this.lens === "resale" ? ({ A: 5, B: 4, C: 3, D: 2 }[d.ai.grade] || 2) : 2;
+    },
 
-    dropLensValue(d) { return d.ai ? d.ai[this.lens] : d.score; },
+    dropLensValue(d) {
+      if (!d.ai) return d.score;
+      if (this.lens === "resale" && d.ai.yield != null) return 1e6 + d.ai.yield;
+      return d.ai[this.lens];
+    },
 
     dropInTab(d, tab) {
       return tab === "free" ? ["available", "unconfirmed"].includes(d.state) : ["expired", "redemption", "pending_delete"].includes(d.state);
@@ -2769,7 +2803,7 @@ document.addEventListener("alpine:init", () => {
       if (f.rank) out.push({ key: "rank", label: this.exRanks.find((o) => o.v === f.rank)?.label });
       if (this.dropMin) out.push({ key: "min", label: "Score ≥ " + this.dropMin });
       if (f.junk) out.push({ key: "junk", label: "Suites et mélanges inclus" });
-      if (f.ai.length) out.push({ key: "ai", label: "IA : " + f.ai.map((v) => AI_VERDICTS[v]).join(", ") });
+      if (f.ai.length) out.push({ key: "ai", label: "Note IA : " + f.ai.join(", ") });
       if (f.quick) out.push({ key: "quick", label: `Revente rapide ≥ ${f.quick} €` });
       if (f.gprice !== "" && f.gprice !== null && f.gprice !== undefined) out.push({ key: "gprice", label: `Achat ≤ ${this.fmt(Number(f.gprice))} €` });
       if (f.period) out.push({ key: "period", label: `${this.dropTab === "coming" ? "Libération sous" : "Libérés depuis"} ${this.periodLong(f.period)}` });
@@ -2815,7 +2849,8 @@ document.addEventListener("alpine:init", () => {
       try {
         const saved = JSON.parse(localStorage.getItem("drops.filters") || "null");
         if (!saved) return;
-        this.df = { ...DROP_FILTER_DEFAULTS, ...saved.df, ai: Array.isArray(saved.df?.ai) ? saved.df.ai : [] };
+        // Note de A à E ; un filtre gardé d'avant (verdicts take, watch, skip) est oublié.
+        this.df = { ...DROP_FILTER_DEFAULTS, ...saved.df, ai: Array.isArray(saved.df?.ai) ? saved.df.ai.filter((g) => GRADE_KEYS.includes(g)) : [] };
         this.df.min = Number(this.df.min) || 0;  // anciens filtres : null voulait dire « pas choisi »
         // Ancien réglage : une seule extension, en texte.
         this.dropTld = Array.isArray(saved.tld) ? saved.tld : saved.tld ? [saved.tld] : [];
@@ -3626,7 +3661,8 @@ document.addEventListener("alpine:init", () => {
         this.tagFilter = saved.tagFilter || null;
         this.abandonedOnly = !!saved.abandonedOnly;
         this.tldFilter = saved.tldFilter || "";
-        this.aiFilter = Array.isArray(saved.aiFilter) ? saved.aiFilter : [];
+        // Note de A à E ; un filtre gardé d'avant (verdicts take, watch, skip) est oublié.
+        this.aiFilter = Array.isArray(saved.aiFilter) ? saved.aiFilter.filter((g) => GRADE_KEYS.includes(g)) : [];
         if (saved.sortKey) { this.sortKey = saved.sortKey; this.sortDir = saved.sortDir || 1; }
       } catch (_) {}
     },
@@ -3648,7 +3684,7 @@ document.addEventListener("alpine:init", () => {
       if (this.tagFilter) list.push({ key: "tagFilter", label: `Tag : ${this.tagFilter}` });
       if (this.abandonedOnly) list.push({ key: "abandonedOnly", label: "Signes d'abandon" });
       if (this.tldFilter) list.push({ key: "tldFilter", label: `Extension : .${this.tldFilter}` });
-      if (this.aiFilter.length) list.push({ key: "aiFilter", label: "IA : " + this.aiFilter.map((v) => AI_VERDICTS[v]).join(", ") });
+      if (this.aiFilter.length) list.push({ key: "aiFilter", label: "Note IA : " + GRADE_KEYS.filter((g) => this.aiFilter.includes(g)).join(", ") });
       return list;
     },
 
@@ -3687,7 +3723,7 @@ document.addEventListener("alpine:init", () => {
         (!this.tagFilter || d.tags.includes(this.tagFilter)) &&
         (!this.abandonedOnly || d.abandoned) &&
         (!this.tldFilter || d.name.endsWith("." + this.tldFilter)) &&
-        (!this.aiFilter.length || this.aiFilter.includes(this.aiClass(d.ai))) &&
+        (!this.aiFilter.length || this.aiFilter.includes(d.ai && d.ai.grade)) &&
         (!q || d.name.includes(q) || d.unicode_name.toLowerCase().includes(q));
     },
 

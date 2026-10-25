@@ -135,6 +135,11 @@ Paramètres, Apparence : nom affiché en haut à gauche, logo (PNG, JPEG, WebP o
 rangé dans `data/`), taille réglable au curseur avec aperçu en direct (hauteur du logo de 20 à 120 px, ou taille du nom sans logo), et thème clair, sombre ou selon le système. Le réglage vaut pour tous les
 appareils.
 
+Interface : police Plus Jakarta Sans (noms de domaine en JetBrains Mono), deux accents (violet pour l'action, vert
+émeraude pour ce qui est libre ou rentable), thème sombre bleu nuit. Pictos Lucide (licence ISC) rangés dans un
+sprite SVG en tête de page. Sur ordinateur, barre latérale large dès 1 200 px (marque, rubriques Pilotage et
+Analyse, Paramètres et Déconnexion en pied), rail d'icônes en dessous ; barre du bas sur téléphone.
+
 ### Paramètres
 
 En tête, le bloc **Démarrer en 3 étapes** (le même que sur Aujourd'hui) tant qu'une étape manque. Puis,
@@ -250,7 +255,8 @@ Réglages communs, gardés d'un écran à l'autre :
 
 - **Pour revendre / Pour exploiter** : d'abord les noms que l'IA conseille (« À prendre », « À
   surveiller »), par sa note de revente ou d'exploitation ; puis les noms sans avis, par score ; à la
-  fin, ceux qu'elle déconseille (« À laisser »).
+  fin, ceux qu'elle déconseille (« À laisser »). Pour revendre, les conseillés vont par note de A à D,
+  puis par rendement attendu, puis par note de revente.
 - **Masquer les noms faibles** (case cochée par défaut) : sans avis IA, score sous 30 ; avec un avis,
   « À laisser », même à bon score.
 - **Types et catégories** : un, plusieurs ou tous, en puces à cocher (« Toutes » les efface). Plusieurs : union, un
@@ -921,7 +927,15 @@ jusqu'à 4 lettres ou mot très courant, 7 de 5 à 7 lettres ou mot courant, 4 d
 Rendement (version 7) : la note de revente est le potentiel du nom ; le verdict vient du rendement attendu, en
 euros par an : chance de vente dans l'année × prix utilisateur final bas × (1 − 20 % de commission), moins le
 renouvellement de l'extension chez Gandi. « À prendre » rapporte au moins deux fois son renouvellement, « À
-laisser » coûte plus qu'il ne rapporte (ou risque de 8 et plus), « À surveiller » entre les deux. La chance de
+laisser » coûte plus qu'il ne rapporte (ou risque de 8 et plus), « À surveiller » entre les deux.
+Note de A à E (`ai_format.grade`, même règle en SQL avec `grade_sql`) : chaque verdict coupé en deux selon ce
+rendement rapporté au renouvellement. A « Excellent » : « À prendre » qui rapporte au moins 4 fois son
+renouvellement ; B : les autres « À prendre » ; C « Bon pari » : « À surveiller » qui rapporte au moins la moitié
+de son renouvellement ; D : les autres « À surveiller » ; E : « À laisser ». Sans rendement calculé (avis
+anciens), la note de revente départage (70 pour un A, 55 pour un C). Au NAS le 25/10/2026 : 19 « À prendre » et
+1 110 « À surveiller », dont le rendement allait de 0,1 à plus de 2 000 € par an ; la note isole la trentaine de
+A et B et les quelque 330 C. Filtre « Note IA » (Explorer `ai_g=A,B`, Veille, Domaines ; `/api/ai/rated?grade=`),
+couleurs du Nutri-Score, échelle complète dans la fiche, comptes dans Statistiques. La chance de
 vente n'est pas estimée par l'IA : elle part des taux publiés (un portefeuille passif vend 1 à 2 % de ses noms par
 an, Allemann/DomainNameWire 2022-2024 ; Afternic juge 1 % « ambitieux » pour un débutant, 2026), monte avec la
 demande mesurée (nombre d'autres extensions où le nom est pris ; courbe Squadhelp 2021 : 2,84 % à 14,66 % selon 1 à

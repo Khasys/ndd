@@ -170,10 +170,14 @@ def ai_stats(conn, today: date) -> dict:
                                 (days[0],)).fetchall())
     verdicts = {v: conn.execute("SELECT COUNT(*) FROM domain_ai WHERE version >= ? AND comment LIKE ?",
                                 (ai.VERSION, f"{v}.%")).fetchone()[0] for v in ai.VERDICTS}
+    # Note de A à E (ai.grade) : la même règle qu'à l'écran, comptée en SQL.
+    counted = dict(conn.execute(f"SELECT {ai.grade_sql()} g, COUNT(*) FROM domain_ai WHERE version >= ? GROUP BY g",
+                                (ai.VERSION,)).fetchall())
+    grades = {g: counted.get(g, 0) for g in ai.GRADES}
     panels = [json.loads(r[0]) for r in conn.execute("SELECT panel FROM domain_ai WHERE panel IS NOT NULL")]
     takes = [p["take"] for p in panels]
     outcomes = ai.outcomes(conn)
-    return {"days": days, "per_day": [per_day.get(d, 0) for d in days], "verdicts": verdicts,
+    return {"days": days, "per_day": [per_day.get(d, 0) for d in days], "verdicts": verdicts, "grades": grades,
             "escalation": escalation.counts(conn),
             "panel": {"count": len(panels), "takes": [takes.count(k) for k in range(escalation.PANEL_VOTES + 1)],
                       "kept": verdicts_of_panel(conn)},

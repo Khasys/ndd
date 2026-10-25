@@ -707,6 +707,37 @@ def test_levels_and_resale_exploit_rankings(env):
     assert exploit[0]["label"] != "saucisse" or exploit[0]["score"] <= 40
 
 
+def test_grade_splits_each_verdict_on_the_expected_yield(env):
+    """Note de A à E : « À prendre » coupé en A et B, « À surveiller » en C et D, selon le rendement rapporté au
+    renouvellement ; la note de revente départage un avis sans rendement. Le filtre et le classement « pour
+    revendre » la suivent, rendement d'abord dans chaque note."""
+    from app import ai
+
+    assert ai.grade("À prendre", 50, 4 * 7.2, 7.2) == "A" and ai.grade("À prendre", 50, 3 * 7.2, 7.2) == "B"
+    assert ai.grade("À prendre", 70, None, None) == "A" and ai.grade("À prendre", 65, None, None) == "B"
+    assert ai.grade("À surveiller", 40, 0.5 * 15, None) == "C" and ai.grade("À surveiller", 60, 1.0, 15) == "D"
+    assert ai.grade("À surveiller", 55, None, None) == "C" and ai.grade("À laisser", 90, 999, 7) == "E"
+    assert ai.grade("", 90, 999, 7) is None
+    zone(env, [], ["maison"])
+    rows = [("pain.com", "À prendre", 60, 100.0, 14.0),     # A : 7 fois le renouvellement
+            ("lait.com", "À prendre", 60, 30.0, 14.0),      # B
+            ("miel.com", "À surveiller", 40, 20.0, 14.0),   # C, mieux que sucre
+            ("sucre.com", "À surveiller", 40, 8.0, 14.0),   # C
+            ("sel.com", "À surveiller", 60, 2.0, 14.0),     # D malgré sa note
+            ("thym.com", "À laisser", 80, -5.0, 14.0)]      # E
+    env.conn.executemany("""INSERT INTO domain_ai (name, exploit, resale, quick_low, quick_high, final_low, final_high,
+                            comment, rated_at, version, yield, renewal) VALUES (?, 40, ?, 0, 0, 500, 1000, ?, 'x', 7, ?, ?)""",
+                         [(n, r, f"{v}. Test. Acheteur type : test.", y, c) for n, v, r, y, c in rows])
+    env.ai_changed()
+    grades = {n: g for n, g in env.conn.execute(f"SELECT name, {ai.grade_sql()} FROM domain_ai")}
+    assert grades == {"pain.com": "A", "lait.com": "B", "miel.com": "C", "sucre.com": "C", "sel.com": "D", "thym.com": "E"}
+    picked = env.rank("com", status="all", ai=explore.ai_filter([], {}, ["C", "D"]), limit=10)["items"]
+    assert sorted(i["label"] for i in picked) == ["miel", "sel", "sucre"]
+    order = [i["label"] for i in env.rank("com", status="all", sort="resale", limit=60)["items"]]
+    assert order[:5] == ["pain", "lait", "miel", "sucre", "sel"] and "thym" not in order[:10]
+    assert [i["ai"]["grade"] for i in env.rank("com", q="pain", mode="exact", status="all")["items"]] == ["A"]
+
+
 def test_shortest_first_fills_the_page_with_a_level(env):
     """« Les plus courts » avec un niveau : la page est pleine, pas tronquée par le filtre."""
     add_fr(env, "zzzzz")
@@ -916,7 +947,8 @@ def test_fiche_lists_comparables_of_the_same_family_and_portfolio_references(env
     assert refs[2]["kind"] == "offre reçue" and refs[2]["best_offer"] == 250 and refs[2]["sold_price"] is None
     # Autres extensions : l'avis résumé quand il existe.
     others = {o["tld"]: o for o in env.fiche("velo.com")["others"]}
-    assert others["fr"]["ai_summary"] == {"verdict": "À prendre", "resale": 90, "final_low": 15000, "final_high": 50000}
+    assert others["fr"]["ai_summary"] == {"verdict": "À prendre", "resale": 90, "final_low": 15000, "final_high": 50000,
+                                          "grade": "A"}
     assert env.fiche("velo.fr")["others"][0]["ai_summary"] is None
 
 
