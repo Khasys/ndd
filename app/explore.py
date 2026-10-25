@@ -313,7 +313,7 @@ class Filters:
 def lens_key(opinion: dict, lens: str) -> tuple:
     """Classement « pour revendre / pour exploiter » d'un nom noté : palier, note choisie, puis l'autre note et le
     prix final bas. Sans ces départages, des centaines de noms à 60 sortaient dans l'ordre alphabétique.
-    Pour revendre, la note de A à E fait le palier et le rendement attendu départage, avant la note de revente."""
+    Pour revendre, la note de A à F fait le palier et le rendement attendu départage, avant la note de revente."""
     other = "exploit" if lens == "resale" else "resale"
     tail = (opinion[lens], opinion.get(other) or 0, opinion.get("final_low") or 0)
     if lens == "resale":
@@ -324,7 +324,7 @@ def lens_key(opinion: dict, lens: str) -> tuple:
 
 # Palier « pour revendre » d'un nom noté, selon sa note ; 1 : sans avis, 0 : « À laisser ». Un nom conseillé est
 # toujours au-dessus de 1 (parcours des conseillés d'abord, dans rank).
-GRADE_TIERS = {"A": 5, "B": 4, "C": 3, "D": 2}
+GRADE_TIERS = {"A": 6, "B": 5, "C": 4, "D": 3, "E": 2}
 NO_YIELD = -1e9  # avis sans rendement calculé : après ceux qui en ont un, dans leur palier
 
 
@@ -1337,7 +1337,7 @@ class Explorer:
 
     def _load_opinions(self, tld: str) -> dict[str, dict]:
         # Prix final et version : pour les comparables de la fiche, sans relire la table.
-        # Note de A à E et rendement : palier et départage du classement « pour revendre ».
+        # Note de A à F et rendement : palier et départage du classement « pour revendre ».
         found = {}
         for r in self.conn.execute("SELECT name, resale, exploit, comment, final_low, final_high, version, yield, renewal "
                                    "FROM domain_ai WHERE name LIKE ?", (f"%.{tld}",)):

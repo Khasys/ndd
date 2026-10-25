@@ -235,39 +235,48 @@ def derive(item: dict) -> dict:
     return {**found, "verdict": verdict}
 
 
-# --- Note de A à E : chaque verdict coupé en deux selon le rendement attendu --------------------------------------
+# --- Note de A à F : chaque verdict coupé selon le rendement attendu ------------------------------------------------
 # Trois verdicts ne suffisent pas pour trier : 19 « À prendre » et 1 110 « À surveiller » au NAS le 25/10/2026, dont
 # le rendement va de 0,1 à plus de 2 000 € par an. La note garde les verdicts et les affine : A et B sont des
-# « À prendre », C et D des « À surveiller », E les « À laisser ». Repère : le rendement (euros par an, renouvellement
-# ôté) rapporté au renouvellement de l'extension. Sans rendement calculé (avis d'avant la demande mesurée), la note
-# de revente départage.
-GRADES = {"A": "Excellent", "B": "À prendre", "C": "Bon pari", "D": "À surveiller", "E": "À laisser"}
-GRADE_TOP = 4.0          # A : rapporte au moins quatre fois son renouvellement chaque année (B : deux, TAKE_YIELD)
-GRADE_BET = 0.5          # C : rapporte au moins la moitié de son renouvellement chaque année
+# « À prendre », C, D et E des « À surveiller », F les « À laisser ». Repère : le rendement (bénéfice net attendu par
+# an, renouvellement déjà ôté) rapporté au renouvellement de l'extension. Sans rendement calculé (avis d'avant la
+# demande mesurée), la note de revente départage. « À surveiller » en trois : 681 des 1 110 sous la moitié du
+# renouvellement, coupés au quart (254 au-dessus, 427 en dessous ; au cinquième, un paquet de .com à 2,80 € par an
+# tombait pile sur la limite).
+GRADES = {"A": "Excellent", "B": "À prendre", "C": "Bon pari", "D": "À surveiller", "E": "Peu rentable", "F": "À laisser"}
+GRADE_TOP = 4.0          # A : bénéfice net d'au moins quatre fois le renouvellement par an (B : deux, TAKE_YIELD)
+GRADE_BET = 0.5          # C : bénéfice net d'au moins la moitié du renouvellement par an
+GRADE_WATCH = 0.25       # D : au moins le quart ; E : moins
 GRADE_TOP_RESALE = 70    # sans rendement : note de revente d'un A (le seuil des pépites)
 GRADE_BET_RESALE = 55    # sans rendement : note de revente d'un C
+GRADE_WATCH_RESALE = 50  # sans rendement : note de revente d'un D
 
 
 def grade(verdict: str | None, resale: int | None, gain: float | None, renewal: float | None) -> str | None:
-    """Note de A à E d'un avis (None sans verdict lisible). gain : rendement en euros par an (yield)."""
+    """Note de A à F d'un avis (None sans verdict lisible). gain : rendement en euros par an (yield)."""
     if verdict not in VERDICTS:
         return None
     if verdict == "À laisser":
-        return "E"
+        return "F"
     cost = renewal or DEFAULT_RENEWAL
-    top, floor, low = (GRADE_TOP, GRADE_TOP_RESALE, "AB") if verdict == "À prendre" else (GRADE_BET, GRADE_BET_RESALE, "CD")
-    high = gain >= top * cost if gain is not None else (resale or 0) >= floor
-    return low[0] if high else low[1]
+    steps = ((GRADE_TOP, GRADE_TOP_RESALE, "A"), (0, 0, "B")) if verdict == "À prendre" else \
+        ((GRADE_BET, GRADE_BET_RESALE, "C"), (GRADE_WATCH, GRADE_WATCH_RESALE, "D"), (0, 0, "E"))
+    for share, floor, mark in steps:
+        if (gain >= share * cost) if gain is not None else (resale or 0) >= floor:
+            return mark
+    return steps[-1][2]
 
 
 def grade_sql() -> str:
     """La même règle en SQL, sur une ligne de domain_ai (comment, resale, yield, renewal)."""
     cost = f"COALESCE(renewal, {DEFAULT_RENEWAL})"
-    return ("CASE WHEN comment LIKE 'À prendre.%' THEN CASE WHEN (yield IS NOT NULL AND yield >= "
-            f"{GRADE_TOP} * {cost}) OR (yield IS NULL AND resale >= {GRADE_TOP_RESALE}) THEN 'A' ELSE 'B' END "
-            "WHEN comment LIKE 'À surveiller.%' THEN CASE WHEN (yield IS NOT NULL AND yield >= "
-            f"{GRADE_BET} * {cost}) OR (yield IS NULL AND resale >= {GRADE_BET_RESALE}) THEN 'C' ELSE 'D' END "
-            "WHEN comment LIKE 'À laisser.%' THEN 'E' END")
+
+    def above(share: float, floor: int) -> str:
+        return f"((yield IS NOT NULL AND yield >= {share} * {cost}) OR (yield IS NULL AND resale >= {floor}))"
+    return (f"CASE WHEN comment LIKE 'À prendre.%' THEN CASE WHEN {above(GRADE_TOP, GRADE_TOP_RESALE)} THEN 'A' ELSE 'B' END "
+            f"WHEN comment LIKE 'À surveiller.%' THEN CASE WHEN {above(GRADE_BET, GRADE_BET_RESALE)} THEN 'C' "
+            f"WHEN {above(GRADE_WATCH, GRADE_WATCH_RESALE)} THEN 'D' ELSE 'E' END "
+            "WHEN comment LIKE 'À laisser.%' THEN 'F' END")
 
 
 def covers_purchase(item: dict) -> bool:

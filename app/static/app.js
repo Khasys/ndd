@@ -42,15 +42,17 @@ const MERGED_LISTS = { firstname_us: "firstname", surname_us: "surname", niche_u
 const bestSource = (r, key) => [key, ...Object.keys(MERGED_LISTS).filter((k) => MERGED_LISTS[k] === key)]
   .filter((k) => r[k]).sort((a, b) => r[a] - r[b])[0];
 const VERDICT_CLASSES = { "À prendre": "take", "À surveiller": "watch", "À laisser": "skip" };
-// Note de A à E (serveur, ai_format.grade) : chaque verdict coupé en deux selon le rendement attendu.
-const GRADES = { A: "Excellent", B: "À prendre", C: "Bon pari", D: "À surveiller", E: "À laisser" };
+// Note de A à F (serveur, ai_format.grade) : chaque verdict coupé selon le rendement attendu, un bénéfice net
+// (renouvellement déjà payé), rapporté au renouvellement de l'extension.
+const GRADES = { A: "Excellent", B: "À prendre", C: "Bon pari", D: "À surveiller", E: "Peu rentable", F: "À laisser" };
 const GRADE_KEYS = Object.keys(GRADES);
 const GRADE_TITLES = {
-  A: "À prendre, et rapporte au moins 4 fois son renouvellement par an",
-  B: "À prendre : rapporte au moins 2 fois son renouvellement par an",
-  C: "À surveiller, mais rapporte au moins la moitié de son renouvellement par an : un bon pari",
-  D: "À surveiller : rendement attendu faible",
-  E: "À laisser : ne rapporte pas son renouvellement",
+  A: "À prendre : bénéfice net attendu d'au moins 4 fois le renouvellement par an",
+  B: "À prendre : bénéfice net attendu d'au moins 2 fois le renouvellement par an",
+  C: "À surveiller, bon pari : bénéfice net attendu d'au moins la moitié du renouvellement par an",
+  D: "À surveiller : bénéfice net attendu d'au moins un quart du renouvellement par an",
+  E: "À surveiller, peu rentable : bénéfice net attendu sous un quart du renouvellement par an",
+  F: "À laisser : ne couvre pas son renouvellement",
 };
 // Statistiques : extensions avec leur couleur propre (--series-<tld>, ordre fixe de la palette validée) ;
 // les autres sont regroupées.
@@ -1912,7 +1914,7 @@ document.addEventListener("alpine:init", () => {
 
     exAiGrades() { return (this.ex.ai_g || "").split(",").filter(Boolean); },
 
-    // Note de A à E : plusieurs à la fois, dans l'ordre de l'échelle.
+    // Note de A à F : plusieurs à la fois, dans l'ordre de l'échelle.
     exToggleGrade(g) {
       const on = this.exAiGrades();
       const next = on.includes(g) ? on.filter((x) => x !== g) : [...on, g];
@@ -2670,11 +2672,11 @@ document.addEventListener("alpine:init", () => {
     },
 
     // Pour revendre / pour exploiter : conseillés par l'IA d'abord, puis sans avis, puis déconseillés. Pour revendre,
-    // comme l'Explorer (explore.lens_key) : la note de A à E fait le palier, le rendement attendu départage.
+    // comme l'Explorer (explore.lens_key) : la note de A à F fait le palier, le rendement attendu départage.
     dropLensTier(d) {
       if (!d.ai) return 1;
       if (this.aiVerdict(d.ai) === "À laisser") return 0;
-      return this.lens === "resale" ? ({ A: 5, B: 4, C: 3, D: 2 }[d.ai.grade] || 2) : 2;
+      return this.lens === "resale" ? ({ A: 6, B: 5, C: 4, D: 3, E: 2 }[d.ai.grade] || 2) : 2;
     },
 
     dropLensValue(d) {
@@ -2849,7 +2851,7 @@ document.addEventListener("alpine:init", () => {
       try {
         const saved = JSON.parse(localStorage.getItem("drops.filters") || "null");
         if (!saved) return;
-        // Note de A à E ; un filtre gardé d'avant (verdicts take, watch, skip) est oublié.
+        // Note de A à F ; un filtre gardé d'avant (verdicts take, watch, skip) est oublié.
         this.df = { ...DROP_FILTER_DEFAULTS, ...saved.df, ai: Array.isArray(saved.df?.ai) ? saved.df.ai.filter((g) => GRADE_KEYS.includes(g)) : [] };
         this.df.min = Number(this.df.min) || 0;  // anciens filtres : null voulait dire « pas choisi »
         // Ancien réglage : une seule extension, en texte.
@@ -3661,7 +3663,7 @@ document.addEventListener("alpine:init", () => {
         this.tagFilter = saved.tagFilter || null;
         this.abandonedOnly = !!saved.abandonedOnly;
         this.tldFilter = saved.tldFilter || "";
-        // Note de A à E ; un filtre gardé d'avant (verdicts take, watch, skip) est oublié.
+        // Note de A à F ; un filtre gardé d'avant (verdicts take, watch, skip) est oublié.
         this.aiFilter = Array.isArray(saved.aiFilter) ? saved.aiFilter.filter((g) => GRADE_KEYS.includes(g)) : [];
         if (saved.sortKey) { this.sortKey = saved.sortKey; this.sortDir = saved.sortDir || 1; }
       } catch (_) {}

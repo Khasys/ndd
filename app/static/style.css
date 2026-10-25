@@ -42,9 +42,9 @@
   --s-available-bg: #dcf7ea; --s-available-fg: #0b6a49; --s-available-dot: #12b981;
   --s-error-fg: #5b6180;    --s-error-line: #a3a8bf;
 
-  /* Note de A à E : couleurs du Nutri-Score, connues de tous en France. */
-  --g-a: #038141; --g-b: #85bb2f; --g-c: #f5bf00; --g-d: #ee8100; --g-e: #e63e11;
-  --g-a-fg: #ffffff; --g-b-fg: #ffffff; --g-c-fg: #3b2c00; --g-d-fg: #ffffff; --g-e-fg: #ffffff;
+  /* Note de A à F : du vert au rouge, comme le Nutri-Score et l'étiquette énergie, connus de tous en France. */
+  --g-a: #038141; --g-b: #4ca53a; --g-c: #9bc53d; --g-d: #f5bf00; --g-e: #ee8100; --g-f: #e63e11;
+  --g-a-fg: #ffffff; --g-b-fg: #ffffff; --g-c-fg: #213000; --g-d-fg: #3b2c00; --g-e-fg: #ffffff; --g-f-fg: #ffffff;
 
   --radius: 10px;
   --radius-sm: 8px;
@@ -96,7 +96,7 @@
   --s-available-bg: #0b3326; --s-available-fg: #6ff0bd; --s-available-dot: #2fd394;
   --s-error-fg: #a1a7cc;    --s-error-line: #5a6090;
 
-  --g-a: #12a35a; --g-b: #8cc63f; --g-c: #f7c51b; --g-d: #f28c1a; --g-e: #ef5a32;
+  --g-a: #12a35a; --g-b: #5cb84a; --g-c: #a8d14a; --g-d: #f7c51b; --g-e: #f28c1a; --g-f: #ef5a32;
   color-scheme: dark;
 }
 
@@ -143,7 +143,7 @@
     --s-available-bg: #0b3326; --s-available-fg: #6ff0bd; --s-available-dot: #2fd394;
     --s-error-fg: #a1a7cc;    --s-error-line: #5a6090;
 
-    --g-a: #12a35a; --g-b: #8cc63f; --g-c: #f7c51b; --g-d: #f28c1a; --g-e: #ef5a32;
+    --g-a: #12a35a; --g-b: #5cb84a; --g-c: #a8d14a; --g-d: #f7c51b; --g-e: #f28c1a; --g-f: #ef5a32;
     color-scheme: dark;
   }
 }
@@ -1821,20 +1821,22 @@ a.btn-ghost, a.btn { text-decoration: none; }
   display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 999px;
   background: var(--g); color: var(--gf); font-size: 11.5px; font-weight: 800;
 }
-.grade-chip.g-C { color: color-mix(in srgb, var(--g) 45%, var(--text)); }
+.grade-chip.g-C, .grade-chip.g-D { color: color-mix(in srgb, var(--g) 45%, var(--text)); }
 
 .grade-box { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
-.grade-scale { display: inline-flex; align-items: center; padding: 3px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow-sm); }
+/* Échelle de la fiche, à la manière du Nutri-Score : une gélule de couleur, la note du nom en grosse pastille ronde. */
+.grade-scale { display: inline-flex; align-items: center; padding: 6px 4px; filter: drop-shadow(0 1px 1px rgb(16 18 40 / .08)); }
 .grade-scale > span {
-  display: grid; place-items: center; width: 26px; height: 30px; margin: 0 -1px;
-  background: var(--g); color: var(--gf); font-size: 13px; font-weight: 800; opacity: .32;
+  display: grid; place-items: center; width: 24px; height: 28px;
+  background: var(--g); color: var(--gf); font-size: 12.5px; font-weight: 800; opacity: .38;
   transition: opacity 150ms, transform 150ms;
 }
-.grade-scale > span:first-child { border-radius: 9px 0 0 9px; }
-.grade-scale > span:last-child { border-radius: 0 9px 9px 0; }
+/* first-of-type : le <template> d'Alpine est le premier enfant, avant la lettre A. */
+.grade-scale > span:first-of-type { width: 28px; padding-left: 4px; border-radius: 999px 0 0 999px; }
+.grade-scale > span:last-of-type { width: 28px; padding-right: 4px; border-radius: 0 999px 999px 0; }
 .grade-scale > span.on {
-  position: relative; z-index: 1; width: 36px; height: 40px; margin: -5px 2px; border-radius: 10px; opacity: 1;
-  font-size: 18px; box-shadow: 0 0 0 3px var(--surface), 0 6px 16px -4px color-mix(in srgb, var(--g) 70%, transparent);
+  position: relative; z-index: 1; width: 42px; height: 42px; margin: 0 -5px; padding: 0; border-radius: 50%; opacity: 1;
+  font-size: 19px; box-shadow: 0 0 0 3px var(--surface), 0 6px 16px -4px color-mix(in srgb, var(--g) 70%, transparent);
 }
 .grade-name { font-size: 13px; font-weight: 700; color: var(--text); }
 
@@ -1859,6 +1861,7 @@ a.btn-ghost, a.btn { text-decoration: none; }
 .g-C { --g: var(--g-c); --gf: var(--g-c-fg); }
 .g-D { --g: var(--g-d); --gf: var(--g-d-fg); }
 .g-E { --g: var(--g-e); --gf: var(--g-e-fg); }
+.g-F { --g: var(--g-f); --gf: var(--g-f-fg); }
 @media (max-width: 899px) {
   .grade-pick { min-height: 36px; padding-right: 12px; }
   .grade-pick > span { font-size: 12px; }

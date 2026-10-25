@@ -426,7 +426,7 @@
       <dt>Grille</dt><dd>Neuf sous-notes sur 10 : prononciation, test radio, mémorisation, sens, marque, marché, extension, acheteurs, risque.</dd>
       <dt>Exploitation, revente</dt><dd>Notes sur 100, calculées depuis la grille : elles ne peuvent pas contredire le verdict.</dd>
       <dt>Verdict</dt><dd>À prendre (60 et plus, risque faible, des acheteurs plausibles), À surveiller, À laisser (40 et moins, ou risque fort).</dd>
-      <dt>Note de A à E</dt><dd>Chaque verdict coupé en deux selon le rendement attendu, rapporté au renouvellement de l'extension. A, Excellent : « À prendre » qui rapporte au moins 4 fois son renouvellement par an. B : les autres « À prendre » (au moins 2 fois). C, Bon pari : « À surveiller » qui rapporte au moins la moitié de son renouvellement. D : les autres « À surveiller ». E : « À laisser ». Sans rendement calculé (avis anciens), la note de revente départage : 70 pour un A, 55 pour un C. Filtre « Note IA » dans l'Explorer, la Veille et Domaines ; « Les meilleurs d'abord » (pour revendre) classe par note, puis par rendement.</dd>
+      <dt>Note de A à F</dt><dd>Chaque verdict coupé selon le rendement attendu : un bénéfice net par an, renouvellement déjà payé, rapporté au renouvellement de l'extension. A, Excellent : « À prendre » d'au moins 4 fois le renouvellement. B : les autres « À prendre » (au moins 2 fois). C, Bon pari : « À surveiller » d'au moins la moitié du renouvellement. D : « À surveiller » d'au moins un quart. E, Peu rentable : les autres « À surveiller ». F : « À laisser ». Exemple pour un .fr à 7,20 € : un C rapporte au moins 3,60 € de bénéfice net par an, soit 10,80 € de gain attendu avant renouvellement. C'est une espérance, pas une somme versée chaque année. Sans rendement calculé (avis anciens), la note de revente départage : 70 pour un A, 55 pour un C, 50 pour un D. Filtre « Note IA » dans l'Explorer, la Veille et Domaines ; « Les meilleurs d'abord » (pour revendre) classe par note, puis par rendement.</dd>
       <dt>Revente rapide</dt><dd>À un revendeur, 40 % du prix utilisateur final au plus.</dd>
       <dt>Utilisateur final</dt><dd>Fourchette encadrée par des paliers selon la note de revente et l'extension, un palier de tolérance de chaque côté (.fr : 90, 10 000 à 150 000 ; 85, 8 000 à 80 000 ; 80, 5 000 à 30 000 ; 70, 3 000 à 15 000…, sans plafond pour 1 ou 2 caractères). Repères indicatifs, pas une cote.</dd>
       <dt>Pourquoi</dt><dd>Pour « À laisser » ou « À surveiller », la cause principale : risque fort, sinon la sous-note la plus faible (sens, marque, marché, acheteurs). Un avis à l'ancienne grille sera renoté.</dd>
@@ -587,7 +587,7 @@
             <input type="range" min="0" max="90" step="5" :value="dropMin" @input="df.min = Number($event.target.value)" aria-label="Score minimum">
           </div>
           <h4 class="ex-group-title">Avis IA</h4>
-          <div class="ex-field"><span>Note IA, de A à E (noms notés seulement)</span>
+          <div class="ex-field"><span>Note IA, de A à F (noms notés seulement)</span>
             <div class="ex-options grade-picks">
               <template x-for="g in GRADE_KEYS" :key="g">
                 <button type="button" class="grade-pick" :class="'g-' + g + (df.ai.includes(g) ? ' on' : '')" :aria-pressed="df.ai.includes(g)" :title="gradeTitle(g)" @click="df.ai = df.ai.includes(g) ? df.ai.filter((x) => x !== g) : GRADE_KEYS.filter((x) => x === g || df.ai.includes(x))"><b x-text="g"></b><span x-text="gradeLabel(g)"></span></button>
@@ -903,7 +903,7 @@
             <input type="range" min="0" max="90" step="5" :value="ex.min || 0" @change="exSet({ min: $event.target.value })" aria-label="Score minimum">
           </div>
           <h4 class="ex-group-title">Avis IA</h4>
-          <div class="ex-field ex-ai"><span>Note IA, de A à E (noms notés seulement)</span>
+          <div class="ex-field ex-ai"><span>Note IA, de A à F (noms notés seulement)</span>
             <div class="ex-options grade-picks">
               <template x-for="g in GRADE_KEYS" :key="g">
                 <button type="button" class="grade-pick" :class="'g-' + g + (exAiGrades().includes(g) ? ' on' : '')" :aria-pressed="exAiGrades().includes(g)" :title="gradeTitle(g)" @click="exToggleGrade(g)"><b x-text="g"></b><span x-text="gradeLabel(g)"></span></button>
@@ -2176,7 +2176,7 @@
       <button type="button" class="help-btn" aria-label="Aide : score et note IA, deux échelles" title="Score et note IA : deux échelles, voir l'Aide" @click="helpAt('help-find')">?</button>
       <label class="weak-toggle">
         <input type="checkbox" :checked="weakHidden(screen)" @change="setWeak(screen, $event.target.checked)">
-        <span>Masquer les noms faibles <span class="weak-help muted">score sous 30 sans avis IA ; cache aussi les « À laisser » de l'IA, même bien notés</span></span>
+        <span>Masquer les noms faibles <span class="weak-help muted">score sous 30 sans avis IA ; cache aussi les « À laisser » (F) de l'IA, même bien notés</span></span>
       </label>
       <label class="weak-toggle">
         <input type="checkbox" :checked="premiumHidden(screen)" @change="setPremiumHidden(screen, $event.target.checked)">

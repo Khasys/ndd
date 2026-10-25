@@ -170,7 +170,7 @@ def ai_stats(conn, today: date) -> dict:
                                 (days[0],)).fetchall())
     verdicts = {v: conn.execute("SELECT COUNT(*) FROM domain_ai WHERE version >= ? AND comment LIKE ?",
                                 (ai.VERSION, f"{v}.%")).fetchone()[0] for v in ai.VERDICTS}
-    # Note de A à E (ai.grade) : la même règle qu'à l'écran, comptée en SQL.
+    # Note de A à F (ai.grade) : la même règle qu'à l'écran, comptée en SQL.
     counted = dict(conn.execute(f"SELECT {ai.grade_sql()} g, COUNT(*) FROM domain_ai WHERE version >= ? GROUP BY g",
                                 (ai.VERSION,)).fetchall())
     grades = {g: counted.get(g, 0) for g in ai.GRADES}

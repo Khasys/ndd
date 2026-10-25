@@ -1565,7 +1565,7 @@ def test_interface_verdict_badges_sorts_and_fiche_labels():
     js = (static / "app.js").read_text(encoding="utf-8")
     html = (static / "index.html").read_text(encoding="utf-8")
     css = (static / "style.css").read_text(encoding="utf-8")
-    # Une seule classe de pastille pour le verdict (repli sans note), la note de A à E en pastille de couleur ; plus de
+    # Une seule classe de pastille pour le verdict (repli sans note), la note de A à F en pastille de couleur ; plus de
     # verdict en texte gras coloré.
     assert ".verdict {" in css and ".grade-chip {" in css and html.count('class="grade-chip"') >= 5
     for gone in (".nc-ai", ".fd-ai", ".fiche-comp-ai", ".ex-reason.ai", "lineClass"):
