@@ -1009,7 +1009,10 @@ d'avertissements et d'erreurs en base, écrits chaque minute : `/api/diag/journa
 `level=ERROR`, `q=lente` ou `q=bloquée`), taille dans `journal` de `/api/diag` (environ 350 Ko pour une semaine
 ordinaire, 50 000 lignes et 8 Mo au plus). On y lit les requêtes de plus d'une seconde, avec leurs paramètres et leur
 code de retour, et les blocages de la boucle de l'appli de plus de 2 s : pendant un blocage rien n'est servi, et
-une réponse qui dépasse le délai du proxy devient une 502. Jamais
+une réponse qui dépasse le délai du proxy devient une 502. Un fil à part relève pendant le blocage la ligne de code
+qui tournait, les tâches planifiées et les requêtes en cours ; s'il est lui-même retenu, le verrou de Python était
+pris (nettoyage mémoire ou calcul en C). Les nettoyages mémoire de plus d'une seconde sont notés avec leur
+génération, et `gc` de `/api/diag` donne leurs comptes. Jamais
 les réglages, les secrets ni une écriture. Lecture depuis une session Claude :
 `python3 scripts/read_api.py /api/diag`. L'avis s'affiche dans la fiche et les listes, avec un tri « Par avis IA » (revente
 rapide) et un filtre dans le panneau de l'Explorer : verdicts, et bornes min et max de chaque note

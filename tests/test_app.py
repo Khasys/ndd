@@ -823,22 +823,58 @@ def test_journal_keeps_seven_days_of_warnings(logged, monkeypatch):
     client.__exit__(None, None, None)
 
 
-def test_a_blocked_loop_is_logged(monkeypatch):
-    """Boucle de l'appli bloquée : plus rien n'est servi et le proxy répond 502 ; c'est noté au journal."""
+def test_a_blocked_loop_says_what_was_running():
+    """Boucle de l'appli bloquée : plus rien n'est servi et le proxy répond 502. Le journal dit où elle était (pile
+    relevée par un fil à part), quelles tâches et requêtes tournaient ; un verrou de Python pris est signalé."""
     import time as clock
-    from app import main
+    from app import main, watchdog
 
-    monkeypatch.setattr(main, "LOOP_LAG", 0.05)
+    dog = watchdog.Watchdog(lag=0.15, tick=0.02, every=0.03)
+
+    def compute_on_the_loop():
+        end = clock.monotonic() + 0.5
+        while clock.monotonic() < end:
+            sum(range(1000))  # du Python : le fil de surveillance passe entre deux instructions
 
     async def run():
-        task = asyncio.get_running_loop().create_task(main.watch_loop(every=0.01))
-        await asyncio.sleep(0.03)
-        clock.sleep(0.2)  # calcul long sur la boucle
-        await asyncio.sleep(0.03)
+        task = asyncio.get_running_loop().create_task(dog.run())
+        await asyncio.sleep(0.05)
+        dog.job_started("scan_zones")
+        dog.requests[1] = ("GET /api/domains", clock.monotonic())
+        compute_on_the_loop()
+        await asyncio.sleep(0.2)
+        task.cancel()
+
+    dog.start()
+    try:
+        asyncio.run(run())
+    finally:
+        dog.stop()
+    line = next(r["message"] for r in reversed(main.RECENT.records) if r["message"].startswith("Boucle de l'appli bloquée"))
+    assert "dans test_app.py:" in line and "compute_on_the_loop" in line, line
+    assert "tâches en cours : scan_zones depuis" in line and "requêtes en cours : GET /api/domains depuis" in line, line
+    dog.held = 1.0
+    assert "verrou de Python pris" in dog.report(1.0) and "aucun relevé" not in dog.report(1.0)
+
+
+def test_a_slow_garbage_collection_is_logged():
+    """Nettoyage mémoire de Python de plus d'une seconde : noté avec sa génération (la 2 parcourt tout le tas)."""
+    from app import main, watchdog
+
+    dog = watchdog.Watchdog(tick=0.01)
+    dog._on_gc("start", {"generation": 2})
+    dog._gc_started -= 3.5  # nettoyage commencé il y a 3,5 s
+    dog._on_gc("stop", {"generation": 2, "collected": 12})
+    dog._on_gc("start", {"generation": 0})
+    dog._on_gc("stop", {"generation": 0, "collected": 3})  # court : pas noté
+
+    async def run():
+        task = asyncio.get_running_loop().create_task(dog.run())
+        await asyncio.sleep(0.05)
         task.cancel()
 
     asyncio.run(run())
-    assert any(r["message"].startswith("Boucle de l'appli bloquée") for r in main.RECENT.records)
+    assert main.RECENT.records[-1]["message"] == "Nettoyage mémoire de Python (génération 2) : 3.5 s, 12 objets libérés"
 
 
 def test_bad_inputs_get_422_or_404_not_500(logged):

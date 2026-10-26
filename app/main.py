@@ -1,5 +1,6 @@
 import asyncio
 import functools
+import gc
 import hashlib
 import hmac
 import html
@@ -20,7 +21,7 @@ from pathlib import Path
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import httpx
-from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_MISSED
+from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED, EVENT_JOB_MISSED, EVENT_JOB_SUBMITTED
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
@@ -31,7 +32,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import absent, ai, bot, escalation, exploit, exploit_format, mcp, registrations, stats, tokens, calendar_ics, ccdns, db, decisions, market, morning, notify, pepites, portfolio, digest, drops, explore, frdata, frdns, gandi, prenoms, reserved, seo, signals, states, updates, value, wordlists
+from . import absent, ai, bot, watchdog, escalation, exploit, exploit_format, mcp, registrations, stats, tokens, calendar_ics, ccdns, db, decisions, market, morning, notify, pepites, portfolio, digest, drops, explore, frdata, frdns, gandi, prenoms, reserved, seo, signals, states, updates, value, wordlists
 from .auth import (
     COOKIE_NAME,
     LoginGuard,
@@ -225,6 +226,17 @@ async def lifespan(app: FastAPI):
             events["missed"].append(entry)
 
     scheduler.add_listener(on_job_event, EVENT_JOB_MISSED | EVENT_JOB_ERROR)
+
+    def on_job_run(event) -> None:
+        # Tâches en cours, pour dire lesquelles tournaient pendant un blocage de la boucle (watchdog).
+        job = scheduler.get_job(event.job_id)
+        name = job.name.rsplit(".", 1)[-1] if job else event.job_id
+        if event.code == EVENT_JOB_SUBMITTED:
+            WATCHDOG.job_started(name)
+        else:
+            WATCHDOG.job_done(name)
+
+    scheduler.add_listener(on_job_run, EVENT_JOB_SUBMITTED | EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
     app.state.scheduler_events = events
 
     app.state.latest_version = None
@@ -564,11 +576,13 @@ async def lifespan(app: FastAPI):
         )
     else:
         log.info("Connexion attendue pour l'identifiant %r", settings.username)
-    watcher_task = asyncio.get_running_loop().create_task(watch_loop())
+    WATCHDOG.start()
+    watcher_task = asyncio.get_running_loop().create_task(WATCHDOG.run())
     try:
         yield
     finally:
         watcher_task.cancel()
+        WATCHDOG.stop()
         scheduler.shutdown(wait=False)
         try:
             save_journal(conn)
@@ -615,13 +629,18 @@ def fast_json(endpoint):
 
 
 SLOW_REQUEST = 1.0  # secondes : au-delà, la requête est notée au journal (lu par /api/diag)
-LOOP_LAG = 2.0  # secondes de retard de la boucle au-delà desquelles c'est noté : aucune requête servie pendant ce temps
+# Boucle bloquée plus de 2 s : ce qui tournait (pile, tâches, requêtes) et les nettoyages mémoire lents, au journal.
+WATCHDOG = watchdog.Watchdog()
 
 
 @app.middleware("http")
 async def log_slow_requests(request: Request, call_next):
     started = time.monotonic()
-    response = await call_next(request)
+    WATCHDOG.requests[id(request)] = (f"{request.method} {request.url.path}", started)
+    try:
+        response = await call_next(request)
+    finally:
+        WATCHDOG.requests.pop(id(request), None)
     spent = time.monotonic() - started
     if spent > SLOW_REQUEST and request.url.path.startswith("/api/"):
         # Paramètres et code de retour : une réponse de 100 s est une 502 pour le proxy, qui a cessé d'attendre.
@@ -629,16 +648,6 @@ async def log_slow_requests(request: Request, call_next):
         log.warning("Requête lente : %s %s%s en %.1f s (%s)", request.method, request.url.path,
                     f"?{query}" if query else "", spent, response.status_code)
     return response
-
-
-async def watch_loop(every: float = 1.0) -> None:
-    """Boucle de l'appli bloquée (calcul long hors fil, écriture lourde) : rien n'est servi, le proxy finit en 502."""
-    while True:
-        started = time.monotonic()
-        await asyncio.sleep(every)
-        late = time.monotonic() - started - every
-        if late > LOOP_LAG:
-            log.warning("Boucle de l'appli bloquée %.1f s : aucune requête servie pendant ce temps", late)
 
 
 @app.exception_handler(RequestValidationError)
@@ -2420,6 +2429,8 @@ async def diag(request: Request):
         "absent_pass": state.absent_pass.status(),
         "recent_errors": list(RECENT.records),
         "journal": journal_status(conn),  # les mêmes lignes sur 7 jours : /api/diag/journal
+        # Nettoyages mémoire de Python par génération (nombre, objets libérés) : une génération 2 longue bloque tout.
+        "gc": {"stats": gc.get_stats(), "pending": gc.get_count(), "frozen": gc.get_freeze_count()},
     }
 
 
