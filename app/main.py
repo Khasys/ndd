@@ -74,12 +74,14 @@ def _exception_line(exc: BaseException) -> str:
 
 
 class _Recent(logging.Handler):
-    """Derniers avertissements et erreurs du journal, gardés en mémoire pour le diagnostic."""
+    """Derniers avertissements et erreurs du journal, gardés en mémoire pour le diagnostic ; les mêmes lignes
+    attendent d'être écrites en base (save_journal, chaque minute), pour 7 jours."""
 
-    def __init__(self, size: int = 50):
+    def __init__(self, size: int = 50, unsaved: int = 5000):
         super().__init__(logging.WARNING)
         self.records: list[dict] = []
-        self.size = size
+        self.unsaved: list[dict] = []
+        self.size, self.unsaved_max = size, unsaved
 
     def emit(self, record: logging.LogRecord) -> None:
         # Rien qui touche à l'authentification : ces lignes citent parfois le début d'un réglage.
@@ -89,15 +91,63 @@ class _Recent(logging.Handler):
             message = record.getMessage()
             if record.exc_info and record.exc_info[1] is not None:
                 message += " : " + _exception_line(record.exc_info[1])
-            self.records.append({"at": iso(datetime.fromtimestamp(record.created, timezone.utc)),
-                                 "level": record.levelname, "logger": record.name, "message": _redact(message)[:500]})
+            entry = {"at": iso(datetime.fromtimestamp(record.created, timezone.utc)), "level": record.levelname,
+                     "logger": record.name, "message": _redact(message)[:500]}
+            self.records.append(entry)
             del self.records[:-self.size]
+            self.unsaved.append(entry)
+            del self.unsaved[:-self.unsaved_max]  # base injoignable longtemps : les plus récentes seulement
         except Exception:  # noqa: BLE001  un journal ne doit jamais casser l'appli
             pass
+
+    def take(self) -> list[dict]:
+        with self.lock:
+            taken, self.unsaved = self.unsaved, []
+        return taken
+
+    def give_back(self, entries: list[dict]) -> None:
+        with self.lock:
+            self.unsaved = (entries + self.unsaved)[-self.unsaved_max:]
 
 
 RECENT = _Recent()
 logging.getLogger().addHandler(RECENT)
+
+JOURNAL_DAYS = 7
+JOURNAL_MAX = 50_000  # lignes au plus, même pendant une rafale d'erreurs (une dizaine de Mo)
+
+
+def save_journal(conn, now: datetime | None = None) -> int:
+    """Lignes du journal en attente écrites en base, et celles de plus de 7 jours effacées."""
+    entries = RECENT.take()
+    cutoff = iso((now or utcnow()) - timedelta(days=JOURNAL_DAYS))
+    try:
+        conn.execute("BEGIN")
+        try:
+            conn.executemany("INSERT INTO journal (at, level, logger, message) VALUES (:at, :level, :logger, :message)",
+                             entries)
+            conn.execute("DELETE FROM journal WHERE at < ?", (cutoff,))
+            conn.execute("DELETE FROM journal WHERE rowid <= (SELECT MAX(rowid) FROM journal) - ?", (JOURNAL_MAX,))
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+    except Exception:
+        RECENT.give_back(entries)  # base occupée : réessayé à la minute suivante
+        raise
+    return len(entries)
+
+
+def journal_status(conn) -> dict:
+    """Taille du journal en base : lignes, plus ancienne, place sur le disque (pages de la table et de son index)."""
+    rows, since, text = conn.execute("SELECT COUNT(*), MIN(at), COALESCE(SUM(LENGTH(CAST(at || level || logger || message "
+                                     "AS BLOB))), 0) FROM journal").fetchone()
+    try:  # aggregate : une ligne par table, sans parcourir le reste de la base
+        size = sum(conn.execute("SELECT pgsize FROM dbstat WHERE name = ? AND aggregate = TRUE", (name,)).fetchone()[0] or 0
+                   for name in ("journal", "journal_at"))
+    except (sqlite3.Error, TypeError):  # SQLite compilé sans dbstat : le texte seul, index compris à peu près
+        size = text * 2
+    return {"days": JOURNAL_DAYS, "rows": rows, "since": since, "bytes": size or 0}
 
 
 class _MaskMcp(logging.Filter):
@@ -117,7 +167,7 @@ AI_PATHS = {"/api/ai/pending", "/api/ai/results", "/api/ai/escalation", "/api/ai
             "/api/exploit/results"}
 # Lecture seule avec le même jeton : de quoi observer et analyser, jamais modifier ni lire un réglage.
 # Explorer : les écrans seulement (liste, classement, carte, fiches, export), pas les vues enregistrées.
-READ_PATHS = re.compile(r"^/api/(meta|diag|stats|today|domains|domains/\d+/history|drops|explore(/(rank|top|map|name|fiche|export))?|ai/(status|rated|outcomes))$")
+READ_PATHS = re.compile(r"^/api/(meta|diag(/journal)?|stats|today|domains|domains/\d+/history|drops|explore(/(rank|top|map|name|fiche|export))?|ai/(status|rated|outcomes))$")
 PUBLIC_PATHS = {"/login", "/health", "/favicon.svg", "/logo", *PWA_PATHS}
 SETUP_PATHS = {"/setup", "/health", "/favicon.svg", "/logo"}
 BCRYPT_HASH = re.compile(r"\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}")
@@ -210,6 +260,10 @@ async def lifespan(app: FastAPI):
         """Toutes les 10 minutes : les pannes apparues ou réglées sont notées pour la rubrique Santé du quotidien ;
         les bloquantes partent au passage suivant de send_alerts."""
         await _off(morning.record_health, store, await _off(morning.problems, app.state, utcnow()), utcnow())
+
+    async def flush_journal() -> None:
+        # Hors de la boucle : une base occupée ne doit pas la bloquer (c'est justement ce que le journal surveille).
+        await asyncio.get_running_loop().run_in_executor(None, save_journal, conn)
 
     async def refresh_signals() -> None:
         await signals.update_due(conn, limit=20)
@@ -361,6 +415,8 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(telegram.flush, "interval", minutes=5, next_run_time=now + timedelta(minutes=7), max_instances=1, id="telegram_flush")
     scheduler.add_job(send_daily, "interval", minutes=5, next_run_time=now + timedelta(minutes=5), max_instances=1, id="send_daily")
     scheduler.add_job(check_health, "interval", minutes=10, next_run_time=now + timedelta(minutes=20), max_instances=1)
+    scheduler.add_job(flush_journal, "interval", minutes=1, next_run_time=now + timedelta(minutes=1), max_instances=1,
+                      id="journal")
     scheduler.add_job(refresh_signals, "interval", hours=1, next_run_time=now + timedelta(minutes=2), max_instances=1)
     scheduler.add_job(send_alerts, "interval", minutes=1, next_run_time=now + timedelta(minutes=7), max_instances=1, id="send_alerts")
     scheduler.add_job(update_outcomes, "cron", hour=4, minute=40, max_instances=1, id="ai_outcomes")
@@ -508,10 +564,16 @@ async def lifespan(app: FastAPI):
         )
     else:
         log.info("Connexion attendue pour l'identifiant %r", settings.username)
+    watcher_task = asyncio.get_running_loop().create_task(watch_loop())
     try:
         yield
     finally:
+        watcher_task.cancel()
         scheduler.shutdown(wait=False)
+        try:
+            save_journal(conn)
+        except Exception:  # noqa: BLE001  arrêt : la dernière minute du journal est perdue, rien de plus
+            log.exception("Journal non écrit à l'arrêt")
         await telegram.stop()
         await rdap.close()
         await http.aclose()
@@ -553,6 +615,7 @@ def fast_json(endpoint):
 
 
 SLOW_REQUEST = 1.0  # secondes : au-delà, la requête est notée au journal (lu par /api/diag)
+LOOP_LAG = 2.0  # secondes de retard de la boucle au-delà desquelles c'est noté : aucune requête servie pendant ce temps
 
 
 @app.middleware("http")
@@ -561,8 +624,21 @@ async def log_slow_requests(request: Request, call_next):
     response = await call_next(request)
     spent = time.monotonic() - started
     if spent > SLOW_REQUEST and request.url.path.startswith("/api/"):
-        log.warning("Requête lente : %s %s en %.1f s", request.method, request.url.path, spent)
+        # Paramètres et code de retour : une réponse de 100 s est une 502 pour le proxy, qui a cessé d'attendre.
+        query = _redact(request.url.query)[:200]
+        log.warning("Requête lente : %s %s%s en %.1f s (%s)", request.method, request.url.path,
+                    f"?{query}" if query else "", spent, response.status_code)
     return response
+
+
+async def watch_loop(every: float = 1.0) -> None:
+    """Boucle de l'appli bloquée (calcul long hors fil, écriture lourde) : rien n'est servi, le proxy finit en 502."""
+    while True:
+        started = time.monotonic()
+        await asyncio.sleep(every)
+        late = time.monotonic() - started - every
+        if late > LOOP_LAG:
+            log.warning("Boucle de l'appli bloquée %.1f s : aucune requête servie pendant ce temps", late)
 
 
 @app.exception_handler(RequestValidationError)
@@ -2343,7 +2419,34 @@ async def diag(request: Request):
         # Passe des absents de zone (absent.py) : lots du jour et totaux par état au registre.
         "absent_pass": state.absent_pass.status(),
         "recent_errors": list(RECENT.records),
+        "journal": journal_status(conn),  # les mêmes lignes sur 7 jours : /api/diag/journal
     }
+
+
+@app.get("/api/diag/journal")
+async def diag_journal(request: Request):
+    """Avertissements et erreurs des 7 derniers jours, les plus récents d'abord : depuis (since, ISO), erreurs seules
+    (level=ERROR) et texte (q=lente, q=bloquée) en option. Ce qui n'est pas encore écrit en base y est aussi."""
+    conn = request.app.state.conn
+    limit = _limit(request, 2000)
+    where, args = ["1"], []
+    since = request.query_params.get("since", "")
+    if since:
+        where.append("at >= ?")
+        args.append(since)
+    errors = request.query_params.get("level", "").upper() == "ERROR"  # sans les simples avertissements
+    if errors:
+        where.append("level IN ('ERROR', 'CRITICAL')")
+    text = request.query_params.get("q", "")
+    if text:
+        where.append("message LIKE ?")
+        args.append(f"%{text}%")
+    rows = [dict(r) for r in conn.execute(f"SELECT at, level, logger, message FROM journal WHERE {' AND '.join(where)} "
+                                          "ORDER BY at DESC LIMIT ?", (*args, limit))]
+    waiting = [e for e in reversed(list(RECENT.unsaved)) if (not since or e["at"] >= since)
+               and (not text or text.lower() in e["message"].lower())
+               and (not errors or e["level"] in ("ERROR", "CRITICAL"))]
+    return {**journal_status(conn), "entries": (waiting + rows)[:limit]}
 
 
 @app.post("/api/settings/ai-token")

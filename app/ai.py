@@ -223,23 +223,54 @@ REVIEW_PER_NIGHT = 50
 REVIEW_GAP = 25  # écart minimal, en points de note, entre l'avis et l'estimation
 
 
+def _fill_estimates(explorer, known) -> None:
+    """Estimation du score gardée avec l'avis (colonne estimate) : la recalculer pour 70 000 avis à chaque lot
+    prenait l'essentiel des 30 s de la file sur le NAS. Seuls les nouveaux avis sont estimés ; tous le sont de
+    nouveau quand l'appli ou le modèle de score change."""
+    import hashlib
+
+    from . import config, quality
+    from .store import Store
+
+    conn, store = explorer.conn, Store(explorer.conn)
+    model = hashlib.blake2b((quality.DATA / "score_model.json").read_bytes(), digest_size=8).hexdigest()
+    key = f"{config.VERSION}:{model}"
+    if store.get("ai_estimate_key") != key:
+        conn.execute("UPDATE domain_ai SET estimate = NULL WHERE estimate IS NOT NULL")
+        store.set("ai_estimate_key", key)
+    missing = []
+    for (name,) in conn.execute("SELECT name FROM domain_ai WHERE estimate IS NULL AND version >= ? AND reviewed_at IS NULL",
+                                (VERSION,)):
+        if known(name):  # demandé depuis la fiche, hors univers ou hors extension suivie : jamais revu
+            label, _, tld = name.rpartition(".")
+            missing.append((round(quality.predict(label, tld)[0]), name))
+    if missing:
+        conn.execute("BEGIN")  # une seule écriture : 70 000 mises à jour une par une prenaient des secondes
+        try:
+            conn.executemany("UPDATE domain_ai SET estimate = ? WHERE name = ?", missing)
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+
+
 def to_review(explorer, limit: int = REVIEW_PER_NIGHT) -> list[tuple[str, int, int]]:
     """(nom, meilleure note de l'avis, estimation du score) des avis à revoir, les plus gros écarts d'abord."""
-    from . import quality
-
+    if limit <= 0:
+        return []
     known = known_name(explorer)
+    _fill_estimates(explorer, known)
     found = []
-    for name, exploit, resale in explorer.conn.execute(
-            "SELECT name, exploit, resale FROM domain_ai WHERE version >= ? AND reviewed_at IS NULL "
-            "AND name NOT IN (SELECT name FROM ai_escalation)", (VERSION,)):  # l'escalade a déjà revu ce nom
-        if not known(name):
-            continue  # demandé depuis la fiche, hors univers ou hors extension suivie : pas de second passage
-        label, _, tld = name.rpartition(".")
-        estimate = round(quality.predict(label, tld)[0])
-        best = max(exploit, resale)
-        if abs(best - estimate) >= REVIEW_GAP:
-            found.append((abs(best - estimate), name, best, estimate))
-    return [(name, best, estimate) for _, name, best, estimate in sorted(found, reverse=True)[:limit]]
+    for name, best, estimate in explorer.conn.execute(
+            "SELECT name, MAX(exploit, resale), estimate FROM domain_ai WHERE version >= ? AND reviewed_at IS NULL "
+            "AND estimate IS NOT NULL AND ABS(MAX(exploit, resale) - estimate) >= ? "
+            "AND name NOT IN (SELECT name FROM ai_escalation) "  # l'escalade a déjà revu ce nom
+            "ORDER BY ABS(MAX(exploit, resale) - estimate) DESC, name DESC", (VERSION, REVIEW_GAP)):
+        if known(name):
+            found.append((name, best, estimate))
+            if len(found) >= limit:
+                break
+    return found
 
 
 COMPARABLES = 4  # ventes réelles les plus proches, jointes à chaque nom du lot (repères de prix)

@@ -1,6 +1,7 @@
 import asyncio
 import time
 import json
+import re
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -794,6 +795,50 @@ def test_diag_log_keeps_exception_cause_without_secrets():
     line = main.RECENT.records[-1]["message"]
     assert line.startswith("Tâche en échec : ValueError: ") and "test_app.py" not in line
     assert "123456:ABC" not in line and "token=abc" not in line and "bot<masqué>" in line
+
+
+def test_journal_keeps_seven_days_of_warnings(logged, monkeypatch):
+    """Requêtes lentes (paramètres et code de retour), erreurs : gardées 7 jours en base, lisibles par /api/diag/journal,
+    taille mesurée dans /api/diag. Ce qui n'est pas encore écrit est lu en mémoire."""
+    import logging
+    from app import main
+
+    client = logged()
+    conn = client.app.state.conn
+    main.RECENT.take()  # lignes laissées par les tests précédents
+    monkeypatch.setattr(main, "SLOW_REQUEST", -1.0)
+    client.get("/api/domains?tag=x&token=secret")
+    monkeypatch.setattr(main, "SLOW_REQUEST", 1.0)
+    logging.getLogger("test").error("Tâche en échec")
+    conn.execute("INSERT INTO journal (at, level, logger, message) VALUES ('2020-01-01T00:00:00+00:00', 'WARNING', 't', 'vieux')")
+    slow = client.get("/api/diag/journal?q=lente").json()["entries"]
+    assert len(slow) == 1 and re.fullmatch(r"Requête lente : GET /api/domains\?tag=x&token=<masqué> en [\d.]+ s \(200\)",
+                                            slow[0]["message"]), slow
+    assert main.save_journal(conn) >= 2
+    kept = [r[0] for r in conn.execute("SELECT message FROM journal")]
+    assert "vieux" not in kept and "Tâche en échec" in kept and slow[0]["message"] in kept  # plus de 7 jours : effacé
+    assert [e["message"] for e in client.get("/api/diag/journal?level=ERROR").json()["entries"]] == ["Tâche en échec"]
+    status = client.get("/api/diag").json()["journal"]
+    assert status["days"] == 7 and status["rows"] == len(kept) and status["bytes"] > 0
+    client.__exit__(None, None, None)
+
+
+def test_a_blocked_loop_is_logged(monkeypatch):
+    """Boucle de l'appli bloquée : plus rien n'est servi et le proxy répond 502 ; c'est noté au journal."""
+    import time as clock
+    from app import main
+
+    monkeypatch.setattr(main, "LOOP_LAG", 0.05)
+
+    async def run():
+        task = asyncio.get_running_loop().create_task(main.watch_loop(every=0.01))
+        await asyncio.sleep(0.03)
+        clock.sleep(0.2)  # calcul long sur la boucle
+        await asyncio.sleep(0.03)
+        task.cancel()
+
+    asyncio.run(run())
+    assert any(r["message"].startswith("Boucle de l'appli bloquée") for r in main.RECENT.records)
 
 
 def test_bad_inputs_get_422_or_404_not_500(logged):

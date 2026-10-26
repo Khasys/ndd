@@ -836,6 +836,24 @@ def test_review_pass_skips_names_outside_the_universe(env):
     assert names[0] == "maison.fr" and len(names) == 10
 
 
+def test_review_estimate_is_kept_and_redone_for_a_new_version(env, monkeypatch):
+    """Le second passage ne recalcule plus l'estimation de chaque avis à chaque lot (30 s de file sur le NAS) :
+    gardée avec l'avis, elle n'est refaite que pour un nouvel avis ou une nouvelle version de l'appli."""
+    from app import ai, config, quality
+
+    add_fr(env, "zzzzz")  # .fr suivi
+    env.conn.execute("""INSERT INTO domain_ai (name, exploit, resale, quick_low, quick_high, final_low, final_high, comment,
+                        rated_at, version) VALUES ('maison.fr', 5, 5, 0, 0, 0, 100, 'À laisser. Test.', 'x', ?)""", (ai.VERSION,))
+    estimate = round(quality.predict("maison", "fr")[0])
+    assert ai.to_review(env) == [("maison.fr", 5, estimate)]
+    assert env.conn.execute("SELECT estimate FROM domain_ai WHERE name = 'maison.fr'").fetchone()[0] == estimate
+    calls = []
+    monkeypatch.setattr(quality, "predict", lambda *a, **k: calls.append(a) or (5.0, 0.0, 0.0))
+    assert ai.to_review(env) == [("maison.fr", 5, estimate)] and calls == []  # gardée : rien de recalculé
+    monkeypatch.setattr(config, "VERSION", "v99.0.0")
+    assert ai.to_review(env) == [] and calls == [("maison", "fr")]  # nouvelle version : refaite (écart 0)
+
+
 def test_resale_ranking_rates_only_the_names_that_can_enter(env, monkeypatch):
     """Classement « pour revendre » : les avis conseillés passent devant tout nom sans avis, dans l'ordre de
     leur note, sans noter chaque nom ; un avis « À laisser » ne passe devant personne."""

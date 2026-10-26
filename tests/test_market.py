@@ -106,3 +106,49 @@ def test_pending_offset_returns_the_next_slice(env):
     first = [n["name"] for n in ai.pending(env, 10)]
     second = [n["name"] for n in ai.pending(env, 5, offset=5)]
     assert second == first[5:10]
+
+
+def test_comparables_stop_early_but_pick_what_a_full_sort_picks(tmp_path):
+    """Des milliers de ventes de même forme en .com : la recherche s'arrête dès qu'aucune vente restante ne peut
+    entrer dans les k meilleures, sans changer le choix d'un tri complet (notes égales départagées par le prix)."""
+    import random
+
+    random.seed(3)
+    words = ["velo", "maison", "jardin", "credit", "voyage", "photo", "music", "sport", "garage", "piscine", "cuisine",
+             "travel", "money", "house", "green", "smart", "auto", "bio", "zen", "pro"]
+    sales, seen = [], set()
+    while len(sales) < 1500:
+        label = "".join(random.sample(words, random.randint(1, 3)))
+        name = f"{label}.{random.choice(['com', 'com', 'com', 'fr', 'net'])}"
+        if name not in seen:
+            seen.add(name)
+            day = date(2019, 1, 1) + timedelta(days=random.choice(range(0, 2800, 7)))  # dates communes : égalités
+            sales.append({"name": name, "price": random.choice([2000, 2500, 3000, 5000]), "date": day.isoformat(),
+                          "venue": "Sedo", "source": "test"})
+    m = make(tmp_path)
+    m.save("u", sales, datetime.now(timezone.utc))
+    every, _, _ = m.index()
+
+    def full_sort(name, k, today):
+        label, _, tld = name.partition(".")
+        mine = market.split_words(label)
+        shared_words, lang, shape = market.keywords(mine), market.language(mine), min(len(mine), 3)
+        scored = []
+        for i, s in enumerate(every):
+            shared = len(shared_words & s["stems"])
+            if not shared and (s["tld"] != tld or min(len(s["words"]), 3) != shape):
+                continue  # ni mot commun ni même forme : pas candidate
+            score = 40 * shared + (25 if s["tld"] == tld else 10 if s["tld"] in market.GENERIC and tld in market.GENERIC else 0)
+            score += 10 if min(len(s["words"]), 3) == shape else 0
+            score += 15 if lang and s["lang"] == lang else 0
+            score -= 3 * abs(len(s["label"]) - len(label))
+            score -= 2 * max(0.0, (today - date.fromisoformat(s["date"])).days / 365)
+            scored.append((score, -s["price"], i))
+        scored.sort(reverse=True)
+        return [every[i]["name"] for _, _, i in scored[:k]]
+
+    queries = [s["name"] for s in sales[:150]] + ["velomaison.com", "zzqx.com", "photo.fr", "smartgreenhouse.net", "a.com"]
+    for k in (1, 4, 12):
+        for today in (date(2026, 10, 26), date(2018, 1, 1)):
+            for name in queries:
+                assert [s["name"] for s in m.comparables(name, k, today)] == full_sort(name, k, today), (name, k, today)

@@ -10,6 +10,7 @@ signalée tout de suite sur Telegram (morning.BLOCKING, clé « market »).
 """
 
 import asyncio
+import heapq
 import html
 import json
 import logging
@@ -236,17 +237,23 @@ class Market:
     def _build(self):
         rows = self.conn.execute("SELECT name, price, date, venue FROM market_sales").fetchall()
         by_word: dict[str, list[int]] = {}
-        by_shape: dict[tuple, list[int]] = {}
+        by_shape: dict[tuple, dict[int, list[int]]] = {}
         sales = []
         for r in rows:
             label, _, tld = r["name"].partition(".")
             words = split_words(label)
             sale = {"name": r["name"], "price": r["price"], "date": r["date"], "venue": r["venue"], "label": label,
-                    "tld": tld, "words": words, "stems": keywords(words), "lang": language(words)}
+                    "tld": tld, "words": words, "stems": keywords(words), "lang": language(words),
+                    "day": date.fromisoformat(r["date"]).toordinal()}
             sales.append(sale)
             for w in sale["stems"]:
                 by_word.setdefault(w, []).append(len(sales) - 1)
-            by_shape.setdefault((tld, min(len(words), 3)), []).append(len(sales) - 1)
+            by_shape.setdefault((tld, min(len(words), 3)), {}).setdefault(len(label), []).append(len(sales) - 1)
+        # Même forme, rangées par longueur puis de la plus récente à la plus ancienne : les comparables s'arrêtent dès
+        # qu'aucune vente restante ne peut entrer dans les k meilleures (des milliers de ventes en .com).
+        for lengths in by_shape.values():
+            for group in lengths.values():
+                group.sort(key=lambda i: -sales[i]["day"])
         return sales, by_word, by_shape
 
     def index(self):
@@ -259,27 +266,50 @@ class Market:
         """Les k ventes les plus proches : un mot en commun d'abord, puis même extension, même nombre de mots,
         longueur voisine ; les ventes récentes passent devant les anciennes."""
         sales, by_word, by_shape = self.index()
-        if not sales:
+        if not sales or k <= 0:
             return []
         label, _, tld = name.lower().partition(".")
         words = split_words(label)
-        today = today or date.today()
+        today = (today or date.today()).toordinal()
         shared_words = keywords(words)
         lang = language(words)
-        candidates = {i for w in shared_words for i in by_word.get(w, ())}
-        candidates |= set(by_shape.get((tld, min(len(words), 3)), ()))
-        scored = []
-        for i in candidates:
-            s = sales[i]
-            shared = len(shared_words & s["stems"])
-            score = 40 * shared + (25 if s["tld"] == tld else 10 if s["tld"] in GENERIC and tld in GENERIC else 0)
-            score += 10 if min(len(s["words"]), 3) == min(len(words), 3) else 0
-            score += 15 if lang and s["lang"] == lang else 0
-            score -= 3 * abs(len(s["label"]) - len(label))
-            age = (today - date.fromisoformat(s["date"])).days / 365
-            score -= 2 * max(0.0, age)
-            if shared or s["tld"] == tld:
-                scored.append((score, -s["price"], i))
+        shape = min(len(words), 3)
+
+        def score(s, shared: int) -> float:
+            value = 40 * shared + (25 if s["tld"] == tld else 10 if s["tld"] in GENERIC and tld in GENERIC else 0)
+            value += 10 if min(len(s["words"]), 3) == shape else 0
+            value += 15 if lang and s["lang"] == lang else 0
+            value -= 3 * abs(len(s["label"]) - len(label))
+            return value - 2 * max(0.0, (today - s["day"]) / 365)
+
+        with_word = {i for w in shared_words for i in by_word.get(w, ())}
+        scored = [(score(sales[i], len(shared_words & sales[i]["stems"])), -sales[i]["price"], i) for i in with_word]
+        best = heapq.nlargest(k, (s for s, _, _ in scored))  # k meilleures notes jusqu'ici
+        heapq.heapify(best)
+        # Même forme sans mot commun : 50 points au plus (extension 25, forme 10, langue 15), moins 3 par lettre
+        # d'écart et 2 par an. Une vente ne passe que si ce plafond atteint la k-ième note ; à égalité elle reste en
+        # lice (départage par le prix), d'où la marge.
+        lengths = by_shape.get((tld, shape), {})
+
+        def floor() -> float:
+            return best[0] - 1e-9 if len(best) >= k else float("-inf")
+
+        gap = 0
+        while lengths and 50 - 3 * gap >= floor() and gap <= max(lengths) + len(label):
+            for size in {len(label) - gap, len(label) + gap}:
+                for i in lengths.get(size, ()):
+                    s = sales[i]
+                    if 50 - 3 * gap - 2 * max(0.0, (today - s["day"]) / 365) < floor():
+                        break  # les suivantes sont plus anciennes
+                    if i in with_word:
+                        continue
+                    found = score(s, 0)
+                    scored.append((found, -s["price"], i))
+                    if len(best) < k:
+                        heapq.heappush(best, found)
+                    elif found > best[0]:
+                        heapq.heapreplace(best, found)
+            gap += 1
         scored.sort(reverse=True)
         return [{k_: sales[i][k_] for k_ in ("name", "price", "date", "venue")} for _, _, i in scored[:k]]
 
