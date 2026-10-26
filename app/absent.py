@@ -80,6 +80,7 @@ class AbsentPass:
         self.clock = time.monotonic
         self.running = False
         self.stop = False
+        self._off = _inline  # run() le remplace par main._off : écritures hors de la boucle
         self._queues: dict[str, collections.deque] = {}  # serveur -> noms à demander
         self._queue_at = 0.0
         self._hosts: dict[str, dict] = {}  # serveur -> succès d'affilée, pause, prochain départ, refus, dernière erreur
@@ -270,7 +271,9 @@ class AbsentPass:
             log.warning("Passe des absents : %s refuse (%s), rythme %.2f/s, pause %d s", host, exc, self.rate_of(base), pause)
             return
         try:
-            kind = self.record(name, result)
+            # Hors de la boucle : l'écriture attend la base quand un autre fil y écrit (jusqu'à 20 s au NAS, la boucle
+            # bloquée n'aurait plus rien servi pendant ce temps, journal du 26/10/2026).
+            kind = await self._off(self.record, name, result)
         except Exception:
             log.exception("Passe des absents : %s non enregistré", name)
             return
@@ -291,6 +294,7 @@ class AbsentPass:
         if self.running or not self.enabled:
             return {"started": False}
         self.running, self.stop = True, False
+        self._off = off
         asked = 0
         flight: set[asyncio.Task] = set()
         try:
@@ -352,6 +356,10 @@ class AbsentPass:
                 "off_today": self._off_today(base)}
         return {"enabled": self.enabled, "running": self.running, "tlds": self.tlds(), "max_rate": MAX_RATE,
                 "queued": self.queued(), "today": self.today, "registries": hosts, "totals": self.totals()}
+
+
+async def _inline(fn, *args):
+    return fn(*args)
 
 
 async def _drain(flight: set) -> None:

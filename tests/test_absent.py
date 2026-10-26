@@ -83,6 +83,21 @@ def test_pending_takes_absent_names_best_first_and_skips_known_ones(env):
     assert names[0] not in run.pending(300)
 
 
+def test_answers_are_written_off_the_loop(env):
+    """L'écriture d'une réponse passe par off (un fil de calcul) : sur la boucle, elle attendait la base pendant qu'un
+    autre fil y écrivait, jusqu'à 20 s au NAS, et l'appli ne servait plus rien (journal du 26/10/2026)."""
+    answers = {"jardin.com": 404, "smart.com": registered()}
+    run, _, _, _ = make(env, answers, list(answers))
+    sent = []
+
+    async def off(fn, *args):
+        sent.append(fn.__name__)
+        return fn(*args)
+
+    asyncio.run(run.run(off))
+    assert sent.count("record") == 2 and env.drops.row("jardin.com")["state"] == states.AVAILABLE
+
+
 def test_pass_records_the_registry_state_quietly(env):
     answers = {"jardin.com": 404, "forhome.com": registered("redemption period"), "smart.com": registered(),
                "held.com": registered("client hold")}
