@@ -267,6 +267,10 @@ document.addEventListener("alpine:init", () => {
     dropsData: null,
     exploreOpen: false,
     portfolioOpen: false,
+    // Entreprises : présence en ligne des grandes entreprises (audit), à part du reste.
+    companiesOpen: false,
+    co: { q: "", gaps: "", category: "", items: [], total: 0, status: null, running: false, current: "",
+          open: "", suggest: [], suggestOpen: false, suggestError: "", newName: "", loading: false },
     pf: null,
     pfNew: { name: "", buy_price: "", bought_on: "", renew_price: "" },
     // Noms ajoutés au portefeuille dont le registre est interrogé en arrière-plan (jusqu'au rechargement suivant).
@@ -425,6 +429,7 @@ document.addEventListener("alpine:init", () => {
       this.$watch("dropsOpen", () => this.lockScroll());
       this.$watch("exploreOpen", () => this.lockScroll());
       this.$watch("portfolioOpen", () => this.lockScroll());
+      this.$watch("companiesOpen", () => this.lockScroll());
       // Veille ouverte : le travail .fr est suivi en direct.
       setInterval(() => { if (this.dropsOpen && document.visibilityState === "visible") this.loadDrops(true); }, 15000);
       this.$watch("fiche", (f) => {
@@ -488,11 +493,12 @@ document.addEventListener("alpine:init", () => {
       else if (this.exploreOpen && this.exFiltersOpen) this.exFiltersOpen = false;
       else if (this.dropsOpen && this.dfOpen) this.dfOpen = false;
       else if (this.exploreOpen && this.ex.q) { this.ex.q = ""; this.exTyped(); }
+      else if (this.companiesOpen && this.co.suggestOpen) this.co.suggestOpen = false;
       else if (!this.todayOpen) this.openSheet("today", false);
     },
 
     // Domaines est la liste, affichée quand aucun autre écran ne l'est.
-    get paged() { return this.todayOpen || this.legendOpen || this.statsOpen || this.settingsOpen || this.dropsOpen || this.exploreOpen || this.portfolioOpen; },
+    get paged() { return this.todayOpen || this.legendOpen || this.statsOpen || this.settingsOpen || this.dropsOpen || this.exploreOpen || this.portfolioOpen || this.companiesOpen; },
 
     showList() {
       this.todayOpen = false;
@@ -502,6 +508,7 @@ document.addEventListener("alpine:init", () => {
       this.dropsOpen = false;
       this.exploreOpen = false;
       this.portfolioOpen = false;
+      this.companiesOpen = false;
       window.scrollTo({ top: 0, behavior: "smooth" });
       document.querySelector(".page")?.scrollTo({ top: 0, behavior: "smooth" });  // téléphone : la page défile dans son cadre
     },
@@ -543,6 +550,7 @@ document.addEventListener("alpine:init", () => {
       this.dropsOpen = false;
       this.exploreOpen = false;
       this.portfolioOpen = false;
+      this.companiesOpen = false;
       if (name === "today") {
         this.settingsOpen = false;
         this.todayOpen = true;
@@ -553,6 +561,10 @@ document.addEventListener("alpine:init", () => {
         this.decisionsRegrets = !!this._regretsNext;
         this._regretsNext = false;
         await this.loadPortfolio();
+      } else if (name === "companies") {
+        this.settingsOpen = false;
+        this.companiesOpen = true;
+        await this.coLoad();
       } else if (name === "legend") {
         this.settingsOpen = false;
         this.legendOpen = opening;
@@ -975,6 +987,100 @@ document.addEventListener("alpine:init", () => {
       } catch (e) {
         this.sayError(e, "Portefeuille indisponible", () => this.loadPortfolio());
       }
+    },
+
+    // --- Entreprises ------------------------------------------------------------------------------
+
+    async coLoad() {
+      const c = this.co;
+      const q = new URLSearchParams({ q: c.q, gaps: c.gaps, category: c.category, limit: "200" });
+      c.loading = true;
+      try {
+        const found = await this.api("GET", `/api/companies?${q}`);
+        Object.assign(c, { items: found.items, total: found.total, status: found.status, running: found.running,
+                           current: found.current });
+      } catch (e) {
+        this.sayError(e, "Entreprises indisponibles", () => this.coLoad());
+      } finally {
+        c.loading = false;
+      }
+    },
+
+    // Saisie : la liste se filtre (nom, SIREN, SIRET) et les suggestions arrivent, Annuaire des Entreprises compris.
+    coTyped() {
+      clearTimeout(this._coTimer);
+      this._coTimer = setTimeout(() => { this.coLoad(); this.coSuggest(); }, 300);
+    },
+
+    async coSuggest() {
+      const c = this.co;
+      const q = c.q.trim();
+      if (q.length < 2) { c.suggest = []; c.suggestOpen = false; return; }
+      try {
+        const found = await this.api("GET", `/api/companies/suggest?q=${encodeURIComponent(q)}`);
+        if (q !== c.q.trim()) return;  // saisie changée entre-temps
+        c.suggest = found.items;
+        c.suggestError = found.error || "";
+        c.suggestOpen = !!found.items.length || !!found.error;
+      } catch (_) { c.suggestOpen = false; }
+    },
+
+    async coPick(s) {
+      const c = this.co;
+      c.suggestOpen = false;
+      if (!s.listed) await this.coAdd(s.siren, true);
+      c.q = s.siren;
+      await this.coLoad();
+      c.open = s.siren;
+    },
+
+    async coAdd(siren, quiet = false) {
+      try {
+        await this.api("POST", `/api/companies/${siren}`);
+        if (!quiet) await this.coLoad();
+        this.say("Entreprise ajoutée : ses noms .com sont vérifiés dans les dix minutes, les .fr à la lecture suivante du fichier de l'Afnic.", "ok");
+      } catch (e) { this.sayError(e, "Ajout impossible"); }
+    },
+
+    async coRemove(item) {
+      try {
+        await this.api("DELETE", `/api/companies/${item.siren}`);
+        await this.coLoad();
+      } catch (e) { this.sayError(e, "Retrait impossible"); }
+    },
+
+    async coNames(item, names) {
+      try {
+        const fresh = await this.api("PUT", `/api/companies/${item.siren}/names`, { names });
+        Object.assign(item, fresh);
+        this.co.newName = "";
+      } catch (e) { this.sayError(e, "Nom non enregistré"); }
+    },
+
+    async coRefresh() {
+      try {
+        const started = await this.api("POST", "/api/companies/refresh");
+        this.say(started.started ? "Liste relue en arrière-plan (quelques minutes), puis les noms sont vérifiés." : "Lecture déjà en cours.", "ok");
+        this.co.running = true;
+      } catch (e) { this.sayError(e, "Relecture impossible"); }
+    },
+
+    coToggle(siren) { this.co.open = this.co.open === siren ? "" : siren; },
+
+    // État d'un nom : libre, pris (titulaire inconnu : peut-être un tiers), échéance proche, pas encore vu.
+    coState(d) {
+      if (d.state === "free") return { cls: "co-free", text: "libre" };
+      if (d.state === "taken" && d.soon) return { cls: "co-soon", text: `expire le ${this.shortDate(d.expires_on)}` };
+      if (d.state === "taken") return { cls: "co-taken", text: "pris" };
+      return { cls: "co-unknown", text: "à vérifier" };
+    },
+
+    coMoney(n) {
+      if (n === null || n === undefined) return "";
+      const abs = Math.abs(n);
+      if (abs >= 1e9) return `${(n / 1e9).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} Md€`;
+      if (abs >= 1e6) return `${(n / 1e6).toLocaleString("fr-FR", { maximumFractionDigits: 0 })} M€`;
+      return this.euros(n);
     },
 
     async loadDecisions() {
