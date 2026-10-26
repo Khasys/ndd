@@ -1470,12 +1470,12 @@ def test_repair_marks_whois_only_free_names_and_drops_false_dns_exits(env):
                      (now.isoformat(),))
     rdapinfo.save(env.conn, "menu.co", LookupResult(available=True, source="whois"))
     rdapinfo.save(env.conn, "cloud.co", LookupResult(available=True))
-    assert env.drops.repair() == {"unconfirmed": 1, "removed_on": 1, "recheck": 0}
+    assert env.drops.repair() == {"unconfirmed": 1, "removed_on": 1, "recheck": 0, "redemption": 0}
     menu, cloud = env.drops.row("menu.co"), env.drops.row("cloud.co")
     assert menu["state"] == drops.UNCONFIRMED and menu["available_since"] is None and menu["state_since"] == now.isoformat()
     assert menu["removed_on"] == drops.MANUAL
     assert cloud["state"] == states.AVAILABLE and cloud["removed_on"] == now.date().isoformat()  # vu puis sorti : gardé
-    assert env.drops.repair() == {"unconfirmed": 0, "removed_on": 0, "recheck": 0}  # idempotent
+    assert env.drops.repair() == {"unconfirmed": 0, "removed_on": 0, "recheck": 0, "redemption": 0}  # idempotent
 
 
 def test_repair_rechecks_free_names_refused_by_gandi_before_the_immediate_recheck(env):
