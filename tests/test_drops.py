@@ -240,6 +240,26 @@ class FakeRdap:
         return self.results[name]
 
 
+def test_redemption_starts_when_the_name_leaves_the_zone(watcher):
+    """.biz : la dernière modification RDAP est le renouvellement automatique (45 jours de grâce), 40 jours avant la
+    suppression. La rédemption est datée du jour de sortie de zone, pas de cette modification, sinon la libération
+    estimée est passée et le nom reste dans « libération sous 24 h » pendant des semaines (27/10/2026)."""
+    now = datetime.now(timezone.utc)
+    removed = now - timedelta(days=10)
+    watcher.record("biz", ["oldmod"], [], now, removed_on=removed.date())
+    watcher.rdap = FakeRdap({"oldmod.biz": LookupResult(found=True, info=DomainInfo(
+        statuses=["redemption period"], expires_at=removed - timedelta(days=45), last_changed_at=removed - timedelta(days=40)))})
+    asyncio.run(watcher.check_due())
+    row = watcher.row("oldmod.biz")
+    assert row["state"] == states.REDEMPTION and row["state_since"][:10] == removed.date().isoformat()
+    assert datetime.fromisoformat(row["release_at"]).date() == (removed + timedelta(days=35)).date()
+    # Déjà enregistrée par une version précédente avec l'ancienne date : redatée au démarrage, une seule fois.
+    watcher.conn.execute("UPDATE drops SET state_since = ?, release_at = ? WHERE name = 'oldmod.biz'",
+                         ((removed - timedelta(days=40)).isoformat(), (removed - timedelta(days=5)).isoformat()))
+    assert watcher.repair()["redemption"] == 1 and watcher.repair()["redemption"] == 0
+    assert datetime.fromisoformat(watcher.row("oldmod.biz")["release_at"]).date() == (removed + timedelta(days=35)).date()
+
+
 def test_rdap_check_classifies_and_estimates_release(watcher):
     now = datetime.now(timezone.utc)
     deleted = now - timedelta(days=3)

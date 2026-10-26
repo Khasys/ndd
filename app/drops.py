@@ -20,7 +20,7 @@ from collections import deque
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import AsyncIterator, Iterable
 
@@ -105,6 +105,27 @@ def valid_label(label: str) -> bool:
         1 <= len(label) <= MAX_SHORT and all(c in _INDEX for c in label)
         and label[0] != "-" and label[-1] != "-"
     )
+
+
+REMOVAL_SLACK_DAYS = 7
+
+
+def redemption_start(since: datetime, state: str, tld: str, removed_on: str | None, now: datetime) -> datetime:
+    """Une rédemption commence quand le registrar supprime le nom, qui sort alors de la zone (ou du DNS) : jamais
+    avant ce jour. La dernière modification RDAP peut être bien plus ancienne (renouvellement automatique du .biz,
+    45 jours de grâce). Le .fr est à part : sa date de retrait vient du fichier de l'Afnic, pas d'une zone."""
+    if state not in (states.REDEMPTION, states.PENDING_DELETE) or tld == "fr" or not removed_on or removed_on == MANUAL:
+        return since
+    try:
+        removed = datetime.fromisoformat(removed_on).replace(tzinfo=timezone.utc)
+    except ValueError:
+        return since
+    # La zone est lue une fois par jour, parfois avec quelques jours de retard (CZDS en panne) : une modification RDAP
+    # de la semaine qui précède est la suppression, plus précise que le jour de lecture. Bien avant (les grâces
+    # durent 30 à 45 jours), c'est autre chose : renouvellement automatique, transfert.
+    if since is None or removed - since > timedelta(days=REMOVAL_SLACK_DAYS):
+        return min(removed, now)
+    return since
 
 
 def kind_of(label: str) -> str:
@@ -772,6 +793,7 @@ class DropWatcher:
             if changed and state in (states.REDEMPTION, states.PENDING_DELETE) and (
                     result.info.expires_at is None or changed >= result.info.expires_at):
                 since = min(changed, now)
+            since = redemption_start(since, state, row["tld"], row["removed_on"], now)
         release = self.release(state, row["tld"], expires, since, now)
         available_since = row["available_since"]
         if state == states.AVAILABLE and not available_since:
@@ -797,6 +819,24 @@ class DropWatcher:
 
     def row(self, name: str):
         return self.conn.execute("SELECT * FROM drops WHERE name = ?", (name,)).fetchone()
+
+    def _repair_redemptions(self, now: datetime) -> int:
+        """Rédemptions datées avant la sortie de zone (dernière modification RDAP du .biz, 45 jours de grâce) : la
+        date de libération estimée était passée, ces noms restaient dans « libération sous 24 h » (27/10/2026)."""
+        rows = self.conn.execute(
+            "SELECT * FROM drops WHERE state IN (?, ?) AND tld != 'fr' AND removed_on IS NOT NULL AND removed_on != ? "
+            "AND state_since < removed_on", (states.REDEMPTION, states.PENDING_DELETE, MANUAL)).fetchall()
+        fixed = 0
+        for row in rows:
+            before = parse_iso(row["state_since"])
+            since = redemption_start(before, row["state"], row["tld"], row["removed_on"], now)
+            if since == before:
+                continue
+            fixed += 1
+            release = self.release(row["state"], row["tld"], None, since, now)
+            self.conn.execute("UPDATE drops SET state_since = ?, release_at = ?, next_check_at = ? WHERE id = ?",
+                              (iso(since), iso(release), iso(self._next(row["state"], now, release)), row["id"]))
+        return fixed
 
     def ensure(self, name: str, now: datetime, origin: str = "manual"):
         """La ligne d'un nom, créée au besoin : vérification manuelle depuis l'Explorer (origin manual), ou
@@ -840,10 +880,12 @@ class DropWatcher:
                 AND EXISTS (SELECT 1 FROM gandi_checks g WHERE g.name = drops.name AND g.kind IN ({','.join('?' * len(BLOCKED))})
                             AND (drops.checked_at IS NULL OR drops.checked_at < g.checked_at))""",
             (iso(utcnow()), states.AVAILABLE, UNCONFIRMED, *BLOCKED)).rowcount
-        if whois or removed or blocked:
+        redated = self._repair_redemptions(utcnow())
+        if whois or removed or blocked or redated:
             log.info("Veille : %s noms libres selon le seul WHOIS passés « à confirmer », %s fausses sorties du DNS effacées, "
-                     "%s libres refusés par Gandi revus au registre", whois, removed, blocked)
-        return {"unconfirmed": whois, "removed_on": removed, "recheck": blocked}
+                     "%s libres refusés par Gandi revus au registre, %s rédemptions redatées à la sortie de zone",
+                     whois, removed, blocked, redated)
+        return {"unconfirmed": whois, "removed_on": removed, "recheck": blocked, "redemption": redated}
 
     def release(self, state, tld, expires, since, now) -> datetime | None:
         value = states.estimate_release(state, tld, expires, since, now, self.delays)

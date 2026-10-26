@@ -211,7 +211,8 @@ tout reste dans la fiche. Sur téléphone, chaque domaine est une carte.
 
 L'écran d'accueil. En tête, la **période** : 24 h, 7 j ou 30 j en puces (24 h par défaut, choix gardé par le
 navigateur). Puis les chiffres de la période : pépites (voir Alertes), noms libérés depuis la période, libération estimée dans la période
-à venir, nouveaux avis « À prendre » reçus depuis la période sur un nom libre ou bientôt libre, regrets (noms
+à venir (sans les noms dont la libération estimée est passée depuis plus de 3 jours : leur date est fausse, ils restent
+dans la Veille et sont revus au registre), nouveaux avis « À prendre » reçus depuis la période sur un nom libre ou bientôt libre, regrets (noms
 ignorés repris depuis par quelqu'un d'autre) ; les libellés disent la période (« libérés depuis 7 jours »,
 « libérations sous 7 jours »). Avec 24 h, la libération à venir est sous 24 h (48 h auparavant) : même fenêtre
 dans les deux sens. Chaque chiffre ouvre exactement ses noms, même compte : les pépites descendent à leur rubrique, dépliée ; les trois
@@ -286,6 +287,11 @@ depuis l'Annuaire), `PUT /api/companies/{siren}/names` (`{"names": [...]}`), `DE
 `companies` de `/api/diag`. Tables `companies` et `company_domains`.
 
 ### Veille et Explorer : deux écrans, mêmes réglages
+
+Début de rédemption : la dernière modification RDAP, sauf si elle précède de plus d'une semaine la sortie de la
+zone (ou du DNS) ; c'est alors le jour de sortie qui compte. Au .biz, cette modification est le renouvellement
+automatique, 40 jours avant la suppression (45 jours de grâce) : la libération estimée était passée depuis deux
+semaines et 67 noms restaient « libération sous 24 h » (27/10/2026). Les noms déjà en base sont redatés au démarrage.
 
 **Veille** : ce qui tombe et ce qui va tomber. Deux onglets : **Libérés** (réservables maintenant)
 et **Bientôt libres** (en rédemption ou en suppression, avec la date estimée). **Explorer** : tous

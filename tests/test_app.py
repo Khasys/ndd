@@ -1279,6 +1279,25 @@ def test_interface_wires_the_wave_one_routes():
     assert "Réessayer" in js
 
 
+def test_today_leaves_out_releases_long_overdue(logged):
+    """Libération estimée passée depuis plus de 3 jours sans libération constatée : la date est fausse, le nom n'est
+    plus « à venir sous 24 h » (67 .biz en retard de deux semaines, 27/10/2026). Un jour de retard : imminent."""
+    from app import main
+
+    client = logged()
+    st = client.app.state
+    now = datetime.now(timezone.utc)
+    st.conn.execute("INSERT INTO fr_names (label, created_on) VALUES ('mot', '2010-01-01')")
+    st.drops.record("fr", ["velo", "ciel"], [], now)
+    st.conn.execute("UPDATE drops SET state = 'redemption', release_at = ? WHERE name = 'velo.fr'",
+                    ((now - timedelta(hours=30)).isoformat(),))
+    st.conn.execute("UPDATE drops SET state = 'redemption', release_at = ? WHERE name = 'ciel.fr'",
+                    ((now - timedelta(days=16)).isoformat(),))
+    sets = main._today_sets(st, main._drop_rows(st), now)
+    assert [r["name"] for r in sets["coming"]] == ["velo.fr"]
+    client.__exit__(None, None, None)
+
+
 def test_today_counts_best_names_and_setup(logged):
     """Aujourd'hui : compteurs de la période (24 h par défaut), 20 meilleurs noms libérés depuis ou libérés dans la
     période, étapes de configuration."""

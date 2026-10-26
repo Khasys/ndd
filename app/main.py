@@ -1655,11 +1655,17 @@ def _freed_at(r, found: dict) -> str:
     return r["available_since"] or (r["state_since"] if found[r["name"]]["free"] else "") or ""
 
 
+STALE_RELEASE_DAYS = 3
+
+
 def _today_sets(state, rows, now: datetime, hours: int = 24, nopremium: bool = False) -> dict:
     """Les noms derrière chaque chiffre d'Aujourd'hui pour la période (en heures, passée et à venir) :
     même calcul pour le compteur et pour la liste. Libre selon le WHOIS et libre chez Gandi : libéré ;
     indisponible chez Gandi : jamais libre ; nopremium : sans les premiums (Gandi ou probables)."""
     since, soon = iso(now - timedelta(hours=hours)), iso(now + timedelta(hours=hours))
+    # Libération estimée passée depuis plus de 3 jours sans libération constatée : la date est fausse (le nom est revu
+    # au registre et reste dans la Veille), pas « à venir sous 24 h » pendant des semaines (.biz, 27/10/2026).
+    stale = iso(now - timedelta(days=STALE_RELEASE_DAYS))
     found = _drop_gandi(state, rows)
     if nopremium:
         rows = [r for r in rows if not found[r["name"]]["premium"]]
@@ -1674,7 +1680,7 @@ def _today_sets(state, rows, now: datetime, hours: int = 24, nopremium: bool = F
 
     return {
         "freed": [r for r in free if _freed_at(r, found) >= since],
-        "coming": [r for r in tracked if r["release_at"] and r["release_at"] <= soon],
+        "coming": [r for r in tracked if r["release_at"] and stale <= r["release_at"] <= soon],
         "new_take": [r for r in free + tracked if new_take(r)],
     }
 
