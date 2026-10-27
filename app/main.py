@@ -32,7 +32,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import absent, ai, bot, companies, watchdog, escalation, exploit, exploit_format, mcp, registrations, stats, tokens, calendar_ics, ccdns, db, decisions, market, morning, notify, pepites, portfolio, digest, drops, explore, frdata, frdns, gandi, prenoms, reserved, seo, signals, states, updates, value, wordlists
+from . import absent, ai, bot, watchdog, escalation, exploit, exploit_format, mcp, registrations, stats, tokens, calendar_ics, ccdns, db, decisions, market, morning, notify, pepites, portfolio, digest, drops, explore, frdata, frdns, gandi, prenoms, reserved, seo, signals, states, updates, value, wordlists
 from .auth import (
     COOKIE_NAME,
     LoginGuard,
@@ -168,7 +168,7 @@ AI_PATHS = {"/api/ai/pending", "/api/ai/results", "/api/ai/escalation", "/api/ai
             "/api/exploit/results"}
 # Lecture seule avec le même jeton : de quoi observer et analyser, jamais modifier ni lire un réglage.
 # Explorer : les écrans seulement (liste, classement, carte, fiches, export), pas les vues enregistrées.
-READ_PATHS = re.compile(r"^/api/(meta|diag(/journal)?|companies(/\d{9})?|stats|today|domains|domains/\d+/history|drops|explore(/(rank|top|map|name|fiche|export))?|ai/(status|rated|outcomes))$")
+READ_PATHS = re.compile(r"^/api/(meta|diag(/journal)?|stats|today|domains|domains/\d+/history|drops|explore(/(rank|top|map|name|fiche|export))?|ai/(status|rated|outcomes))$")
 PUBLIC_PATHS = {"/login", "/health", "/favicon.svg", "/logo", *PWA_PATHS}
 SETUP_PATHS = {"/setup", "/health", "/favicon.svg", "/logo"}
 BCRYPT_HASH = re.compile(r"\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}")
@@ -410,23 +410,6 @@ async def lifespan(app: FastAPI):
         if app.state.market.due(utcnow()):
             await app.state.market.refresh()
 
-    async def check_companies() -> None:
-        """Entreprises (companies.py) : top relu tous les mois, noms .com au registre, noms .fr dans le fichier de
-        l'Afnic (pas pendant l'import .fr de l'appli, qui télécharge le même fichier)."""
-        audit = app.state.companies
-        if audit.running:
-            return
-        audit.running = True
-        try:
-            if audit.due(utcnow()):
-                await audit.refresh(_off)
-            await audit.check_com(_off)
-            file_date = (await _off(app.state.fr.status)).get("file_date")
-            if not app.state.fr.running and await _off(audit.fr_due, file_date, utcnow()):
-                await audit.check_fr(_off, app.state.fr)
-        finally:
-            audit.running = False
-
     async def refresh_prenoms() -> None:
         # Une fois par mois : l'Insee publie une édition par an, la date exacte varie.
         if app.state.prenoms.due():
@@ -459,8 +442,6 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(refresh_reserved, "interval", hours=6, next_run_time=now + timedelta(minutes=2), max_instances=1)
     scheduler.add_job(refresh_prenoms, "interval", hours=6, next_run_time=now + timedelta(minutes=11), max_instances=1,
                       id="prenoms")
-    scheduler.add_job(check_companies, "interval", minutes=10, next_run_time=now + timedelta(minutes=15), max_instances=1,
-                      id="companies")
     scheduler.add_job(refresh_market, "interval", hours=6, next_run_time=now + timedelta(minutes=13), max_instances=1,
                       id="market")
     # File .fr : chaque minute, autant de requêtes que le plafond réglé le permet.
@@ -492,8 +473,6 @@ async def lifespan(app: FastAPI):
     app.state.explorer = explore.Explorer(conn, watcher, fr, app.state.reserved)
     app.state.absent_pass = absent.AbsentPass(app.state.explorer, store)
     app.state.prenoms = prenoms.RecentNames(store, settings.data_dir)
-    app.state.companies = companies.Audit(conn, store, settings.data_dir)
-    app.state.check_companies = check_companies
     app.state.market = market.Market(conn, store)
     app.state.explorer.market = app.state.market  # ventes comparables : file IA et fiche
     app.state.explorer.recent = app.state.prenoms
@@ -2223,110 +2202,6 @@ async def _notify_ai_done(request: Request, name: str) -> None:
         log.warning("Analyse IA : message Telegram non envoyé (%s)", exc)
 
 
-# --- Entreprises : présence en ligne des grandes entreprises (companies.py), à part du reste ---------------
-
-SIREN = re.compile(r"\d{9}")
-
-
-def _siren(value: str) -> str:
-    if not SIREN.fullmatch(value or ""):
-        raise HTTPException(422, "SIREN invalide : 9 chiffres.")
-    return value
-
-
-@app.get("/api/companies")
-async def list_companies(request: Request):
-    """Le top (rang, puis entreprises ajoutées) avec leurs noms .fr et .com ; q (nom, SIREN, SIRET),
-    gaps=free (au moins un nom libre) ou expiring (échéance proche), category=GE|ETI|PME."""
-    p = request.query_params
-    try:
-        offset = max(0, int(p.get("offset") or 0))
-    except ValueError:
-        raise HTTPException(422, "Paramètre numérique invalide.") from None
-    state = request.app.state
-    found = await _off(companies.listing, state.conn, p.get("q", "")[:100], p.get("gaps", ""), p.get("category", ""),
-                       _limit(request, 500), offset)
-    return {**found, "status": await _off(companies.status, state.conn, state.store),
-            "running": state.companies.running, "current": state.companies.current}
-
-
-@app.get("/api/companies/suggest")
-async def suggest_companies(request: Request):
-    """Auto-complétion : SIREN, SIRET, raison sociale ou nom commercial. Le top d'abord ; s'il rend peu,
-    l'Annuaire des Entreprises (entreprises hors du top, à ajouter)."""
-    q = (request.query_params.get("q") or "").strip()[:100]
-    conn = request.app.state.conn
-    local = await _off(companies.suggest_local, conn, q)
-    remote, error = [], None
-    folded = companies.fold(q)
-    if len(local) < 5 and (len(folded) >= 3 or folded.isdigit() and len(folded) in (9, 14)):
-        try:
-            found = await asyncio.wait_for(request.app.state.companies.directory.find(q), timeout=8)
-            known = {c["siren"] for c in local}
-            remote = [companies._short(c, False) for c in found if c["siren"] not in known]
-        except (companies.CompanyError, asyncio.TimeoutError) as exc:
-            error = str(exc) or "Annuaire des Entreprises trop lent"
-    return {"items": local + remote, "error": error}
-
-
-@app.get("/api/companies/{siren}")
-async def get_company(siren: str, request: Request):
-    conn = request.app.state.conn
-    row = conn.execute("SELECT * FROM companies WHERE siren = ?", (_siren(siren),)).fetchone()
-    if row is None:
-        raise HTTPException(404, "Entreprise absente de la liste.")
-    domains = await _off(companies._domains, conn)
-    return companies.describe(companies._row(row), domains, utcnow().date())
-
-
-@app.post("/api/companies/{siren}")
-async def add_company(siren: str, request: Request):
-    """Ajoute une entreprise hors du top (lue dans l'Annuaire des Entreprises) ; ses noms sont vérifiés au
-    passage suivant (.com dans les dix minutes, .fr à la lecture suivante du fichier de l'Afnic)."""
-    _siren(siren)
-    try:
-        found = await request.app.state.companies.directory.find(siren, 1)
-    except companies.CompanyError as exc:
-        raise HTTPException(502, str(exc)) from None
-    company = next((c for c in found if c["siren"] == siren), None)
-    if company is None:
-        raise HTTPException(404, "SIREN inconnu de l'Annuaire des Entreprises.")
-    conn = request.app.state.conn
-    await _off(companies.add, conn, company, utcnow())
-    return await get_company(siren, request)
-
-
-@app.delete("/api/companies/{siren}")
-async def delete_company(siren: str, request: Request):
-    removed = await _off(companies.remove, request.app.state.conn, _siren(siren))
-    return {"removed": removed}
-
-
-class CompanyNames(BaseModel):
-    names: list[str]
-
-
-@app.put("/api/companies/{siren}/names")
-async def set_company_names(siren: str, body: CompanyNames, request: Request):
-    """Noms ajoutés à la main (marque, ancien nom) : vérifiés en .fr et .com comme les autres."""
-    company = await _off(companies.set_extra, request.app.state.conn, _siren(siren), body.names)
-    if company is None:
-        raise HTTPException(404, "Entreprise absente de la liste.")
-    return await get_company(siren, request)
-
-
-@app.post("/api/companies/refresh")
-async def refresh_companies_now(request: Request):
-    """Relit le top tout de suite (sinon tous les mois), puis vérifie les noms."""
-    state = request.app.state
-    if state.companies.running:
-        return {"started": False}
-    state.store.set("companies_status", json.dumps({**json.loads(state.store.get("companies_status") or "{}"),
-                                                     "ok_at": None, "at": None}))
-    state.companies_task = asyncio.create_task(state.check_companies())
-    return {"started": True}
-
-
 @app.get("/api/portfolio")
 async def get_portfolio(request: Request):
     now = utcnow()
@@ -2528,7 +2403,6 @@ async def diag(request: Request):
     watcher = state.drops
     explorer = state.explorer
     drops_by_state = dict(conn.execute("SELECT COALESCE(state, 'à vérifier'), COUNT(*) FROM drops GROUP BY 1").fetchall())
-    company_status = await _off(companies.status, conn, state.store)  # noms de 5 000 entreprises : hors de la boucle
     return {
         "version": VERSION,
         "started_at": iso(STARTED_AT),
@@ -2561,7 +2435,6 @@ async def diag(request: Request):
         "absent_pass": state.absent_pass.status(),
         "recent_errors": list(RECENT.records),
         "journal": journal_status(conn),  # les mêmes lignes sur 7 jours : /api/diag/journal
-        "companies": company_status,
         # Nettoyages mémoire de Python par génération (nombre, objets libérés) : une génération 2 longue bloque tout.
         "gc": {"stats": gc.get_stats(), "pending": gc.get_count(), "frozen": gc.get_freeze_count()},
     }

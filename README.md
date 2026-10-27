@@ -244,48 +244,6 @@ dans `steps`. Lisible avec le jeton en lecture seule, comme les autres écrans.
 chiffre d'Aujourd'hui (même calcul que `counts`, même période, `24h` par défaut), avec `focus` et `period` rappelés ;
 une autre valeur : 422. Les anciens noms `freed_24h` et `coming_48h` restent acceptés.
 
-#### Entreprises
-
-« Les plus grandes entreprises françaises et leurs noms en .fr et .com : ce qui est libre, ce qui expire
-bientôt. » Pour un audit de présence en ligne (repérer les trous d'une entreprise et les lui signaler), pas pour
-revendre : ces noms restent à part, ni listes, ni notation IA, ni pépites, ni Veille, ni alertes, et rien n'est
-acheté. Entrée dans la barre latérale (Analyse) et, sur téléphone, en haut de Paramètres.
-
-- **Liste** : les 5 000 plus grandes entreprises actives, lues tous les mois par le NAS dans l'API de recherche
-  d'entreprises de l'État (Annuaire des Entreprises : Insee Sirene, INPI ; 4 requêtes par seconde, la limite est
-  de 7, environ 2 minutes). Unités légales des GE et des ETI, rangées par leur propre tranche d'effectif, la plus
-  grande d'abord, puis par dernier chiffre d'affaires publié. La catégorie Insee est celle du groupe entier
-  (toute filiale d'un grand groupe est « GE », plus de 10 000 unités légales) : elle filtre, elle ne range pas.
-  Administrations, associations et organismes (catégories juridiques 1, 2, 7, 8, 9) écartés. L'effectif n'est
-  publié que par tranches (« 5 000 à 9 999 salariés »). Au 27/10/2026 : 59 unités de 10 000 salariés et plus,
-  80 de 5 000 à 9 999, 419, 721, 1 664 puis 2 057 de 250 à 499.
-- **Noms vérifiés** : raison sociale (mots collés, et avec tirets s'il y en a plusieurs ; formes juridiques
-  ôtées : L'Oréal donne loreal et l-oreal), son premier mot quand c'est une marque (STELLANTIS AUTO : stellantis ;
-  pas un mot courant comme Société ou Électricité, qui ferait croire à un trou), sigle, nom commercial et
-  enseignes du siège, et les noms ajoutés à la main dans la fiche (marque, ancien nom). En .fr et en .com.
-  Environ 24 000 noms pour le top.
-- **.com** : RDAP de Verisign (404 libre, 200 enregistré, avec création, échéance et registrar), 4 requêtes par
-  seconde, 2 000 noms par passage de la tâche (toutes les 10 minutes) ; revu tous les 30 jours, chaque semaine à
-  moins de 60 jours de l'échéance. Sans réponse nette (réseau, refus), rien n'est écrit : redemandé au passage
-  suivant. **.fr** : fichier mensuel de l'Afnic (le RDAP .fr de l'appli est plafonné à quelques requêtes par
-  minute), relu à chaque nouveau fichier ou quand de nouveaux noms .fr attendent (six heures au moins entre deux
-  lectures, jamais pendant l'import .fr de l'appli) ; absent du fichier ou retiré : libre d'après l'Afnic, à
-  confirmer avant de le signaler (noms réservés ou interdits). Un .fr enregistré se renouvelle chaque année.
-- **Écran** : recherche par SIREN, SIRET, raison sociale ou nom commercial, avec auto-complétion (le top d'abord ;
-  s'il rend peu, l'Annuaire des Entreprises : une entreprise hors du top s'ajoute d'un clic et ses noms sont
-  vérifiés au passage suivant). Filtres « Nom libre » et « Expire bientôt » (moins de 60 jours), catégorie.
-  Chaque carte : rang, raison sociale, sigle et noms commerciaux, catégorie, tranche d'effectif, chiffre
-  d'affaires, ville, et ses noms (libre en vert, échéance proche en jaune). Dépliée : chaque nom avec son origine,
-  son état, sa création, son échéance et son registrar ; SIREN, SIRET du siège, activité, effectif, chiffre
-  d'affaires et résultat net, siège, création ; noms ajoutés ; lien vers l'Annuaire des Entreprises. « Pris » ne
-  dit pas qui : le titulaire est masqué, peut-être un tiers.
-
-`GET /api/companies?q=&gaps=free|expiring&category=GE|ETI|PME&limit=&offset=` (lisible avec le jeton en lecture
-seule), `GET /api/companies/{siren}`, `GET /api/companies/suggest?q=`, `POST /api/companies/{siren}` (ajout
-depuis l'Annuaire), `PUT /api/companies/{siren}/names` (`{"names": [...]}`), `DELETE /api/companies/{siren}`
-(entreprise ajoutée à la main), `POST /api/companies/refresh` (relire la liste tout de suite). État dans
-`companies` de `/api/diag`. Tables `companies` et `company_domains`.
-
 ### Veille et Explorer : deux écrans, mêmes réglages
 
 Début de rédemption : la dernière modification RDAP, sauf si elle précède de plus d'une semaine la sortie de la

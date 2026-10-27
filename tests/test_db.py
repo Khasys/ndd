@@ -133,3 +133,18 @@ def test_provisional_com_data_is_removed(tmp_path):
         settings = dict(conn.execute("SELECT key, value FROM settings").fetchall())
         assert not retired & set(settings) and kept.items() <= settings.items()
         assert json.loads(settings["gandi_unsold"]) == {"xyz": "2099-01-01"}
+
+
+def test_companies_screen_is_removed(tmp_path):
+    """Écran Entreprises retiré : une base passée en 049 perd ses tables et son état, les autres réglages restent."""
+    conn = db.connect(tmp_path / "t.db")
+    db.migrate(conn, tmp_path / "backups")
+    conn.execute("CREATE TABLE companies (siren TEXT PRIMARY KEY)")
+    conn.execute("CREATE TABLE company_domains (name TEXT PRIMARY KEY)")
+    for key in ("companies_status", "companies_fr", "gandi_pass_rate"):
+        conn.execute("INSERT INTO settings (key, value) VALUES (?, '{}')", (key,))
+    conn.execute("PRAGMA user_version = 49")
+    db.migrate(conn, tmp_path / "backups")
+    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    assert not {"companies", "company_domains"} & tables
+    assert [r[0] for r in conn.execute("SELECT key FROM settings")] == ["gandi_pass_rate"]
