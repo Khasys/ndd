@@ -17,7 +17,23 @@ def _open(path: Path) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
+    # En WAL, NORMAL ne force plus le disque à chaque écriture, seulement aux points de contrôle : la base ne peut
+    # pas s'abîmer, une coupure de courant perd au pire les dernières secondes. Au NAS, chaque écriture forcée
+    # gardait le verrou d'écriture des dizaines de millisecondes, et la boucle de l'appli attendait derrière.
+    conn.execute("PRAGMA synchronous = NORMAL")
+    # Pas de point de contrôle à la fin d'une écriture : il recopie le journal dans la base et force le disque,
+    # plusieurs secondes au NAS, dans le fil qui écrivait, souvent la boucle de l'appli. checkpoint() le fait à part.
+    conn.execute("PRAGMA wal_autocheckpoint = 0")
+    # Après une grosse écriture, le fichier du journal WAL revient à 64 Mo au plus au lieu de garder sa taille.
+    conn.execute("PRAGMA journal_size_limit = 67108864")
     return conn
+
+
+def checkpoint(conn) -> tuple[int, int]:
+    """Recopie dans la base ce que le journal WAL contient, sans attendre les lectures en cours (PASSIVE) :
+    (pages du journal, pages recopiées). Appelé à intervalle régulier hors de la boucle de l'appli."""
+    _, pages, copied = conn.execute("PRAGMA wal_checkpoint(PASSIVE)").fetchone()
+    return pages, copied
 
 
 class ThreadConnections:

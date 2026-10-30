@@ -77,3 +77,20 @@ def test_old_single_tokens_are_kept_by_the_migration(tmp_path):
     assert tokens.check(conn, ("ai",), "dw_ancien") and tokens.check(conn, ("mcp",), "dwm_ancien")
     assert conn.execute("SELECT COUNT(*) FROM settings WHERE key LIKE '%token_hash'").fetchone()[0] == 0
     assert [t["label"] for t in tokens.listing(conn)] == ["Connecteur MCP", "Tâche de notation"]
+
+
+def test_recent_token_check_does_not_write(tmp_path):
+    """Jeton servi il y a moins de 10 minutes : pas d'UPDATE, qui prendrait le verrou d'écriture pour rien."""
+    conn = db.connect(tmp_path / "t.db")
+    db.migrate(conn, tmp_path / "backups")
+    token_id, token = tokens.create(conn, "read", "")
+    assert tokens.check(conn, ("read",), token) == token_id
+    first = conn.execute("SELECT last_used_at FROM tokens WHERE id = ?", (token_id,)).fetchone()[0]
+    seen = []
+    conn.set_trace_callback(seen.append)
+    assert tokens.check(conn, ("read",), token) == token_id
+    conn.set_trace_callback(None)
+    assert first and not [s for s in seen if s.lstrip().upper().startswith("UPDATE")]
+    conn.execute("UPDATE tokens SET last_used_at = '2020-01-01T00:00:00+00:00' WHERE id = ?", (token_id,))
+    tokens.check(conn, ("read",), token)
+    assert conn.execute("SELECT last_used_at FROM tokens WHERE id = ?", (token_id,)).fetchone()[0] >= first

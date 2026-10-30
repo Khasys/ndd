@@ -151,6 +151,33 @@ def journal_status(conn) -> dict:
     return {"days": JOURNAL_DAYS, "rows": rows, "since": since, "bytes": size or 0}
 
 
+# Point de contrôle du journal WAL toutes les 30 s, dans son propre fil (db.checkpoint) : aucune écriture ne le fait
+# plus, la boucle de l'appli non plus. Au-delà de 2 s, noté au journal.
+WAL_EVERY = 30
+WAL_SLOW = 2.0
+WAL = {"at": None, "seconds": None, "slowest": 0.0, "pages": None, "copied": None}
+_WAL_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="wal")
+
+
+def run_checkpoint(conn) -> None:
+    start = time.monotonic()
+    pages, copied = db.checkpoint(conn)
+    took = round(time.monotonic() - start, 2)
+    WAL.update(at=iso(utcnow()), seconds=took, slowest=max(WAL["slowest"], took), pages=pages, copied=copied)
+    if took >= WAL_SLOW:
+        log.warning("Point de contrôle de la base lent : %.1f s pour %s pages recopiées", took, copied)
+
+
+def wal_status(path: Path) -> dict:
+    """Dernier point de contrôle, et place de la base et de son journal WAL sur le disque."""
+    def size(p: Path) -> int | None:
+        try:
+            return p.stat().st_size
+        except OSError:
+            return None
+    return {**WAL, "db_bytes": size(path), "wal_bytes": size(path.with_name(path.name + "-wal"))}
+
+
 class _MaskMcp(logging.Filter):
     """Journal d'accès d'uvicorn : l'adresse du connecteur MCP contient son jeton, masqué avant écriture."""
 
@@ -276,6 +303,10 @@ async def lifespan(app: FastAPI):
     async def flush_journal() -> None:
         # Hors de la boucle : une base occupée ne doit pas la bloquer (c'est justement ce que le journal surveille).
         await asyncio.get_running_loop().run_in_executor(None, save_journal, conn)
+
+    async def checkpoint_wal() -> None:
+        # Fil à part, pas celui de l'Explorer : derrière ses calculs, le journal WAL grossirait sans fin.
+        await asyncio.get_running_loop().run_in_executor(_WAL_POOL, run_checkpoint, conn)
 
     async def refresh_signals() -> None:
         await signals.update_due(conn, limit=20)
@@ -429,6 +460,8 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(check_health, "interval", minutes=10, next_run_time=now + timedelta(minutes=20), max_instances=1)
     scheduler.add_job(flush_journal, "interval", minutes=1, next_run_time=now + timedelta(minutes=1), max_instances=1,
                       id="journal")
+    scheduler.add_job(checkpoint_wal, "interval", seconds=WAL_EVERY, next_run_time=now + timedelta(seconds=WAL_EVERY),
+                      max_instances=1, id="wal")
     scheduler.add_job(refresh_signals, "interval", hours=1, next_run_time=now + timedelta(minutes=2), max_instances=1)
     scheduler.add_job(send_alerts, "interval", minutes=1, next_run_time=now + timedelta(minutes=7), max_instances=1, id="send_alerts")
     scheduler.add_job(update_outcomes, "cron", hour=4, minute=40, max_instances=1, id="ai_outcomes")
@@ -1453,8 +1486,9 @@ def _drop_rows(state) -> list:
     # Un nom libre reste affiché keep_days jours ; il reste en base et dans l'Explorer.
     shown_since = iso(utcnow() - timedelta(days=watcher.keep_days))
     # Libres selon le seul WHOIS : affichés « à confirmer », depuis leur constat (pas de date de libération).
+    # Index drops_shown nommé : sans lui, SQLite peut parcourir les 800 000 libres de la passe des absents.
     rows = conn.execute(
-        f"""SELECT * FROM drops WHERE (state IN (?, ?, ?) OR (state = ? AND available_since >= ?)
+        f"""SELECT * FROM drops INDEXED BY drops_shown WHERE (state IN (?, ?, ?) OR (state = ? AND available_since >= ?)
              OR (state = ? AND state_since >= ?)) AND {drops.QUIET_SQL}
            ORDER BY release_at IS NULL, release_at, name""",
         (*drops.TRACKED, states.AVAILABLE, shown_since, drops.UNCONFIRMED, shown_since),
@@ -1538,26 +1572,33 @@ def _drop_items(state, rows, values: dict) -> list[dict]:
 @app.get("/api/drops")
 @fast_json
 async def list_drops(request: Request):
-    state = request.app.state
-    watcher = state.drops
-    conn = state.conn
-    rows = _drop_rows(state)
     # Chiffre d'Aujourd'hui cliqué : seulement ses noms, calculés comme le compteur, pour la même période.
     focus = request.query_params.get("focus", "")
     focus = TODAY_FOCUS_ALIASES.get(focus, focus)
     if focus and focus not in TODAY_FOCUS:
         raise HTTPException(422, "Liste inconnue : freed, coming ou new_take.")
-    period = _today_period(request)
-    if focus:
-        rows = (await _off(_today_sets, state, rows, utcnow(), TODAY_PERIODS[period],
-                           request.query_params.get("nopremium") == "1"))[focus]
-    pending = conn.execute(f"SELECT COUNT(*) FROM drops WHERE state IS NULL AND {drops.QUIET_SQL}").fetchone()[0]
-    suspended = dict(conn.execute("SELECT tld, COUNT(*) FROM drops WHERE state = ? GROUP BY tld", (drops.SUSPENDED,)).fetchall())
-    hidden = conn.execute("SELECT COUNT(*) FROM drop_hidden").fetchone()[0]
     # Rafraîchissement de l'état seul (écran ouvert) : pas de liste, quelques Ko au lieu de plusieurs Mo.
-    # Le détail RDAP n'est pas dans la liste : la fiche le charge.
     with_items = request.query_params.get("items") != "0"
-    values = await _off(state.explorer.value_of, [r["name"] for r in rows]) if with_items else {}
+    # Tout hors de la boucle : lue sur la boucle, la Veille la bloquait jusqu'à 25 s au NAS (30/10/2026).
+    return await _off(_drops_view, request.app.state, focus, _today_period(request),
+                      request.query_params.get("nopremium") == "1", with_items)
+
+
+def _drops_view(state, focus: str, period: str, nopremium: bool, with_items: bool) -> dict:
+    """La Veille : sources, compteurs et, avec with_items, ses noms. Le détail RDAP n'est pas dans la liste :
+    la fiche le charge."""
+    watcher = state.drops
+    conn = state.conn
+    rows, values = [], {}
+    if with_items:
+        rows = _drop_rows(state)
+        if focus:
+            rows = _today_sets(state, rows, utcnow(), TODAY_PERIODS[period], nopremium)[focus]
+        values = state.explorer.value_of([r["name"] for r in rows])
+    pending = conn.execute(f"SELECT COUNT(*) FROM drops WHERE state IS NULL AND {drops.QUIET_SQL}").fetchone()[0]
+    # Condition écrite telle quelle (pas de « ? ») : c'est celle de l'index drops_suspended.
+    suspended = dict(conn.execute(f"SELECT tld, COUNT(*) FROM drops WHERE state = '{drops.SUSPENDED}' GROUP BY tld").fetchall())
+    hidden = conn.execute("SELECT COUNT(*) FROM drop_hidden").fetchone()[0]
     return {
         "configured": watcher.configured or state.fr.enabled,
         "czds": watcher.configured,
@@ -2402,7 +2443,9 @@ async def diag(request: Request):
     conn = state.conn
     watcher = state.drops
     explorer = state.explorer
-    drops_by_state = dict(conn.execute("SELECT COALESCE(state, 'à vérifier'), COUNT(*) FROM drops GROUP BY 1").fetchall())
+    # Hors de la boucle : toute la table des libérations (800 000 lignes) est comptée.
+    drops_by_state = dict(await _off(lambda: conn.execute(
+        "SELECT COALESCE(state, 'à vérifier'), COUNT(*) FROM drops GROUP BY 1").fetchall()))
     return {
         "version": VERSION,
         "started_at": iso(STARTED_AT),
@@ -2435,6 +2478,7 @@ async def diag(request: Request):
         "absent_pass": state.absent_pass.status(),
         "recent_errors": list(RECENT.records),
         "journal": journal_status(conn),  # les mêmes lignes sur 7 jours : /api/diag/journal
+        "wal": wal_status(state.settings.db_path),
         # Nettoyages mémoire de Python par génération (nombre, objets libérés) : une génération 2 longue bloque tout.
         "gc": {"stats": gc.get_stats(), "pending": gc.get_count(), "frozen": gc.get_freeze_count()},
     }

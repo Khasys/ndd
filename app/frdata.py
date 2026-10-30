@@ -48,6 +48,7 @@ MAX_PAUSE = timedelta(hours=24)
 # Premier import : faute de fichier précédent, les suppressions de ces derniers jours sont vérifiées.
 BACKFILL_DAYS = 90
 KEEP_REQUEST_LOG_DAYS = 30
+PURGE_EVERY = timedelta(hours=1)
 # À augmenter quand la lecture du fichier change : force un nouvel import du même mois.
 READER_VERSION = 3
 # Échéance .fr dépassée sans rédemption : délai avant de regarder de nouveau.
@@ -239,6 +240,7 @@ class FrWatcher:
         )
         self.running = False
         self.current: str | None = None  # nom en cours de vérification, pour l'affichage en direct
+        self._purged_at: datetime | None = None  # dernier nettoyage du journal des requêtes (tick)
         drops_watcher.on_fr_taken = lambda label, result: self._sync_name(label, result, drops.TAKEN)
 
     @property
@@ -538,9 +540,13 @@ class FrWatcher:
         now = utcnow()
         if self.paused_until(now):
             return 0
-        self.conn.execute(
-            "DELETE FROM fr_requests WHERE at < ?", (iso(now - timedelta(days=KEEP_REQUEST_LOG_DAYS)),)
-        )
+        # Une fois par heure, pas chaque minute : un DELETE prend le verrou d'écriture même sans rien effacer, et la
+        # boucle de l'appli attendait derrière les écritures des autres fils (jusqu'à 16 s au NAS, 30/10/2026).
+        if self._purged_at is None or now - self._purged_at >= PURGE_EVERY:
+            self._purged_at = now
+            self.conn.execute(
+                "DELETE FROM fr_requests WHERE at < ?", (iso(now - timedelta(days=KEEP_REQUEST_LOG_DAYS)),)
+            )
         done = 0
         for _ in range(max(0, self.rate - self._used_last_minute(now))):
             job = self._next_job(utcnow())

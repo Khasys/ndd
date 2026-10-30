@@ -148,3 +148,31 @@ def test_companies_screen_is_removed(tmp_path):
     tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     assert not {"companies", "company_domains"} & tables
     assert [r[0] for r in conn.execute("SELECT key FROM settings")] == ["gandi_pass_rate"]
+
+
+def test_connections_leave_checkpoints_to_the_wal_job(tmp_path):
+    """Aucune écriture ne recopie le journal WAL dans la base (plusieurs secondes au NAS, souvent sur la boucle) :
+    checkpoint() le fait, appelé par sa tâche. Disque forcé aux seuls points de contrôle (synchronous NORMAL)."""
+    conn = db.connect(tmp_path / "t.db")
+    db.migrate(conn, tmp_path / "backups")
+    assert conn.execute("PRAGMA wal_autocheckpoint").fetchone()[0] == 0
+    assert conn.execute("PRAGMA synchronous").fetchone()[0] == 1  # NORMAL
+    for i in range(300):
+        conn.execute("INSERT INTO settings (key, value) VALUES (?, ?)", (f"k{i}", "x" * 2000))
+    pages, copied = db.checkpoint(conn)
+    assert pages > 0 and copied == pages
+
+
+def test_watch_list_reads_through_its_index(tmp_path):
+    """Veille : les libres de la passe des absents (origine rdap) ne sont pas dans l'index drops_shown, la requête ne
+    parcourt pas la table. Suspendus comptés par leur propre index."""
+    from app import drops
+
+    conn = db.connect(tmp_path / "t.db")
+    db.migrate(conn, tmp_path / "backups")
+    plan = " ".join(r[3] for r in conn.execute(
+        f"EXPLAIN QUERY PLAN SELECT * FROM drops INDEXED BY drops_shown WHERE state = 'available' AND {drops.QUIET_SQL}"))
+    assert "drops_shown" in plan
+    plan = " ".join(r[3] for r in conn.execute(
+        f"EXPLAIN QUERY PLAN SELECT tld, COUNT(*) FROM drops WHERE state = '{drops.SUSPENDED}' GROUP BY tld"))
+    assert "drops_suspended" in plan

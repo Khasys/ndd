@@ -48,12 +48,14 @@ def check(conn, kinds, token: str | None) -> int | None:
     """Id du jeton s'il est valide pour l'un des types demandés, sinon None. Note la dernière utilisation."""
     if not token:
         return None
-    row = conn.execute("SELECT id, kind FROM tokens WHERE hash = ?", (hash_token(token.strip()),)).fetchone()
+    row = conn.execute("SELECT id, kind, last_used_at FROM tokens WHERE hash = ?", (hash_token(token.strip()),)).fetchone()
     if row is None or row[1] not in kinds:
         return None
     now = _now()
-    conn.execute("UPDATE tokens SET last_used_at = ? WHERE id = ? AND (last_used_at IS NULL OR last_used_at < ?)",
-                 (now.isoformat(timespec="seconds"), row[0], (now - TOUCH_EVERY).isoformat(timespec="seconds")))
+    # Comparé ici, pas dans l'UPDATE : un UPDATE prend le verrou d'écriture même s'il ne change rien, et chaque
+    # appel de l'API attendait derrière les écritures des autres fils (jusqu'à 7 s au NAS).
+    if row[2] is None or row[2] < (now - TOUCH_EVERY).isoformat(timespec="seconds"):
+        conn.execute("UPDATE tokens SET last_used_at = ? WHERE id = ?", (now.isoformat(timespec="seconds"), row[0]))
     return row[0]
 
 

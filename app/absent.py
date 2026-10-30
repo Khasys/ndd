@@ -222,10 +222,19 @@ class AbsentPass:
         row = watcher.row(name)
         if row is not None and row["origin"] != ORIGIN:
             return None
-        rdapinfo.save(ex.conn, name, result)
         now = utcnow()
-        row = row or watcher.ensure(name, now, origin=ORIGIN)
-        return watcher.apply(row, result, now)
+        # Une seule écriture par nom, pas quatre : la passe en fait des dizaines de milliers par jour, et chacune
+        # prenait le verrou d'écriture devant les autres fils et la boucle de l'appli.
+        ex.conn.execute("BEGIN")
+        try:
+            rdapinfo.save(ex.conn, name, result)
+            row = row or watcher.ensure(name, now, origin=ORIGIN)
+            kind = watcher.apply(row, result, now)
+            ex.conn.execute("COMMIT")
+        except Exception:
+            ex.conn.execute("ROLLBACK")
+            raise
+        return kind
 
     def _count(self, kind: str) -> None:
         day = utcnow().date().isoformat()
