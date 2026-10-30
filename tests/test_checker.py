@@ -336,12 +336,17 @@ def test_fr_domains_go_through_the_afnic_queue(env, tmp_path):
     watcher = drops.DropWatcher(conn, store, tmp_path, checker.rdap, checker.delays)
     fr = frdata.FrWatcher(conn, store, tmp_path, checker.rdap, watcher)
     checker.fr = fr
-    registry.responses["exemple-test.fr"] = [rdap_json("fr_active.json")]
+    # Échéance de la fixture (30/10/2026) reportée à dans 200 jours : le test ne doit pas dépendre du jour où il tourne.
+    data = json.loads((FIXTURES / "fr_active.json").read_bytes())
+    for event in data["events"]:
+        if event["eventAction"] == "expiration":
+            event["eventDate"] = (datetime.now(timezone.utc) + timedelta(days=200)).isoformat()
+    registry.responses["exemple-test.fr"] = [httpx.Response(200, json=data)]
     # FrWatcher pas activé : chemin actuel, requête directe, rien dans le journal Afnic.
     domain_id = add(conn, "exemple-test.fr")
     run(checker.check(domain_id))
     state = row(conn, domain_id)["state"]
-    assert state in ("active", "expiring")  # la fixture vieillit : l'échéance se rapproche
+    assert state == "active"
     assert conn.execute("SELECT COUNT(*) FROM fr_requests").fetchone()[0] == 0
     # Activé : la requête est journalisée comme les autres (source « domaines »).
     store.set("fr_enabled", "1")
