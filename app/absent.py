@@ -3,9 +3,11 @@
 Absent de la zone ne veut pas dire libre : un nom en rédemption, en suppression, suspendu (hold) ou enregistré sans
 serveurs DNS n'y figure pas non plus. Les listes ajoutées après coup (composés, inventés) en ont des dizaines de
 milliers, que seul le bouton Vérifier tranchait. Cette passe les vérifie tous, les meilleurs scores d'abord : la
-réponse va dans la Veille (drops) avec l'origine « rdap », comme celle d'une vérification à la main, mais sans entrer
-dans la Veille, les alertes ni le quotidien (drops.QUIET) : ce n'est pas une libération constatée. L'Explorer, la fiche
-et les pépites lisent l'état comme pour un nom vérifié à la main. Gandi ne passe ensuite que sur les libres des
+réponse va dans la table de la Veille (drops) avec l'origine « rdap », comme celle d'une vérification à la main, mais
+sans entrer dans la Veille, les alertes ni le quotidien (drops.QUIET) : un nom libre ou enregistré n'est pas une
+libération. Un nom vu en rédemption ou en suppression, lui, en est une à venir : il passe à l'origine « absent »
+(drops.SEEN_ABSENT), entre dans la Veille et Aujourd'hui, et la Veille le revoit ensuite comme ses autres noms.
+L'Explorer, la fiche et les pépites lisent l'état comme pour un nom vérifié à la main. Gandi ne passe ensuite que sur les libres des
 extensions à premiums (gandi.NightPass) : un .com libre au registre est achetable au prix normal.
 
 Rythme, registre par registre (serveur RDAP : Verisign pour .com et .net, PIR pour .org…) : leur limite n'est pas
@@ -350,9 +352,12 @@ class AbsentPass:
     # --- Suivi ------------------------------------------------------------------------
 
     def totals(self) -> dict:
-        rows = self.explorer.conn.execute(
-            "SELECT state, COUNT(*) FROM drops WHERE origin = ? GROUP BY state", (ORIGIN,)).fetchall()
-        return {r[0] or "pending": r[1] for r in rows}
+        """Noms de la passe par état au registre ; in_watch : vus en rédemption ou en suppression, passés dans la Veille."""
+        conn = self.explorer.conn
+        found = {r[0] or "pending": r[1] for r in conn.execute(
+            "SELECT state, COUNT(*) FROM drops WHERE origin = ? GROUP BY state", (ORIGIN,))}
+        found["in_watch"] = conn.execute("SELECT COUNT(*) FROM drops WHERE origin = ?", (drops.SEEN_ABSENT,)).fetchone()[0]
+        return found
 
     def status(self) -> dict:
         hosts = {}

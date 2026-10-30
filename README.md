@@ -538,7 +538,11 @@ lecture et l'erreur éventuelle ; « Mettre à jour » relance la lecture (`POST
 état dans `prenoms` de `GET /api/settings` et de `/api/diag`).
 
 Source : les fichiers de zone publiés chaque jour par les registres via CZDS d'ICANN, gratuits sur
-inscription. Le .fr et les autres extensions nationales n'y sont pas.
+inscription. Le .fr et les autres extensions nationales n'y sont pas. L'appli lit .com, .net et .org
+(`drops.ICANN_TLDS`) ; une autre zone autorisée par CZDS est ignorée. .app, .biz, .dev, .info et .xyz ont été
+retirés en v0.15.0 (cinq ventes ou moins chacun en seize semaines de rapports DNJournal, la moitié des refus des
+registres de la passe des absents) : la migration 052 efface ce que l'appli en avait appris, et leurs fichiers de
+`data/zones/` partent au démarrage. Les domaines suivis dans ces extensions restent suivis.
 
 1. Créer un compte sur czds.icann.org et demander l'accès aux zones voulues. Chaque registre valide
    la demande, en général en quelques jours. Un accès accordé expire au bout d'un certain temps et
@@ -1057,10 +1061,12 @@ gardé. Un registre qui refuse tout depuis le matin (3 refus, aucune réponse) e
 24/10/2026 : 429 de Google (.app, .dev), 403 du registre du .biz dès la première requête. Suivi par registre dans `/api/diag`, `absent_pass.registries`. Le rythme appris est gardé ; client à part, la Veille et Vérifier gardent leur cadence (`RDAP_MIN_DELAY`). Gandi ne passe ensuite que
 sur les libres des extensions à premiums : un .com ou un .net libre au registre est achetable au prix de la grille
 (filtre de prix compris). Un nom absent de la zone est souvent en rédemption, en suppression ou suspendu : il passe
-« Libération à venir », « Suspendu » ou « Enregistré » ; sinon « Libre (vérifié) ». Ces réponses restent hors de
-la Veille, des alertes et du quotidien (ce ne sont pas des libérations constatées) ; un nom vu enregistré est
-redemandé après 30 jours, une vérification à la main le fait entrer dans la Veille. Suivi : `/api/diag`,
-`absent_pass`.
+« Libération à venir », « Suspendu » ou « Enregistré » ; sinon « Libre (vérifié) ». Libre, suspendu ou enregistré,
+la réponse reste hors de la Veille, des alertes et du quotidien (ce n'est pas une libération) ; un nom vu enregistré
+est redemandé après 30 jours, une vérification à la main le fait entrer dans la Veille. Vu en rédemption ou en
+suppression (depuis la v0.15.0), le nom est une libération à venir : il entre dans la Veille, Aujourd'hui, les alertes
+et le quotidien comme un nom sorti de la zone, et la Veille le revoit ensuite (origine `absent`). Suivi : `/api/diag`,
+`absent_pass` (`totals.in_watch` : noms passés dans la Veille).
 
 ### Appli sur le téléphone
 

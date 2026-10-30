@@ -514,6 +514,9 @@ async def lifespan(app: FastAPI):
     # .co, .ai, .io : une passe par extension, en même temps que le .fr (registres différents).
     app.state.cc_dns = {t: ccdns.CcDns(t, conn, store, app.state.explorer, digest.local_zone(), notify=note_health)
                         for t in ccdns.TLDS}
+    # Zones retirées (.app, .biz, .dev, .info, .xyz) : leurs fichiers effacés, leurs données l'ont été par la migration 052.
+    if watcher.drop_retired():
+        log.info("Fichiers des zones retirées effacés")
     # Libres sur la seule foi d'un WHOIS, fausses sorties du DNS : corrigés une fois, sans migration.
     if any(watcher.repair().values()):
         app.state.explorer.invalidate()
@@ -2475,7 +2478,7 @@ async def diag(request: Request):
         # Passe de nuit Gandi : dernier passage, réglages de rythme, totaux par sorte ; ni le jeton ni sa présence.
         "gandi_pass": state.gandi_pass.status(),
         # Passe des absents de zone (absent.py) : lots du jour et totaux par état au registre.
-        "absent_pass": state.absent_pass.status(),
+        "absent_pass": await _off(state.absent_pass.status),  # compte toute la table des libérations
         "recent_errors": list(RECENT.records),
         "journal": journal_status(conn),  # les mêmes lignes sur 7 jours : /api/diag/journal
         "wal": wal_status(state.settings.db_path),

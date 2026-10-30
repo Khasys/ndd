@@ -176,3 +176,24 @@ def test_watch_list_reads_through_its_index(tmp_path):
     plan = " ".join(r[3] for r in conn.execute(
         f"EXPLAIN QUERY PLAN SELECT tld, COUNT(*) FROM drops WHERE state = '{drops.SUSPENDED}' GROUP BY tld"))
     assert "drops_suspended" in plan
+
+
+def test_retired_extensions_are_erased_and_absent_redemptions_enter_the_watch_list(tmp_path):
+    """Migration 052 : .app, .biz, .dev, .info, .xyz effacés (domaines suivis gardés) ; un nom de la passe des absents
+    en rédemption passe à l'origine absent (Veille), un libre de la passe reste discret."""
+    conn = db.connect(tmp_path / "t.db")
+    db.migrate(conn, tmp_path / "backups")
+    for name, tld, state, origin in [("x.biz", "biz", "redemption", None), ("y.com", "com", "redemption", "rdap"),
+                                     ("z.com", "com", "available", "rdap"), ("w.xyz", "xyz", "available", "rdap")]:
+        conn.execute("INSERT INTO drops (name, tld, label, kind, removed_on, state, origin) VALUES (?, ?, ?, 'word', '', ?, ?)",
+                     (name, tld, name.split(".")[0], state, origin))
+    conn.execute("INSERT INTO domains (name, added_at) VALUES ('mien.app', 'x')")
+    conn.execute("INSERT INTO domain_ai (name, exploit, resale, quick_low, quick_high, final_low, final_high, comment, rated_at, "
+                 "version) VALUES ('belle.app', 50, 50, 0, 0, 100, 300, 'x', 'x', 7)")
+    conn.execute("INSERT INTO settings (key, value) VALUES ('zone_biz', '{}'), ('zone_com', '{}')")
+    conn.execute("PRAGMA user_version = 51")
+    db.migrate(conn, tmp_path / "backups")
+    assert dict(conn.execute("SELECT name, origin FROM drops").fetchall()) == {"y.com": "absent", "z.com": "rdap"}
+    assert conn.execute("SELECT name FROM domains").fetchall()[0][0] == "mien.app"
+    assert conn.execute("SELECT COUNT(*) FROM domain_ai").fetchone()[0] == 0
+    assert [r[0] for r in conn.execute("SELECT key FROM settings WHERE key LIKE 'zone_%'")] == ["zone_com"]

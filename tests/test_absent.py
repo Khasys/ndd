@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 
-from app import absent, drops, explore, gandi, morning, notify, states
+from app import absent, drops, explore, gandi, notify, states
 from app.checker import iso, utcnow
 from app.rdap import LookupResult
 from tests.test_explore import FakeRdap, env, zone  # noqa: F401  (fixture env)
@@ -110,16 +110,19 @@ def test_pass_records_the_registry_state_quietly(env):
     assert data[u.index("forhome")] == explore.COMING
     assert data[u.index("smart")] == explore.REGISTERED
     assert data[u.index("held")] == explore.SUSPENDED
-    # Ni Gandi tout de suite (des milliers de noms), ni Veille, ni alertes, ni quotidien : pas une libération.
+    # Libre, enregistré ou suspendu : ni Gandi tout de suite (des milliers de noms), ni Veille, ni alertes, ni quotidien,
+    # pas une libération. En rédemption : une libération à venir, dans la Veille et les alertes (origine absent).
     assert freed == []
-    assert all(r["origin"] == "rdap" and r["removed_on"] == drops.MANUAL for r in env.conn.execute("SELECT * FROM drops"))
+    rows = list(env.conn.execute("SELECT * FROM drops"))
+    assert {r["name"]: r["origin"] for r in rows} == {"jardin.com": "rdap", "forhome.com": drops.SEEN_ABSENT,
+                                                      "smart.com": "rdap", "held.com": "rdap"}
+    assert all(r["removed_on"] == drops.MANUAL for r in rows)
     since = utcnow() - timedelta(hours=1)
-    assert notify.changed(env.conn, since) == []
-    assert not morning.sections(env.conn, env, {}, "", utcnow(), 0)
+    assert [c["name"] for c in notify.changed(env.conn, since)] == ["forhome.com"]
     # La fiche dit ce que le registre a répondu, sans « Libération constatée ».
     kinds = [e["kind"] for e in env.timeline("jardin.com")]
     assert "drop_seen" in kinds and "available" not in kinds
-    assert run.status()["totals"] == {states.AVAILABLE: 1, states.REDEMPTION: 1, drops.TAKEN: 1, drops.SUSPENDED: 1}
+    assert run.status()["totals"] == {states.AVAILABLE: 1, drops.TAKEN: 1, drops.SUSPENDED: 1, "in_watch": 1}
 
 
 def test_a_later_release_is_a_real_event(env):

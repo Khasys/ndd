@@ -473,3 +473,15 @@ def test_refused_credentials_wait_an_hour_before_a_new_try(watcher):
     use(watcher, icann)
     asyncio.run(watcher.refresh_approved())
     assert watcher.store.get("czds_retry_at") == "" and watcher.due(now)
+
+
+def test_only_com_net_org_zones_are_read_and_retired_files_go(watcher):
+    """CZDS autorise d'autres zones : seules .com, .net et .org sont lues ; les fichiers des zones retirées s'effacent."""
+    watcher.store.set("czds_approved", '["app", "biz", "com", "info", "net", "org", "xyz"]')
+    watcher.store.set("czds_enabled", '["biz", "com", "xyz"]')
+    assert watcher.approved() == ["com", "net", "org"] and watcher.enabled() == ["com"]
+    watcher.dir.mkdir(parents=True, exist_ok=True)
+    for name in ("biz.short", "biz.words", "xyz.searched", "com.short", "fr.searched"):
+        (watcher.dir / name).write_bytes(b"x")
+    assert watcher.drop_retired() == 3
+    assert sorted(p.name for p in watcher.dir.iterdir()) == ["com.short", "fr.searched"]

@@ -66,6 +66,14 @@ MANUAL = ""
 # zone, absent.py). Hors Veille, alertes et quotidien : ce n'est pas une libération constatée. QUIET_SQL : la condition.
 QUIET = ("gandi", "rdap")
 QUIET_SQL = "COALESCE(origin, '') NOT IN ('gandi', 'rdap')"
+# Nom de la passe des absents vu en rédemption ou en suppression : une libération à venir comme une sortie de zone,
+# dans la Veille, Aujourd'hui, les alertes et le quotidien (31/10/2026). Revu ensuite par check_due, plus par la passe.
+SEEN_ABSENT = "absent"
+# Zones ICANN lues : le reste de ce que CZDS autorise est ignoré. .app, .biz, .dev, .info et .xyz retirés le
+# 31/10/2026 (cinq ventes ou moins chacun en seize semaines de DNJournal, la moitié des refus des registres) :
+# leurs données sont effacées (migration 052, repair).
+ICANN_TLDS = ("com", "net", "org")
+RETIRED_TLDS = ("app", "biz", "dev", "info", "xyz")
 # Un nom libre reste affiché ce nombre de jours (réglable), puis seulement dans l'Explorer.
 DEFAULT_KEEP_DAYS = 30
 # Au-delà de cette part de noms disparus en un jour, la zone est jugée anormale et ignorée.
@@ -428,11 +436,12 @@ class DropWatcher:
         return bool(self.username and self.store.get("czds_password"))
 
     def approved(self) -> list[str]:
-        return json.loads(self.store.get("czds_approved") or "[]")
+        """Zones autorisées par CZDS parmi celles que l'appli lit (ICANN_TLDS)."""
+        return [t for t in json.loads(self.store.get("czds_approved") or "[]") if t in ICANN_TLDS]
 
     def enabled(self) -> list[str]:
         raw = self.store.get("czds_enabled")
-        return json.loads(raw) if raw else self.approved()
+        return [t for t in json.loads(raw) if t in ICANN_TLDS] if raw else self.approved()
 
     def status(self, tld: str) -> dict:
         return json.loads(self.store.get(f"zone_{tld}") or "{}")
@@ -448,7 +457,7 @@ class DropWatcher:
             links = await self._client(http).links()
         self.store.set("czds_approved", json.dumps(list(links)))
         self.store.set("czds_retry_at", "")
-        return list(links)
+        return self.approved()
 
     # Lecture des zones
 
@@ -800,10 +809,14 @@ class DropWatcher:
             available_since = iso(now)
         elif state != states.AVAILABLE:
             available_since = None
+        origin = row["origin"]
+        if origin == "rdap" and state in TRACKED:
+            origin = SEEN_ABSENT  # libération à venir : dans la Veille comme une sortie de zone
         self.conn.execute(
             """UPDATE drops SET state = ?, state_since = ?, release_at = ?, available_since = ?,
-               error = NULL, checked_at = ?, next_check_at = ? WHERE id = ?""",
-            (state, iso(since), iso(release), available_since, iso(now), iso(self._next(state, now, release)), row["id"]),
+               error = NULL, checked_at = ?, next_check_at = ?, origin = ? WHERE id = ?""",
+            (state, iso(since), iso(release), available_since, iso(now), iso(self._next(state, now, release)), origin,
+             row["id"]),
         )
         if (state in (states.AVAILABLE, UNCONFIRMED) and state != row["state"] and self.on_freed
                 and row["origin"] != "gandi" and not (row["origin"] == "rdap" and row["state"] is None)):
@@ -855,6 +868,17 @@ class DropWatcher:
             self.conn.execute("UPDATE drops SET origin = 'manual' WHERE name = ?", (name,))
             found = self.row(name)
         return found
+
+    def drop_retired(self) -> int:
+        """Au démarrage : fichiers des zones retirées (RETIRED_TLDS) effacés de data/zones. Renvoie leur nombre."""
+        removed = 0
+        for tld in RETIRED_TLDS:
+            for kind in ("short", "words", "searched"):
+                path = self._path(tld, kind)
+                if path.exists():
+                    path.unlink()
+                    removed += 1
+        return removed
 
     def repair(self) -> dict:
         """Au démarrage, idempotent : corrige ce que les versions précédentes ont écrit.
