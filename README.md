@@ -789,6 +789,12 @@ Score (`app/value.py`, `app/quality.py`), chaque critère pondérable de 0 à 2 
 | Demande : pris sur d'autres extensions, .com surtout, seulement si c'est rare pour un nom de sa forme | 15 au plus |
 | Historique .fr : années de détention, suppression récente, moins si la plupart des noms de sa forme ont déjà été tenus | 15 au plus |
 | SEO, si analysé : Open PageRank, années archivées par la Wayback Machine | 20 au plus |
+| Ventes réelles (v0.16.3) : ce nom exact vendu d'après DNJournal 6, 8 ou 10 (moins de 5 000 $, jusqu'à 20 000 $, au-delà), le même mot vendu dans une autre extension 3, 4 ou 6 | 10 au plus |
+
+Vues posées une fois dans l'Explorer (v0.16.3, rapport du 31/10/2026 : en .fr, 3 % des noms qui tombent sont repris,
+en 54 jours en médiane, contre 1 à 3 jours en .com ; les mots simples s'y vendent le mieux) : « .fr : mots courants
+bientôt libres », « .fr : métiers et mots-clés bientôt libres », « .fr : déjà vendus, libres ». Supprimées, elles ne
+reviennent pas.
 
 Forme et sens : poids calés sur des avis IA détaillés (grille v5) d'un échantillon de 5 240 noms de
 toutes les catégories, une famille de poids par sorte de nom (mots, noms de personnes, suites courtes

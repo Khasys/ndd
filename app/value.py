@@ -159,7 +159,8 @@ def seo(row) -> tuple[int, list[str]]:
 
 
 # Poids de chaque critère, de 0 (ignoré) à 2 (doublé), réglables dans Paramètres.
-CRITERIA = {"shape": "Forme et sonorité", "popularity": "Sens et marché", "demand": "Demande", "history": "Historique", "seo": "SEO"}
+CRITERIA = {"shape": "Forme et sonorité", "popularity": "Sens et marché", "demand": "Demande", "history": "Historique", "seo": "SEO",
+            "market": "Ventes réelles"}
 DEFAULT_WEIGHTS = dict.fromkeys(CRITERIA, 1.0)
 
 
@@ -184,11 +185,26 @@ def intrinsic(label: str, tld: str = "fr", f: dict | None = None) -> tuple[int, 
     return form, meaning, reasons
 
 
+# Ventes réelles (DNJournal, market.py) : la seule preuve qu'un acheteur a payé ce mot. Ce nom exact compte plus que le
+# même mot dans une autre extension ; paliers de prix plutôt qu'une échelle continue (ventes publiques : 2 000 $ et
+# plus). Rapport du 31/10/2026 : en .com les composés font 73 % des ventes (médiane 3 330 $), les mots simples 3 %
+# (médiane 20 000 $) ; en .fr les mots simples ont la meilleure médiane (3 873 $).
+MARKET_POINTS = {"exact": ((20_000, 10), (5_000, 8), (0, 6)), "other": ((20_000, 6), (5_000, 4), (0, 3))}
+
+
+def market_points(sale: dict | None, name: str) -> int:
+    """Points d'une vente connue du libellé : ce nom exact, ou le même mot ailleurs ; 0 sans vente."""
+    if not sale:
+        return 0
+    steps = MARKET_POINTS["exact" if sale["name"] == name else "other"]
+    return next(points for floor, points in steps if sale["price"] >= floor)
+
+
 def score(label: str, taken: list[str], fr_row=None, seo_row=None, today: date | None = None,
           weights: dict[str, float] | None = None, rates: dict[str, float] | None = None, common: float = 0.0,
-          tld: str = "fr") -> dict:
+          tld: str = "fr", sale: dict | None = None) -> dict:
     today = today or date.today()
-    weights = weights or DEFAULT_WEIGHTS
+    weights = {**DEFAULT_WEIGHTS, **(weights or {})}
     parts: dict[str, int] = {}
     form, meaning, reasons = intrinsic(label, tld)
     parts["shape"], parts["popularity"] = form, meaning
@@ -204,5 +220,6 @@ def score(label: str, taken: list[str], fr_row=None, seo_row=None, today: date |
             reasons.append(reason)
     parts["seo"], extra = seo(seo_row)
     reasons += extra
+    parts["market"] = market_points(sale, f"{label}.{tld}")  # sa raison, « vendu … », est posée par l'Explorer
     weighted = {k: round(v * weights[k]) for k, v in parts.items()}
     return {"score": min(100, sum(weighted.values())), "reasons": reasons, "parts": weighted}

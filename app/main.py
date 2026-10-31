@@ -507,6 +507,7 @@ async def lifespan(app: FastAPI):
     app.state.update_outcomes = update_outcomes
     app.state.scheduler = scheduler
     app.state.drops = watcher
+    seed_views(store)
     app.state.veille = new_veille()
     app.state.fr = fr
     app.state.reserved = reserved.Reserved(conn, store)
@@ -2699,6 +2700,32 @@ async def revoke_token(request: Request, token_id: str):
     if not token_id.isdigit() or not tokens.revoke(state.conn, int(token_id)):
         raise HTTPException(404, "Jeton introuvable.")
     return Response(status_code=204)
+
+
+# Vues posées une fois dans l'Explorer (rapport du 31/10/2026) : en .fr, presque personne ne reprend un nom qui tombe
+# (3 % repris, en 54 jours en médiane, contre 1 à 3 jours en .com), et les mots simples s'y vendent le mieux. Supprimée
+# par l'utilisateur, une vue ne revient pas (réglage views_seeded).
+SEED_VIEWS = [
+    {"name": ".fr : mots courants bientôt libres", "alert": False,
+     "filters": {"tld": "fr", "status": "coming", "cat": "word", "nat": "noun", "sort": "release", "level": "good"}},
+    {"name": ".fr : métiers et mots-clés bientôt libres", "alert": False,
+     "filters": {"tld": "fr", "status": "coming", "cat": "job,keyword,local,premium", "sort": "release", "level": "good"}},
+    {"name": ".fr : déjà vendus, libres", "alert": False,
+     "filters": {"tld": "fr", "status": "bookable", "cat": "sold", "lang": "fr", "sort": "best", "level": "good"}},
+]
+SEED_VIEWS_KEY = "views_seeded_1"
+
+
+def seed_views(store) -> int:
+    """Ajoute les vues de SEED_VIEWS absentes (30 vues au plus), une seule fois ; renvoie le nombre ajouté."""
+    if store.get(SEED_VIEWS_KEY) == "1":
+        return 0
+    views = json.loads(store.get("explore_views") or "[]")
+    names = {v.get("name") for v in views}
+    added = [v for v in SEED_VIEWS if v["name"] not in names][:max(0, 30 - len(views))]
+    store.set("explore_views", json.dumps(views + added))
+    store.set(SEED_VIEWS_KEY, "1")
+    return len(added)
 
 
 @app.get("/api/explore/views")

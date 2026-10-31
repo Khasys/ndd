@@ -2068,7 +2068,8 @@ document.addEventListener("alpine:init", () => {
 
     scoreTitle(i) {
       if (!i.parts) return "";
-      const names = { shape: "forme et sonorité", popularity: "sens et marché", demand: "demande", history: "historique", seo: "SEO" };
+      const names = { shape: "forme et sonorité", popularity: "sens et marché", demand: "demande", history: "historique", seo: "SEO",
+        market: "ventes réelles" };
       return `Score ${i.score} : ` + Object.entries(i.parts).filter(([, v]) => v).map(([k, v]) => `${names[k]} ${v}`).join(", ");
     },
 

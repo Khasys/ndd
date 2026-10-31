@@ -1273,7 +1273,9 @@ class Explorer:
         top = max(w["shape"], w["popularity"])
         # Nom court non calculé à la construction (4 caractères mélangés ou à tiret) : borne fixe.
         base = (self.universe.base_table[i] & 127) or (precompute.UNRANKED_BOUND if i < drops.CELLS else 0)
-        return base * top + demand * w["demand"] + history * w["history"] + seo * w["seo"]
+        sale = self.market.label_sale(label) if getattr(self, "market", None) is not None else None
+        market = value.market_points(sale, f"{label}.{tld}") * w.get("market", 1.0)
+        return base * top + demand * w["demand"] + history * w["history"] + seo * w["seo"] + market
 
     def _value(self, tld: str, i: int, label: str, ctx: dict) -> dict:
         taken = [t for t, data in ctx["others"].items() if data[i] in TAKEN_CODES]
@@ -1281,8 +1283,9 @@ class Explorer:
         rates = {t: ctx["rates"][t].get(form, 0.0) for t in taken}
         # Forme et sens calés sur les avis IA (value.intrinsic) : un mot seulement anglais en .fr ou une
         # forme conjuguée y comptent déjà moins ; demande et historique ramenés à ce qui est rare.
+        sale = self.market.label_sale(label) if getattr(self, "market", None) is not None else None
         found = value.score(label, taken, ctx["gone"].get(i), ctx["seo"].get(f"{label}.{tld}"), ctx["today"], ctx["weights"],
-                            rates, ctx["held"].get(form, 0.0), tld)
+                            rates, ctx["held"].get(form, 0.0), tld, sale)
         found["rank"] = self.best_rank(label)
         recent = self.recent.rank_of(label) if self.recent is not None else None
         if recent:
@@ -1290,7 +1293,6 @@ class Explorer:
         # Rang dans chaque liste : tri « les plus portés » et « 12e prénom le plus donné » sur la carte.
         found["ranks"] = {k: r[label] for k, r in wordlists.ranks().items() if label in r}
         # Déjà vendu (DNJournal), ce nom ou le même mot ailleurs : la preuve qu'un acheteur a payé, en première raison.
-        sale = self.market.label_sale(label) if getattr(self, "market", None) is not None else None
         if sale:
             found["sold"] = sale
             found["reasons"] = [market.sale_reason(sale, f"{label}.{tld}"), *found.get("reasons", [])]
@@ -2143,7 +2145,8 @@ class Explorer:
         u = self.universe
         # Version des données, lue une fois pour toute la liste : ensemble et versions des extensions,
         # génération (réglages, imports), jour (l'historique compte en jours).
-        stamp = (self.generation, date.today(), tuple((t, self._version(t)) for t in self.tlds()))
+        stamp = (self.generation, date.today(), tuple((t, self._version(t)) for t in self.tlds()),
+                 getattr(getattr(self, "market", None), "version", 0))
         contexts: dict[str, dict] = {}
         with self._memo_lock:
             known = dict(self._values)

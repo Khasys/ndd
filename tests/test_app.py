@@ -1959,3 +1959,15 @@ def test_prepared_watch_list_is_served_ready_and_redone_after_an_action(logged, 
         time.sleep(0.1)
     assert status["list_built_at"] != data["list_built_at"] and len(builds) == 3 and status["items"] is None
     client.__exit__(None, None, None)
+
+
+def test_ready_views_are_added_once(logged):
+    """Vues du rapport du 31/10/2026 posées une fois au démarrage ; supprimées, elles ne reviennent pas."""
+    from app import main
+
+    client = logged()
+    names = [v["name"] for v in client.get("/api/explore/views").json()]
+    assert names == [v["name"] for v in main.SEED_VIEWS]
+    assert client.put("/api/explore/views", json={"views": []}).status_code == 200
+    assert main.seed_views(client.app.state.store) == 0 and client.get("/api/explore/views").json() == []
+    client.__exit__(None, None, None)

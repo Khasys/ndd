@@ -273,3 +273,31 @@ def test_periods_written_without_spaces_or_with_a_comma_after_the_month():
         text = market.text_of(f"<p>The DN Journal Top 20 Highest Reported Domain Sales - {header} ( Foreign currency) "
                               "Domain Sold For Where Sold</p><p>1. Gorilla.com $496,320 RightOfTheDot</p><p>Keep in mind</p>")
         assert [(s["name"], s["price"], s["date"]) for s in market.parse(text, "u")] == [("gorilla.com", 496320, end)]
+
+
+def test_a_real_sale_adds_points_to_the_score(env, tmp_path):
+    """Ventes réelles : ce nom exact vendu compte plus que le même mot ailleurs, par paliers de prix ; un critère du
+    barème comme les autres (poids 0 : sans effet)."""
+    from app import value, wordlists
+
+    assert value.market_points(None, "x.fr") == 0
+    assert value.market_points({"name": "x.fr", "price": 25000}, "x.fr") == 10
+    assert value.market_points({"name": "x.com", "price": 25000}, "x.fr") == 6
+    assert value.market_points({"name": "x.com", "price": 2500}, "x.fr") == 3
+    assert "market" in value.CRITERIA
+    wordlists.configure(tmp_path / "data")
+    try:
+        before = env.value_of(["jardin.fr"])["jardin.fr"]["score"]
+        m = market.Market(env.conn, Store())
+        env.market = m
+        m.save("u", [{"name": "jardin.fr", "price": 30000, "date": "2021-07-07", "venue": "Sedo", "source": "u"}],
+               datetime.now(timezone.utc))
+        m.publish_sold()
+        found = env.value_of(["jardin.fr"])["jardin.fr"]
+        assert found["parts"]["market"] == 10 and found["score"] == min(100, before + 10)
+        assert found["reasons"][0] == "vendu 30 000 $ en 2021"
+        # Classement de l'Explorer : la borne compte aussi la vente, le nom n'est pas écarté à tort.
+        ranked = env.rank("fr", q="jardin", mode="exact", status="all", limit=1)["items"]
+        assert ranked and ranked[0]["score"] == found["score"]
+    finally:
+        wordlists.configure(None)
