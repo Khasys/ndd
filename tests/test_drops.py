@@ -372,7 +372,7 @@ def test_word_lists_are_loaded_and_normalised():
     assert 200 <= len(lists["animal"]) <= 300 and 300 <= len(lists["food"]) <= 400
     assert "avocat" in lists["job"] and "avocat" in lists["word"]  # un nom peut être dans plusieurs listes
     assert wordlists.langs_of("osteopathe") == ["fr"] and wordlists.langs_of("roofer") == ["en"]
-    assert set(wordlists.FILES) | {wordlists.MINE} == set(wordlists.LABELS)
+    assert set(wordlists.FILES) | {wordlists.MINE, wordlists.SOLD} == set(wordlists.LABELS)
 
 
 def test_parallel_scan_gives_the_same_result_as_a_single_process():
