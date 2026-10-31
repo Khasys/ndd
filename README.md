@@ -1025,7 +1025,12 @@ pris (nettoyage mémoire ou calcul en C). Les nettoyages mémoire de plus d'une 
 génération, et `gc` de `/api/diag` donne leurs comptes. La base ne recopie plus son journal WAL à la fin d'une
 écriture (plusieurs secondes au NAS, souvent sur la boucle) : une tâche le fait toutes les 30 s dans son propre fil,
 et `wal` de `/api/diag` donne le dernier passage, le plus lent, la taille de la base et celle du journal ; un passage
-de plus de 2 s est noté au journal. Jamais
+de plus de 2 s est noté au journal. La Veille complète (15 000 noms, 12 Mo de JSON au NAS) est préparée hors de la
+boucle, encodée et compressée une fois, puis servie telle quelle : refaite après toute action (requête autre que GET,
+sauf les envois de la notation IA), en arrière-plan quand elle a plus d'une minute (écran ouvert, ouverture
+d'Aujourd'hui), avant de répondre au-delà de 15 minutes. L'état seul (`items=0`) donne sa version (`list_built_at`) :
+l'écran ouvert recharge la liste quand elle change. Filtres et tris restent dans le navigateur. `veille` de
+`/api/diag` : dernière préparation, sa durée, ses noms et sa taille. Jamais
 les réglages, les secrets ni une écriture. Lecture depuis une session Claude :
 `python3 scripts/read_api.py /api/diag`. L'avis s'affiche dans la fiche et les listes, avec un tri « Par avis IA » (revente
 rapide) et un filtre dans le panneau de l'Explorer : verdicts, et bornes min et max de chaque note

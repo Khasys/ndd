@@ -1,6 +1,7 @@
 import asyncio
 import functools
 import gc
+import gzip
 import hashlib
 import hmac
 import html
@@ -501,6 +502,7 @@ async def lifespan(app: FastAPI):
     app.state.update_outcomes = update_outcomes
     app.state.scheduler = scheduler
     app.state.drops = watcher
+    app.state.veille = new_veille()
     app.state.fr = fr
     app.state.reserved = reserved.Reserved(conn, store)
     app.state.explorer = explore.Explorer(conn, watcher, fr, app.state.reserved)
@@ -677,6 +679,11 @@ async def log_slow_requests(request: Request, call_next):
         response = await call_next(request)
     finally:
         WATCHDOG.requests.pop(id(request), None)
+        if (request.method not in ("GET", "HEAD") and request.url.path not in AI_PATHS
+                and hasattr(request.app.state, "veille")):
+            # Une action (Vérifier, Ignorer, réglage…) : la Veille préparée ne vaut plus, la prochaine est refaite.
+            # Pas les envois de la notation IA (un toutes les quelques secondes la nuit) : elle les montre sous la minute.
+            request.app.state.veille["gen"] += 1
     spent = time.monotonic() - started
     if spent > SLOW_REQUEST and request.url.path.startswith("/api/"):
         # Paramètres et code de retour : une réponse de 100 s est une 502 pour le proxy, qui a cessé d'attendre.
@@ -1582,9 +1589,115 @@ async def list_drops(request: Request):
         raise HTTPException(422, "Liste inconnue : freed, coming ou new_take.")
     # Rafraîchissement de l'état seul (écran ouvert) : pas de liste, quelques Ko au lieu de plusieurs Mo.
     with_items = request.query_params.get("items") != "0"
+    state = request.app.state
+    period = _today_period(request)
+    if with_items and not focus and VEILLE_CACHE:
+        return _veille_response(request, await veille_entry(state))
     # Tout hors de la boucle : lue sur la boucle, la Veille la bloquait jusqu'à 25 s au NAS (30/10/2026).
-    return await _off(_drops_view, request.app.state, focus, _today_period(request),
-                      request.query_params.get("nopremium") == "1", with_items)
+    found = await _off(_drops_view, state, focus, period, request.query_params.get("nopremium") == "1", with_items)
+    if not with_items:
+        # Version de la liste préparée : l'écran ouvert recharge la liste quand elle change. Refaite en arrière-plan
+        # si elle a vieilli : l'écran la trouve prête au rafraîchissement suivant.
+        entry = state.veille["entry"]
+        found["list_built_at"] = entry["built_at"] if entry else None
+        if VEILLE_CACHE and _veille_stale(state.veille):
+            veille_refresh(state)
+    return found
+
+
+# --- Veille préparée -----------------------------------------------------------------------------
+# 15 000 noms, 12 Mo de JSON : 2,6 s de calcul au NAS à chaque ouverture (31/10/2026), puis l'encodage et la
+# compression sur la boucle. La liste complète est préparée hors de la boucle, encodée, compressée et signée une fois,
+# puis servie telle quelle. Refaite après toute action (gen : requête autre que GET), et en arrière-plan quand elle a
+# plus de VEILLE_FRESH secondes (écran ouvert, Aujourd'hui) ; au-delà de VEILLE_MAX_AGE, refaite avant de répondre.
+# Les filtres et les tris restent dans le navigateur : instantanés, sans aller-retour au NAS.
+VEILLE_FRESH = 60
+VEILLE_MAX_AGE = 900
+VEILLE_RETRIES = 2
+VEILLE_CACHE = True  # False : calculée à chaque demande, comme avant (tests qui écrivent en base sans passer par l'API)
+
+
+def new_veille() -> dict:
+    return {"entry": None, "gen": 0, "task": None, "task_gen": None}
+
+
+def _veille_stale(cache: dict) -> bool:
+    entry = cache["entry"]
+    return entry is None or entry["gen"] != cache["gen"] or time.monotonic() - entry["at"] >= VEILLE_FRESH
+
+
+def _veille_build(state, gen: int) -> dict:
+    start = time.monotonic()
+    found = _drops_view(state, "", "24h", False, True)
+    # Version de la liste, à la milliseconde : deux préparations dans la même seconde restent distinctes.
+    found["list_built_at"] = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+    raw = FastJSON(found).body
+    entry = {"gen": gen, "built_at": found["list_built_at"], "raw": raw, "gz": gzip.compress(raw, compresslevel=5),
+             "tag": '"' + hashlib.blake2b(raw, digest_size=12).hexdigest() + '"', "items": len(found["items"])}
+    entry["seconds"] = round(time.monotonic() - start, 2)
+    entry["at"] = time.monotonic()
+    return entry
+
+
+async def _veille_rebuild(state) -> dict:
+    """La Veille refaite pour la génération en cours ; une préparation déjà lancée pour elle est attendue, pas doublée."""
+    cache = state.veille
+    for _ in range(VEILLE_RETRIES):
+        gen = cache["gen"]
+        task = cache["task"]
+        if task is None or task.done() or cache["task_gen"] != gen:
+            task = asyncio.ensure_future(_off(_veille_build, state, gen))
+            cache["task"], cache["task_gen"] = task, gen
+        entry = await asyncio.shield(task)
+        if cache["entry"] is None or entry["at"] >= cache["entry"]["at"]:
+            cache["entry"] = entry
+        if entry["gen"] == cache["gen"]:
+            return entry  # sinon une action est arrivée pendant la préparation : on recommence, une fois
+    return entry
+
+
+def veille_refresh(state) -> None:
+    """Préparation en arrière-plan, sans attendre ; rien si une préparation pour la génération en cours tourne déjà."""
+    cache = state.veille
+    task = cache["task"]
+    if task is not None and not task.done() and cache["task_gen"] == cache["gen"]:
+        return
+    job = asyncio.ensure_future(_veille_rebuild(state))
+    job.add_done_callback(lambda t: t.cancelled() or not t.exception() or log.warning(
+        "Veille non préparée : %s", t.exception()))
+
+
+async def veille_entry(state) -> dict:
+    """La Veille à servir : prête si elle est à jour ; un peu ancienne (moins de VEILLE_MAX_AGE, aucune action
+    depuis), servie tout de suite et refaite en arrière-plan ; sinon refaite avant de répondre."""
+    cache = state.veille
+    entry = cache["entry"]
+    if entry is not None and entry["gen"] == cache["gen"]:
+        if time.monotonic() - entry["at"] < VEILLE_FRESH:
+            return entry
+        if time.monotonic() - entry["at"] < VEILLE_MAX_AGE:
+            veille_refresh(state)
+            return entry
+    return await _veille_rebuild(state)
+
+
+def veille_status(cache: dict) -> dict:
+    """Dernière préparation de la Veille, pour /api/diag : quand, combien de temps, combien de noms et d'octets."""
+    entry = cache["entry"]
+    if entry is None:
+        return {"built_at": None}
+    return {"built_at": entry["built_at"], "seconds": entry["seconds"], "items": entry["items"],
+            "bytes": len(entry["raw"]), "gz_bytes": len(entry["gz"])}
+
+
+def _veille_response(request: Request, entry: dict) -> Response:
+    headers = {"ETag": entry["tag"], "Cache-Control": "no-cache", "Vary": "Accept-Encoding"}
+    if request.headers.get("if-none-match") == entry["tag"]:
+        return Response(status_code=304, headers=headers)
+    if "gzip" in request.headers.get("accept-encoding", ""):
+        # Déjà compressée : GZipMiddleware laisse passer une réponse qui a son Content-Encoding.
+        return Response(entry["gz"], media_type="application/json", headers={**headers, "Content-Encoding": "gzip"})
+    return Response(entry["raw"], media_type="application/json", headers=headers)
 
 
 def _drops_view(state, focus: str, period: str, nopremium: bool, with_items: bool) -> dict:
@@ -1755,8 +1868,11 @@ async def today_screen(request: Request):
     sort = request.query_params.get("sort", "resale")
     if sort not in TODAY_SORTS:
         raise HTTPException(422, "Tri inconnu : resale ou exploit.")
-    return await _off(_today, request.app.state, sort, utcnow(), _today_period(request),
-                      request.query_params.get("nopremium") == "1")
+    state = request.app.state
+    found = await _off(_today, state, sort, utcnow(), _today_period(request), request.query_params.get("nopremium") == "1")
+    if VEILLE_CACHE and _veille_stale(state.veille):
+        veille_refresh(state)  # après Aujourd'hui, pas devant : la Veille est souvent l'écran suivant
+    return found
 
 
 class NameCheck(BaseModel):
@@ -2482,6 +2598,7 @@ async def diag(request: Request):
         "recent_errors": list(RECENT.records),
         "journal": journal_status(conn),  # les mêmes lignes sur 7 jours : /api/diag/journal
         "wal": wal_status(state.settings.db_path),
+        "veille": veille_status(state.veille),
         # Nettoyages mémoire de Python par génération (nombre, objets libérés) : une génération 2 longue bloque tout.
         "gc": {"stats": gc.get_stats(), "pending": gc.get_count(), "frozen": gc.get_freeze_count()},
     }

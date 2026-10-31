@@ -1924,3 +1924,38 @@ def test_interface_fiche_actions_refresh_the_screen_underneath():
     for fn in ("async ficheCheck()", "async ficheWatch()", "async ficheUnwatch()"):
         body = js.split(fn)[1].split("\n    },")[0]
         assert "this.refreshUnderFiche()" in body, fn
+
+
+def test_prepared_watch_list_is_served_ready_and_redone_after_an_action(logged, monkeypatch):
+    """Veille préparée (VEILLE_CACHE) : la deuxième ouverture est servie sans recalcul, compressée, avec son empreinte ;
+    une action (Ignorer) la refait aussitôt ; vieillie, elle est servie puis refaite en arrière-plan, et l'état seul
+    (items=0) donne la version de la liste pour que l'écran ouvert la recharge."""
+    from app import main
+
+    monkeypatch.setattr(main, "VEILLE_CACHE", True)
+    builds = []
+    real = main._veille_build
+    monkeypatch.setattr(main, "_veille_build", lambda state, gen: builds.append(gen) or real(state, gen))
+    client = logged()
+    now = datetime.now(timezone.utc)
+    client.app.state.drops.record("fr", ["ciel", "mai"], [], now)
+    client.app.state.conn.execute("UPDATE drops SET state = 'available', available_since = ?", (now.isoformat(),))
+    first = client.get("/api/drops")
+    assert {"ciel.fr", "mai.fr"} <= {i["name"] for i in first.json()["items"]} and len(builds) == 1
+    again = client.get("/api/drops", headers={"Accept-Encoding": "gzip"})
+    assert again.headers["content-encoding"] == "gzip" and again.json() == first.json() and len(builds) == 1
+    assert client.get("/api/drops", headers={"If-None-Match": first.headers["etag"]}).status_code == 304
+    # Une action : refaite à la demande suivante, le nom ignoré n'y est plus.
+    client.post("/api/drops/hide", json={"names": ["ciel.fr"]})
+    data = client.get("/api/drops").json()
+    assert "ciel.fr" not in {i["name"] for i in data["items"]} and len(builds) == 2
+    # Vieillie : servie telle quelle, refaite derrière ; l'état seul annonce la nouvelle version.
+    client.app.state.veille["entry"]["at"] -= main.VEILLE_FRESH + 1
+    assert client.get("/api/drops").json()["list_built_at"] == data["list_built_at"]
+    for _ in range(50):
+        status = client.get("/api/drops?items=0").json()
+        if status["list_built_at"] != data["list_built_at"]:
+            break
+        time.sleep(0.1)
+    assert status["list_built_at"] != data["list_built_at"] and len(builds) == 3 and status["items"] is None
+    client.__exit__(None, None, None)

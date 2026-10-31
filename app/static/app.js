@@ -2586,9 +2586,13 @@ document.addEventListener("alpine:init", () => {
       this.loadOrderUrl();
       try {
         if (statusOnly) {
-          const { items, ...status } = await this.api("GET", "/api/drops?items=0");
+          // list_built_at : version de la liste préparée par le NAS ; une plus récente que celle affichée est rechargée
+          // (aussitôt servie, déjà prête). Gardée à part : c'est celle de la liste affichée qui compte.
+          const { items, list_built_at: built, ...status } = await this.api("GET", "/api/drops?items=0");
+          const shown = this.dropsData && this.dropsData.list_built_at;
           if (this.dropsData) Object.assign(this.dropsData, status);
           else this.dropsData = { ...status, items: [] };
+          if (this.dropsOpen && !this.dropFocus && shown && built && built !== shown) this.loadDrops();
           return;
         }
         const focus = this.dropFocus, period = this.dropFocusPeriod;
