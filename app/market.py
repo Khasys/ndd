@@ -78,7 +78,7 @@ MONTHS = {m: i for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", 
 DOM = r"([A-Za-z0-9][A-Za-z0-9-]*(?:\.[A-Za-z]{2,}){1,2})"
 DOM_SPACED = r"([A-Za-z0-9][A-Za-z0-9-]* ?(?:\.[A-Za-z]{2,}){1,2})"
 AMOUNT = r"(?:([€£]|[A-Z]{3})\s?([0-9][0-9,]*)\s*=\s*)?\$([0-9][0-9,]*)"  # € 5,000 = $5,400 ; AUD 100,000 = $70,000
-PERIOD = re.compile(r"Highest Reported [A-Za-z .]*?Sales\s*[-:]\s*Mon\.? ?([A-Za-z]+\.? ?\d+)(?:, \d{4})?\s*-\s*Sun\.? ?([A-Za-z]+)\.? ?(\d+),? (\d{4})")
+PERIOD = re.compile(r"Highest Reported [A-Za-z .]*?Sales\s*[-:]\s*Mon\.? ?([A-Za-z]+[.,]? ?\d+)(?:, \d{4})?\s*-\s*Sun\.? ?([A-Za-z]+)\.? ?(\d+),? (\d{4})")
 
 
 def _price(text: str) -> int:

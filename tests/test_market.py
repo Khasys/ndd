@@ -264,3 +264,12 @@ def test_an_unreadable_old_report_is_skipped_not_blocking(tmp_path, monkeypatch)
     pages["domainsales-archive.htm"] = '<a href="domainsales/2026/1021.htm">n</a>' + archive
     pages["domainsales/2026/1021.htm"] = "<p>rien</p>"
     assert "aucune vente lue" in asyncio.run(run())["error"]
+
+
+def test_periods_written_without_spaces_or_with_a_comma_after_the_month():
+    """Rapports de 2019 (« Mon. Oct, 21, 2019 ») et de 2022 (« Mon. Sept. 19- Sun. Oct. 2, 2022 ») : la période se lit."""
+    for header, end in (("Mon. Oct, 21, 2019 - Sun. Oct. 27, 2019", "2019-10-27"),
+                        ("Mon. Sept. 19- Sun. Oct. 2, 2022", "2022-10-02")):
+        text = market.text_of(f"<p>The DN Journal Top 20 Highest Reported Domain Sales - {header} ( Foreign currency) "
+                              "Domain Sold For Where Sold</p><p>1. Gorilla.com $496,320 RightOfTheDot</p><p>Keep in mind</p>")
+        assert [(s["name"], s["price"], s["date"]) for s in market.parse(text, "u")] == [("gorilla.com", 496320, end)]

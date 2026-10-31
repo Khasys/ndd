@@ -956,7 +956,7 @@ et avec le potentiel (×2 tous les 15 points de note de revente au-dessus de 50)
 fiche montre « rapporte ~X €/an (vente ~Y %/an, 1 chance sur 2 en ~Z ans) ».
 
 Ventes comparables : le NAS lit les rapports de ventes de DNJournal (toutes les deux semaines, archive de
-l'année et des précédentes depuis 2015 : environ 330 rapports et 40 000 ventes, 60 rapports par heure au rattrapage,
+l'année et des précédentes depuis 2015 : 400 rapports et environ 50 000 ventes, 60 rapports par heure au rattrapage,
 3 s entre deux rapports, lecture hors de la boucle de l'appli ; `app/market.py`, table `market_sales`, données gardées
 sur le NAS seulement).
 
