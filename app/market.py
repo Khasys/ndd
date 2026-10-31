@@ -37,6 +37,8 @@ CHECK_LATE = timedelta(days=8)     # plus de lecture réussie depuis 8 jours (pa
 HEADERS = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) domain-watch"}
 # Rapports : « domainsales/2024/0626.htm » depuis 2024, « domainsales/2022/20220817.htm » avant, parfois en adresse
 # complète (2020).
+# Version du lecteur : la changer fait relire les rapports passés faute de vente lisible.
+PARSER = 2
 REPORT_LINK = re.compile(r'href="(?:https?://(?:www\.)?dnjournal\.com/archive/)?(domainsales/(\d{4})/(\d{4}|\d{8})\.htm)"')
 
 
@@ -76,7 +78,7 @@ MONTHS = {m: i for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", 
 DOM = r"([A-Za-z0-9][A-Za-z0-9-]*(?:\.[A-Za-z]{2,}){1,2})"
 DOM_SPACED = r"([A-Za-z0-9][A-Za-z0-9-]* ?(?:\.[A-Za-z]{2,}){1,2})"
 AMOUNT = r"(?:([€£]|[A-Z]{3})\s?([0-9][0-9,]*)\s*=\s*)?\$([0-9][0-9,]*)"  # € 5,000 = $5,400 ; AUD 100,000 = $70,000
-PERIOD = re.compile(r"Highest Reported [A-Za-z .]*?Sales\s*[-:]\s*Mon\.? ?([A-Za-z]+\.? ?\d+)(?:, \d{4})? - Sun\.? ?([A-Za-z]+)\.? ?(\d+),? (\d{4})")
+PERIOD = re.compile(r"Highest Reported [A-Za-z .]*?Sales\s*[-:]\s*Mon\.? ?([A-Za-z]+\.? ?\d+)(?:, \d{4})?\s*-\s*Sun\.? ?([A-Za-z]+)\.? ?(\d+),? (\d{4})")
 
 
 def _price(text: str) -> int:
@@ -169,8 +171,9 @@ class Market:
     def status(self) -> dict:
         info = json.loads(self.store.get("market_status") or "{}")
         count, last = self.conn.execute("SELECT COUNT(*), MAX(date) FROM market_sales").fetchone()
-        reports = self.conn.execute("SELECT COUNT(*) FROM market_reports").fetchone()[0]
-        return {**info, "sales": count, "latest_sale": last, "reports": reports, "running": self.running}
+        reports, skipped = self.conn.execute("SELECT COUNT(*), COALESCE(SUM(sales = 0), 0) FROM market_reports").fetchone()
+        # skipped : anciens rapports passés faute de vente lisible (relus quand le lecteur change, PARSER).
+        return {**info, "sales": count, "latest_sale": last, "reports": reports, "skipped": skipped, "running": self.running}
 
     def due(self, now: datetime) -> bool:
         info = json.loads(self.store.get("market_status") or "{}")
@@ -209,6 +212,10 @@ class Market:
         info = json.loads(self.store.get("market_status") or "{}")
         own = client is None
         client = client or httpx.AsyncClient(timeout=60, headers=HEADERS, follow_redirects=True)
+        added, published = 0, False
+        if info.get("parser") != PARSER:
+            # Lecteur amélioré : les anciens rapports passés faute de vente lisible sont relus.
+            await off(lambda: self.conn.execute("DELETE FROM market_reports WHERE sales = 0"))
         try:
             links: list[str] = []
             for year in range(now.year, FIRST_YEAR - 1, -1):
@@ -223,7 +230,6 @@ class Market:
                 raise MarketError("aucun rapport dans l'archive (mise en page changée ?)")
             done = {r[0] for r in self.conn.execute("SELECT url FROM market_reports")}
             todo = [u for u in links if u not in done][:PER_RUN]
-            added = 0
             for n, url in enumerate(todo):
                 if n:
                     await asyncio.sleep(PAUSE)
@@ -232,13 +238,18 @@ class Market:
                     raise MarketError(f"rapport injoignable (HTTP {response.status_code}) : {url}")
                 sales = await off(_read_report, response, url)
                 if not sales:
-                    raise MarketError(f"aucune vente lue dans {url} (mise en page changée ?)")
+                    if url == links[0]:
+                        raise MarketError(f"aucune vente lue dans {url} (mise en page changée ?)")
+                    # Ancien rapport à la mise en page d'alors : passé (noté lu, aucune vente), pas bloquant.
+                    log.warning("Ventes DNJournal : aucune vente lue dans %s, rapport passé", url)
                 added += await off(self.save, url, sales, now)
             if added or not self.sold_file_ok():
                 await off(self.publish_sold)
+                published = True
             latest = max(self._report_date(u) for u in links)
             info = {"at": iso(now), "ok_at": iso(now), "error": None, "added": added, "latest_report": latest,
-                    "left": max(0, len([u for u in links if u not in done]) - len(todo)), "first_year": FIRST_YEAR}
+                    "left": max(0, len([u for u in links if u not in done]) - len(todo)), "first_year": FIRST_YEAR,
+                    "parser": PARSER}
         except (httpx.HTTPError, MarketError) as exc:
             log.warning("Ventes DNJournal : %s", exc)
             info = {**info, "at": iso(now), "error": str(exc) if isinstance(exc, MarketError) else f"site injoignable ({type(exc).__name__})"}
@@ -246,6 +257,8 @@ class Market:
             if own:
                 await client.aclose()
             self.running = False
+        if added and not published:
+            await off(self.publish_sold)  # passage arrêté en route : les ventes déjà lues comptent quand même
         self.store.set("market_status", json.dumps(info))
         return self.status()
 

@@ -1,6 +1,7 @@
 """Ventes réelles (DNJournal) : lecture des rapports, comparables, panne de la source signalée tout de suite."""
 
 import asyncio
+import json
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -230,3 +231,36 @@ def test_a_longer_history_is_caught_up_at_the_next_run(tmp_path):
     m.store.set("market_status", '{"at": "2026-10-31T15:37:00+00:00", "ok_at": "2026-10-31T15:37:00+00:00", '
                                  f'"error": null, "left": 0, "first_year": {market.FIRST_YEAR}}}')
     assert not m.due(now)
+
+
+def test_an_unreadable_old_report_is_skipped_not_blocking(tmp_path, monkeypatch):
+    """Rattrapage : un ancien rapport sans vente lisible est passé (noté lu, compté dans skipped) et la suite est lue ;
+    la liste des vendus est publiée. Le rapport le plus récent illisible reste une panne. Lecteur changé (PARSER) :
+    les rapports passés sont relus."""
+    monkeypatch.setattr(market, "PAUSE", 0)
+    m = make(tmp_path)
+    archive = ('<a href="domainsales/2026/1007.htm">x</a><a href="domainsales/2022/20221019.htm">y</a>'
+               '<a href="domainsales/2018/20180711.htm">z</a>')
+    pages = {"domainsales-archive.htm": archive, "domainsales/2026/1007.htm": REPORT,
+             "domainsales/2022/20221019.htm": "<p>rien</p>", "domainsales/2018/20180711.htm": OLD_REPORT}
+    published = []
+    monkeypatch.setattr(m, "publish_sold", lambda: published.append(1) or 0)
+
+    def handler(request):
+        path = request.url.path.split("/archive/")[-1]
+        return httpx.Response(200, text=pages[path]) if path in pages else httpx.Response(404)
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await m.refresh(client)
+
+    status = asyncio.run(run())
+    assert status["error"] is None and status["reports"] == 3 and status["skipped"] == 1 and status["sales"] == 7
+    assert published and m.due(datetime.now(timezone.utc)) is False
+    # Lecteur changé : le rapport passé est relu (toujours illisible ici, toujours passé).
+    m.store.set("market_status", json.dumps({**json.loads(m.store.get("market_status")), "parser": 1}))
+    assert asyncio.run(run())["skipped"] == 1
+    # Le rapport le plus récent illisible : panne, comme avant.
+    pages["domainsales-archive.htm"] = '<a href="domainsales/2026/1021.htm">n</a>' + archive
+    pages["domainsales/2026/1021.htm"] = "<p>rien</p>"
+    assert "aucune vente lue" in asyncio.run(run())["error"]
