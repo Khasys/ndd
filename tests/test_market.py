@@ -217,3 +217,16 @@ def test_a_sold_name_shows_its_sale_first_in_the_explorer(env, tmp_path):
         assert "sold" in env.universe.categories("jardin")
     finally:
         wordlists.configure(None)
+
+
+def test_a_longer_history_is_caught_up_at_the_next_run(tmp_path):
+    """Historique allongé (FIRST_YEAR) : le passage suivant lit les années manquantes, sans attendre 20 h ; ensuite,
+    le rythme normal revient."""
+    m = make(tmp_path)
+    now = datetime(2026, 10, 31, 15, 40, tzinfo=timezone.utc)
+    m.store.set("market_status", '{"at": "2026-10-31T06:00:15+00:00", "ok_at": "2026-10-31T06:00:15+00:00", '
+                                 '"error": null, "left": 0}')
+    assert m.due(now)  # lu à 6 h avec l'historique depuis 2025 seulement
+    m.store.set("market_status", '{"at": "2026-10-31T15:37:00+00:00", "ok_at": "2026-10-31T15:37:00+00:00", '
+                                 f'"error": null, "left": 0, "first_year": {market.FIRST_YEAR}}}')
+    assert not m.due(now)

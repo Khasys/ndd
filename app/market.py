@@ -175,6 +175,9 @@ class Market:
     def due(self, now: datetime) -> bool:
         info = json.loads(self.store.get("market_status") or "{}")
         last = parse_iso(info.get("at"))
+        if info.get("first_year") != FIRST_YEAR:
+            # Historique allongé (2015 en v0.16.0) : le rattrapage part au passage suivant, pas 20 h après le dernier.
+            return not self.running
         wait = timedelta(hours=1) if info.get("left") or info.get("error") else timedelta(hours=20)
         return not self.running and (last is None or now - last >= wait)
 
@@ -235,7 +238,7 @@ class Market:
                 await off(self.publish_sold)
             latest = max(self._report_date(u) for u in links)
             info = {"at": iso(now), "ok_at": iso(now), "error": None, "added": added, "latest_report": latest,
-                    "left": max(0, len([u for u in links if u not in done]) - len(todo))}
+                    "left": max(0, len([u for u in links if u not in done]) - len(todo)), "first_year": FIRST_YEAR}
         except (httpx.HTTPError, MarketError) as exc:
             log.warning("Ventes DNJournal : %s", exc)
             info = {**info, "at": iso(now), "error": str(exc) if isinstance(exc, MarketError) else f"site injoignable ({type(exc).__name__})"}

@@ -480,7 +480,8 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(refresh_reserved, "interval", hours=6, next_run_time=now + timedelta(minutes=2), max_instances=1)
     scheduler.add_job(refresh_prenoms, "interval", hours=6, next_run_time=now + timedelta(minutes=11), max_instances=1,
                       id="prenoms")
-    scheduler.add_job(refresh_market, "interval", hours=6, next_run_time=now + timedelta(minutes=13), max_instances=1,
+    # Chaque heure : due() décide (20 h entre deux lectures, une heure pendant un rattrapage de l'historique).
+    scheduler.add_job(refresh_market, "interval", hours=1, next_run_time=now + timedelta(minutes=13), max_instances=1,
                       id="market")
     # File .fr : chaque minute, autant de requêtes que le plafond réglé le permet.
     scheduler.add_job(tick_fr, "interval", minutes=1, next_run_time=now + timedelta(minutes=6), max_instances=1)
