@@ -323,6 +323,10 @@ async def lifespan(app: FastAPI):
                                      telegram.configured, bool(state.gandi.key))
             if text and await telegram.send(text) is None:
                 pepites.mark_alerted(conn, names, now)
+            text, marks = await _off(notify.sold_tick, conn, state.market, store, now, _public_url(state),
+                                     telegram.configured)
+            if text and await telegram.send(text) is None:
+                await _off(notify.mark_sold, conn, marks, now)
             text, events = notify.urgent_tick(store, telegram.configured)
             if text and await telegram.send(text) is None:
                 morning.mark_urgent_sent(store, events)
@@ -440,7 +444,7 @@ async def lifespan(app: FastAPI):
     async def refresh_market() -> None:
         # Rapports DNJournal (toutes les deux semaines) : un passage par jour, rattrapage de l'historique compris.
         if app.state.market.due(utcnow()):
-            await app.state.market.refresh()
+            await app.state.market.refresh(off=_off)
 
     async def refresh_prenoms() -> None:
         # Une fois par mois : l'Insee publie une édition par an, la date exacte varie.

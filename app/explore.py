@@ -26,7 +26,7 @@ from array import array
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
-from . import ai, ccdns, drops, frdns, gandi, precompute, prenoms, quality, rdapinfo, states, value, wordlists
+from . import ai, ccdns, drops, frdns, gandi, market, precompute, prenoms, quality, rdapinfo, states, value, wordlists
 from .checker import iso, utcnow
 
 # États, un octet par nom.
@@ -340,9 +340,11 @@ def lens_tier(opinion: dict | None, lens: str = "") -> int:
 
 class Universe:
     def __init__(self, previous: "Universe | None" = None):
-        # Mes ajouts (wordlists.MINE) font partie de l'univers : il est refait quand ils changent (reload_lists).
+        # Mes ajouts (wordlists.MINE) et les noms déjà vendus (wordlists.SOLD) font partie de l'univers : il est refait
+        # quand ils changent (reload_lists, nouvelles ventes lues par market.py).
         self.mine = wordlists.mine()
-        self.words = _words(self.mine)
+        self.sold = wordlists.sold()
+        self.words = _words(self.mine + self.sold)
         self.word_index = {w: i for i, w in enumerate(self.words)}
         self.size = drops.CELLS + len(self.words)
         # Catégories : listes d'origine et noms dérivés (wordlists.classes) ; le score ne voit que les premières.
@@ -586,7 +588,7 @@ def shared_universe() -> Universe:
     même temps depuis deux fils ; sans lui, deux univers seraient construits (mémoire doublée)."""
     global _UNIVERSE
     with _UNIVERSE_LOCK:
-        if _UNIVERSE is None or _UNIVERSE.mine != wordlists.mine():
+        if _UNIVERSE is None or _UNIVERSE.mine != wordlists.mine() or _UNIVERSE.sold != wordlists.sold():
             _UNIVERSE = Universe(_UNIVERSE)
         return _UNIVERSE
 
@@ -1287,6 +1289,11 @@ class Explorer:
             found["reasons"] = self._with_recent(found.get("reasons", []), label, recent[0])
         # Rang dans chaque liste : tri « les plus portés » et « 12e prénom le plus donné » sur la carte.
         found["ranks"] = {k: r[label] for k, r in wordlists.ranks().items() if label in r}
+        # Déjà vendu (DNJournal), ce nom ou le même mot ailleurs : la preuve qu'un acheteur a payé, en première raison.
+        sale = self.market.label_sale(label) if getattr(self, "market", None) is not None else None
+        if sale:
+            found["sold"] = sale
+            found["reasons"] = [market.sale_reason(sale, f"{label}.{tld}"), *found.get("reasons", [])]
         return found
 
     def _with_recent(self, reasons: list[str], label: str, rank: int) -> list[str]:
@@ -1385,7 +1392,8 @@ class Explorer:
 
     def _score_cache(self, tld: str) -> array:
         """Scores déjà calculés de l'extension (self._scores), refaits à neuf si les données ont changé."""
-        stamp = (self.generation, date.today(), tuple((t, self._version(t)) for t in self.tlds()))
+        stamp = (self.generation, date.today(), tuple((t, self._version(t)) for t in self.tlds()),
+                 getattr(getattr(self, "market", None), "version", 0))
         with self._memo_lock:
             found = self._scores.get(tld)
             if found is None or found[0] != stamp or len(found[1]) != self.universe.size:

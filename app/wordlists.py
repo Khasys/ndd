@@ -29,7 +29,7 @@ LABELS = {"word": "Mots", "form": "Formes fléchies", "surname": "Noms de famill
           "surname_us": "Noms de famille des États-Unis", "niche_us": "Sites de niche des États-Unis",
           "media_us": "Noms de médias des États-Unis", "local_us": "Métier + ville des États-Unis",
           "compound_en": "Composés anglais", "compound_fr": "Composés français", "invented": "Inventés, sélection",
-          "mine": "Mes ajouts"}
+          "mine": "Mes ajouts", "sold": "Déjà vendus"}
 # Nature des mots et des formes, tirée du Lexique.
 NATURES = {"verb": "Verbes", "noun": "Noms communs", "adj": "Adjectifs", "adv": "Adverbes", "other": "Mots outils"}
 
@@ -48,23 +48,28 @@ PROVIDED = ("premium", "keyword", "local", "local_us", "brand")
 # Noms ajoutés à la main depuis l'Explorer, dans l'ordre d'ajout, gardés dans le dossier de données.
 MINE = "mine"
 MINE_FILE = "mes_ajouts.txt"
+# Radar des vendus : libellés des noms vendus d'après les rapports DNJournal (market.py), du plus cher au moins cher,
+# toutes extensions confondues. Écrits par le NAS dans son dossier de données, jamais dans le dépôt (la compilation
+# appartient à DNJournal).
+SOLD = "sold"
+SOLD_FILE = "vendus.txt"
 # Listes d'avant les mots anglais, secteurs, tendances et combinaisons : ce que couvrent les
 # lectures de zone faites avant leur ajout.
 LEGACY = ("word", "form", "surname", "firstname")
 # Listes ajoutées après les imports .fr sans relevé des noms cherchés (zones/fr.searched) : leurs noms
 # attendent l'import suivant.
-LATE = (*PROVIDED, MINE, "firstname_us", "surname_us", "niche_us", "media_us", "compound_en", "compound_fr", "invented")
+LATE = (*PROVIDED, MINE, SOLD, "firstname_us", "surname_us", "niche_us", "media_us", "compound_en", "compound_fr", "invented")
 # Listes sans sens : une marque inventée vaut par sa sonorité ; « Mes ajouts » ne dit rien du nom.
-NO_MEANING = ("brand", "invented", MINE)
-# Rang sans valeur pour le score : l'ordre d'ajout ne classe rien.
-NO_RANK = (MINE,)
+NO_MEANING = ("brand", "invented", MINE, SOLD)
+# Rang sans valeur pour le score : l'ordre d'ajout ne classe rien ; une vente passée n'est pas une fréquence d'usage.
+NO_RANK = (MINE, SOLD)
 # Catégories dérivées (nom, catégories gagnées), écrites par scripts/build_lists.py. Hors de l'empreinte du score
 # (precompute) : elles ne changent aucun score.
 DERIVED_FILE = "categories.txt"
 # Jamais dérivées : la langue a son propre filtre, une marque inventée vaut par sa sonorité, Mes ajouts sont à part ;
 # listes des États-Unis : réunies à leur catégorie (MERGED), pas dérivées.
 NEVER_DERIVED = ("word", "form", "english", "surname", "firstname", "firstname_us", "surname_us", "niche_us",
-                 "media_us", "local_us", "compound_en", "compound_fr", "brand", "invented", MINE)
+                 "media_us", "local_us", "compound_en", "compound_fr", "brand", "invented", MINE, SOLD)
 # Thèmes : les noms composés gagnés viennent après les mots du thème dans l'ordre « les plus fréquents » (le Top
 # Sport commence par football, pas par coachsportif).
 THEMES = ("startup", "job", "sport", "animal", "food", "trend")
@@ -114,10 +119,14 @@ _mine_path: Path | None = None
 _mine_lock = threading.Lock()
 
 
+_sold_path: Path | None = None
+
+
 def configure(data_dir: Path | None) -> None:
-    """Dossier de données de l'appli (main.py) : « Mes ajouts » y est lu et écrit."""
-    global _mine_path
+    """Dossier de données de l'appli (main.py) : « Mes ajouts » et « Déjà vendus » y sont lus et écrits."""
+    global _mine_path, _sold_path
     _mine_path = None if data_dir is None else Path(data_dir) / MINE_FILE
+    _sold_path = None if data_dir is None else Path(data_dir) / SOLD_FILE
     reload()
 
 
@@ -167,6 +176,41 @@ def remove_mine(label: str) -> bool:
     return True
 
 
+# --- Déjà vendus ---------------------------------------------------------------------------
+
+def sold() -> tuple[str, ...]:
+    """Libellés vendus, du plus cher au moins cher (market.Market.publish_sold)."""
+    return _read_sold()
+
+
+@lru_cache(maxsize=1)
+def _read_sold() -> tuple[str, ...]:
+    if _sold_path is None or not _sold_path.exists():
+        return ()
+    return tuple(dict.fromkeys(w for w in (line.strip() for line in _sold_path.read_text(encoding="utf-8").splitlines())
+                               if valid_label(w)))
+
+
+def sold_ready() -> bool:
+    return _sold_path is not None and _sold_path.exists()
+
+
+def set_sold(labels: list[str]) -> bool:
+    """Remplace la liste des vendus ; False si elle n'a pas changé (rien n'est rechargé), ou sans dossier de données
+    (wordlists.configure pas appelé : tests du module market)."""
+    if _sold_path is None:
+        return False
+    labels = list(dict.fromkeys(w for w in labels if valid_label(w)))
+    if sold_ready() and list(_read_sold()) == labels:
+        return False
+    _sold_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = _sold_path.with_suffix(".tmp")
+    tmp.write_text("".join(f"{n}\n" for n in labels), encoding="utf-8")
+    os.replace(tmp, _sold_path)
+    reload()
+    return True
+
+
 # Change à chaque rechargement : l'Explorer y voit qu'il doit refaire son univers.
 version = 0
 
@@ -174,7 +218,7 @@ version = 0
 def reload() -> None:
     """Mes ajouts changés : tout ce qui en dépend est relu. Les listes du dossier app/data restent en mémoire."""
     global version
-    for cached in (_read_mine, lists, ranks, watched, fingerprints, languages, listed, meaningful, classes):
+    for cached in (_read_mine, _read_sold, lists, ranks, watched, fingerprints, languages, listed, meaningful, classes):
         cached.cache_clear()
     version += 1
 
@@ -218,7 +262,7 @@ def static_lists() -> dict[str, frozenset[str]]:
 
 @lru_cache(maxsize=1)
 def lists() -> dict[str, frozenset[str]]:
-    return {**static_lists(), MINE: frozenset(mine())}
+    return {**static_lists(), MINE: frozenset(mine()), SOLD: frozenset(sold())}
 
 
 @lru_cache(maxsize=1)
@@ -229,7 +273,8 @@ def _static_ranks() -> dict[str, dict[str, int]]:
 @lru_cache(maxsize=1)
 def ranks() -> dict[str, dict[str, int]]:
     """Rang de chaque nom dans sa liste, 1 pour le plus fréquent (Mes ajouts : ordre d'ajout)."""
-    return {**_static_ranks(), MINE: {w: i + 1 for i, w in enumerate(mine())}}
+    return {**_static_ranks(), MINE: {w: i + 1 for i, w in enumerate(mine())},
+            SOLD: {w: i + 1 for i, w in enumerate(sold())}}
 
 
 @lru_cache(maxsize=1)

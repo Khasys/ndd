@@ -30,6 +30,9 @@ TYPES = (
     ("domain_change", "Domaine suivi", IMMEDIATE,
      "Nom de l'écran Domaines : changement d'état, de registrar ou de libération estimée"),
     ("ai_ready", "Analyse IA prête", IMMEDIATE, "Analyse demandée depuis une fiche, avec le lien"),
+    ("sold_back", "Déjà vendu, de retour", IMMEDIATE,
+     "Nom vendu d'après DNJournal (ce nom exact) qui entre en rédemption ou en suppression, ou redevient libre : "
+     "la vente, l'état et la libération estimée"),
     ("health_urgent", "Panne bloquante", IMMEDIATE,
      "Jeton Gandi refusé, vérifications .fr en pause plus d'une heure, zones ICANN non lues depuis 36 h, fichier .fr "
      "en erreur : à l'apparition et quand c'est réglé"),
@@ -126,6 +129,63 @@ def pepite_tick(explorer, store, now: datetime, base: str, order_url: str, can_s
         silent, send = silent + [p["name"] for p in send], []
     pepites.mark_alerted(conn, silent, now)
     return pepites.free_message(send, base, order_url), [p["name"] for p in send]
+
+
+# --- Déjà vendus de retour --------------------------------------------------------------------
+
+SOLD_WINDOW = timedelta(hours=48)  # événement plus ancien quand il est vu : pas d'alerte, il reste dans la Veille
+SOLD_RISK = 8                      # sous-note « risque » de l'avis IA (marque, litige) : au-delà, pas d'alerte
+
+
+def sold_tick(conn, market, store, now: datetime, base: str, can_send: bool) -> tuple[str | None, list[tuple[str, str]]]:
+    """Noms de la Veille déjà vendus (ce nom exact, DNJournal) entrés en rédemption ou en suppression, ou redevenus
+    libres, depuis moins de 48 h et pas encore annoncés : le message et les marques (nom, sorte) à poser une fois
+    parti. La sorte porte la date de l'état : une libération des années plus tard est un nouvel événement. Type
+    désactivé ou Telegram pas configuré : marqués sans message."""
+    found = []
+    for item in changed(conn, now - SOLD_WINDOW):
+        sale = market.name_sale(item["name"])
+        if sale is None:
+            continue
+        row = conn.execute("SELECT state_since, available_since FROM drops WHERE name = ?", (item["name"],)).fetchone()
+        day = ((row["available_since"] if item["free"] else row["state_since"]) or "")[:10]
+        kind = f"sold_{'free' if item['free'] else 'coming'}:{day}"
+        if conn.execute("SELECT 1 FROM alert_sent WHERE name = ? AND kind = ?", (item["name"], kind)).fetchone():
+            continue
+        opinion = conn.execute("SELECT grid FROM domain_ai WHERE name = ?", (item["name"],)).fetchone()
+        grid = json.loads(opinion["grid"]) if opinion and opinion["grid"] else {}
+        if (grid.get("risque") or 0) >= SOLD_RISK:
+            continue  # nom de marque probable : le reprendre pour le revendre serait du cybersquattage
+        found.append((item, sale, kind))
+    marks = [(item["name"], kind) for item, _, kind in found]
+    if not found or not (can_send and enabled(store, "sold_back")):
+        mark_sold(conn, marks, now)
+        return None, []
+    blocks = []
+    for item, sale, _ in found[:MAX_LINES]:
+        price = f"{sale['price']:,}".replace(",", "\u202f")
+        release = item["release_at"] or ""
+        state = "libre" if item["free"] else (f"libération estimée le {release[8:10]}/{release[5:7]}/{release[:4]}"
+                                              if release else "libération à venir")
+        # Date d'un rapport DNJournal : la fin de la période couverte, pas le jour de la vente.
+        block = [f"Vendu {price} $ en {sale['date'][5:7]}/{sale['date'][:4]}" + (f" ({sale['venue']})" if sale["venue"] else ""),
+                 "État : " + state]
+        url = link(base, item["name"])
+        blocks.append((item["name"], block + (["Fiche : " + url] if url else [])))
+    if len(found) == 1:
+        name, block = blocks[0]
+        return "\n".join([f"Déjà vendu, de retour : {name}", *block]), marks
+    lines = [f"Déjà vendus, de retour : {len(found)} noms"]
+    for name, block in blocks:
+        lines += ["", name, *block]
+    if len(found) > MAX_LINES:
+        lines += ["", f"et {len(found) - MAX_LINES} autres, dans la Veille"]
+    return "\n".join(lines), marks
+
+
+def mark_sold(conn, marks: list[tuple[str, str]], now: datetime) -> None:
+    conn.executemany("INSERT OR IGNORE INTO alert_sent (name, kind, sent_at) VALUES (?, ?, ?)",
+                     [(name, kind, iso(now)) for name, kind in marks])
 
 
 # --- Vues enregistrées ---------------------------------------------------------------------

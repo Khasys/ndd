@@ -152,3 +152,68 @@ def test_comparables_stop_early_but_pick_what_a_full_sort_picks(tmp_path):
         for today in (date(2026, 10, 26), date(2018, 1, 1)):
             for name in queries:
                 assert [s["name"] for s in m.comparables(name, k, today)] == full_sort(name, k, today), (name, k, today)
+
+
+OLD_REPORT = """<p>The DN Journal Top 20 Highest Reported Domain Sales - Mon. May 25, 2020 - Sun. June 7 2020 ( Foreign currency
+to U.S. Dollar Conversions Based on Rates in Effect June 10, 2020) Domain Sold For Where Sold</p>
+<p>1. GreenStreet.com $100,890 Buckley Media</p><p>2. tie Sleep.com.au AUD 100,000 = $70,000 Drop.com.au</p>
+<p>3. KPH.com $24,999 NameJet</p><p>Keep in mind</p>"""
+
+
+def test_history_since_2015_reads_old_links_and_layouts():
+    """Radar des vendus : rapports d'avant 2024 (« 20220817.htm », adresse complète en 2020), date sans virgule et
+    montant en code de devise (« AUD 100,000 = $70,000 »)."""
+    page = ('<a href="domainsales/2015/20150128.htm">a</a><a href="https://www.dnjournal.com/archive/domainsales/2020/'
+            '20200617.htm">b</a><a href="domainsales/2024/0626.htm">c</a><a href="domainsales/2014/20141231.htm">d</a>')
+    links = market.report_links(page)
+    assert [market.Market._report_date(u) for u in links] == ["2024-06-26", "2020-06-17", "2015-01-28"]
+    assert all(u.startswith(market.SITE + "domainsales/") for u in links)
+    sales = market.parse(market.text_of(OLD_REPORT), links[1])
+    assert {s["name"]: s["price"] for s in sales} == {"greenstreet.com": 100890, "sleep.com.au": 70000, "kph.com": 24999}
+    assert {s["date"] for s in sales} == {"2020-06-07"}
+
+
+def test_sold_names_become_a_list_with_their_best_sale(tmp_path):
+    """Liste « Déjà vendus » : libellés du plus cher au moins cher, meilleure vente par libellé et par nom exact, et la
+    raison montrée sur les cartes."""
+    from app import wordlists
+
+    wordlists.configure(tmp_path / "data")
+    try:
+        m = make(tmp_path)
+        now = datetime.now(timezone.utc)
+        m.save("u1", [{"name": "velo.com", "price": 25000, "date": "2019-07-07", "venue": "Sedo", "source": "u1"},
+                      {"name": "velo.fr", "price": 3000, "date": "2021-03-07", "venue": "Sedo", "source": "u1"},
+                      {"name": "bonsai.net", "price": 5000, "date": "2018-01-07", "venue": "Afternic", "source": "u1"},
+                      {"name": "sleep.com.au", "price": 70000, "date": "2020-06-07", "venue": "Drop", "source": "u1"}], now)
+        assert m.publish_sold() == 3 and wordlists.sold() == ("sleep", "velo", "bonsai")
+        assert "sold" in wordlists.categories("bonsai") and wordlists.LABELS["sold"] == "Déjà vendus"
+        assert m.label_sale("velo")["name"] == "velo.com" and m.name_sale("velo.fr")["price"] == 3000
+        assert m.name_sale("velo.net") is None
+        assert market.sale_reason(m.label_sale("velo"), "velo.fr") == "vendu 25 000 $ en .com (2019)"
+        assert market.sale_reason(m.label_sale("velo"), "velo.com") == "vendu 25 000 $ en 2019"
+        assert m.publish_sold() == 3 and not wordlists.set_sold(list(wordlists.sold()))  # inchangée : rien à refaire
+        version = m.version
+        m.save("u2", [{"name": "zen.com", "price": 9000, "date": "2022-01-02", "venue": "", "source": "u2"}], now)
+        assert m.version == version  # pas à chaque rapport : une fois la liste publiée
+        assert m.publish_sold() == 4 and m.version > version and m.label_sale("zen")["price"] == 9000
+    finally:
+        wordlists.configure(None)
+
+
+def test_a_sold_name_shows_its_sale_first_in_the_explorer(env, tmp_path):
+    from app import wordlists
+
+    wordlists.configure(tmp_path / "data")
+    try:
+        m = market.Market(env.conn, Store())
+        env.market = m
+        m.save("u", [{"name": "jardin.com", "price": 12000, "date": "2019-07-07", "venue": "Sedo", "source": "u"}],
+               datetime.now(timezone.utc))
+        m.publish_sold()
+        found = env.value_of(["jardin.fr", "maison.fr"])
+        assert found["jardin.fr"]["reasons"][0] == "vendu 12 000 $ en .com (2019)"
+        assert found["jardin.fr"]["sold"]["name"] == "jardin.com" and "sold" not in found["maison.fr"]
+        assert "sold" in env.universe.categories("jardin")
+    finally:
+        wordlists.configure(None)

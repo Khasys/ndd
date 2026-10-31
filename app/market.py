@@ -22,19 +22,22 @@ from html.parser import HTMLParser
 
 import httpx
 
+from . import wordlists
 from .checker import iso, parse_iso, utcnow
 
 log = logging.getLogger(__name__)
 
 SITE = "https://dnjournal.com/archive/"
 ARCHIVES = ("domainsales-archive.htm", "domainsales-archive-{year}.htm")  # année en cours, puis les précédentes
-FIRST_YEAR = 2025          # historique gardé : de 2025 à aujourd'hui
-PER_RUN = 60               # rapports lus au plus par passage : tout l'historique depuis 2025 d'un coup
+FIRST_YEAR = 2015          # historique gardé : de 2015 à aujourd'hui (radar des vendus, 31/10/2026)
+PER_RUN = 60               # rapports lus au plus par passage : l'historique depuis 2015 (330 rapports) en six heures
 PAUSE = 3                  # secondes entre deux rapports (pages de 5 Mo environ) : poli avec le site
 REPORT_LATE = timedelta(days=35)   # DNJournal publie toutes les deux semaines : 5 semaines sans rapport, c'est cassé
 CHECK_LATE = timedelta(days=8)     # plus de lecture réussie depuis 8 jours (passage quotidien)
 HEADERS = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) domain-watch"}
-REPORT_LINK = re.compile(r'href="(domainsales/(\d{4})/(\d{4})\.htm)"')
+# Rapports : « domainsales/2024/0626.htm » depuis 2024, « domainsales/2022/20220817.htm » avant, parfois en adresse
+# complète (2020).
+REPORT_LINK = re.compile(r'href="(?:https?://(?:www\.)?dnjournal\.com/archive/)?(domainsales/(\d{4})/(\d{4}|\d{8})\.htm)"')
 
 
 class MarketError(Exception):
@@ -72,8 +75,8 @@ def text_of(page: str) -> str:
 MONTHS = {m: i for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"), 1)}
 DOM = r"([A-Za-z0-9][A-Za-z0-9-]*(?:\.[A-Za-z]{2,}){1,2})"
 DOM_SPACED = r"([A-Za-z0-9][A-Za-z0-9-]* ?(?:\.[A-Za-z]{2,}){1,2})"
-AMOUNT = r"(?:([€£])\s?([0-9][0-9,]*)\s*=\s*)?\$([0-9][0-9,]*)"
-PERIOD = re.compile(r"Highest Reported [A-Za-z .]*?Sales\s*[-:]\s*Mon\.? ?([A-Za-z]+\.? ?\d+)(?:, \d{4})? - Sun\.? ?([A-Za-z]+)\.? ?(\d+), (\d{4})")
+AMOUNT = r"(?:([€£]|[A-Z]{3})\s?([0-9][0-9,]*)\s*=\s*)?\$([0-9][0-9,]*)"  # € 5,000 = $5,400 ; AUD 100,000 = $70,000
+PERIOD = re.compile(r"Highest Reported [A-Za-z .]*?Sales\s*[-:]\s*Mon\.? ?([A-Za-z]+\.? ?\d+)(?:, \d{4})? - Sun\.? ?([A-Za-z]+)\.? ?(\d+),? (\d{4})")
 
 
 def _price(text: str) -> int:
@@ -110,7 +113,7 @@ def parse(text: str, url: str) -> list[dict]:
         if re.match(r"\s*(\(|1\.)", text[pos:pos + 5]):
             continue  # classement numéroté, déjà lu
         row = re.compile(r"\s*" + DOM_SPACED + r"\s+" + AMOUNT + r"\s+(.{1,45}?)(?=\s+" + DOM
-                         + r"\s+(?:[€£]\s?[0-9,]+\s*=\s*)?\$|\s+\.|\s+[A-Z][a-z]+ [a-z]|$)")
+                         + r"\s+(?:(?:[€£]|[A-Z]{3})\s?[0-9,]+\s*=\s*)?\$|\s+\.|\s+[A-Z][a-z]+ [a-z]|$)")
         while (m := row.match(text, pos)):
             add(m.group(1), m.group(4), m.group(5))
             pos = m.end()
@@ -119,8 +122,26 @@ def parse(text: str, url: str) -> list[dict]:
 
 def report_links(page: str) -> list[str]:
     """Rapports cités par une page d'archive, du plus récent au plus ancien."""
-    links = {f"{SITE}{href}": (int(y), md) for href, y, md in REPORT_LINK.findall(page)}
+    links = {f"{SITE}{href}": (int(y), md[-4:]) for href, y, md in REPORT_LINK.findall(page)}
     return sorted((u for u, (y, _) in links.items() if y >= FIRST_YEAR), key=lambda u: links[u], reverse=True)
+
+
+def sale_reason(sale: dict, name: str) -> str:
+    """Raison d'une carte : « vendu 12 000 $ en 2019 » pour ce nom, « vendu 12 000 $ en .com (2019) » pour le même mot
+    dans une autre extension."""
+    price = f"{sale['price']:,}".replace(",", "\u202f")
+    year = sale["date"][:4]
+    if sale["name"] == name:
+        return f"vendu {price} $ en {year}"
+    return f"vendu {price} $ en .{sale['name'].partition('.')[2]} ({year})"
+
+
+def _read_report(response: httpx.Response, url: str) -> list[dict]:
+    return parse(text_of(_decode(response)), url)
+
+
+async def _inline(fn, *args):
+    return fn(*args)
 
 
 def _decode(response: httpx.Response) -> str:
@@ -138,7 +159,12 @@ class Market:
         self.store = store
         self.running = False
         self._index = None
+        self._by_label: dict[str, dict] | None = None
         self._lock = threading.Lock()
+        # Change à chaque liste des vendus publiée (une fois par passage, pas à chaque rapport : au rattrapage de
+        # l'historique, l'Explorer referait tous ses scores toutes les quelques secondes) : la raison « vendu … » d'un
+        # nom est alors à refaire.
+        self.version = 0
 
     def status(self) -> dict:
         info = json.loads(self.store.get("market_status") or "{}")
@@ -167,10 +193,12 @@ class Market:
             return f"Ventes DNJournal : aucun nouveau rapport depuis le {date.fromisoformat(latest).strftime('%d/%m')} (source changée ?)"
         return None
 
-    async def refresh(self, client: httpx.AsyncClient | None = None) -> dict:
+    async def refresh(self, client: httpx.AsyncClient | None = None, off=None) -> dict:
         """Lit l'archive de l'année et, au besoin, celles des années précédentes ; puis les rapports pas encore lus,
         les plus récents d'abord, PER_RUN au plus. Une archive sans rapport, ou un rapport sans vente, est une
-        erreur : la mise en page a changé."""
+        erreur : la mise en page a changé. off : lecture et écriture d'un rapport hors de la boucle de l'appli
+        (pages de 5 Mo, des centaines au rattrapage de l'historique)."""
+        off = off or _inline
         if self.running:
             return self.status()
         self.running = True
@@ -199,10 +227,12 @@ class Market:
                 response = await client.get(url)
                 if response.status_code != 200:
                     raise MarketError(f"rapport injoignable (HTTP {response.status_code}) : {url}")
-                sales = parse(text_of(_decode(response)), url)
+                sales = await off(_read_report, response, url)
                 if not sales:
                     raise MarketError(f"aucune vente lue dans {url} (mise en page changée ?)")
-                added += self.save(url, sales, now)
+                added += await off(self.save, url, sales, now)
+            if added or not self.sold_file_ok():
+                await off(self.publish_sold)
             latest = max(self._report_date(u) for u in links)
             info = {"at": iso(now), "ok_at": iso(now), "error": None, "added": added, "latest_report": latest,
                     "left": max(0, len([u for u in links if u not in done]) - len(todo))}
@@ -218,7 +248,7 @@ class Market:
 
     @staticmethod
     def _report_date(url: str) -> str:
-        m = re.search(r"/(\d{4})/(\d{2})(\d{2})\.htm$", url)
+        m = re.search(r"/(\d{4})/(?:\d{4})?(\d{2})(\d{2})\.htm$", url)
         return f"{m.group(1)}-{m.group(2)}-{m.group(3)}" if m else "1970-01-01"
 
     def save(self, url: str, sales: list[dict], now: datetime) -> int:
@@ -230,7 +260,46 @@ class Market:
                           (url, iso(now), len(sales)))
         with self._lock:
             self._index = None
+            self._by_label = None
         return self.conn.execute("SELECT COUNT(*) FROM market_sales").fetchone()[0] - before
+
+    # --- Radar des vendus -------------------------------------------------------------------
+
+    def label_sales(self) -> dict[str, dict]:
+        """Meilleure vente connue de chaque libellé, toutes extensions : {name, price, date, venue}. La plus chère, la
+        plus récente à prix égal."""
+        with self._lock:
+            if self._by_label is None:
+                found: dict[str, dict] = {}
+                for r in self.conn.execute("SELECT name, price, date, venue FROM market_sales ORDER BY price, date"):
+                    label = r["name"].partition(".")[0]
+                    if wordlists.valid_label(label):
+                        found[label] = {"name": r["name"], "price": r["price"], "date": r["date"], "venue": r["venue"]}
+                self._by_label = found
+            return self._by_label
+
+    def label_sale(self, label: str) -> dict | None:
+        return self.label_sales().get(label)
+
+    def name_sale(self, name: str) -> dict | None:
+        """Meilleure vente de ce nom exact (même extension)."""
+        row = self.conn.execute("SELECT name, price, date, venue FROM market_sales WHERE name = ? "
+                                "ORDER BY price DESC, date DESC LIMIT 1", (name,)).fetchone()
+        return dict(row) if row else None
+
+    def publish_sold(self) -> int:
+        """Liste « Déjà vendus » (wordlists.SOLD) refaite depuis les ventes en base, du plus cher au moins cher : les
+        zones, l'Explorer et la Veille suivent ces noms comme ceux des autres listes."""
+        sales = self.label_sales()
+        labels = sorted(sales, key=lambda label: (-sales[label]["price"], label))
+        wordlists.set_sold(labels)
+        with self._lock:
+            self.version += 1
+        return len(labels)
+
+    @staticmethod
+    def sold_file_ok() -> bool:
+        return wordlists.sold_ready()
 
     # --- Comparables ------------------------------------------------------------------------
 

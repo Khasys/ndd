@@ -471,3 +471,37 @@ def test_daily_refused_is_retried_and_unchecked_health_does_not_pile_up(logged):
     client.portal.call(st.send_daily)
     assert len(sent) == 1 and json.loads(st.store.get("health_events")) == []
     client.__exit__(None, None, None)
+
+
+def test_a_sold_name_coming_back_is_announced_once(env):
+    """Déjà vendu, de retour : un nom vendu (ce nom exact) qui entre en rédemption est annoncé une fois, avec sa vente
+    et sa libération estimée ; un nom de marque probable (risque élevé) ne l'est pas ; type coupé : marqué sans message."""
+    from app import market
+
+    conn = env.conn
+    store = Store(conn, {})
+    m = market.Market(conn, store)
+    m.save("u", [{"name": "jardin.com", "price": 12000, "date": "2019-07-07", "venue": "Sedo", "source": "u"},
+                 {"name": "marque.com", "price": 50000, "date": "2020-01-05", "venue": "", "source": "u"},
+                 {"name": "velo.com", "price": 8000, "date": "2021-02-07", "venue": "", "source": "u"}], NOW)
+    since, release = iso(NOW - timedelta(hours=2)), iso(NOW + timedelta(days=30))
+    for name in ("jardin.com", "marque.com", "velo.net"):
+        conn.execute("INSERT INTO drops (name, tld, label, kind, removed_on, state, state_since, release_at) VALUES "
+                     "(?, ?, ?, 'word', '2026-10-01', 'redemption', ?, ?)", (name, name.split(".")[1], name.split(".")[0],
+                                                                          since, release))
+    conn.execute("INSERT INTO domain_ai (name, exploit, resale, quick_low, quick_high, final_low, final_high, comment, rated_at, "
+                 "version, grid) VALUES ('marque.com', 40, 40, 0, 0, 100, 300, 'x', 'x', 7, ?)", (json.dumps({"risque": 9}),))
+    text, marks = notify.sold_tick(conn, m, store, NOW, "https://dw.test", True)
+    assert text.splitlines()[:3] == ["Déjà vendu, de retour : jardin.com", "Vendu 12 000 $ en 07/2019 (Sedo)",
+                                     f"État : libération estimée le {release[8:10]}/{release[5:7]}/{release[:4]}"]
+    assert [n for n, _ in marks] == ["jardin.com"]  # ni la marque probable, ni velo.net (vendu en .com seulement)
+    notify.mark_sold(conn, marks, NOW)
+    assert notify.sold_tick(conn, m, store, NOW, "https://dw.test", True) == (None, [])
+    # Type coupé dans Paramètres : marqué sans message, rien ne part en rafale quand on le rallume.
+    conn.execute("INSERT INTO drops (name, tld, label, kind, removed_on, state, state_since, release_at) VALUES "
+                 "('velo.com', 'com', 'velo', 'word', '2026-10-01', 'redemption', ?, ?)", (since, release))
+    store.set("alert_on_sold_back", "0")
+    assert notify.sold_tick(conn, m, store, NOW, "https://dw.test", True) == (None, [])
+    store.set("alert_on_sold_back", "1")
+    assert notify.sold_tick(conn, m, store, NOW, "https://dw.test", True) == (None, [])
+    assert "sold_back" in notify.KEYS
