@@ -18,6 +18,7 @@ def _item(label, lang="fr", kind="mot", reason="Mot repris partout depuis une se
 def test_proposed_name_rules():
     assert news_format.clean(_item("Écoanxiété"))[0]["label"] == "ecoanxiete"
     assert news_format.clean(_item("rizz.com"))[0]["label"] == "rizz"  # extension retirée
+    assert news_format.clean(_item("velotaf", kind="offre"))[0]["kind"] == "offre"  # produit, service ou métier nouveau
     for bad, why in ((_item("ab"), "3 à 30"), (_item("rizz", lang="de"), "langue"), (_item("rizz", kind="marque"), "nature"),
                      (_item("rizz", reason="court"), "raison"), (_item("rizz", source=" "), "source"),
                      (_item("2026"), "chiffres"), (_item("mon--mot"), "double tiret"), ("rizz", "objet")):
@@ -75,6 +76,7 @@ def test_news_radar_end_to_end(logged, monkeypatch):
     radar = client.get("/api/ai/news", headers=headers).json()
     assert "Interdits" in radar["guide"] and radar["known"] == [] and radar["recent"] == [] and radar["max"] == 60
     assert "deux tiers des noms" in radar["guide"] and "repérés tôt, pour le .com" in radar["guide"]
+    assert "nouveautés commerciales (kind « offre »)" in radar["guide"] and "mots de société" in radar["guide"]
 
     sent_items = [_item("rizz", lang="en", reason="Mot de l'année d'un dictionnaire anglais, repris par la presse."),
                   _item("Écoanxiété"), _item("rizz"), _item("nom", lang="de"), _item("sans", source="")]
@@ -134,6 +136,9 @@ def test_news_radar_end_to_end(logged, monkeypatch):
     assert kinds == {"rizz.fr": "news", "ecoanxiete.fr": "news_seen", "ecoanxiete.com": "news_seen"}
     assert diag["by_tld"]["fr"]["verdicts"] == {"À prendre": 1, "À surveiller": 1}
     assert diag["by_tld"]["com"]["states"] == {"free": 1, "taken": 1}
+    # Par nature : quelle famille de nouveautés rapporte des « À prendre ».
+    assert diag["by_kind"] == {"mot": {"proposed": 2, "free": 3,
+                                       "verdicts": {"À prendre": 1, "À surveiller": 1, "À laisser": 1}}}
     client.__exit__(None, None, None)
 
 

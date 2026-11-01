@@ -982,7 +982,11 @@ Deux fois par jour, une tâche IA planifiée (abonnement Claude, pas l'API) lit 
 en anglais (mots nouveaux, expressions, argot qui se répand, pratiques et technologies nouvelles). Deux cibles depuis
 la v0.17.2 : d'abord les nouveautés françaises pour le .fr (deux tiers des noms au moins), puis les mots anglais repérés
 avant la grande presse pour le .com (au premier passage, 20 noms sur 21 étaient déjà pris en .com et les mots anglais
-libres en .fr notés « À laisser »). Elle envoie au NAS
+libres en .fr notés « À laisser »). Dans chaque cible, deux familles à parts à peu près égales (v0.17.3) : les
+nouveautés commerciales (nature « offre » : produit, service, métier, équipement ou dispositif nouveau qu'on achète),
+là où se trouvent les acheteurs, et les mots de société (argot, expressions, phénomènes), compris par l'IA mais
+rarement bien notés faute de marché ; `/api/diag` (rubrique `news`, `by_kind`) compte les verdicts par nature. Elle
+envoie au NAS
 autant de noms que l'actualité le justifie, 30 au plus par passage, chacun avec sa langue, sa nature, la raison et la
 page lue (`POST /api/ai/news`, jeton IA ; `scripts/ai_exchange.py news`, `news-check`, `news-push`). La consigne vit
 sur le NAS (`GET /api/ai/news`, avec les noms déjà proposés depuis un an et ceux des derniers passages, leur état et

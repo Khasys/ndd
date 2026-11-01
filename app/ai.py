@@ -775,7 +775,8 @@ def requested(explorer) -> list[dict]:
     return out
 
 
-NEWS_KINDS = {"mot": "mot nouveau", "expression": "expression", "evenement": "événement", "usage": "mot qui revient"}
+NEWS_KINDS = {"offre": "produit, service ou métier nouveau", "mot": "mot nouveau", "expression": "expression",
+              "evenement": "événement", "usage": "mot qui revient"}
 
 
 def with_news(conn, items: list[dict]) -> list[dict]:

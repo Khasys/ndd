@@ -188,4 +188,26 @@ def stats(conn, explorer, now: datetime) -> dict:
         alerted = conn.execute("SELECT COUNT(*) FROM alert_sent WHERE kind = ? AND name LIKE ?", (ANNOUNCED, f"%.{tld}")).fetchone()[0]
         out["by_tld"][tld] = {"states": seen, "verdicts": verdicts, "alerted": alerted,
                               "taken_by_others": taken, "bought": bought}
+    out["by_kind"] = by_kind(conn)
+    return out
+
+
+def by_kind(conn) -> dict[str, dict]:
+    """Par nature (offre, mot, expression…) : proposés, extensions libres à la vérification, et verdicts de l'IA sur
+    ces libres. Dit quelle famille de nouveautés rapporte des « À prendre »."""
+    out: dict[str, dict] = {}
+    rows = conn.execute("SELECT label, kind, fr, com FROM news").fetchall()
+    free = [f"{r['label']}.{t}" for r in rows for t in TLDS if r[t] == "free"]
+    opinions = ai.load(conn, free)
+    for r in rows:
+        item = out.setdefault(r["kind"], {"proposed": 0, "free": 0, "verdicts": {}})
+        item["proposed"] += 1
+        for tld in TLDS:
+            if r[tld] != "free":
+                continue
+            item["free"] += 1
+            opinion = opinions.get(f"{r['label']}.{tld}")
+            if opinion:
+                v = (opinion["comment"] or "").split(".")[0]
+                item["verdicts"][v] = item["verdicts"].get(v, 0) + 1
     return out
