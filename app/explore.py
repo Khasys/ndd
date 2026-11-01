@@ -263,6 +263,18 @@ def ai_condition(spec: str) -> tuple[str, list]:
     return " AND ".join(where) or "1", args
 
 
+NEWS_SHOWN = 140  # caractères de la raison d'une nouveauté sur une carte
+
+
+def news_reason(item: dict) -> str:
+    """« Nouveauté du 01/11 : … » (radar des nouveautés, news.py), coupée pour tenir sur une carte."""
+    text = item["reason"]
+    if len(text) > NEWS_SHOWN:
+        text = text[:NEWS_SHOWN - 1].rsplit(" ", 1)[0] + "…"
+    day = item["added_at"]
+    return f"Nouveauté du {day[8:10]}/{day[5:7]} : {text}"
+
+
 def split_cats(category: str | None) -> list[str]:
     """Catégories d'un filtre : une ou plusieurs, séparées par des virgules (cat=firstname,surname), triées ;
     cat=sector se lit comme cat=premium (wordlists.ALIASES)."""
@@ -340,11 +352,12 @@ def lens_tier(opinion: dict | None, lens: str = "") -> int:
 
 class Universe:
     def __init__(self, previous: "Universe | None" = None):
-        # Mes ajouts (wordlists.MINE) et les noms déjà vendus (wordlists.SOLD) font partie de l'univers : il est refait
-        # quand ils changent (reload_lists, nouvelles ventes lues par market.py).
+        # Mes ajouts (wordlists.MINE), les noms déjà vendus (wordlists.SOLD) et les nouveautés (wordlists.NEWS) font
+        # partie de l'univers : il est refait quand ils changent (reload_lists, ventes lues par market.py, radar news.py).
         self.mine = wordlists.mine()
         self.sold = wordlists.sold()
-        self.words = _words(self.mine + self.sold)
+        self.news = wordlists.news()
+        self.words = _words(self.mine + self.sold + self.news)
         self.word_index = {w: i for i, w in enumerate(self.words)}
         self.size = drops.CELLS + len(self.words)
         # Catégories : listes d'origine et noms dérivés (wordlists.classes) ; le score ne voit que les premières.
@@ -464,11 +477,13 @@ class Universe:
             return buckets
 
     def _table(self) -> bytearray:
-        """Table du précalcul, avec les noms de Mes ajouts absents des listes de l'image notés ici (une
-        centaine de microsecondes par nom). Les autres noms gardent leur octet : Mes ajouts n'entrent pas
-        dans le score."""
+        """Table du précalcul, avec les noms de Mes ajouts, des déjà vendus et des nouveautés absents des listes de
+        l'image notés ici (une centaine de microsecondes par nom). Les autres noms gardent leur octet : ces listes
+        n'entrent pas dans le score. Sans nom hors de l'image, la table du précalcul telle quelle (même taille que
+        l'univers) ; avant le 01/11/2026, seuls Mes ajouts étaient comptés : une liste des vendus ou des nouveautés
+        sans Mes ajouts débordait de la table (IndexError dans buckets)."""
         static = precompute.table()
-        if not self.mine:
+        if len(static) == self.size and not self.mine:
             return static
         table = bytearray(self.size)
         table[:drops.CELLS] = static[:drops.CELLS]
@@ -588,7 +603,8 @@ def shared_universe() -> Universe:
     même temps depuis deux fils ; sans lui, deux univers seraient construits (mémoire doublée)."""
     global _UNIVERSE
     with _UNIVERSE_LOCK:
-        if _UNIVERSE is None or _UNIVERSE.mine != wordlists.mine() or _UNIVERSE.sold != wordlists.sold():
+        if (_UNIVERSE is None or _UNIVERSE.mine != wordlists.mine() or _UNIVERSE.sold != wordlists.sold()
+                or _UNIVERSE.news != wordlists.news()):
             _UNIVERSE = Universe(_UNIVERSE)
         return _UNIVERSE
 
@@ -610,6 +626,8 @@ class Explorer:
         self._dns_known: dict[str, tuple] = {}
         # Prénoms récents de l'Insee (prenoms.RecentNames), posés par main.py : Top, tri « recent », raison.
         self.recent = None
+        # Radar des nouveautés (news.reasons), posé par main.py avant chaque nouvelle liste : la raison de l'actualité.
+        self.news: dict[str, dict] = {}
         # Client Gandi (gandi.Gandi), posé par main.py : le bouton Vérifier l'interroge aussi pour un nom non pris.
         self.gandi = None
         self._recent_cache: tuple[int, dict] | None = None
@@ -629,6 +647,8 @@ class Explorer:
         self._unread: dict[str, frozenset[int]] = {}
         self._lists_version = -1
         self._swap_lock = threading.Lock()
+        # Noms à corriger (touch) arrivés pendant une reconstruction de l'univers par un autre fil : appliqués à la fin.
+        self._deferred: set[str] = set()
         # Les vérifications automatiques corrigent l'Explorer au fil de l'eau, nom par nom.
         drops_watcher.on_change = self.touch
         fr_watcher.on_change = self.touch
@@ -644,24 +664,33 @@ class Explorer:
         et tout ce qui tient à ses positions oublié (octets d'état, compteurs, scores, carte, réservés)."""
         with self._swap_lock:
             version = wordlists.version
-            if self._universe is not None and self._lists_version == version:
-                return
-            universe = shared_universe()
-            universe.buckets()  # construit aussi universe.good
-            if universe is not self._universe:
-                with self._memo_lock:
-                    self.generation += 1
-                    self._memos.clear()
-                    self._values.clear()
-                    self._scores.clear()
-                    self._map_cache = None
-                    self._cache.clear()
-                    self._unread.clear()
-                    self._recent_cache = None
-                if self.reserved is not None:
-                    self.reserved._indices = {}  # positions des réservés dans l'ancien univers
-            self._universe = universe
-            self._lists_version = version
+            # Déjà refait par un autre fil pendant l'attente du verrou : rien à faire.
+            if self._universe is None or self._lists_version != version:
+                self._swap_to(version)
+        # Noms changés pendant la reconstruction (touch ne l'attend pas) : corrigés maintenant, dans le nouvel univers.
+        with self._memo_lock:
+            deferred, self._deferred = self._deferred, set()
+        for name in deferred:
+            self.touch(name)
+
+    def _swap_to(self, version: int) -> None:
+        """Sous _swap_lock : l'univers des listes actuelles, et l'oubli de ce qui tenait aux positions de l'ancien."""
+        universe = shared_universe()
+        universe.buckets()  # construit aussi universe.good
+        if universe is not self._universe:
+            with self._memo_lock:
+                self.generation += 1
+                self._memos.clear()
+                self._values.clear()
+                self._scores.clear()
+                self._map_cache = None
+                self._cache.clear()
+                self._unread.clear()
+                self._recent_cache = None
+            if self.reserved is not None:
+                self.reserved._indices = {}  # positions des réservés dans l'ancien univers
+        self._universe = universe
+        self._lists_version = version
 
     def reload_lists(self) -> float:
         """Mes ajouts changés : univers et octets d'état refaits tout de suite, pas au prochain écran (les
@@ -1292,6 +1321,11 @@ class Explorer:
             found["reasons"] = self._with_recent(found.get("reasons", []), label, recent[0])
         # Rang dans chaque liste : tri « les plus portés » et « 12e prénom le plus donné » sur la carte.
         found["ranks"] = {k: r[label] for k, r in wordlists.ranks().items() if label in r}
+        # Nouveauté de l'actualité (radar, news.py) : pourquoi le nom est là, en première raison.
+        fresh = self.news.get(label)
+        if fresh:
+            found["news"] = fresh
+            found["reasons"] = [news_reason(fresh), *found.get("reasons", [])]
         # Déjà vendu (DNJournal), ce nom ou le même mot ailleurs : la preuve qu'un acheteur a payé, en première raison.
         if sale:
             found["sold"] = sale
@@ -1911,7 +1945,17 @@ class Explorer:
     def touch(self, name: str) -> None:
         """Un nom a changé (vérification, marquage, SEO) : on corrige ce nom seulement, en place.
         Octet d'état, compteurs (±1), historique .fr et SEO du score ; la carte se refait depuis
-        les compteurs. Aucun recalcul d'ensemble."""
+        les compteurs. Aucun recalcul d'ensemble. Univers en reconstruction dans un autre fil (liste des nouveautés,
+        des vendus ou Mes ajouts changée) : le nom est corrigé à la fin, sans attendre ; la boucle de l'appli, qui
+        appelle touch après chaque vérification, restait bloquée le temps de la reconstruction (plusieurs secondes)."""
+        if self._swap_lock.locked():
+            with self._memo_lock:
+                self._deferred.add(name)
+            if self._swap_lock.locked():
+                return
+            # Reconstruction finie entre-temps : le nom n'a peut-être pas été repris, il est corrigé ici.
+            with self._memo_lock:
+                self._deferred.discard(name)
         label, _, tld = name.partition(".")
         i = self.universe.index(label)
         if i is None or not tld:
@@ -2425,13 +2469,15 @@ class Explorer:
 
     # --- Vérification à la demande ----------------------------------------------------
 
-    async def verify(self, name: str) -> dict:
-        """Requête RDAP sur un nom, résultat enregistré là où il sert. Le .fr passe par la file Afnic."""
+    async def verify(self, name: str, origin: str = "manual", source: str = "manuel") -> dict:
+        """Requête RDAP sur un nom, résultat enregistré là où il sert. Le .fr passe par la file Afnic. origin : celle
+        de la ligne de la Veille (drops.ensure ; discrète pour le radar des nouveautés), source : celle du journal des
+        requêtes .fr."""
         label, _, tld = name.partition(".")
         if tld == "fr":
             if self.fr.paused_until():
                 raise VerifyError(f"Vérifications .fr en pause jusqu'au {iso(self.fr.paused_until())} : l'Afnic a signalé trop de requêtes.")
-            result = await self.fr.lookup(name, "manuel")
+            result = await self.fr.lookup(name, source)
             if result is None:
                 raise VerifyError("L'Afnic signale trop de requêtes : vérifications .fr en pause.")
         else:
@@ -2448,7 +2494,7 @@ class Explorer:
         # Hors .fr, la zone ne dit rien d'un nom enregistré sans DNS (hold) : on garde la réponse.
         if row is not None or not registered or tld != "fr":
             # ensure aussi pour une ligne existante : vérifié à la main, un nom d'origine discrète entre dans la Veille.
-            row = self.drops.ensure(name, now)
+            row = self.drops.ensure(name, now, origin)
             state = self.drops.apply(row, result, now)
         if tld == "fr":
             # Un nom repris est déjà revenu dans les dates anniversaire par on_fr_taken (drops.apply).

@@ -1967,7 +1967,20 @@ def test_ready_views_are_added_once(logged):
 
     client = logged()
     names = [v["name"] for v in client.get("/api/explore/views").json()]
-    assert names == [v["name"] for v in main.SEED_VIEWS]
+    assert names == [v["name"] for v in main.SEED_VIEWS + main.SEED_NEWS_VIEWS]
     assert client.put("/api/explore/views", json={"views": []}).status_code == 200
     assert main.seed_views(client.app.state.store) == 0 and client.get("/api/explore/views").json() == []
+    client.__exit__(None, None, None)
+
+
+def test_news_view_added_for_existing_installs(logged):
+    """Installation d'avant le radar des nouveautés (premier lot déjà posé) : seule la vue des nouveautés arrive."""
+    from app import main
+
+    client = logged()
+    store = client.app.state.store
+    store.set("views_seeded_news", "0")
+    store.set("explore_views", json.dumps([{"name": "à moi", "filters": {"tld": "fr"}}]))
+    assert main.seed_views(store) == 1
+    assert [v["name"] for v in client.get("/api/explore/views").json()] == ["à moi", main.SEED_NEWS_VIEWS[0]["name"]]
     client.__exit__(None, None, None)

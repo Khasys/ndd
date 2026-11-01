@@ -14,6 +14,9 @@
   python scripts/ai_exchange.py exploit rent.json        # analyses de rentabilité demandées (tâche du quart d'heure)
   python scripts/ai_exchange.py exploit-check rent.json rapports.json  # contrôle des rapports, sans rien envoyer
   python scripts/ai_exchange.py exploit-push rent.json rapports.json   # contrôle puis envoie les rapports conformes
+  python scripts/ai_exchange.py news radar.json          # radar des nouveautés : consigne, noms déjà proposés, derniers passages
+  python scripts/ai_exchange.py news-check radar.json noms.json  # contrôle les noms proposés, sans rien envoyer
+  python scripts/ai_exchange.py news-push radar.json noms.json   # contrôle puis envoie les noms conformes
 
 Format compact (moins de texte à lire et à écrire, mêmes informations, même grille) : une ligne par nom,
   nom|oral,radio,memo,sens,marque,marche,ext,acheteurs,risque|prix|raison|acheteur type
@@ -35,6 +38,7 @@ import urllib.request
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.ai_format import CRITERIA_V5, check_any, default_prices, derive, fit_prices, is_v5, summary  # noqa: E402  même règle que le NAS, sans dépendance
 from app.exploit_format import clean as clean_report  # noqa: E402
+from app.news_format import MAX_ITEMS as NEWS_MAX, clean as clean_news  # noqa: E402
 from app.wordlists import LABELS, NATURES  # noqa: E402
 
 
@@ -101,13 +105,15 @@ def line(n: dict) -> str:
         parts.append(f".fr créé {h.get('created_on') or '?'}" + (f", supprimé {h['removed_on']}" if h.get("removed_on") else ""))
     if n.get("requested"):
         parts.append("analyse demandée")
+    if n.get("actualite"):
+        parts.append(n["actualite"])
     if n.get("ventes_comparables"):
         parts.append("ventes comparables " + ", ".join(n["ventes_comparables"]))
     r = n.get("review")
     if r:
         parts.append(f"second passage : ancienne note {r.get('previous_note')}, estimation du score {r.get('score_estimate')}")
     known = {"name", "status", "categories", "ranks", "natures", "taken_elsewhere", "base", "fr_history", "review", "requested",
-             "ventes_comparables"}
+             "ventes_comparables", "actualite"}
     parts += [f"{k} {json.dumps(v, ensure_ascii=False)}" for k, v in n.items() if k not in known]  # rien de perdu
     return " | ".join(parts)
 
@@ -176,6 +182,32 @@ def verify_reports(asked_path: str, reports_path: str) -> tuple[list, list]:
         seen.add(name)
         good.append(item)
     problems += [(n, "pas de rapport") for n in asked if n not in seen]
+    return good, problems
+
+
+def verify_news(radar_path: str, items_path: str) -> tuple[list, list]:
+    """Noms proposés conformes (même contrôle que le NAS, app/news.py), et problèmes : format, déjà proposé, doublon."""
+    with open(radar_path, encoding="utf-8") as f:
+        known = set(json.load(f)["known"])
+    with open(items_path, encoding="utf-8") as f:
+        items = json.load(f)
+    if not isinstance(items, list):
+        return [], [("", "liste JSON attendue")]
+    good, problems, seen = [], [], set()
+    for item in items:
+        found, reason = clean_news(item)
+        label = found["label"] if found else str(item.get("label", "") if isinstance(item, dict) else "")
+        if found and label in known:
+            reason = "déjà proposé (liste known)"
+        elif found and label in seen:
+            reason = "doublon"
+        if reason:
+            problems.append((label, reason))
+            continue
+        seen.add(label)
+        good.append(found)
+    if len(good) > NEWS_MAX:
+        problems.append(("", f"{len(good)} noms : {NEWS_MAX} au plus par envoi"))
     return good, problems
 
 
@@ -279,6 +311,33 @@ def main() -> None:
             print(f"NAS : {answer['saved']} rapports enregistrés, {len(answer['rejected'])} rejetés")
             for r in answer["rejected"][:20]:
                 print(f"  {r['name']} : {r['reason']}")
+    elif action == "news":
+        target = sys.argv[2]
+        try:
+            found = call("GET", "/api/ai/news")
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:  # NAS d'avant cette fonction
+                print("NOUVEAUTÉS 0 (NAS pas à jour)")
+                return
+            raise
+        with open(target, "w", encoding="utf-8") as f:
+            json.dump(found, f, ensure_ascii=False, indent=1)
+        # Première ligne lue par la tâche : le NAS répond, la consigne est dans le fichier.
+        print(f"NOUVEAUTÉS PRÊT : {len(found['known'])} noms déjà proposés depuis un an, {len(found['recent'])} aux derniers passages")
+        for r in found["recent"][:40]:
+            states = ", ".join(f".{t} {r[t] or 'pas vérifié'}" for t in ("fr", "com"))
+            verdicts = ", ".join(f".{t} {v}" for t, v in r.get("verdicts", {}).items())
+            print(f"  {r['label']} ({r['lang']}) : {states}" + (f" ; avis {verdicts}" if verdicts else ""))
+    elif action in ("news-check", "news-push"):
+        good, problems = verify_news(sys.argv[2], sys.argv[3])
+        print(f"{len(good)} noms conformes, {len(problems)} problèmes")
+        for label, reason in problems[:40]:
+            print(f"  {label} : {reason}")
+        if action == "news-push" and good and len(good) <= NEWS_MAX:
+            answer = call("POST", "/api/ai/news", {"items": good})
+            print(f"NAS : {len(answer['saved'])} noms enregistrés, {len(answer['rejected'])} rejetés")
+            for r in answer["rejected"][:40]:
+                print(f"  {r['label']} : {r['reason']}")
     elif action == "guide":
         with open(sys.argv[2], encoding="utf-8") as f:
             print(json.load(f)["guide"])
@@ -328,7 +387,8 @@ def main() -> None:
     else:
         sys.exit("Usage : pull <nombre> <lot.json> | requested <lot.json> | guide <lot.json> | show <lot.json> <début> <nombre> | "
                  "pack <lot.json> <avis.json> <avis-1.txt>... | check <lot.json> <avis.json> | push <lot.json> <avis.json> | "
-                 "escalation <dossier> [rescue|panel] | escalation-push <lot.json> <avis-1.json>... | exploit <rent.json> | exploit-check <rent.json> <rapports.json> | exploit-push <rent.json> <rapports.json>")
+                 "escalation <dossier> [rescue|panel] | escalation-push <lot.json> <avis-1.json>... | exploit <rent.json> | exploit-check <rent.json> <rapports.json> | exploit-push <rent.json> <rapports.json> | "
+                 "news <radar.json> | news-check <radar.json> <noms.json> | news-push <radar.json> <noms.json>")
 
 
 if __name__ == "__main__":

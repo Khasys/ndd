@@ -2,7 +2,8 @@
 États-Unis), mots anglais, secteurs porteurs, tendances, combinaisons, sites de niche et noms de médias (France et
 États-Unis) et listes thématiques (métiers, sport, animaux, cuisine), construites par scripts/build_lists.py ; termes
 stars, mots-clés à forte valeur, métier + ville (France et États-Unis) et marques inventées, fournis tels quels ;
-« Mes ajouts », les noms ajoutés depuis l'Explorer.
+« Mes ajouts », les noms ajoutés depuis l'Explorer ; « Déjà vendus » (market.py) et « Nouveautés » (news.py), tenues
+par le NAS dans son dossier de données.
 
 Catégories : un nom a ses listes d'origine, plus les catégories dérivées (categories.txt, calculé par
 scripts/build_lists.py : assurance aussi dans Termes stars, plombierlyon aussi dans Métiers). Les dérivées
@@ -29,7 +30,7 @@ LABELS = {"word": "Mots", "form": "Formes fléchies", "surname": "Noms de famill
           "surname_us": "Noms de famille des États-Unis", "niche_us": "Sites de niche des États-Unis",
           "media_us": "Noms de médias des États-Unis", "local_us": "Métier + ville des États-Unis",
           "compound_en": "Composés anglais", "compound_fr": "Composés français", "invented": "Inventés, sélection",
-          "mine": "Mes ajouts", "sold": "Déjà vendus"}
+          "mine": "Mes ajouts", "sold": "Déjà vendus", "news": "Nouveautés"}
 # Nature des mots et des formes, tirée du Lexique.
 NATURES = {"verb": "Verbes", "noun": "Noms communs", "adj": "Adjectifs", "adv": "Adverbes", "other": "Mots outils"}
 
@@ -53,23 +54,28 @@ MINE_FILE = "mes_ajouts.txt"
 # appartient à DNJournal).
 SOLD = "sold"
 SOLD_FILE = "vendus.txt"
+# Radar des nouveautés : mots, expressions et événements de l'actualité proposés par la tâche IA (news.py), du plus
+# récent au plus ancien, avec leur langue (une ligne « nom<TAB>fr »). Dossier de données du NAS, jamais le dépôt.
+NEWS = "news"
+NEWS_FILE = "nouveautes.txt"
 # Listes d'avant les mots anglais, secteurs, tendances et combinaisons : ce que couvrent les
 # lectures de zone faites avant leur ajout.
 LEGACY = ("word", "form", "surname", "firstname")
 # Listes ajoutées après les imports .fr sans relevé des noms cherchés (zones/fr.searched) : leurs noms
 # attendent l'import suivant.
-LATE = (*PROVIDED, MINE, SOLD, "firstname_us", "surname_us", "niche_us", "media_us", "compound_en", "compound_fr", "invented")
-# Listes sans sens : une marque inventée vaut par sa sonorité ; « Mes ajouts » ne dit rien du nom.
-NO_MEANING = ("brand", "invented", MINE, SOLD)
+LATE = (*PROVIDED, MINE, SOLD, NEWS, "firstname_us", "surname_us", "niche_us", "media_us", "compound_en", "compound_fr", "invented")
+# Listes sans sens : une marque inventée vaut par sa sonorité ; « Mes ajouts » ne dit rien du nom ; une nouveauté est
+# souvent un mot que les dictionnaires n'ont pas encore (l'avis IA en juge, avec le contexte de l'actualité).
+NO_MEANING = ("brand", "invented", MINE, SOLD, NEWS)
 # Rang sans valeur pour le score : l'ordre d'ajout ne classe rien ; une vente passée n'est pas une fréquence d'usage.
-NO_RANK = (MINE, SOLD)
+NO_RANK = (MINE, SOLD, NEWS)
 # Catégories dérivées (nom, catégories gagnées), écrites par scripts/build_lists.py. Hors de l'empreinte du score
 # (precompute) : elles ne changent aucun score.
 DERIVED_FILE = "categories.txt"
 # Jamais dérivées : la langue a son propre filtre, une marque inventée vaut par sa sonorité, Mes ajouts sont à part ;
 # listes des États-Unis : réunies à leur catégorie (MERGED), pas dérivées.
 NEVER_DERIVED = ("word", "form", "english", "surname", "firstname", "firstname_us", "surname_us", "niche_us",
-                 "media_us", "local_us", "compound_en", "compound_fr", "brand", "invented", MINE, SOLD)
+                 "media_us", "local_us", "compound_en", "compound_fr", "brand", "invented", MINE, SOLD, NEWS)
 # Thèmes : les noms composés gagnés viennent après les mots du thème dans l'ordre « les plus fréquents » (le Top
 # Sport commence par football, pas par coachsportif).
 THEMES = ("startup", "job", "sport", "animal", "food", "trend")
@@ -120,13 +126,15 @@ _mine_lock = threading.Lock()
 
 
 _sold_path: Path | None = None
+_news_path: Path | None = None
 
 
 def configure(data_dir: Path | None) -> None:
-    """Dossier de données de l'appli (main.py) : « Mes ajouts » et « Déjà vendus » y sont lus et écrits."""
-    global _mine_path, _sold_path
+    """Dossier de données de l'appli (main.py) : « Mes ajouts », « Déjà vendus » et « Nouveautés » y sont lus et écrits."""
+    global _mine_path, _sold_path, _news_path
     _mine_path = None if data_dir is None else Path(data_dir) / MINE_FILE
     _sold_path = None if data_dir is None else Path(data_dir) / SOLD_FILE
+    _news_path = None if data_dir is None else Path(data_dir) / NEWS_FILE
     reload()
 
 
@@ -211,6 +219,44 @@ def set_sold(labels: list[str]) -> bool:
     return True
 
 
+# --- Nouveautés ----------------------------------------------------------------------------
+
+def news() -> tuple[str, ...]:
+    """Libellés du radar des nouveautés, du plus récent au plus ancien (news.publish)."""
+    return tuple(_read_news())
+
+
+@lru_cache(maxsize=1)
+def _read_news() -> dict[str, str]:
+    """Libellé vers langue (fr, en), dans l'ordre du fichier."""
+    if _news_path is None or not _news_path.exists():
+        return {}
+    found: dict[str, str] = {}
+    for line in _news_path.read_text(encoding="utf-8").splitlines():
+        label, _, lang = line.strip().partition("\t")
+        if valid_label(label) and label not in found:
+            found[label] = lang if lang in LANGS else ""
+    return found
+
+
+def set_news(items: list[tuple[str, str]]) -> bool:
+    """Remplace la liste des nouveautés (libellé, langue) ; False si elle n'a pas changé ou sans dossier de données."""
+    if _news_path is None:
+        return False
+    found: dict[str, str] = {}
+    for label, lang in items:
+        if valid_label(label) and label not in found:
+            found[label] = lang if lang in LANGS else ""
+    if _news_path.exists() and list(_read_news().items()) == list(found.items()):
+        return False
+    _news_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = _news_path.with_suffix(".tmp")
+    tmp.write_text("".join(f"{label}\t{lang}\n" for label, lang in found.items()), encoding="utf-8")
+    os.replace(tmp, _news_path)
+    reload()
+    return True
+
+
 # Change à chaque rechargement : l'Explorer y voit qu'il doit refaire son univers.
 version = 0
 
@@ -218,7 +264,8 @@ version = 0
 def reload() -> None:
     """Mes ajouts changés : tout ce qui en dépend est relu. Les listes du dossier app/data restent en mémoire."""
     global version
-    for cached in (_read_mine, _read_sold, lists, ranks, watched, fingerprints, languages, listed, meaningful, classes):
+    for cached in (_read_mine, _read_sold, _read_news, lists, ranks, watched, fingerprints, languages, listed, meaningful,
+                   classes):
         cached.cache_clear()
     version += 1
 
@@ -262,7 +309,7 @@ def static_lists() -> dict[str, frozenset[str]]:
 
 @lru_cache(maxsize=1)
 def lists() -> dict[str, frozenset[str]]:
-    return {**static_lists(), MINE: frozenset(mine()), SOLD: frozenset(sold())}
+    return {**static_lists(), MINE: frozenset(mine()), SOLD: frozenset(sold()), NEWS: frozenset(news())}
 
 
 @lru_cache(maxsize=1)
@@ -274,7 +321,7 @@ def _static_ranks() -> dict[str, dict[str, int]]:
 def ranks() -> dict[str, dict[str, int]]:
     """Rang de chaque nom dans sa liste, 1 pour le plus fréquent (Mes ajouts : ordre d'ajout)."""
     return {**_static_ranks(), MINE: {w: i + 1 for i, w in enumerate(mine())},
-            SOLD: {w: i + 1 for i, w in enumerate(sold())}}
+            SOLD: {w: i + 1 for i, w in enumerate(sold())}, NEWS: {w: i + 1 for i, w in enumerate(news())}}
 
 
 @lru_cache(maxsize=1)
@@ -405,8 +452,13 @@ def languages() -> dict[str, frozenset[str]]:
     """Noms par langue : mots et formes en français, mots anglais en anglais, prénoms et noms de famille selon
     leur source (France : français, États-Unis : anglais), et pour les listes mêlées (secteurs, tendances,
     combinaisons, sites de niche, listes thématiques, listes fournies) la langue relevée à la construction.
-    Marques inventées : sans langue. Mes ajouts : la langue d'une autre liste, sinon aucune."""
-    return _static_languages()
+    Marques inventées : sans langue. Mes ajouts : la langue d'une autre liste, sinon aucune. Nouveautés : la langue
+    donnée par le radar, en plus de celle des autres listes."""
+    found = _static_languages()
+    news = _read_news()
+    if not news:
+        return found
+    return {lang: names | {label for label, lg in news.items() if lg == lang} for lang, names in found.items()}
 
 
 def langs_of(label: str) -> list[str]:

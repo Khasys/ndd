@@ -33,7 +33,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import absent, ai, bot, watchdog, escalation, exploit, exploit_format, mcp, registrations, stats, tokens, calendar_ics, ccdns, db, decisions, market, morning, notify, pepites, portfolio, digest, drops, explore, frdata, frdns, gandi, prenoms, reserved, seo, signals, states, updates, value, wordlists
+from . import absent, ai, bot, watchdog, escalation, exploit, exploit_format, mcp, news, registrations, stats, tokens, calendar_ics, ccdns, db, decisions, market, morning, notify, pepites, portfolio, digest, drops, explore, frdata, frdns, gandi, prenoms, reserved, seo, signals, states, updates, value, wordlists
 from .auth import (
     COOKIE_NAME,
     LoginGuard,
@@ -193,7 +193,7 @@ logging.getLogger("uvicorn.access").addFilter(_MaskMcp())
 STATIC = Path(__file__).parent / "static"
 PWA_PATHS = {"/manifest.webmanifest", "/sw.js", "/offline"}
 AI_PATHS = {"/api/ai/pending", "/api/ai/results", "/api/ai/escalation", "/api/ai/escalation/results", "/api/exploit/pending",
-            "/api/exploit/results"}
+            "/api/exploit/results", "/api/ai/news"}
 # Lecture seule avec le même jeton : de quoi observer et analyser, jamais modifier ni lire un réglage.
 # Explorer : les écrans seulement (liste, classement, carte, fiches, export), pas les vues enregistrées.
 READ_PATHS = re.compile(r"^/api/(meta|diag(/journal)?|stats|today|domains|domains/\d+/history|drops|explore(/(rank|top|map|name|fiche|export))?|ai/(status|rated|outcomes))$")
@@ -319,6 +319,10 @@ async def lifespan(app: FastAPI):
         et les marques en base empêchent tout envoi en double (redémarrage, rattrapage d'une exécution manquée)."""
         async with alert_lock:
             state, now = app.state, utcnow()
+            # Nouveautés d'abord : un nom annoncé ici ne repart pas comme pépite (notify.pepite_tick).
+            text, marks = await _off(notify.news_tick, conn, store, now, _public_url(state), telegram.configured)
+            if text and await telegram.send(text) is None:
+                await _off(notify.mark_news, conn, marks, now)
             text, names = await _off(notify.pepite_tick, state.explorer, store, now, _public_url(state), _order_url(store),
                                      telegram.configured, bool(state.gandi.key))
             if text and await telegram.send(text) is None:
@@ -446,6 +450,10 @@ async def lifespan(app: FastAPI):
         if app.state.market.due(utcnow()):
             await app.state.market.refresh(off=_off)
 
+    async def check_news() -> None:
+        # Radar des nouveautés : reprise des vérifications en attente (envoi interrompu, registre en panne).
+        await news_check(app.state)
+
     async def refresh_prenoms() -> None:
         # Une fois par mois : l'Insee publie une édition par an, la date exacte varie.
         if app.state.prenoms.due():
@@ -484,6 +492,8 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(refresh_market, "interval", hours=1, next_run_time=now + timedelta(minutes=13), max_instances=1,
                       id="market")
     # File .fr : chaque minute, autant de requêtes que le plafond réglé le permet.
+    scheduler.add_job(check_news, "interval", minutes=10, next_run_time=now + timedelta(minutes=12), max_instances=1,
+                      id="news_check")
     scheduler.add_job(tick_fr, "interval", minutes=1, next_run_time=now + timedelta(minutes=6), max_instances=1)
     # DNS .fr : une passe par jour, lancée à minuit, étalée sur la journée.
     scheduler.add_job(check_fr_dns, "interval", minutes=10, next_run_time=now + timedelta(minutes=8), max_instances=1)
@@ -517,6 +527,10 @@ async def lifespan(app: FastAPI):
     app.state.market = market.Market(conn, store)
     app.state.explorer.market = app.state.market  # ventes comparables : file IA et fiche
     app.state.explorer.recent = app.state.prenoms
+    # Radar des nouveautés : raisons de l'actualité et liste « Nouveautés » remises d'accord avec la table.
+    app.state.explorer.news = news.reasons(conn, utcnow())
+    news.publish(conn, utcnow())
+    app.state.news_running = False
     fr_dns = frdns.FrDns(conn, store, app.state.explorer, digest.local_zone(), notify=note_health)
     app.state.fr_dns = fr_dns
     # .co, .ai, .io : une passe par extension, en même temps que le .fr (registres différents).
@@ -2293,7 +2307,7 @@ async def ai_results(request: Request, payload: AiResults):
     explorer = request.app.state.explorer
     conn = request.app.state.conn
     known = ai.known_name(explorer)
-    asked = {r["name"] for r in ai.requests(conn)["pending"]}
+    asked = ai.asked(conn)  # demandes de la fiche et du radar des nouveautés
     status_of = await _off(ai.status_lookup, explorer)  # état au moment de l'avis : mesure a posteriori
     context_of = await _off(ai.context_lookup, explorer, request.app.state.store)  # demande mesurée, renouvellement
     saved = ai.save(conn, payload.results, lambda name: name in asked or known(name), status_of, context_of)
@@ -2349,9 +2363,78 @@ async def ai_escalation_results(request: Request, payload: EscalationVotes):
     return found
 
 
+@app.get("/api/ai/news")
+async def ai_news(request: Request):
+    """Radar des nouveautés : la consigne de la tâche, les noms déjà proposés depuis un an (pas de doublon) et ceux des
+    derniers passages avec l'état vu au registre et l'avis de l'IA."""
+    conn, now = request.app.state.conn, utcnow()
+    return {"guide": news.GUIDE, "format": news.FORMAT, "max": news.MAX_ITEMS, "known": await _off(news.known, conn, now),
+            "recent": await _off(news.recent, conn, now)}
+
+
+class NewsItems(BaseModel):
+    items: list
+
+
+@app.post("/api/ai/news")
+async def ai_news_add(request: Request, payload: NewsItems):
+    """Noms proposés par la tâche du radar : rangés, ajoutés à la liste « Nouveautés », puis vérifiés au registre en
+    .fr et en .com en tâche de fond ; les libres sont demandés à l'IA."""
+    if len(payload.items) > news.MAX_ITEMS:
+        raise HTTPException(422, f"{news.MAX_ITEMS} noms au plus par envoi.")
+    state, now = request.app.state, utcnow()
+    found = await _off(news.add, state.conn, payload.items, now)
+    if found["saved"]:
+        state.explorer.news = await _off(news.reasons, state.conn, now)
+        await _off(news.publish, state.conn, now)  # univers refait au prochain accès (liste changée)
+        _background(news_check(state), "Nouveautés : vérification au registre")
+    return found
+
+
+async def news_check(state) -> int:
+    """Nouveautés pas encore vérifiées : .fr puis .com au registre (origine discrète, hors Veille), puis avis IA demandé
+    pour les extensions libres. Un passage à la fois ; un .fr toutes les FR_GAP secondes (l'Afnic limite)."""
+    if getattr(state, "news_running", False):
+        return 0
+    state.news_running = True
+    done = 0
+    try:
+        rows = await _off(news.to_check, state.conn)
+        if rows:
+            # Liste « Nouveautés » changée : univers et octets d'état refaits ici, hors de la boucle, pas par Vérifier.
+            await _off(state.explorer.warm)
+        for row in rows:
+            found = {}
+            for tld in news.TLDS:
+                if row[tld] is not None:
+                    found[tld] = row[tld]
+                    continue
+                if tld == "fr" and state.fr.paused_until():
+                    found[tld] = None  # Afnic en pause : repris au passage suivant
+                    continue
+                try:
+                    item = await state.explorer.verify(f"{row['label']}.{tld}", absent.ORIGIN, news.FR_SOURCE)
+                    found[tld] = news.outcome(item["status"])
+                except explore.VerifyError as exc:
+                    log.info("Nouveautés : %s.%s non vérifié (%s)", row["label"], tld, exc)
+                    found[tld] = None
+                if tld == "fr":
+                    await asyncio.sleep(news.FR_GAP)
+            now = utcnow()
+            await _off(news.record, state.conn, row["label"], found, now)
+            await _off(news.ask, state.conn, row["label"], found, now)
+            done += 1
+    finally:
+        state.news_running = False
+    return done
+
+
 async def _notify_ai_done(request: Request, name: str) -> None:
-    """Analyse demandée prête : message Telegram avec le lien direct vers la fiche."""
+    """Analyse demandée prête : message Telegram avec le lien direct vers la fiche. Pas pour une demande du radar des
+    nouveautés : son message part avec les autres nouveautés (notify.news_tick)."""
     if not notify.enabled(request.app.state.store, "ai_ready"):
+        return
+    if (ai.request_state(request.app.state.conn, name) or {}).get("source") == news.SOURCE:
         return
     opinion = ai.load(request.app.state.conn, [name]).get(name) or {}
     base = _public_url(request.app.state)
@@ -2587,6 +2670,7 @@ async def diag(request: Request):
         # Sans l'adresse saisie : le jeton en lecture seule ne voit aucun réglage.
         "prenoms": {k: v for k, v in state.prenoms.status().items() if k != "url"},
         "market": state.market.status(),
+        "news": await _off(news.stats, conn, explorer, utcnow()),
         "lists": {k: len(v) for k, v in wordlists.lists().items()},
         "domains": dict(conn.execute("SELECT COALESCE(state, 'inconnu'), COUNT(*) FROM domains GROUP BY 1").fetchall()),
         "drops": drops_by_state,
@@ -2714,18 +2798,27 @@ SEED_VIEWS = [
      "filters": {"tld": "fr", "status": "bookable", "cat": "sold", "lang": "fr", "sort": "best", "level": "good"}},
 ]
 SEED_VIEWS_KEY = "views_seeded_1"
+# Radar des nouveautés (v0.17.0) : posée une fois aussi, à part, pour ceux qui ont déjà les trois premières.
+SEED_NEWS_VIEWS = [
+    {"name": "Nouveautés libres en .fr et .com", "alert": False,
+     "filters": {"tld": "fr,com", "status": "bookable", "cat": "news", "sort": "best"}},
+]
+SEED_BATCHES = ((SEED_VIEWS_KEY, SEED_VIEWS), ("views_seeded_news", SEED_NEWS_VIEWS))
 
 
 def seed_views(store) -> int:
-    """Ajoute les vues de SEED_VIEWS absentes (30 vues au plus), une seule fois ; renvoie le nombre ajouté."""
-    if store.get(SEED_VIEWS_KEY) == "1":
-        return 0
-    views = json.loads(store.get("explore_views") or "[]")
-    names = {v.get("name") for v in views}
-    added = [v for v in SEED_VIEWS if v["name"] not in names][:max(0, 30 - len(views))]
-    store.set("explore_views", json.dumps(views + added))
-    store.set(SEED_VIEWS_KEY, "1")
-    return len(added)
+    """Ajoute les vues de chaque lot absentes (30 vues au plus), une seule fois par lot ; renvoie le nombre ajouté."""
+    total = 0
+    for key, batch in SEED_BATCHES:
+        if store.get(key) == "1":
+            continue
+        views = json.loads(store.get("explore_views") or "[]")
+        names = {v.get("name") for v in views}
+        added = [v for v in batch if v["name"] not in names][:max(0, 30 - len(views))]
+        store.set("explore_views", json.dumps(views + added))
+        store.set(key, "1")
+        total += len(added)
+    return total
 
 
 @app.get("/api/explore/views")

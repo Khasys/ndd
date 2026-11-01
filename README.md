@@ -78,6 +78,7 @@ Deux rythmes. **Immédiat** : ce qui demande d'agir tout de suite. **Chaque jour
 | Pépite libre | immédiat, vu chaque minute | nom, état (libre vérifié au registre ou chez Gandi, libre selon le WHOIS « à confirmer chez un registrar », premium), prix d'achat Gandi s'il est connu, avis IA (revente, exploitation, prix final), raison, lien vers la fiche, lien Réserver ; les pépites d'un même passage dans un seul message, 10 détaillées puis « et N autres » | par nom et par libération (table `pepites`) |
 | Domaine suivi | immédiat | nom de l'écran Domaines : état avant → après, registrar, libération estimée, lien vers la fiche ; vérification toutes les 5 min en suppression | à chaque changement |
 | Analyse IA prête | immédiat, dans l'heure qui suit la demande | avis IA, raison, lien vers la fiche | par demande |
+| Nouveauté libre | immédiat, vu chaque minute | radar des nouveautés : nom de l'actualité libre au registre et noté « À prendre », la raison vue dans l'actualité, l'avis IA (revente, exploitation, prix final), le lien vers la fiche ; les « À surveiller » du même passage cités en fin de message ; pas de second message comme pépite | par nom |
 | Pépites bientôt libres | chaque jour | même gabarit, avec la libération estimée et la raison du rappel : nouvelle, libération sous 48 h, date revue | jamais la même liste deux jours de suite |
 | Bons noms du jour | chaque jour | libérés, entrés en rédemption ou en suppression, libres selon le WHOIS à confirmer, .co / .ai / .io sortis du DNS, en 24 h ; score minimum ou avis « À prendre » / « À surveiller » ; sans les pépites | fenêtre de 24 h |
 | Vues enregistrées | chaque jour | « Vue « X » : N nouveaux noms », les noms devenus libres ou bientôt libres depuis le message précédent qui répondent aux filtres de la vue (case « alerte » de la vue, Explorer) ; sans les pépites | depuis le passage précédent de la vue |
@@ -976,6 +977,26 @@ Alertes) : un nom vendu, ce nom exact, qui entre en rédemption ou en suppressio
 et la libération estimée ; pas pour un nom à risque élevé dans l'avis IA (marque probable : le reprendre pour le
 revendre serait du cybersquattage). DNJournal ne publie que les ventes notables : les petites ventes entre
 investisseurs, celles qui retombent le plus, n'y sont pas.
+Radar des nouveautés (v0.17.0, `app/news.py`) : enregistrer avant les autres les noms que l'actualité fait naître.
+Deux fois par jour, une tâche IA planifiée (abonnement Claude, pas l'API) lit l'actualité sur le web, en français et
+en anglais (mots nouveaux, expressions, argot qui se répand, pratiques et technologies nouvelles), et envoie au NAS
+autant de noms que l'actualité le justifie, 30 au plus par passage, chacun avec sa langue, sa nature, la raison et la
+page lue (`POST /api/ai/news`, jeton IA ; `scripts/ai_exchange.py news`, `news-check`, `news-push`). La consigne vit
+sur le NAS (`GET /api/ai/news`, avec les noms déjà proposés depuis un an et ceux des derniers passages, leur état et
+leur avis) : elle écarte noms de personnes, marques, entreprises, produits, événements protégés (Jeux olympiques,
+Coupe du monde...), drames et faits divers, typosquattage. Le NAS range les noms (table `news`), les ajoute à la liste
+« Nouveautés » (`wordlists.NEWS`, fichier `nouveautes.txt` du dossier de données, avec la langue de chaque nom :
+filtre de catégorie et de langue de l'Explorer, vue « Nouveautés libres en .fr et .com »), puis les vérifie au
+registre en .fr et en .com en tâche de fond (un .fr toutes les 2 s, l'Afnic limite ; reprise toutes les 10 minutes,
+trois essais au plus). La vérification est discrète : un nom libre ou pris n'entre pas dans la Veille ; un nom en
+rédemption ou en suppression, si. Un nom libre est demandé à l'IA (`ai_requests`, source `news` : ni cloche ni
+message « Analyse IA prête ») : la tâche du quart d'heure le note avec la grille habituelle, la raison de l'actualité
+jointe au lot (`actualite`), sans savoir qui l'a proposé ; un avis de moins de 30 jours sert tel quel. L'alerte
+« Nouveauté libre » part pour les « À prendre » encore libres ; la sous-note de risque (marque probable) à 8 et plus
+donne « À laisser », jamais d'alerte. La raison s'affiche en première raison dans l'Explorer et la fiche
+(« Nouveauté du 01/11 : ... »). Mesure (`/api/diag`, rubrique `news`) : noms proposés, état vu au registre par
+extension, verdicts des libres, annoncés, puis enregistrés depuis par d'autres ou achetés.
+
 Pour chaque nom, les 4 ventes réelles les plus proches (un mot courant en commun, puis même extension, même
 nombre de mots, même langue, longueur voisine, ventes récentes d'abord) sont jointes au lot de notation
 (`ventes_comparables`) : l'IA ancre son prix utilisateur final dessus, plus bas pour un nom plus faible, car

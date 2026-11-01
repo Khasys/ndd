@@ -711,13 +711,26 @@ def known_name(explorer):
 
 # --- Analyses demandées depuis la fiche -------------------------------------------------
 
-def request(conn, name: str) -> dict:
-    """Demande (ou redemande) l'analyse d'un nom : la tâche horaire la traite."""
-    conn.execute(
-        """INSERT INTO ai_requests (name, requested_at) VALUES (?, ?)
-           ON CONFLICT(name) DO UPDATE SET requested_at = excluded.requested_at, done_at = NULL, seen_at = NULL""",
-        (name, iso(utcnow())),
-    )
+def request(conn, name: str, source: str | None = None) -> dict:
+    """Demande (ou redemande) l'analyse d'un nom : la tâche horaire la traite. Source news (radar des nouveautés,
+    news.py) : hors de la cloche et sans message « Analyse IA prête », et jamais à la place d'une demande faite
+    depuis la fiche encore en attente ; une demande depuis la fiche reprend une demande du radar."""
+    if source is None:
+        conn.execute(
+            """INSERT INTO ai_requests (name, requested_at) VALUES (?, ?)
+               ON CONFLICT(name) DO UPDATE SET requested_at = excluded.requested_at, done_at = NULL, seen_at = NULL,
+                 source = NULL""",
+            (name, iso(utcnow())),
+        )
+    else:
+        cur = conn.execute(
+            """INSERT INTO ai_requests (name, requested_at, source) VALUES (?, ?, ?)
+               ON CONFLICT(name) DO UPDATE SET requested_at = excluded.requested_at, done_at = NULL, seen_at = NULL,
+                 source = excluded.source WHERE ai_requests.done_at IS NOT NULL""",
+            (name, iso(utcnow()), source),
+        )
+        if not cur.rowcount:
+            return request_state(conn, name)
     escalation.reset(conn, name)  # le nouvel avis repasse par l'escalade s'il le mérite
     return request_state(conn, name)
 
@@ -728,9 +741,10 @@ def request_state(conn, name: str) -> dict | None:
 
 
 def requests(conn) -> dict:
-    """En attente, et traitées pas encore vues : la cloche de l'appli."""
+    """En attente, et traitées pas encore vues : la cloche de l'appli (sans les demandes du radar des nouveautés)."""
     rows = [dict(r) for r in conn.execute(
-        "SELECT * FROM ai_requests WHERE done_at IS NULL OR seen_at IS NULL ORDER BY requested_at DESC")]
+        "SELECT * FROM ai_requests WHERE (done_at IS NULL OR seen_at IS NULL) AND COALESCE(source, '') = '' "
+        "ORDER BY requested_at DESC")]
     done = [r for r in rows if r["done_at"]]
     opinions = load(conn, [r["name"] for r in done])
     for r in done:
@@ -743,13 +757,24 @@ def seen(conn, name: str) -> None:
                  (iso(utcnow()), name))
 
 
+def asked(conn) -> set[str]:
+    """Noms dont l'analyse est demandée et pas encore rendue, toutes sources."""
+    return {r[0] for r in conn.execute("SELECT name FROM ai_requests WHERE done_at IS NULL")}
+
+
 def requested(explorer) -> list[dict]:
-    """Noms demandés à analyser, décrits comme ceux de la file de nuit quand ils y sont connus."""
-    names = [r[0] for r in explorer.conn.execute(
-        "SELECT name FROM ai_requests WHERE done_at IS NULL ORDER BY requested_at")]
-    out = describe_names(explorer, names)
-    for item in out:
+    """Noms demandés à analyser, décrits comme ceux de la file de nuit quand ils y sont connus. Nom du radar des
+    nouveautés : la raison vue dans l'actualité, jointe (un mot trop récent pour être connu se juge avec elle)."""
+    rows = explorer.conn.execute(
+        """SELECT r.name, n.reason, n.lang, n.kind FROM ai_requests r
+           LEFT JOIN news n ON r.source = 'news' AND n.label = substr(r.name, 1, instr(r.name, '.') - 1)
+           WHERE r.done_at IS NULL ORDER BY r.requested_at""").fetchall()
+    out = describe_names(explorer, [r["name"] for r in rows])
+    for item, row in zip(out, rows):
         item["requested"] = True
+        if row["reason"]:
+            item["actualite"] = (f"Nouveauté vue dans l'actualité ({'français' if row['lang'] == 'fr' else 'anglais'}) : "
+                                 f"{row['reason']} Juge la valeur durable du nom, pas seulement le buzz du moment.")
     return out
 
 

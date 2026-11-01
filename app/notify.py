@@ -5,6 +5,7 @@ Immédiat :
   dans un seul message ;
 - domaine suivi (écran Domaines) : changement d'état, de registrar ou de libération estimée (checker.py) ;
 - analyse IA demandée prête ;
+- nouveauté de l'actualité libre et notée « À prendre » (radar des nouveautés, news.py) ;
 - panne bloquante (morning.BLOCKING) : apparue ou réglée, vue au contrôle de santé (toutes les 10 minutes).
 Quotidien, un seul message (en plusieurs parts au-delà de 4 000 caractères) à l'heure réglée, 8 h par défaut :
 pépites bientôt libres (nouvelles, libération sous 48 h ou date revue), bons noms des dernières 24 h (morning.py),
@@ -18,7 +19,7 @@ une fois parti (ou mis en file de rejeu) : rien ne repart au redémarrage ni au 
 import json
 from datetime import datetime, timedelta
 
-from . import digest, drops, morning, pepites, portfolio, states
+from . import digest, drops, morning, news, pepites, portfolio, states
 from .checker import iso, parse_iso
 from .morning import link
 
@@ -30,6 +31,9 @@ TYPES = (
     ("domain_change", "Domaine suivi", IMMEDIATE,
      "Nom de l'écran Domaines : changement d'état, de registrar ou de libération estimée"),
     ("ai_ready", "Analyse IA prête", IMMEDIATE, "Analyse demandée depuis une fiche, avec le lien"),
+    ("news_free", "Nouveauté libre", IMMEDIATE,
+     "Mot, expression ou événement de l'actualité (radar des nouveautés, deux passages par jour) libre au registre et "
+     "noté « À prendre » : la raison, l'avis IA et le lien ; les « À surveiller » cités dans le même message"),
     ("sold_back", "Déjà vendu, de retour", IMMEDIATE,
      "Nom vendu d'après DNJournal (ce nom exact) qui entre en rédemption ou en suppression, ou redevient libre : "
      "la vente, l'état et la libération estimée"),
@@ -125,10 +129,59 @@ def pepite_tick(explorer, store, now: datetime, base: str, order_url: str, can_s
     pepites.sync(conn, found, now)
     watched = {r[0] for r in conn.execute("SELECT name FROM domains")}
     send, silent = pepites.due_free(conn, found, now, watched, gandi_on)
+    # Déjà annoncée « À prendre » comme nouveauté (news_tick passe avant) : pas une deuxième fois comme pépite.
+    announced = {r[0] for r in conn.execute("SELECT name FROM alert_sent WHERE kind = ?", (news.ANNOUNCED,))}
+    silent += [p["name"] for p in send if p["name"] in announced]
+    send = [p for p in send if p["name"] not in announced]
     if not (can_send and enabled(store, "pepite_free")):
         silent, send = silent + [p["name"] for p in send], []
     pepites.mark_alerted(conn, silent, now)
     return pepites.free_message(send, base, order_url), [p["name"] for p in send]
+
+
+# --- Nouveautés de l'actualité ----------------------------------------------------------------
+
+def news_tick(conn, store, now: datetime, base: str, can_send: bool) -> tuple[str | None, list[tuple[str, str]]]:
+    """Nouveautés libres à la vérification et notées depuis : un message pour les « À prendre » encore libres, qui
+    cite les « À surveiller » du même passage ; les marques (nom, sorte) à poser une fois le message parti. Tous les
+    noms vus le sont, pour n'y revenir jamais : « annoncé » pour les « À prendre » envoyés (pas de doublon en pépite),
+    « vu » pour les autres (un « À surveiller » renoté « À prendre » plus tard reste une pépite possible). Rien à
+    prendre, type désactivé ou Telegram pas configuré : marqués « vu », sans message."""
+    found = news.ready(conn, now)
+    take = [item for item in found if item["free"] and item["verdict"] == news.TAKE]
+    watch = [item for item in found if item["free"] and item["verdict"] == news.WATCH]
+    if not take or not (can_send and enabled(store, "news_free")):
+        mark_news(conn, [(item["name"], news.SEEN) for item in found], now)
+        return None, []
+    sent = {item["name"] for item in take}
+    marks = [(item["name"], news.ANNOUNCED if item["name"] in sent else news.SEEN) for item in found]
+    take.sort(key=lambda item: (-item["ai"]["resale"], -(item["ai"]["final_high"] or 0), item["name"]))
+    blocks = []
+    for item in take[:MAX_LINES]:
+        opinion, row = item["ai"], item["news"]
+        block = [f"Actu ({news.KINDS[row['kind']].lower()}, {'français' if row['lang'] == 'fr' else 'anglais'}) : {row['reason']}",
+                 f"Avis IA : {item['verdict']}, revente {opinion['resale']}, exploitation {opinion['exploit']}, "
+                 f"prix final {pepites.price_range(opinion['final_low'], opinion['final_high'])}",
+                 "Libre au registre"]
+        url = link(base, item["name"])
+        blocks.append((item["name"], block + (["Fiche : " + url] if url else [])))
+    if len(take) == 1:
+        lines = [f"Nouveauté libre : {blocks[0][0]}", *blocks[0][1]]
+    else:
+        lines = [f"Nouveautés libres : {len(take)} noms « À prendre »"]
+        for name, block in blocks:
+            lines += ["", name, *block]
+        if len(take) > MAX_LINES:
+            lines += ["", f"et {len(take) - MAX_LINES} autres, dans l'Explorer (catégorie Nouveautés)"]
+    if watch:
+        lines += ["", "À surveiller : " + ", ".join(item["name"] for item in watch[:MAX_LINES])
+                  + (f" et {len(watch) - MAX_LINES} autres" if len(watch) > MAX_LINES else "")]
+    return "\n".join(lines), marks
+
+
+def mark_news(conn, marks: list[tuple[str, str]], now: datetime) -> None:
+    conn.executemany("INSERT OR IGNORE INTO alert_sent (name, kind, sent_at) VALUES (?, ?, ?)",
+                     [(name, kind, iso(now)) for name, kind in marks])
 
 
 # --- Déjà vendus de retour --------------------------------------------------------------------
