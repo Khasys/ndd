@@ -9,6 +9,7 @@ avec de la patience). Ce sont des avis, pas des cotes du marché.
 
 import heapq
 import json
+import sqlite3
 import threading
 from datetime import timedelta
 
@@ -84,7 +85,8 @@ Crédibilité avant tout :
 - Le .com est l'extension la plus recherchée, y compris par les entreprises françaises (seloger.com, meilleurtaux.com, cdiscount.com) : un mot ou une expression française en .com n'est pas un défaut, ne le pénalise pas et ne le reproche pas dans la raison.
 - Le statut du nom (libre, libération à venir, jamais enregistré, supprimé, enregistré) ne change pas sa valeur : juge le nom comme s'il était libre.
 - Un nom qui porte « gandi » a été vérifié chez un registrar (kind, price : prix d'achat en euros). Un premium coûte cher à l'achat : la revente doit couvrir ce prix, sinon descends marche et acheteurs. Un nom indisponible (unavailable, reserved, restricted) ne vaut rien à l'achat.
-- N'invente rien : un nom sans sens connu a sens 0, même s'il sonne bien.
+- N'invente rien : un nom sans sens connu a sens 0, même s'il sonne bien. Exception : un nom qui porte « actualite ».
+- Nouveauté de l'actualité : un nom qui porte « actualite » est un mot, une expression ou un usage apparu ou relancé récemment (argot, pratique, technologie), que tu ne connais peut-être pas : le texte d'« actualite » vient d'une page lue et vaut pour son sens. Note le sens d'après la diffusion qu'il décrit (7 à 9 pour un mot repris partout, 4 à 6 pour un usage encore étroit), pas 0 parce que le mot n'est pas dans tes connaissances, et juge l'orthographe sur la forme la plus répandue. Puis juge la durée : un buzz de quelques jours vaut peu (marche et acheteurs bas), un mot qui s'installe vaut comme un mot connu. Le risque se juge comme d'habitude (marque, personne, drame : 8 et plus).
 - Orthographe et grammaire : relis le nom mot à mot. Une lettre qui manque ou un accord faux (comptabilitenligne pour comptabiliteenligne, droitdufamille pour droitdelafamille) : radio 2 au plus, sens 3 au plus, marque 1, et la raison commence par « Faute : » suivi de la bonne forme.
 - Longueur : l'appli retire elle-même des points au-delà de 12 lettres. Juge le reste sans t'en soucier.
 
@@ -299,7 +301,7 @@ def pending(explorer, limit: int, offset: int = 0, only: tuple[str, ...] = ()) -
     for item, review_info in zip(items, infos[offset:]):
         if review_info:
             item["review"] = review_info
-    return items
+    return with_news(explorer.conn, items)
 
 
 def queue_position(explorer, name: str) -> int | None:
@@ -763,19 +765,42 @@ def asked(conn) -> set[str]:
 
 
 def requested(explorer) -> list[dict]:
-    """Noms demandés à analyser, décrits comme ceux de la file de nuit quand ils y sont connus. Nom du radar des
-    nouveautés : la raison vue dans l'actualité, jointe (un mot trop récent pour être connu se juge avec elle)."""
-    rows = explorer.conn.execute(
-        """SELECT r.name, n.reason, n.lang, n.kind FROM ai_requests r
-           LEFT JOIN news n ON r.source = 'news' AND n.label = substr(r.name, 1, instr(r.name, '.') - 1)
-           WHERE r.done_at IS NULL ORDER BY r.requested_at""").fetchall()
-    out = describe_names(explorer, [r["name"] for r in rows])
-    for item, row in zip(out, rows):
+    """Noms demandés à analyser, décrits comme ceux de la file de nuit quand ils y sont connus (nouveautés de
+    l'actualité comprises, avec leur contexte : with_news)."""
+    names = [r[0] for r in explorer.conn.execute(
+        "SELECT name FROM ai_requests WHERE done_at IS NULL ORDER BY requested_at")]
+    out = describe_names(explorer, names)
+    for item in out:
         item["requested"] = True
-        if row["reason"]:
-            item["actualite"] = (f"Nouveauté vue dans l'actualité ({'français' if row['lang'] == 'fr' else 'anglais'}) : "
-                                 f"{row['reason']} Juge la valeur durable du nom, pas seulement le buzz du moment.")
     return out
+
+
+NEWS_KINDS = {"mot": "mot nouveau", "expression": "expression", "evenement": "événement", "usage": "mot qui revient"}
+
+
+def with_news(conn, items: list[dict]) -> list[dict]:
+    """Nom du radar des nouveautés (table news) : la raison vue dans l'actualité, jointe sous « actualite » partout où
+    l'IA le juge (demande, file de nuit, repêchage, panel de dix). Un mot trop récent pour être connu du correcteur
+    (argot, usage né cette année) serait sinon noté sans sens, donc « À laisser ». Rien d'autre : ni qui l'a proposé,
+    ni verdict attendu."""
+    labels = sorted({item["name"].partition(".")[0] for item in items})
+    found = {}
+    for start in range(0, len(labels), 900):
+        part = labels[start:start + 900]
+        try:
+            rows = conn.execute(f"SELECT label, lang, kind, reason, added_at FROM news WHERE label IN ({','.join('?' * len(part))})",
+                                part).fetchall()
+        except sqlite3.OperationalError:  # base sans la table news (migration 053) : rien à joindre
+            return items
+        found.update({r["label"]: r for r in rows})
+    for item in items:
+        row = found.get(item["name"].partition(".")[0])
+        if row is not None:
+            day = row["added_at"]
+            item["actualite"] = (f"Nouveauté vue dans l'actualité le {day[8:10]}/{day[5:7]}/{day[:4]} "
+                                 f"({NEWS_KINDS.get(row['kind'], row['kind'])}, {'français' if row['lang'] == 'fr' else 'anglais'}) : "
+                                 f"{row['reason']}")
+    return items
 
 
 def describe_names(explorer, names: list[str]) -> list[dict]:
@@ -801,7 +826,7 @@ def describe_names(explorer, names: list[str]) -> list[dict]:
         if r is not None:
             item["rdap"] = {k: r[k] for k in ("at", "available", "statuses", "registered_at", "expires_at")}
         out.append(item)
-    return out
+    return with_news(explorer.conn, out)
 
 
 def finish(conn, names: list[str]) -> list[str]:

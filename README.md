@@ -990,8 +990,12 @@ filtre de catégorie et de langue de l'Explorer, vue « Nouveautés libres en .f
 registre en .fr et en .com en tâche de fond (un .fr toutes les 2 s, l'Afnic limite ; reprise toutes les 10 minutes,
 trois essais au plus). La vérification est discrète : un nom libre ou pris n'entre pas dans la Veille ; un nom en
 rédemption ou en suppression, si. Un nom libre est demandé à l'IA (`ai_requests`, source `news` : ni cloche ni
-message « Analyse IA prête ») : la tâche du quart d'heure le note avec la grille habituelle, la raison de l'actualité
-jointe au lot (`actualite`), sans savoir qui l'a proposé ; un avis de moins de 30 jours sert tel quel. L'alerte
+message « Analyse IA prête ») : la tâche du quart d'heure le note avec la grille habituelle, sans savoir qui l'a
+proposé ; un avis de moins de 30 jours sert tel quel. La raison de l'actualité est jointe (`actualite`, avec la date,
+la nature et la langue) partout où l'IA juge le nom : demande, file de nuit, second passage, repêchage et panel de dix
+(`ai.with_news`). La consigne de notation la prend pour le sens du mot : un mot né cette année (argot, usage nouveau)
+que le correcteur ne connaît pas n'a plus sens 0 d'office ; il est noté sur la diffusion décrite, puis sur sa durée
+(un buzz de quelques jours vaut peu). L'alerte
 « Nouveauté libre » part pour les « À prendre » encore libres ; la sous-note de risque (marque probable) à 8 et plus
 donne « À laisser », jamais d'alerte. La raison s'affiche en première raison dans l'Explorer et la fiche
 (« Nouveauté du 01/11 : ... »). Mesure (`/api/diag`, rubrique `news`) : noms proposés, état vu au registre par

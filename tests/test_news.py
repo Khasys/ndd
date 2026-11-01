@@ -193,3 +193,25 @@ def test_touch_does_not_wait_for_a_universe_rebuild(tmp_path):
     ex._lists_version = -1
     ex._swap_universe()
     assert seen == ["rizz.fr"] and ex._deferred == set()
+
+
+def test_news_context_reaches_every_rating(logged):
+    """« chokbar » : le correcteur ne connaît pas forcément le mot. La raison de l'actualité est jointe partout où
+    l'IA le note (demande, file de nuit, repêchage et panel de dix passent par describe_names ou pending), et la
+    consigne dit de ne pas lui donner sens 0 pour autant."""
+    from app import ai
+
+    client = logged()
+    st = client.app.state
+    st.conn.execute("INSERT INTO news (label, lang, kind, reason, source, added_at) VALUES ('chokbar', 'fr', 'expression', "
+                    "'Expression d''argot reprise partout pour dire choqué.', 'https://media.exemple/a', '2026-11-01T06:43:00+00:00')")
+    items = {i["name"]: i for i in ai.describe_names(st.explorer, ["chokbar.fr", "chokbar.com", "velo.fr"])}
+    assert items["chokbar.fr"]["actualite"] == ("Nouveauté vue dans l'actualité le 01/11/2026 (expression, français) : "
+                                                "Expression d'argot reprise partout pour dire choqué.")
+    assert "actualite" in items["chokbar.com"] and "actualite" not in items["velo.fr"]
+    assert [i.get("actualite") is not None for i in ai.with_news(st.conn, [{"name": "chokbar.io"}, {"name": "x.fr"}])] == [True, False]
+    assert "un nom qui porte « actualite »" in ai.GUIDE and "pas 0 parce que le mot n'est pas dans tes connaissances" in ai.GUIDE
+    # Lot de la tâche du quart d'heure, une ligne par nom (format compact) : la raison y est.
+    from scripts.ai_exchange import line
+    assert "Expression d'argot" in line(items["chokbar.fr"])
+    client.__exit__(None, None, None)
