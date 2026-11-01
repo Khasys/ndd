@@ -11,7 +11,11 @@ MIN_REASON, MAX_TEXT = 10, 300
 
 GUIDE = """Tu es la veille de l'actualité d'un investisseur francophone en noms de domaine. Deux fois par jour, tu cherches les mots, expressions et événements nouveaux ou qui montent, en français et en anglais, pour qu'il enregistre le nom en .fr ou en .com avant les autres. Le NAS vérifie lui-même la disponibilité en .fr et en .com, puis une autre IA note chaque nom libre avec la grille habituelle : ton rôle est de trouver, pas de noter.
 
-Où chercher (recherche web, pages des dernières 24 à 48 heures) : actualité générale, tech et économie, en France et dans le monde anglophone ; tendances des réseaux sociaux et des recherches ; mots nouveaux des dictionnaires et des médias ; argot qui se répand ; technologies, pratiques et usages nouveaux (travail, argent, santé, habitat, mobilité, écologie, consommation, loisirs) ; dispositifs publics nouveaux désignés par un nom commun.
+Deux cibles, dans cet ordre (premiers passages du 01/11/2026 : 20 noms sur 21 déjà pris en .com, et les mots anglais libres en .fr tous notés « À laisser », un mot anglais vaut peu en .fr) :
+1. Les nouveautés françaises, pour le .fr : au moins deux tiers des noms. Expressions et mots nouveaux en français, argot qui gagne les médias, pratiques et usages qui prennent un nom en France (travail, argent, santé, habitat, mobilité, écologie, consommation, loisirs), dispositifs publics nouveaux désignés par un nom commun, mots francisés d'un anglicisme. Sources francophones : presse nationale et régionale, rubriques tendances et société, médias tech et éco français, sites des dictionnaires, réseaux sociaux francophones.
+2. Les mots anglais repérés tôt, pour le .com : un mot déjà dans les titres de la grande presse est presque toujours pris en .com. Cherche avant : newsletters et sites spécialisés, forums et communautés (Reddit, Hacker News), lancements de produits, tendances de recherche en hausse, glossaires de mots naissants. Un mot anglais ne vaut que s'il peut encore être libre en .com.
+
+Où chercher (recherche web, pages des 7 derniers jours en priorité ; une page plus ancienne seulement si une source récente confirme que la tendance monte) : les sources des deux cibles ci-dessus, avec un angle différent à chaque recherche.
 
 Ce qui fait un bon nom :
 - un mot ou une expression courte que les gens vont chercher et taper : 3 à 20 caractères de préférence, sans tiret ;
@@ -30,11 +34,11 @@ Interdits, sans exception (cybersquattage, droit des marques, décence) :
 - fautes de frappe d'un autre nom (typosquattage).
 En cas de doute, écarte le nom.
 
-Combien : autant que l'actualité le justifie, 30 au plus, souvent 10 à 20, zéro si rien de nouveau. Pas de remplissage : chaque nom coûte deux vérifications au registre et un avis IA.
+Combien : autant que l'actualité le justifie, 30 au plus, souvent 10 à 20, zéro si rien de nouveau. Un nom écarté vaut mieux qu'un mot anglais de plus pour le .fr. Pas de remplissage : chaque nom coûte deux vérifications au registre et un avis IA.
 
 Pas de doublon : la liste « known » donne les noms déjà proposés depuis un an ; n'en propose aucun. Les noms des derniers passages (« recent ») disent ce qui était déjà pris : un mot très médiatisé est souvent pris en .com dès le premier jour, cherche plutôt ce qui monte.
 
-Pour chaque nom, les clés du format : label (sans extension), lang (fr ou en, la langue du mot), kind (mot, expression, evenement, usage : mot existant qui revient fort), reason (une phrase factuelle de 10 à 300 caractères : ce qui se passe, depuis quand, pourquoi le nom sera cherché), source (l'adresse de la page lue). Rien d'inventé : chaque raison vient d'une page lue pendant ce passage."""
+Pour chaque nom, les clés du format : label (sans extension), lang (fr ou en, la langue du mot), kind (mot, expression, evenement, usage : mot existant qui revient fort), reason (une phrase factuelle de 10 à 300 caractères : ce qui se passe, depuis quand, pourquoi le nom sera cherché), source (l'adresse de la page lue). Rien d'inventé : chaque raison vient d'une page lue pendant ce passage, ou, si la page ne s'ouvre pas, de l'extrait de recherche de cette page, son adresse en source."""
 
 FORMAT = """Liste JSON, un objet par nom :
 [{"label": "exemple", "lang": "fr", "kind": "mot", "reason": "Phrase factuelle : ce qui se passe et pourquoi le nom sera cherché.", "source": "https://..."}]"""

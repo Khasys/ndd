@@ -74,6 +74,7 @@ def test_news_radar_end_to_end(logged, monkeypatch):
     assert client.get("/api/ai/news").status_code == 401
     radar = client.get("/api/ai/news", headers=headers).json()
     assert "Interdits" in radar["guide"] and radar["known"] == [] and radar["recent"] == [] and radar["max"] == 60
+    assert "deux tiers des noms" in radar["guide"] and "repérés tôt, pour le .com" in radar["guide"]
 
     sent_items = [_item("rizz", lang="en", reason="Mot de l'année d'un dictionnaire anglais, repris par la presse."),
                   _item("Écoanxiété"), _item("rizz"), _item("nom", lang="de"), _item("sans", source="")]

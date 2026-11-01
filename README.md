@@ -979,7 +979,10 @@ revendre serait du cybersquattage). DNJournal ne publie que les ventes notables 
 investisseurs, celles qui retombent le plus, n'y sont pas.
 Radar des nouveautés (v0.17.0, `app/news.py`) : enregistrer avant les autres les noms que l'actualité fait naître.
 Deux fois par jour, une tâche IA planifiée (abonnement Claude, pas l'API) lit l'actualité sur le web, en français et
-en anglais (mots nouveaux, expressions, argot qui se répand, pratiques et technologies nouvelles), et envoie au NAS
+en anglais (mots nouveaux, expressions, argot qui se répand, pratiques et technologies nouvelles). Deux cibles depuis
+la v0.17.2 : d'abord les nouveautés françaises pour le .fr (deux tiers des noms au moins), puis les mots anglais repérés
+avant la grande presse pour le .com (au premier passage, 20 noms sur 21 étaient déjà pris en .com et les mots anglais
+libres en .fr notés « À laisser »). Elle envoie au NAS
 autant de noms que l'actualité le justifie, 30 au plus par passage, chacun avec sa langue, sa nature, la raison et la
 page lue (`POST /api/ai/news`, jeton IA ; `scripts/ai_exchange.py news`, `news-check`, `news-push`). La consigne vit
 sur le NAS (`GET /api/ai/news`, avec les noms déjà proposés depuis un an et ceux des derniers passages, leur état et
