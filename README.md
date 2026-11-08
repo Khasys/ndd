@@ -561,6 +561,11 @@ veille et absent ce jour est vérifié en RDAP : en rédemption ou en suppressio
 sa date de libération estimée ; suspendu pour une autre raison, il est masqué. Un nom qui revient
 dans la zone (renouvelé ou repris) sort de la liste.
 
+Coupure réseau : CZDS ferme parfois la connexion gardée depuis le début de la passe (le .org, dix minutes après le
+.com, les 7 et 8/11/2026). Le téléchargement coupé est repris une fois sur une connexion neuve ; si la zone échoue
+quand même, elle est relue une heure plus tard, jusqu'à 23 h, au lieu d'attendre le lendemain ; les autres zones,
+déjà lues, ne le sont pas. L'erreur est au journal (`/api/diag/journal`) et dans la carte « Sources et lectures ».
+
 Écart de zone : une lecture où plus de 5 % des noms connus disparaissent d'un coup est refusée (zone
 tronquée ou incomplète, le plus souvent) ; la carte précédente est gardée et rien n'est marqué supprimé.
 La carte « Sources et lectures » signale l'extension refusée, avec le nombre attendu et le nombre lu.
@@ -585,7 +590,10 @@ L'appli fonctionne alors en trois temps :
    Une adresse collée dans « Adresse du fichier » qui contient un mois est suivie de mois en
    mois. Elle ne garde que les noms suivis. Chaque nom apparu comme supprimé depuis le fichier
    précédent est vérifié, quelle que soit sa date de suppression : le fichier arrive avec
-   plusieurs semaines de retard. Au premier import, faute de fichier précédent, les suppressions
+   plusieurs semaines de retard. Un fichier inchangé n'est pas relu, sauf si les listes ont changé depuis (celles de
+   l'image : tout de suite ; Mes ajouts, Déjà vendus, Nouveautés : à la relecture hebdomadaire) ou sur le bouton
+   « Importer maintenant », qui relit toujours (v0.17.4 ; avant, il ne faisait rien tant que le fichier mensuel
+   n'avait pas changé). Au premier import, faute de fichier précédent, les suppressions
    des 90 derniers jours.
 2. Un nom .fr expire à la date anniversaire de sa création. L'appli le vérifie en RDAP le
    lendemain de cet anniversaire : renouvelé, la vraie échéance lue en RDAP fixe la vérification
@@ -778,9 +786,14 @@ Prononçable : modèle de trigrammes de lettres appris sur le Lexique et les lis
 (`app/pronounce.py`). Seuil choisi pour garder 92 % des vrais mots de 3 et 4 lettres et
 seulement 8 % des suites de lettres tirées au hasard. La forme des 1,9 million de noms courts
 est précalculée à la construction de l'image (`app/precompute.py`). L'Explorer garde ses calculs
-en mémoire et les prépare au démarrage, après chaque import .fr et chaque lecture de zone. Un
+en mémoire et les prépare au démarrage, après chaque import .fr, chaque lecture de zone, chaque passe DNS et chaque
+passage du radar des nouveautés (états, scores, puis la Veille préparée : le premier écran ouvert ensuite les trouve
+prêts ; avant la v0.17.4, c'est lui qui payait le recalcul, 16 à 34 s au NAS). Un
 nom vérifié, marqué ou analysé (bouton ou vérification automatique) est corrigé en place : son
-octet d'état, les compteurs de ±1, la carte. Pas de recalcul d'ensemble.
+octet d'état, les compteurs de ±1, la carte. Pas de recalcul d'ensemble. Quand une liste dynamique change (Mes
+ajouts, Déjà vendus, Nouveautés), l'univers est refait, mais les scores des noms que le changement ne touche pas
+restent en mémoire. Les octets de base d'une extension ne sont jamais reconstruits dans la boucle de l'appli : une
+vérification qui les trouve absents ou périmés oublie les états préparés, que le prochain écran refait à part.
 
 Score (`app/value.py`, `app/quality.py`), chaque critère pondérable de 0 à 2 dans Paramètres :
 

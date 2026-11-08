@@ -6,7 +6,8 @@ from datetime import datetime, timedelta, timezone
 import httpx
 import pytest
 
-from app import db, drops, states
+from app import db, digest, drops, states
+from app.checker import iso
 from app.rdap import DomainInfo, LookupResult
 from app.store import Store
 
@@ -485,3 +486,60 @@ def test_only_com_net_org_zones_are_read_and_retired_files_go(watcher):
         (watcher.dir / name).write_bytes(b"x")
     assert watcher.drop_retired() == 3
     assert sorted(p.name for p in watcher.dir.iterdir()) == ["com.short", "fr.searched"]
+
+
+def test_cut_download_is_retried_on_a_fresh_connection(watcher, monkeypatch):
+    """CZDS coupe la connexion gardée depuis le début de la passe (RemoteProtocolError au .org après dix minutes de
+    .com, 7 et 8/11/2026) : la zone est relue tout de suite, et la journée n'est pas perdue."""
+    monkeypatch.setattr(drops, "RETRY_PAUSE", 0)
+    icann = FakeIcann({"com": zone([]), "org": zone(["abcd.org.\t1\tin\tns\ta."])})
+    handler = icann.handler
+    cuts = {"n": 0}
+
+    def cut(request):
+        if request.url.path.endswith("org.zone") and cuts["n"] < 1:
+            cuts["n"] += 1
+            raise httpx.RemoteProtocolError("Server disconnected")
+        return handler(request)
+
+    use(watcher, icann)
+    watcher._http_factory = lambda: httpx.AsyncClient(transport=httpx.MockTransport(cut))
+    results = {r.tld: r for r in asyncio.run(watcher.run())}
+    assert results["org"].error is None and results["org"].names == 1 and cuts["n"] == 1
+    assert watcher.retry_zones() == [] and watcher.store.get("czds_zone_retry_at") == ""
+
+
+def test_zone_still_cut_is_read_again_an_hour_later_not_tomorrow(watcher, monkeypatch):
+    """Coupée malgré la reprise : la zone est notée pour une relecture une heure plus tard, jusqu'au soir ; les
+    autres zones, déjà lues, ne sont pas relues."""
+    monkeypatch.setattr(drops, "RETRY_PAUSE", 0)
+    icann = FakeIcann({"com": zone([]), "org": zone(["abcd.org.\t1\tin\tns\ta."])})
+    handler = icann.handler
+    state = {"cut": True, "org": 0, "com": 0}
+
+    def flaky(request):
+        if request.url.path.endswith("com.zone"):
+            state["com"] += 1
+        if request.url.path.endswith("org.zone"):
+            state["org"] += 1
+            if state["cut"]:
+                raise httpx.RemoteProtocolError("Server disconnected")
+        return handler(request)
+
+    use(watcher, icann)
+    watcher.store.set("czds_hour", "6")
+    watcher._http_factory = lambda: httpx.AsyncClient(transport=httpx.MockTransport(flaky))
+    today = datetime.now(digest.local_zone())
+    results = {r.tld: r for r in asyncio.run(watcher.run())}
+    assert "injoignable" in results["org"].error and results["com"].error is None
+    assert state["org"] == 4 and state["com"] == 1  # deux essais par session HTTP, deux sessions
+    assert watcher.retry_zones() == ["org"] and watcher.last_run() == today.date().isoformat()
+    # Pas tout de suite : une heure plus tard, et pas après 23 h.
+    assert not watcher.due(today.replace(hour=12))
+    watcher.store.set("czds_zone_retry_at", iso(datetime.now(timezone.utc) - timedelta(minutes=1)))
+    assert watcher.due(today.replace(hour=12)) and not watcher.due(today.replace(hour=23, minute=5))
+    # Relecture : la seule zone coupée, et elle réussit.
+    state["cut"] = False
+    results = {r.tld: r for r in asyncio.run(watcher.run())}
+    assert list(results) == ["org"] and results["org"].names == 1 and state["com"] == 1
+    assert watcher.retry_zones() == [] and not watcher.due(today.replace(hour=12))

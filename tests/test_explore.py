@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app import db, drops, explore, frdata, states
+from app import db, drops, explore, frdata, states, wordlists
 from app.checker import iso, utcnow
 from app.rdap import DomainInfo, LookupResult
 from app.store import Store
@@ -1713,3 +1713,57 @@ def test_rank_keeps_scores_between_filters_and_forgets_a_changed_name(env):
     assert scores[u.index(name[:-4])] == -1
     env.invalidate()
     assert "com" not in env._scores
+
+
+def test_scores_survive_a_change_of_the_dynamic_lists(env, tmp_path, monkeypatch):
+    """Le radar des nouveautés change la liste « Nouveautés » deux fois par jour : l'univers est refait, mais les
+    scores des noms que la liste ne touche pas restent en mémoire (les refaire tous coûtait 34 s au NAS)."""
+    wordlists.configure(tmp_path / "data")
+    try:
+        zone(env, ["ab"], ["maison"])
+        add_fr(env, "maison")
+        env.value_of(["maison.fr", "maison.com"])
+        assert set(env._values) == {"maison.fr", "maison.com"}
+        assert wordlists.set_news([("chokbar", "fr")])
+        assert env.universe.index("chokbar") is not None  # univers refait
+        assert set(env._values) == {"maison.fr", "maison.com"}  # scores gardés
+        env.value_of(["chokbar.fr"])
+        assert wordlists.set_news([("chokbar", "fr"), ("rizz", "en")])
+        env.universe  # noqa: B018
+        assert "chokbar.fr" in env._values and "maison.fr" in env._values
+        # Un nom qui sort de la liste perd son score : sa raison « Nouveauté » n'est plus vraie.
+        assert wordlists.set_news([("rizz", "en")])
+        env.universe  # noqa: B018
+        assert "chokbar.fr" not in env._values and "maison.fr" in env._values
+        # Changement massif (nouvelle liste des vendus) : tout est oublié, plus simple que de trier.
+        monkeypatch.setattr(explore, "KEEP_VALUES_MAX", 0)
+        assert wordlists.set_news([("rizz", "en"), ("goumin", "fr")])
+        env.universe  # noqa: B018
+        assert not env._values
+    finally:
+        wordlists.configure(None)
+
+
+def test_touch_never_rebuilds_the_base_bytes_in_the_caller(env):
+    """touch() tourne dans la boucle de l'appli après chaque vérification : si les octets de base de l'extension
+    sont absents ou périmés, il ne les reconstruit pas (2 à 4 s au NAS) ; il oublie les états préparés, que le
+    prochain écran refait hors de la boucle, à jour."""
+    add_fr(env, "velo")
+    add_fr(env, "maison")
+    assert env.status_bytes("fr")[env.universe.index("velo")] == explore.REGISTERED
+    at, version, data = env._cache["fr"]
+    # Périmés : touch n'y touche pas, et les états préparés de l'extension sont oubliés.
+    env._cache["fr"] = (at - explore.CACHE_SECONDS - 1, version, data)
+    env.conn.execute("UPDATE fr_names SET removed_on = '2026-11-01' WHERE label = 'velo'")
+    env.touch("velo.fr")
+    assert env._cache["fr"][0] == at - explore.CACHE_SECONDS - 1  # pas reconstruits ici
+    assert not [k for k in env._memos if k[0][0] == "status" and k[0][1] == "fr"]
+    assert env._map_dirty
+    # L'écran suivant reconstruit tout, à jour.
+    assert env.status_bytes("fr")[env.universe.index("velo")] == explore.GONE
+    assert env._cache["fr"][0] > at
+    # Base fraîche : correction en place, comme avant.
+    env.conn.execute("UPDATE fr_names SET removed_on = '2026-11-02' WHERE label = 'maison'")
+    env.touch("maison.fr")
+    assert env.status_bytes("fr")[env.universe.index("maison")] == explore.GONE
+    assert [k for k in env._memos if k[0][0] == "status" and k[0][1] == "fr"]

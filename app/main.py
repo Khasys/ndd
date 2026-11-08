@@ -401,9 +401,10 @@ async def lifespan(app: FastAPI):
             passes.discard(t)
             if not t.cancelled() and t.exception() is not None:
                 log.error("Passe DNS .%s interrompue", checker.tld, exc_info=t.exception())
-            elif not t.cancelled() and checker.tld in ccdns.TLDS and t.result().get("checked"):
-                # .co, .ai, .io : nouvelles données de l'Explorer, préparées avant qu'on l'ouvre.
-                app.state.explorer_warm = asyncio.create_task(_off(app.state.explorer.warm))
+            elif not t.cancelled() and (t.result() or {}).get("checked"):
+                # Nouvelles données de l'Explorer (.fr, .co, .ai, .io) : états, scores et Veille préparés tout de suite,
+                # hors de la boucle, pas au premier écran ouvert ensuite (16 à 34 s au NAS le 08/11/2026).
+                app.state.explorer_warm = _background(prepare_screens(app.state), f"Préparation après la passe DNS .{checker.tld}")
         task.add_done_callback(done)
 
     async def check_fr_dns() -> None:
@@ -1502,7 +1503,7 @@ async def import_fr_now(request: Request):
     if fr.running:
         return {"started": False}
     async def run() -> None:
-        await fr.import_file()
+        await fr.import_file(force=True)  # bouton : le fichier est relu même s'il n'a pas changé
         await _off(request.app.state.explorer.warm)
 
     request.app.state.fr_task = asyncio.create_task(run())
@@ -1674,6 +1675,15 @@ async def _veille_rebuild(state) -> dict:
         if entry["gen"] == cache["gen"]:
             return entry  # sinon une action est arrivée pendant la préparation : on recommence, une fois
     return entry
+
+
+async def prepare_screens(state) -> None:
+    """Données changées (radar des nouveautés, passe DNS) : états et scores de l'Explorer refaits hors de la boucle,
+    puis la Veille préparée pour la nouvelle génération. Le premier écran ouvert ensuite les trouve prêts."""
+    await _off(state.explorer.warm)
+    if hasattr(state, "veille"):
+        state.veille["gen"] += 1
+        veille_refresh(state)
 
 
 def veille_refresh(state) -> None:
@@ -2401,8 +2411,9 @@ async def news_check(state) -> int:
     try:
         rows = await _off(news.to_check, state.conn)
         if rows:
-            # Liste « Nouveautés » changée : univers et octets d'état refaits ici, hors de la boucle, pas par Vérifier.
-            await _off(state.explorer.warm)
+            # Liste « Nouveautés » changée : univers, états, scores et Veille refaits ici, hors de la boucle, pas par
+            # Vérifier ni par le premier écran ouvert après le passage.
+            await prepare_screens(state)
         for row in rows:
             found = {}
             for tld in news.TLDS:

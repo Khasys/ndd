@@ -168,7 +168,10 @@ MAP_ROWS = {
     **wordlists.SHOWN,
 }
 
-CACHE_SECONDS = 600
+# Octets de base d'une extension (fichiers de zone, open data .fr) : refaits quand leur version change (import, lecture
+# de zone, passe DNS) ; l'âge n'est qu'un filet. À 10 min, la reconstruction du .fr (2 à 4 s au NAS) tombait souvent
+# dans touch(), donc dans la boucle de l'appli.
+CACHE_SECONDS = 3600
 # Sécurité seulement : chaque nom vérifié ou marqué est corrigé en place (touch), et un import ou
 # une lecture de zone change la version des données, donc la clé.
 MEMO_SECONDS = 6 * 3600
@@ -176,6 +179,9 @@ MEMO_SECONDS = 6 * 3600
 RANK_SECONDS = 600
 # Extensions dont l'écran par défaut est classé d'avance (warm) : la première ouverte (.fr) et le .com.
 WARM_TLDS = ("fr", "com")
+# Au-delà de ce nombre de noms changés dans les listes dynamiques, les scores par nom sont tous oubliés (plus simple
+# que de trier) : une nouvelle liste des vendus, pas un passage du radar.
+KEEP_VALUES_MAX = 5000
 MAP_SECONDS = 600  # carte refaite en arrière-plan au-delà
 MEMO_RANKS = 40
 # « Les plus courts » avec un niveau ou un score minimum : noms notés au plus, pour une page.
@@ -674,14 +680,27 @@ class Explorer:
             self.touch(name)
 
     def _swap_to(self, version: int) -> None:
-        """Sous _swap_lock : l'univers des listes actuelles, et l'oubli de ce qui tenait aux positions de l'ancien."""
+        """Sous _swap_lock : l'univers des listes actuelles, et l'oubli de ce qui tenait aux positions de l'ancien.
+        Les scores par nom (_values) restent bons pour les noms que le changement de liste ne touche pas : après chaque
+        passage du radar des nouveautés, les refaire tous pour la Veille coûtait 34 s au NAS (08/11/2026)."""
         universe = shared_universe()
         universe.buckets()  # construit aussi universe.good
         if universe is not self._universe:
+            old = self._universe
+            changed: set[str] = set()
+            if old is not None:
+                for before, after in ((old.mine, universe.mine), (old.sold, universe.sold), (old.news, universe.news)):
+                    changed |= set(before) ^ set(after)
             with self._memo_lock:
                 self.generation += 1
                 self._memos.clear()
-                self._values.clear()
+                if old is None or len(changed) > KEEP_VALUES_MAX:
+                    self._values.clear()
+                else:
+                    # Gardés avec la nouvelle génération dans leur version (value_of) : les autres éléments de la
+                    # version (jour, extensions, ventes) n'ont pas bougé.
+                    self._values = {key: ((self.generation, *stamp[1:]), item) for key, (stamp, item) in self._values.items()
+                                    if key.partition(".")[0] not in changed}
                 self._scores.clear()
                 self._map_cache = None
                 self._cache.clear()
@@ -1966,10 +1985,18 @@ class Explorer:
                 self._values.pop(key, None)
             for _, known in self._scores.values():
                 known[i] = -1
-        base, new = self._code_for(tld, i, label)
         cached = self._cache.get(tld)
-        if cached:
-            cached[2][i] = base
+        if cached is None or cached[1] != self._version(tld) or time.monotonic() - cached[0] >= CACHE_SECONDS:
+            # Octets de base absents ou périmés : rien à corriger en place, et les refaire ici bloquerait la boucle
+            # (2 à 4 s au NAS pour le .fr). Les états préparés de l'extension sont oubliés : le prochain écran les
+            # refait hors de la boucle, en lisant la base à jour.
+            with self._memo_lock:
+                for key in [k for k in self._memos if k[0][0] in ("status", "facets") and k[0][1] == tld]:
+                    self._memos.pop(key, None)
+                self._map_dirty = True
+            return
+        base, new = self._code_for(tld, i, label)
+        cached[2][i] = base
         with self._memo_lock:
             changed = False
             for key, (generation, at, value) in list(self._memos.items()):

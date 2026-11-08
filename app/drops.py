@@ -336,18 +336,30 @@ class Czds:
         return value
 
     async def _get(self, url: str, stream: bool = False) -> httpx.Response:
-        for attempt in range(2):
-            headers = {"Authorization": f"Bearer {await self.token(force=attempt > 0)}"}
-            request = self.http.build_request("GET", url, headers=headers)
+        """GET avec le jeton. Un jeton refusé (401) est redemandé une fois. Une connexion coupée par CZDS est reprise
+        une fois, après une courte pause, sur une connexion neuve : la connexion gardée depuis le début de la passe
+        était fermée côté CZDS quand le .org commençait, dix minutes après le .com (RemoteProtocolError, 7 et
+        8/11/2026), et la zone était perdue pour la journée."""
+        token = await self.token()
+        retried = refreshed = False
+        while True:
+            request = self.http.build_request("GET", url, headers={"Authorization": f"Bearer {token}"})
             try:
                 response = await self.http.send(request, stream=stream)
+            except httpx.TransportError as exc:
+                if not retried:
+                    retried = True
+                    await asyncio.sleep(RETRY_PAUSE)
+                    continue
+                raise CzdsError(f"CZDS injoignable ({exc.__class__.__name__})") from None
             except httpx.HTTPError as exc:
                 raise CzdsError(f"CZDS injoignable ({exc.__class__.__name__})") from None
-            if response.status_code == 401 and attempt == 0:
+            if response.status_code == 401 and not refreshed:
+                refreshed = True
                 await response.aclose()
+                token = await self.token(force=True)
                 continue
             return response
-        return response
 
     async def links(self) -> dict[str, str]:
         """Zones autorisées pour ce compte : extension vers URL de téléchargement."""
@@ -396,6 +408,14 @@ class ScanResult:
 
 
 KEEP_SCANS = 14
+RETRY_PAUSE = 3             # secondes avant de reprendre un téléchargement coupé, sur une connexion neuve
+RETRY_ZONE_AFTER = timedelta(hours=1)  # zone toujours en échec réseau : relue une heure plus tard
+RETRY_UNTIL_HOUR = 23       # heure locale : au-delà, la zone attend la lecture du lendemain
+
+
+def transient(error: str | None) -> bool:
+    """Erreur de lecture due au réseau (connexion coupée, fichier incomplet) : une nouvelle lecture peut réussir."""
+    return bool(error) and error.startswith(("CZDS injoignable", "Téléchargement interrompu", "Fichier de zone corrompu"))
 
 
 async def _prefetch(chunks: AsyncIterator[bytes], queue: asyncio.Queue) -> None:
@@ -685,10 +705,15 @@ class DropWatcher:
             raise
 
     async def run(self) -> list[ScanResult]:
+        """Lecture du jour des zones activées ; une zone coupée par le réseau est relue tout de suite sur une session
+        HTTP neuve, puis, si elle échoue encore, une heure plus tard jusqu'au soir (retry_zones, due). La journée
+        déjà faite, seules ces zones sont relues."""
         if self.running or not self.configured:
             return []
         self.running = True
-        results = []
+        today = datetime.now(digest.local_zone()).date().isoformat()
+        only = tuple(self.retry_zones()) if self.last_run() == today else ()
+        results: list[ScanResult] = []
         try:
             async with self._http_factory() as http:
                 czds = self._client(http)
@@ -703,26 +728,48 @@ class DropWatcher:
                     return []
                 self.store.set("czds_error", "")
                 self.store.set("czds_approved", json.dumps(list(links)))
-                for tld in self.enabled():
+                for tld in (only or self.enabled()):
                     if tld in links:
-                        result = await self.scan_zone(czds, tld, links[tld])
-                        log.info(
-                            "Zone .%s : %s noms de 4 caractères, %s sortis, %s entrés%s",
-                            tld, result.names, result.removed, result.added,
-                            f", erreur : {result.error}" if result.error else "",
-                        )
-                        results.append(result)
-            self.store.set("czds_last_run", datetime.now(digest.local_zone()).date().isoformat())
+                        results.append(await self.scan_zone(czds, tld, links[tld]))
+            failed = [r.tld for r in results if transient(r.error)]
+            if failed:
+                # Session HTTP neuve : la précédente a servi des minutes, CZDS a pu la fermer.
+                async with self._http_factory() as http:
+                    czds = self._client(http)
+                    for tld in failed:
+                        results = [r for r in results if r.tld != tld]
+                        results.append(await self.scan_zone(czds, tld, links[tld]))
+            for result in results:
+                (log.warning if result.error else log.info)(
+                    "Zone .%s : %s noms de 4 caractères, %s sortis, %s entrés%s",
+                    result.tld, result.names, result.removed, result.added,
+                    f", erreur : {result.error}" if result.error else "",
+                )
+            still = [r.tld for r in results if transient(r.error)]
+            self.store.set("czds_retry_zones", json.dumps(still))
+            self.store.set("czds_zone_retry_at", iso(utcnow() + RETRY_ZONE_AFTER) if still else "")
+            if not only:
+                self.store.set("czds_last_run", today)
         finally:
             self.running = False
         return results
+
+    def retry_zones(self) -> list[str]:
+        """Zones de la journée coupées par le réseau, à relire ; vide sinon."""
+        return [t for t in json.loads(self.store.get("czds_retry_zones") or "[]") if t in self.enabled()]
 
     def due(self, now_local: datetime) -> bool:
         hour = int(self.store.get("czds_hour", "6"))
         retry_at = parse_iso(self.store.get("czds_retry_at"))
         if retry_at and retry_at > utcnow():
             return False
-        return self.configured and now_local.hour >= hour and self.last_run() != now_local.date().isoformat()
+        if not self.configured or now_local.hour < hour:
+            return False
+        if self.last_run() != now_local.date().isoformat():
+            return True
+        # Journée faite, mais une zone coupée par le réseau attend : relue une heure plus tard, jusqu'au soir.
+        zone_retry_at = parse_iso(self.store.get("czds_zone_retry_at"))
+        return bool(self.retry_zones()) and now_local.hour < RETRY_UNTIL_HOUR and (zone_retry_at is None or zone_retry_at <= utcnow())
 
     # Vérification RDAP des noms sortis
 

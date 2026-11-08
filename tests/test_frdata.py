@@ -433,3 +433,27 @@ def test_yesterdays_anniversary_is_read_today(fr):
     fr._apply({"velo": (date(2025, 10, 16), None), "auto": (date(2025, 10, 17), None)}, now)
     rows = dict(fr.conn.execute("SELECT label, next_check_at FROM fr_names").fetchall())
     assert rows == {"velo": "2026-10-17T12:00:00+00:00", "auto": "2026-10-18T12:00:00+00:00"}
+
+
+def test_same_file_is_read_again_when_the_lists_changed_or_on_demand(fr, monkeypatch):
+    """Le fichier n'a pas changé : pas de nouveau téléchargement, sauf si les listes (vendus, nouveautés, Mes ajouts
+    compris) ont changé depuis, ou sur le bouton de Paramètres (force). Avant le 08/11/2026, le bouton ne faisait
+    rien et les noms des listes dynamiques attendaient le fichier mensuel suivant."""
+    archive = make_zip(csv_text(["navarro.fr;FR;;;;;PP;FR;;01-02-2010;"]))
+    calls = serve(fr, archive)
+    assert asyncio.run(fr.import_file())["error"] is None
+    assert "opendata.afnic.fr" in calls
+    calls.clear()
+    asyncio.run(fr.import_file())
+    assert "opendata.afnic.fr" not in calls  # inchangé : rien
+    monkeypatch.setattr(frdata, "all_lists_version", lambda: "listes changées")
+    calls.clear()
+    asyncio.run(fr.import_file())
+    assert "opendata.afnic.fr" in calls  # listes dynamiques changées : relu
+    assert json.loads(fr.store.get("fr_status"))["lists_all"] == "listes changées"
+    calls.clear()
+    asyncio.run(fr.import_file())
+    assert "opendata.afnic.fr" not in calls
+    calls.clear()
+    asyncio.run(fr.import_file(force=True))
+    assert "opendata.afnic.fr" in calls  # bouton : relu

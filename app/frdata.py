@@ -60,12 +60,20 @@ AUTORENEW_RECHECK_DAYS = 45
 
 
 def lists_version() -> str:
-    """Empreinte des listes de noms suivis de l'image : si elles changent, le fichier est relu. Mes ajouts n'y
-    entrent pas : chaque ajout ferait retélécharger le fichier (120 Mo) ; ils sont cherchés à l'import suivant."""
+    """Empreinte des listes de noms suivis de l'image : si elles changent, le fichier est relu tout de suite."""
     import hashlib
 
     names = sorted(set().union(*wordlists.static_lists().values()))
     return hashlib.sha256("\n".join(names).encode()).hexdigest()[:16]
+
+
+def all_lists_version() -> str:
+    """Empreinte de toutes les listes, dynamiques comprises (Mes ajouts, vendus, nouveautés). Elles changent souvent
+    (le radar deux fois par jour) : le fichier n'est pas relu à chaque fois, mais à la relecture hebdomadaire (due)
+    s'il a changé depuis. Avant le 08/11/2026, les noms de ces listes attendaient un nouveau fichier mensuel."""
+    import hashlib
+
+    return hashlib.sha256("\n".join(f"{k} {v}" for k, v in sorted(wordlists.fingerprints().items())).encode()).hexdigest()[:16]
 
 
 class FrDataError(Exception):
@@ -366,8 +374,9 @@ class FrWatcher:
         raise FrDataError("Fichier des noms de domaine introuvable dans le jeu de données Afnic." + detail
                           + " Colle son adresse dans Paramètres, Extension .fr, Adresse du fichier.")
 
-    async def import_file(self) -> dict:
-        """Télécharge le fichier s'il a changé, l'importe, et met à jour fr_names."""
+    async def import_file(self, force: bool = False) -> dict:
+        """Télécharge le fichier s'il a changé (ou si les listes ont changé, ou `force` : bouton de Paramètres),
+        l'importe, et met à jour fr_names."""
         if self.running:
             return {}
         self.running = True
@@ -378,8 +387,8 @@ class FrWatcher:
             async with self._http_factory() as http:
                 url, modified = await self.resource_url(http)
                 previous = json.loads(self.store.get("fr_status") or "{}")
-                if (modified and modified == previous.get("file_date") and previous.get("reader") == READER_VERSION
-                        and previous.get("lists") == lists_version()):
+                if (not force and modified and modified == previous.get("file_date") and previous.get("reader") == READER_VERSION
+                        and previous.get("lists") == lists_version() and previous.get("lists_all") == all_lists_version()):
                     return self.status()
                 self.dir.mkdir(parents=True, exist_ok=True)
                 try:
@@ -399,7 +408,8 @@ class FrWatcher:
             self._save_searched(searched)
             self.store.set("fr_status", json.dumps({
                 "at": iso(utcnow()), "file_date": modified, "rows": stats["rows"], "kept": stats["kept"],
-                "columns": stats["columns"], "dated": stats["dated"], "reader": READER_VERSION, "lists": lists_version(), "error": None,
+                "columns": stats["columns"], "dated": stats["dated"], "reader": READER_VERSION, "lists": lists_version(),
+                "lists_all": all_lists_version(), "error": None,
                 "seconds": round((utcnow() - started).total_seconds()),
             }))
         except (FrDataError, zipfile.BadZipFile, OSError) as exc:
