@@ -1764,8 +1764,12 @@
             <td class="num col-days" data-label="Jours restants" :class="{ blank: daysLeft(d) === null }">
               <span x-show="daysLeft(d) !== null" :title="d.effective_expires_at ? 'Expiration le ' + exact(d.effective_expires_at) : ''" x-text="daysCell(d)"></span>
             </td>
-            <td data-label="Libération estimée" :class="{ blank: !d.release_at }">
-              <span class="estimate" x-show="d.release_at" :title="releaseTitle(d)" x-text="releaseShort(d)"></span>
+            <td data-label="Libération estimée" :class="{ blank: !d.release_at }" x-data="{ c: null }" x-effect="c = countdown(d)">
+              <!-- 24 dernières heures avant le lot horaire de l'Afnic : compte à rebours à la seconde. -->
+              <span class="cd-chip" role="timer" x-show="c" :class="c ? c.level : ''" :title="c ? c.text : ''">
+                <svg class="ic" aria-hidden="true"><use href="#i-hourglass"/></svg><b class="mono" :class="{ word: c && c.phase === 'now' }" x-text="c ? c.digits : ''"></b>
+              </span>
+              <span class="estimate" x-show="d.release_at && !c" :title="releaseTitle(d)" x-text="releaseShort(d)"></span>
             </td>
             <td class="col-registrar"><span class="ellipsis" :title="d.registrar || ''" x-text="d.registrar || ''"></span></td>
             <td class="col-check col-last" data-label="Dernier check" :class="{ blank: !d.last_checked_at }">
@@ -1814,6 +1818,17 @@
           <svg class="ic" aria-hidden="true"><use href="#i-x"/></svg>
         </button>
       </header>
+      <!-- Compte à rebours des 24 dernières heures avant le lot horaire de l'Afnic (.fr en rédemption, heure connue). -->
+      <section class="fiche-countdown" role="timer" aria-label="Compte à rebours de libération"
+               x-data="{ c: null }" x-effect="c = ficheCountdown(fiche)" x-show="c" :class="c ? c.level : ''">
+        <div class="fc-top">
+          <svg class="ic" aria-hidden="true"><use href="#i-hourglass"/></svg>
+          <span x-text="c && c.phase === 'now' ? 'Libération' : 'Libération dans'"></span>
+        </div>
+        <div class="fc-digits mono" :class="{ word: c && c.phase === 'now' }" x-text="c ? c.digits : ''"></div>
+        <div class="fc-bar" aria-hidden="true"><i :style="'width:' + (c ? Math.round(c.progress * 1000) / 10 : 0) + '%'"></i></div>
+        <p class="fc-sub" x-text="c ? c.text : ''"></p>
+      </section>
       <!-- Carte décision : le verdict et la note qui trie, les prix, la raison de l'IA, puis UNE action, celle que
            l'état du nom appelle (réserver un nom libre, suivre un nom qui va se libérer, sinon demander l'avis IA).
            Sans avis : le score seul et où en est la notation ; ses raisons sont dans l'onglet Valeur, pas ici. -->

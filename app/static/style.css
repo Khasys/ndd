@@ -1379,6 +1379,45 @@ a.btn-ghost, a.btn { text-decoration: none; }
 .fiche-close svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 .fiche-close { border: 1px solid var(--line); background: var(--surface); }
 
+/* Compte à rebours des 24 dernières heures avant le lot horaire de l'Afnic (.fr) : bloc de la fiche, puce de la liste
+   Domaines. Couleur par palier : 24 h, 3 h, 30 min, puis 5 min et le lot lui-même, qui pulse doucement. */
+.cd-24 { --cd: var(--accent); }
+.cd-3h { --cd: var(--s-expiring-dot); }
+.cd-30 { --cd: var(--s-expired-dot); }
+.cd-5, .cd-now { --cd: var(--s-redemption-dot); }
+.fiche-countdown {
+  margin: 0 0 14px; padding: 14px 18px 12px;
+  border: 1px solid color-mix(in srgb, var(--cd, var(--accent)) 35%, var(--line)); border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--cd, var(--accent)) 14%, transparent),
+              color-mix(in srgb, var(--cd, var(--accent)) 3%, transparent)), var(--surface-2);
+}
+.fc-top { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 600;
+          text-transform: uppercase; letter-spacing: .05em; }
+.fc-top .ic { width: 16px; height: 16px; color: var(--cd, var(--accent)); }
+.fc-digits { margin-top: 4px; font-size: 40px; font-weight: 800; line-height: 1.05; letter-spacing: -0.02em;
+             font-variant-numeric: tabular-nums; color: var(--text); }
+.fiche-countdown.cd-5 .fc-digits, .fiche-countdown.cd-now .fc-digits { color: var(--s-redemption-fg); }
+/* Après le lot, des mots (« Lot en cours », « Vérification ») : la police du texte, plus petite. */
+.fc-digits.word { font-family: inherit; font-size: 30px; font-weight: 750; letter-spacing: -0.02em; }
+.cd-chip b.word { font-family: inherit; font-weight: 650; }
+.fc-bar { height: 6px; margin: 10px 0 8px; overflow: hidden; border-radius: 999px;
+          background: color-mix(in srgb, var(--cd, var(--accent)) 15%, var(--line)); }
+.fc-bar i { display: block; height: 100%; border-radius: inherit; background: var(--cd, var(--accent)); transition: width 1s linear; }
+.fc-sub { margin: 0; color: var(--muted); font-size: 13px; }
+.cd-chip {
+  display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; white-space: nowrap;
+  border: 1px solid color-mix(in srgb, var(--cd, var(--accent)) 40%, transparent); border-radius: 999px;
+  background: color-mix(in srgb, var(--cd, var(--accent)) 12%, transparent); color: var(--text); font-size: 13px;
+}
+.cd-chip .ic { width: 14px; height: 14px; color: var(--cd, var(--accent)); }
+.cd-chip b { font-weight: 700; font-variant-numeric: tabular-nums; }
+.fiche-countdown.cd-5, .fiche-countdown.cd-now, .cd-chip.cd-5, .cd-chip.cd-now { animation: cd-pulse 1.6s ease-in-out infinite; }
+@keyframes cd-pulse { 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--cd) 22%, transparent); } }
+@media (prefers-reduced-motion: reduce) {
+  .fiche-countdown.cd-5, .fiche-countdown.cd-now, .cd-chip.cd-5, .cd-chip.cd-now { animation: none; }
+  .fc-bar i { transition: none; }
+}
+
 /* Carte décision : le gros chiffre à gauche, verdict, prix et raison à droite. */
 .fiche-deal {
   display: grid; gap: 10px; margin: 0 0 14px; padding: 18px;

@@ -364,6 +364,8 @@ document.addEventListener("alpine:init", () => {
     savingCzds: false,
     checkingVersion: false,
     now: Date.now(),
+    // Horloge à la seconde du compte à rebours de libération (countdown) ; seuls ses chiffres en dépendent.
+    clock: Date.now(),
     labels: LABELS,
     query: "",
     tagFilter: null,
@@ -413,6 +415,7 @@ document.addEventListener("alpine:init", () => {
       // Sur téléphone, le focus automatique ouvrirait le clavier à chaque lancement.
       if (!this.mobile && !this.paged) this.$nextTick(() => this.$refs.input.focus());
       setInterval(() => (this.now = Date.now()), 30000);
+      setInterval(() => { if (document.visibilityState === "visible") this.clock = Date.now(); }, 1000);
       setInterval(() => { this.load(true); this.loadAiRequests(); }, 60000);
       // Appli installée : retour au premier plan après une pause, données à rafraîchir.
       document.addEventListener("visibilitychange", () => {
@@ -3768,6 +3771,40 @@ document.addEventListener("alpine:init", () => {
 
     arrow(key) {
       return this.sortKey === key ? (this.sortDir === 1 ? " ↑" : " ↓") : "";
+    },
+
+    // Compte à rebours des 24 dernières heures avant le lot horaire de l'Afnic : .fr en rédemption dont l'heure de
+    // libération est connue (domaine suivi, élément de l'Explorer ou de la Veille). Chiffres à la seconde, palier de
+    // couleur (24 h, 3 h, 30 min, 5 min), avancée sur les 24 h. Après le lot, « lot en cours » pendant les deux
+    // minutes où le registre le libère, puis « vérification » jusqu'à ce que l'appli le voie libre (30 min au plus).
+    countdown(x) {
+      if (!x || !x.release_at || !x.release_has_time) return null;
+      const tld = x.tld || String(x.name || "").split(".").pop();
+      const state = x.state || x.drop_state;
+      if (tld !== "fr" || !(["redemption", "pending_delete"].includes(state) || x.status === 4)) return null;
+      const at = Date.parse(x.release_at);
+      const left = at - this.clock;
+      if (!(left <= 864e5) || left <= -18e5) return null;
+      const lot = timeFmt.format(new Date(at));
+      const free = timeFmt.format(new Date(at + 12e4));
+      if (left <= 0) {
+        const batch = left > -12e4;
+        return { phase: "now", level: "cd-now", progress: 1, lot, free, digits: batch ? "Lot en cours" : "Vérification",
+                 text: batch ? `Lot de l'Afnic de ${lot} : libre au registre vers ${free}, au premier qui l'enregistre.`
+                   : `Lot de ${lot} passé : l'appli vérifie le registre (titulaire qui l'aurait récupéré, lot en retard).` };
+      }
+      const total = Math.ceil(left / 1000);
+      const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), sec = total % 60;
+      const two = (n) => String(n).padStart(2, "0");
+      return { phase: "before", lot, free, progress: 1 - left / 864e5,
+               level: left <= 3e5 ? "cd-5" : left <= 18e5 ? "cd-30" : left <= 108e5 ? "cd-3h" : "cd-24",
+               digits: `${two(h)}:${two(m)}:${two(sec)}`,
+               text: `Lot de l'Afnic à ${lot}, libre au registre vers ${free}, sauf si le titulaire le récupère.` };
+    },
+
+    // Fiche : le domaine suivi s'il l'est (vérifié plus souvent), sinon l'élément de l'Explorer.
+    ficheCountdown(f) {
+      return this.countdown(this.ficheDomain) || this.countdown(f && f.item);
     },
 
     // Jour de libération estimé, avec l'heure quand le registre en a une (lots horaires du .fr, fenêtre du .com).
