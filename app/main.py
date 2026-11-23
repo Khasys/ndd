@@ -1064,7 +1064,7 @@ def _serialize(row: sqlite3.Row, checker: Checker) -> dict:
         "source": row["source"],
         "release_at": iso(release),
         "release_is_upper_bound": row["state"] in (states.EXPIRING, states.EXPIRED) and release is not None,
-        "release_has_time": bool(release and states.drop_time(tld_of(row["name"]), checker.delays)),
+        "release_has_time": bool(release and states.has_drop_time(tld_of(row["name"]), checker.delays)),
         "tags": json.loads(row["tags"]),
         "signals": [{"key": k, "label": signals.LABELS.get(k, k)} for k in found_signals.get("signals", [])],
         "signals_web": found_signals.get("web"),
@@ -1581,6 +1581,8 @@ def _drop_items(state, rows, values: dict) -> list[dict]:
             "state": r["state"],
             "removed_on": r["removed_on"],
             "release_at": r["release_at"],
+            # Heure de libération connue (lots horaires du .fr, fenêtre du .com) : l'écran l'affiche avec le jour.
+            "release_has_time": bool(r["release_at"]) and states.has_drop_time(r["tld"], state.drops.delays),
             "available_since": r["available_since"],
             "checked_at": r["checked_at"],
             "next_check_at": r["next_check_at"],

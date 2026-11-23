@@ -159,12 +159,53 @@ def test_check_follows_the_real_expiry_and_hands_drops_over(fr):
     # Passés à l'écran Suppressions avec le résultat déjà lu : pas de seconde requête.
     found = {r["name"]: r for r in fr.conn.execute("SELECT * FROM drops")}
     assert found["soleil.fr"]["state"] == states.REDEMPTION and found["velo.fr"]["state"] == states.AVAILABLE
-    # .fr : rédemption de 30 jours, libre juste après. Vérifié une fois, à cette date.
+    # .fr : rédemption de 30 jours, libre au lot horaire de la demie qui suit. Vérifié une fois, cinq minutes après.
     release = datetime.fromisoformat(found["soleil.fr"]["release_at"])
-    assert release.date() == (now + timedelta(days=30)).date()
+    assert release == states.at_drop_time("fr", now + timedelta(days=30), states.load_delays())
+    assert release.minute == 30 and timedelta(0) <= release - (now + timedelta(days=30)) < timedelta(hours=1)
+    assert datetime.fromisoformat(found["soleil.fr"]["next_check_at"]) == release + timedelta(minutes=5)
     assert found["velo.fr"]["next_check_at"] is None
     assert asyncio.run(fr.tick()) == 0
     assert fr.conn.execute("SELECT COUNT(*) FROM fr_requests").fetchone()[0] == 3
+
+
+def test_fr_release_counts_from_the_deletion_order_sent_before_expiry(fr):
+    """Cas réel (22/11/2026) : ordre de suppression la veille de l'échéance, vu en rédemption deux jours plus tard.
+    Les 30 jours partent de l'ordre, pas du moment où l'appli voit l'état : libération deux jours plus tôt."""
+    fr.store.set("fr_rate", "10")
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    order = now - timedelta(days=2)
+    add_due(fr, "bavard")
+    fr.rdap = FakeRdap({"bavard.fr": LookupResult(found=True, info=DomainInfo(
+        statuses=["redemption period"], expires_at=order + timedelta(days=1), last_changed_at=order))})
+    asyncio.run(fr.tick())
+    row = fr.drops.row("bavard.fr")
+    assert datetime.fromisoformat(row["state_since"]) == order
+    release = datetime.fromisoformat(row["release_at"])
+    assert release == states.at_drop_time("fr", order + timedelta(days=30), states.load_delays())
+
+
+def test_fr_redemptions_dated_by_an_older_version_are_redated_at_startup(fr):
+    """Rédemption datée du jour où l'appli l'a vue (ancienne règle) ; la réponse RDAP gardée donne l'ordre de
+    suppression, deux jours plus tôt : redatée au démarrage, sans requête. Une seconde passe ne change plus rien."""
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    order, seen = now - timedelta(days=10), now - timedelta(days=8)
+    fr.drops.record("fr", ["lentille"], [], now)
+    old_release = seen + timedelta(days=30)
+    fr.conn.execute("UPDATE drops SET state = ?, state_since = ?, release_at = ?, next_check_at = ? WHERE name = ?",
+                    (states.REDEMPTION, seen.isoformat(), old_release.isoformat(),
+                     (old_release + timedelta(minutes=30)).isoformat(), "lentille.fr"))
+    fr.conn.execute("""INSERT INTO name_rdap (name, at, source, available, statuses, updated_at, expires_at)
+                       VALUES (?, ?, 'rdap', 0, ?, ?, ?)""",
+                    ("lentille.fr", seen.isoformat(), json.dumps(["redemption period"]), order.isoformat(),
+                     (order + timedelta(days=1)).isoformat()))
+    assert fr.drops.repair()["fr_redemption"] == 1
+    row = fr.drops.row("lentille.fr")
+    assert datetime.fromisoformat(row["state_since"]) == order
+    release = datetime.fromisoformat(row["release_at"])
+    assert release == states.at_drop_time("fr", order + timedelta(days=30), states.load_delays())
+    assert datetime.fromisoformat(row["next_check_at"]) == release + timedelta(minutes=5)
+    assert fr.drops.repair()["fr_redemption"] == 0
 
 
 def test_a_passed_fr_expiry_without_redemption_is_a_late_renewal(fr):

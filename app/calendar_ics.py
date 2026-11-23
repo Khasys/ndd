@@ -68,7 +68,7 @@ def build(checker: Checker, now: datetime, app_url: str = "") -> str:
             )
         release = checker.release_estimate(row, now)
         if release:
-            if states.drop_time(tld_of(name), checker.delays):
+            if states.has_drop_time(tld_of(name), checker.delays):
                 start = f"DTSTART:{release.strftime('%Y%m%dT%H%M%SZ')}"
                 end = f"DTEND:{(release + timedelta(hours=1)).strftime('%Y%m%dT%H%M%SZ')}"
             else:

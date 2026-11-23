@@ -307,6 +307,32 @@ def test_stale_change_date_does_not_put_release_in_the_past(env):
     assert checker.release_estimate(r) > datetime.now(timezone.utc)
 
 
+def test_watched_fr_redemption_counts_from_the_deletion_order(env):
+    """.fr surveillé : l'ordre de suppression précède l'échéance d'un jour ; les 30 jours de l'Afnic partent de lui,
+    au lot horaire de la demie qui suit."""
+    registry, conn, checker, _ = env
+    order = (datetime.now(timezone.utc) - timedelta(days=3)).replace(microsecond=0)
+    data = json.loads((FIXTURES / "fr_active.json").read_text())
+    data["status"] = ["redemption period"]
+    for event in data["events"]:
+        if event["eventAction"] == "last changed":
+            event["eventDate"] = order.strftime("%Y-%m-%dT%H:%M:%SZ")
+        if event["eventAction"] == "expiration":
+            event["eventDate"] = (order + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    registry.responses["exemple-test.fr"] = [httpx.Response(200, json=data)]
+    domain_id = add(conn, "exemple-test.fr")
+    run(checker.check(domain_id))
+    r = row(conn, domain_id)
+    assert r["state"] == states.REDEMPTION and parse_iso(r["state_since"]) == order
+    release = checker.release_estimate(r)
+    assert release == states.at_drop_time("fr", order + timedelta(days=30), checker.delays) and release.minute == 30
+    # Déjà en rédemption, daté plus tard par une ancienne version : la vérification suivante le redate.
+    later = (order + timedelta(days=2)).isoformat()
+    conn.execute("UPDATE domains SET state_since = ?, next_check_at = NULL WHERE id = ?", (later, domain_id))
+    run(checker.check(domain_id))
+    assert parse_iso(row(conn, domain_id)["state_since"]) == order
+
+
 def test_iana_rate_limit_is_not_remembered_as_no_whois(tmp_path):
     answers = iter([
         "% Too many queries, try again later\n",  # l'IANA limite une fois

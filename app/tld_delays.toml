@@ -7,6 +7,8 @@
 #   redemption       : période de restauration payante après suppression.
 #   pending_delete   : délai entre la fin de la rédemption et la libération.
 #   drop_time_utc    : heure UTC à laquelle le registre commence à supprimer les noms du jour.
+#   drop_minute_utc  : minute de chaque heure à laquelle le registre libère, par lots horaires, les noms
+#                      dont le délai est écoulé (le .fr). Exclusif de drop_time_utc.
 #
 # Une clé absente signifie « valeur introuvable ou ambiguë ». Dans ce cas l'appli
 # n'affiche aucune estimation de libération pour ce TLD.
@@ -112,13 +114,24 @@ pending_delete = 5
 # https://www.afnic.fr/wp-media/uploads/2022/10/Guide-des-procedures-Afnic-VF.pdf (consulté le 2026-10-12)
 
 # https://www.afnic.fr/wp-media/uploads/2024/07/Afnic-Guide-pratique-du-Titulaire.pdf
-# (consulté le 2026-10-12) : délai de 30 jours pendant lequel la suppression reste réversible
+# (consulté le 2026-10-12, relu sur le document le 2026-11-22, page 13) : « une période additionnelle de sécurité
+# de 30 jours, dite « période de rédemption » est instaurée durant laquelle la demande de suppression de votre
+# bureau d'enregistrement auprès de l'Afnic est encore réversible ». Les 30 jours partent de l'ordre de suppression
+# du registrar (dernière modification RDAP), qui précède le plus souvent l'échéance d'un ou deux jours ; la charte
+# de nommage du 5 mai 2025 (article 6.8, points 132 à 134) le confirme sans donner de durée.
 redemption = 30
 
 # https://www.afnic.fr/wp-media/uploads/2021/03/Afnic-_Guide_Des_procedures.pdf
 # (consulté le 2026-10-13, au travers des extraits d'un moteur de recherche) : à la fin des
 # 30 jours, « la demande de suppression est irréversible. Le domaine est définitivement
 # supprimé et redevient disponible et enregistrable par un autre titulaire ».
-# Pas de période de suppression distincte : 0. L'heure n'est pas donnée ; le nom est
-# revérifié toutes les 6 h après l'estimation tant qu'il n'est pas libre.
+# Pas de période de suppression distincte : 0.
 pending_delete = 0
+
+# drop_minute_utc : l'Afnic ne publie pas d'heure. Relevé par l'appli, pas annoncé par le registre : les noms
+# sont libérés par lots horaires, au premier HH:30 UTC qui suit la fin des 30 jours, et lisibles libres au RDAP
+# vers HH:32. Le 23/11/2026, quatre noms arrivés au bout de leurs 30 jours à 00:00 UTC sont restés en rédemption
+# jusqu'à 00:31 puis sont devenus libres ensemble entre 00:31:35 et 00:32:37 ; les quatre reprises par des robots
+# de capture relevées du 7 au 21/11/2026 tombent à HH:32 (21:32 deux fois, 13:32, 08:32), dans l'heure qui suit
+# la fin des 30 jours.
+drop_minute_utc = 30

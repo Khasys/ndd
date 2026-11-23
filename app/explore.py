@@ -2182,6 +2182,7 @@ class Explorer:
                 "next_check_at": (drop["next_check_at"] if drop and drop["next_check_at"] else fr["next_check_at"] if fr else None),
                 "drop_state": drop["state"] if drop else None,
                 "release_at": drop["release_at"] if drop else None,
+                "release_has_time": bool(drop and drop["release_at"]) and states.has_drop_time(tld, self.drops.delays),
                 "available_since": drop["available_since"] if drop else None,
                 "watched": name in watched,
                 "in_portfolio": name in owned,
@@ -2585,6 +2586,7 @@ class Explorer:
                                              else gandi.KIND_LABELS["premium"] if seen and code == PREMIUM
                                              else gandi.KIND_LABELS[check["kind"]] if seen and code == RESERVED else LABELS[code]),
             "drop_state": state, "release_at": drop["release_at"] if drop else None,
+            "release_has_time": bool(drop and drop["release_at"]) and states.has_drop_time(tld, self.drops.delays),
             "available_since": drop["available_since"] if drop else None,
             "checked_at": iso(now), "watched": watched, "in_portfolio": owned, "rdap": rdap,
             "reserved": self._reserved_why(name, code, check if seen else None),

@@ -78,10 +78,7 @@ class Checker:
             now or utcnow(),
             self.delays,
         )
-        drop = states.drop_time(tld_of(row["name"]), self.delays)
-        if release and drop:
-            release = release.replace(hour=drop[0], minute=drop[1], second=0, microsecond=0)
-        return release
+        return states.at_drop_time(tld_of(row["name"]), release, self.delays)
 
     link_base = None  # adresse publique de l'appli (fonction), pour le lien vers la fiche
 
@@ -162,16 +159,21 @@ class Checker:
         first_check = row["state"] is None
         state_changed = row["state"] != new_state
         state_since = row["state_since"]
+        tld = tld_of(row["name"])
+        ending = info and new_state in (states.REDEMPTION, states.PENDING_DELETE)
         if state_changed:
             since = now
-            # Au premier check d'un domaine déjà en fin de vie, le dernier changement
-            # côté registre date au mieux l'entrée dans cette phase. Sauf s'il précède l'échéance
-            # (modification ancienne, sans rapport) : on garde le moment où on voit l'état, comme
-            # drops.apply, sinon la libération estimée serait déjà passée.
-            if first_check and info and info.last_changed_at and new_state in (states.REDEMPTION, states.PENDING_DELETE) and (
-                    info.expires_at is None or info.last_changed_at >= info.expires_at):
-                since = min(info.last_changed_at, now)
+            # Au premier check d'un domaine déjà en fin de vie, le dernier changement côté registre date au mieux
+            # l'entrée dans cette phase (règle de states.redemption_since, comme drops.apply). Au .fr, c'est l'ordre
+            # de suppression du registrar, d'où partent les 30 jours de l'Afnic : à chaque entrée en rédemption.
+            if ending and (first_check or tld == "fr"):
+                since = states.redemption_since(tld, info.last_changed_at, info.expires_at, now) or since
             state_since = iso(since)
+        elif ending and tld == "fr" and state_since:
+            # Daté par une version qui ignorait l'ordre de suppression d'avant l'échéance : redaté.
+            start = states.redemption_since(tld, info.last_changed_at, info.expires_at, now)
+            if start and start < parse_iso(state_since):
+                state_since = iso(start)
 
         self.conn.execute("BEGIN")
         try:

@@ -104,11 +104,45 @@ def test_no_release_when_tld_delays_incomplete_or_missing():
 def test_shipped_delays_file_is_consistent():
     delays = states.load_delays()
     for tld, values in delays.items():
-        days = {k: v for k, v in values.items() if k != "drop_time_utc"}
+        days = {k: v for k, v in values.items() if k not in ("drop_time_utc", "drop_minute_utc")}
         assert set(days) <= set(states.DELAY_KEYS), tld
         assert all(isinstance(v, int) and v >= 0 for v in days.values()), tld
         if "drop_time_utc" in values:
             assert states.drop_time(tld, delays) is not None
+        if "drop_minute_utc" in values:
+            assert "drop_time_utc" not in values, tld  # l'un ou l'autre
+            assert 0 <= states.drop_minute(tld, delays) < 60, tld
+
+
+def test_fr_redemption_starts_at_the_deletion_order_even_before_expiry():
+    # Cas réel : ordre de suppression la veille de l'échéance (438 noms sur 691 le 22/11/2026).
+    order = NOW - timedelta(days=3)
+    expires = order + timedelta(days=1)
+    assert states.redemption_since("fr", order, expires, NOW) == order
+    # Extension générique : une modification avant l'échéance est sans rapport.
+    assert states.redemption_since("com", order, expires, NOW) is None
+    assert states.redemption_since("com", expires + timedelta(hours=1), expires, NOW) == expires + timedelta(hours=1)
+    # .fr : plus de 31 jours, ce n'est pas l'ordre de suppression (le nom serait libre).
+    assert states.redemption_since("fr", NOW - timedelta(days=40), None, NOW) is None
+    # Horloge du registre en avance : jamais dans le futur.
+    assert states.redemption_since("fr", NOW + timedelta(minutes=2), None, NOW) == NOW
+    assert states.redemption_since("fr", None, expires, NOW) is None
+
+
+def test_fr_release_is_the_next_hourly_batch_at_half_past():
+    delays = states.load_delays()
+    at = lambda h, m: datetime(2026, 11, 23, h, m, tzinfo=timezone.utc)
+    # Relevés réels : fin des 30 jours à 00:00, 12:53, 07:33, 20:49 ; libres au lot de la demie qui suit.
+    assert states.at_drop_time("fr", at(0, 0), delays) == at(0, 30)
+    assert states.at_drop_time("fr", at(12, 53), delays) == at(13, 30)
+    assert states.at_drop_time("fr", at(7, 33), delays) == at(8, 30)
+    assert states.at_drop_time("fr", at(20, 49), delays) == at(21, 30)
+    assert states.at_drop_time("fr", at(23, 40), delays) == datetime(2026, 11, 24, 0, 30, tzinfo=timezone.utc)
+    assert states.has_drop_time("fr", delays) and states.has_drop_time("com", delays)
+    # .com : fenêtre quotidienne, inchangée. Sans heure connue : la fin du délai telle quelle.
+    assert states.at_drop_time("com", at(7, 33), delays) == at(12, 0)
+    assert states.at_drop_time("io", at(7, 33), delays) == at(7, 33) and not states.has_drop_time("io", delays)
+    assert states.at_drop_time("fr", None, delays) is None
 
 
 @pytest.mark.parametrize(

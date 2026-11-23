@@ -103,5 +103,51 @@ def drop_time(tld: str, delays: dict[str, dict]) -> tuple[int, int] | None:
     return int(hour), int(minute)
 
 
+def drop_minute(tld: str, delays: dict[str, dict]) -> int | None:
+    """Minute de chaque heure à laquelle le registre libère les noms dont le délai est écoulé (lots horaires)."""
+    value = delays.get(tld, {}).get("drop_minute_utc")
+    return int(value) if value is not None else None
+
+
+def has_drop_time(tld: str, delays: dict[str, dict]) -> bool:
+    """La libération estimée a une heure, pas seulement un jour."""
+    return drop_time(tld, delays) is not None or drop_minute(tld, delays) is not None
+
+
+def at_drop_time(tld: str, value: datetime | None, delays: dict[str, dict]) -> datetime | None:
+    """Fin du délai ramenée à l'heure où le registre libère : fenêtre quotidienne (drop_time_utc), ou premier lot
+    horaire qui suit (drop_minute_utc). Sans l'une ni l'autre, la fin du délai elle-même."""
+    if value is None:
+        return None
+    daily = drop_time(tld, delays)
+    if daily:
+        return value.replace(hour=daily[0], minute=daily[1], second=0, microsecond=0)
+    minute = drop_minute(tld, delays)
+    if minute is None:
+        return value
+    slot = value.replace(minute=minute, second=0, microsecond=0)
+    return slot if slot >= value else slot + timedelta(hours=1)
+
+
+# Au .fr, une rédemption plus ancienne est impossible : le nom serait déjà libre.
+FR_REDEMPTION_WINDOW = timedelta(days=31)
+
+
+def redemption_since(tld: str, last_changed: datetime | None, expires_at: datetime | None,
+                     now: datetime) -> datetime | None:
+    """Début de la rédemption d'après la dernière modification RDAP ; None si elle n'en dit rien.
+    Extensions génériques : seulement si elle suit l'échéance, sinon c'est une modification ancienne, sans rapport.
+    .fr : l'Afnic compte ses 30 jours depuis l'ordre de suppression du registrar, qui précède le plus souvent
+    l'échéance d'un ou deux jours (691 noms relevés le 22/11/2026, aucun encore en rédemption 30 jours après cet
+    ordre). La date vaut donc même avant l'échéance, tant qu'elle a moins de 31 jours."""
+    if last_changed is None:
+        return None
+    if tld == "fr":
+        return min(last_changed, now) if last_changed >= now - FR_REDEMPTION_WINDOW else None
+    if expires_at is None or last_changed >= expires_at:
+        return min(last_changed, now)
+    return None
+
+
 def check_interval(state: str | None, intervals: dict[str, int]) -> int:
     return intervals.get(state or "unknown", intervals["unknown"])

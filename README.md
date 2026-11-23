@@ -252,6 +252,13 @@ zone (ou du DNS) ; c'est alors le jour de sortie qui compte. Au .biz, cette modi
 automatique, 40 jours avant la suppression (45 jours de grâce) : la libération estimée était passée depuis deux
 semaines et 67 noms restaient « libération sous 24 h » (27/10/2026). Les noms déjà en base sont redatés au démarrage.
 
+Au .fr, c'est l'inverse : la dernière modification RDAP est l'ordre de suppression du registrar, d'où l'Afnic compte
+ses 30 jours, et il précède le plus souvent l'échéance d'un ou deux jours. Jusqu'à la v0.17.4, l'appli l'écartait
+parce qu'il précédait l'échéance et comptait depuis le moment où elle voyait la rédemption : libération annoncée
+deux à quatre jours trop tard. Relevé le 22/11/2026 sur les 2 683 .fr de la Veille : aucun nom encore en rédemption
+30 jours après son ordre de suppression. Depuis la v0.17.5, l'ordre de suppression fait foi s'il a moins de 31 jours ;
+les noms déjà en base sont redatés au démarrage depuis la dernière réponse RDAP gardée, sans nouvelle requête.
+
 **Veille** : ce qui tombe et ce qui va tomber. Deux onglets : **Libérés** (réservables maintenant)
 et **Bientôt libres** (en rédemption ou en suppression, avec la date estimée). **Explorer** : tous
 les noms suivis, pour chercher. Grande barre de recherche, puis l'état : **Libres**, **Bientôt
@@ -642,8 +649,12 @@ L'appli fonctionne alors en trois temps :
 Le fichier de l'Afnic ne donne pas de date d'expiration, d'où le calcul par la date de création.
 Un nom sans date de création dans le fichier n'est pas suivi. Ses colonnes
 sont repérées par leur intitulé : si l'Afnic les renomme, l'import s'arrête et affiche les colonnes
-lues. Pour le .fr, la libération est estimée à 30 jours après l'entrée en rédemption, sans période
-de suppression distincte (guide des procédures Afnic, voir `app/tld_delays.toml`).
+lues. Pour le .fr, la libération est estimée à 30 jours après l'ordre de suppression du registrar (dernière
+modification RDAP), sans période de suppression distincte (guide pratique du titulaire Afnic, voir
+`app/tld_delays.toml`), puis ramenée au premier lot horaire qui suit : l'Afnic libère les noms chaque heure à la
+demie, lisibles libres au RDAP vers HH:32. Cette heure est relevée par l'appli (23/11/2026), pas annoncée par
+l'Afnic. Le nom est revérifié cinq minutes après le lot, puis toutes les 6 h s'il n'est pas libre (titulaire qui
+le récupère au dernier moment). La Veille, l'Explorer, Aujourd'hui et les fiches affichent l'heure avec le jour.
 
 #### Revérifications
 
@@ -1258,7 +1269,7 @@ Les durées acceptent `30s`, `5m`, `6h`, `7d`, ou un nombre de secondes.
   chaque TLD les délais publiés par le registre avec leur source. Si un délai manque, aucune
   estimation n'est affichée pour ce TLD.
 
-État des délais au 2026-10-15 :
+État des délais au 2026-10-15 (.fr revu le 2026-11-23) :
 
 | TLD | Grâce après expiration | Rédemption | Suppression | Estimation |
 |---|---|---|---|---|
@@ -1267,7 +1278,7 @@ Les durées acceptent `30s`, `5m`, `6h`, `7d`, ou un nombre de secondes.
 | .org | 45 j | 30 j | 5 j | oui |
 | .info | 45 j | 30 j | 5 j | oui |
 | .biz | 45 j | 30 j | 5 j | oui |
-| .fr | non fixé par l'Afnic | 30 j | aucune (libre à la fin de la rédemption) | oui |
+| .fr | non fixé par l'Afnic | 30 j après l'ordre de suppression | aucune (libre au lot horaire de HH:30 qui suit) | oui, à l'heure |
 
 Pour ajouter un TLD, compléter `tld_delays.toml` avec la source et la date de consultation, puis
 publier une nouvelle version.

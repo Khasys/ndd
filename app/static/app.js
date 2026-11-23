@@ -835,7 +835,7 @@ document.addEventListener("alpine:init", () => {
           return { badge: { text: "libre selon le WHOIS, à confirmer", cls: "x-9" }, when: checked, canReserve: true, canCheck: false };
         }
         return { badge: { text: this.labels[i.state] || i.state, cls: "s-" + i.state },
-                 when: i.release_at ? `libération ~${this.shortDate(i.release_at)}` : "libération inconnue", canReserve: false, canCheck: false };
+                 when: i.release_at ? `libération ${this.releaseShort(i)}` : "libération inconnue", canReserve: false, canCheck: false };
       }
       const r = i.rdap;
       const detail = r && !r.available ? [r.registrar ? `registrar ${r.registrar}` : "", r.expires_at ? `expire le ${this.shortDate(r.expires_at)}` : ""].filter(Boolean).join(", ") : "";
@@ -846,7 +846,7 @@ document.addEventListener("alpine:init", () => {
         // WHOIS seul (.co, .io, .ai) : « inconnu » ne connaît pas les noms réservés ou premium du registre.
         case 9: return { badge: { text: "libre selon le WHOIS, à confirmer", cls: "x-9" }, when: checked, canReserve: true, canCheck: true };
         case 4: return { badge: { text: i.status_label || "Libération à venir", cls: this.badgeClass(i) },
-                         when: i.release_at ? `libération ~${this.shortDate(i.release_at)}` : "libération à venir", canReserve: false, canCheck: false };
+                         when: i.release_at ? `libération ${this.releaseShort(i)}` : "libération à venir", canReserve: false, canCheck: false };
         case 1: return { badge: { text: "pris", cls: "x-1" }, when: detail || checked, canReserve: false, canCheck: false };
         case 6: return { badge: { text: "pris, suspendu", cls: "x-6" }, when: detail || checked, canReserve: false, canCheck: false };
         case 7: return GANDI_BLOCKED.includes(kind)
@@ -3770,6 +3770,11 @@ document.addEventListener("alpine:init", () => {
       return this.sortKey === key ? (this.sortDir === 1 ? " ↑" : " ↓") : "";
     },
 
+    // Jour de libération estimé, avec l'heure quand le registre en a une (lots horaires du .fr, fenêtre du .com).
+    releaseShort(d) {
+      return "~" + this.shortDate(d.release_at) + (d.release_has_time ? " vers " + timeFmt.format(new Date(d.release_at)) : "");
+    },
+
     releaseLong(d) {
       let text = "~" + this.longDate(d.release_at);
       if (d.release_has_time) text += " vers " + timeFmt.format(new Date(d.release_at));
@@ -3781,7 +3786,9 @@ document.addEventListener("alpine:init", () => {
       const tld = d.name.split(".").pop();
       let t = `Estimation. Calculée depuis le statut du domaine et les délais publiés par le registre du .${tld}.`;
       if (d.release_is_upper_bound) t += " Date au plus tard : le registrar peut supprimer le nom plus tôt.";
-      if (d.release_has_time) t += ` Heure : début de la fenêtre quotidienne de suppression du registre, vers ${timeFmt.format(new Date(d.release_at))} heure locale (source presse, non officielle).`;
+      if (d.release_has_time) t += tld === "fr"
+        ? ` Heure : l'Afnic libère les noms par lots, chaque heure à la demie, 30 jours après l'ordre de suppression du registrar ; libre vers ${timeFmt.format(new Date(d.release_at))} heure locale, lisible libre deux minutes plus tard (relevé par l'appli, non annoncé par l'Afnic).`
+        : ` Heure : début de la fenêtre quotidienne de suppression du registre, vers ${timeFmt.format(new Date(d.release_at))} heure locale (source presse, non officielle).`;
       return `${t} ${this.exact(d.release_at)}`;
     },
 

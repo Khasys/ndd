@@ -777,7 +777,7 @@ class DropWatcher:
     def keep_days(self) -> int:
         return int(self.store.get("drops_keep_days") or DEFAULT_KEEP_DAYS)
 
-    def _next(self, state: str, now: datetime, release: datetime | None) -> datetime | None:
+    def _next(self, state: str, now: datetime, release: datetime | None, tld: str | None = None) -> datetime | None:
         """Le moins de requêtes possible : on regarde quand quelque chose doit changer."""
         if state in (states.AVAILABLE, TAKEN, UNCONFIRMED, states.RENEWED):
             # Plus rien à attendre. Bouton « Revérifier » ou « Surveiller » pour la suite. Renouvelé (.fr
@@ -785,6 +785,13 @@ class DropWatcher:
             return None
         if state in (states.REDEMPTION, states.PENDING_DELETE):
             if release:
+                if tld and states.drop_minute(tld, self.delays) is not None:
+                    # Lots horaires (.fr) : libre au RDAP deux minutes après le lot. Vu libre cinq minutes après,
+                    # sans attendre la demi-heure : les robots de capture le prennent dans la minute.
+                    target = release + timedelta(minutes=5)
+                    if target > now:
+                        return target
+                    return now + timedelta(hours=6)
                 target = release + timedelta(minutes=30)
                 if target > now + timedelta(hours=1):
                     return target  # Une seule vérification, à la libération estimée.
@@ -843,13 +850,17 @@ class DropWatcher:
         # de la lecture de Gandi, qui reste valable (pris : rien ne change ; libre au registre : réservé).
         if state != row["state"] and not (row["state"] is None and since and state not in TRACKED):
             since = now
-            changed = None if result.available else result.info.last_changed_at
-            # Date de dernière modification RDAP : début de la rédemption, sauf si elle précède l'échéance
-            # (modification ancienne, sans rapport) ; on garde alors le moment où on voit l'état.
-            if changed and state in (states.REDEMPTION, states.PENDING_DELETE) and (
-                    result.info.expires_at is None or changed >= result.info.expires_at):
-                since = min(changed, now)
+            # Date de dernière modification RDAP : début de la rédemption (voir states.redemption_since) ; sinon
+            # le moment où on voit l'état.
+            if state in (states.REDEMPTION, states.PENDING_DELETE):
+                since = states.redemption_since(row["tld"], result.info.last_changed_at, result.info.expires_at,
+                                                now) or since
             since = redemption_start(since, state, row["tld"], row["removed_on"], now)
+        elif state in (states.REDEMPTION, states.PENDING_DELETE) and row["tld"] == "fr" and since:
+            # .fr déjà suivi, daté par une version qui ignorait l'ordre de suppression d'avant l'échéance : redaté.
+            start = states.redemption_since("fr", result.info.last_changed_at, result.info.expires_at, now)
+            if start and start < since:
+                since = start
         release = self.release(state, row["tld"], expires, since, now)
         available_since = row["available_since"]
         if state == states.AVAILABLE and not available_since:
@@ -862,8 +873,8 @@ class DropWatcher:
         self.conn.execute(
             """UPDATE drops SET state = ?, state_since = ?, release_at = ?, available_since = ?,
                error = NULL, checked_at = ?, next_check_at = ?, origin = ? WHERE id = ?""",
-            (state, iso(since), iso(release), available_since, iso(now), iso(self._next(state, now, release)), origin,
-             row["id"]),
+            (state, iso(since), iso(release), available_since, iso(now), iso(self._next(state, now, release, row["tld"])),
+             origin, row["id"]),
         )
         if (state in (states.AVAILABLE, UNCONFIRMED) and state != row["state"] and self.on_freed
                 and row["origin"] != "gandi" and not (row["origin"] == "rdap" and row["state"] is None)):
@@ -896,6 +907,30 @@ class DropWatcher:
             release = self.release(row["state"], row["tld"], None, since, now)
             self.conn.execute("UPDATE drops SET state_since = ?, release_at = ?, next_check_at = ? WHERE id = ?",
                               (iso(since), iso(release), iso(self._next(row["state"], now, release)), row["id"]))
+        return fixed
+
+    def _repair_fr_redemptions(self, now: datetime) -> int:
+        """.fr en rédemption datés du moment où l'appli a vu l'état, pas de l'ordre de suppression du registrar,
+        quand celui-ci précédait l'échéance (le cas courant) : libération annoncée deux à quatre jours trop tard
+        (22/11/2026). Redatés depuis la dernière réponse RDAP gardée (name_rdap), sans nouvelle requête."""
+        rows = self.conn.execute(
+            """SELECT d.*, r.updated_at AS rdap_changed, r.expires_at AS rdap_expires, r.statuses AS rdap_statuses
+               FROM drops d JOIN name_rdap r ON r.name = d.name
+               WHERE d.tld = 'fr' AND d.state IN (?, ?) AND r.available = 0 AND r.updated_at IS NOT NULL""",
+            (states.REDEMPTION, states.PENDING_DELETE)).fetchall()
+        fixed = 0
+        for row in rows:
+            if states.compute_state(json.loads(row["rdap_statuses"] or "[]"), None, now, 0, "fr") not in (
+                    states.REDEMPTION, states.PENDING_DELETE):
+                continue  # Réponse gardée d'avant la rédemption : sa date n'est pas l'ordre de suppression.
+            before = parse_iso(row["state_since"])
+            start = states.redemption_since("fr", parse_iso(row["rdap_changed"]), parse_iso(row["rdap_expires"]), now)
+            if not start or (before and start >= before):
+                continue
+            fixed += 1
+            release = self.release(row["state"], "fr", None, start, now)
+            self.conn.execute("UPDATE drops SET state_since = ?, release_at = ?, next_check_at = ? WHERE id = ?",
+                              (iso(start), iso(release), iso(self._next(row["state"], now, release, "fr")), row["id"]))
         return fixed
 
     def ensure(self, name: str, now: datetime, origin: str = "manual"):
@@ -952,15 +987,14 @@ class DropWatcher:
                             AND (drops.checked_at IS NULL OR drops.checked_at < g.checked_at))""",
             (iso(utcnow()), states.AVAILABLE, UNCONFIRMED, *BLOCKED)).rowcount
         redated = self._repair_redemptions(utcnow())
-        if whois or removed or blocked or redated:
+        fr_redated = self._repair_fr_redemptions(utcnow())
+        if whois or removed or blocked or redated or fr_redated:
             log.info("Veille : %s noms libres selon le seul WHOIS passés « à confirmer », %s fausses sorties du DNS effacées, "
-                     "%s libres refusés par Gandi revus au registre, %s rédemptions redatées à la sortie de zone",
-                     whois, removed, blocked, redated)
-        return {"unconfirmed": whois, "removed_on": removed, "recheck": blocked, "redemption": redated}
+                     "%s libres refusés par Gandi revus au registre, %s rédemptions redatées à la sortie de zone, "
+                     "%s rédemptions .fr redatées à l'ordre de suppression", whois, removed, blocked, redated, fr_redated)
+        return {"unconfirmed": whois, "removed_on": removed, "recheck": blocked, "redemption": redated,
+                "fr_redemption": fr_redated}
 
     def release(self, state, tld, expires, since, now) -> datetime | None:
         value = states.estimate_release(state, tld, expires, since, now, self.delays)
-        drop = states.drop_time(tld, self.delays)
-        if value and drop:
-            value = value.replace(hour=drop[0], minute=drop[1], second=0, microsecond=0)
-        return value
+        return states.at_drop_time(tld, value, self.delays)

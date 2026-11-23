@@ -1765,7 +1765,7 @@
               <span x-show="daysLeft(d) !== null" :title="d.effective_expires_at ? 'Expiration le ' + exact(d.effective_expires_at) : ''" x-text="daysCell(d)"></span>
             </td>
             <td data-label="Libération estimée" :class="{ blank: !d.release_at }">
-              <span class="estimate" x-show="d.release_at" :title="releaseTitle(d)" x-text="'~' + shortDate(d.release_at)"></span>
+              <span class="estimate" x-show="d.release_at" :title="releaseTitle(d)" x-text="releaseShort(d)"></span>
             </td>
             <td class="col-registrar"><span class="ellipsis" :title="d.registrar || ''" x-text="d.registrar || ''"></span></td>
             <td class="col-check col-last" data-label="Dernier check" :class="{ blank: !d.last_checked_at }">
