@@ -505,3 +505,78 @@ def test_a_sold_name_coming_back_is_announced_once(env):
     store.set("alert_on_sold_back", "1")
     assert notify.sold_tick(conn, m, store, NOW, "https://dw.test", True) == (None, [])
     assert "sold_back" in notify.KEYS
+
+
+# --- Compte à rebours de libération ------------------------------------------------------------
+
+class _Countdown:
+    """Le suivi des domaines réduit à ce que le compte à rebours lui demande : délais et libération estimée."""
+
+    def __init__(self):
+        from app import states
+        from app.checker import Checker
+        self.delays = states.load_delays()
+        self._release = Checker.release_estimate
+
+    def release_estimate(self, row, now=None):
+        return self._release(self, row, now)
+
+
+def _countdown_db(tmp_path):
+    conn = db.connect(tmp_path / "c.db")
+    db.migrate(conn, tmp_path / "backups")
+    return conn, Store(conn)
+
+
+def _watched(conn, name, order, state="redemption"):
+    conn.execute("INSERT INTO domains (name, added_at, state, state_since, expires_at) VALUES (?, ?, ?, ?, ?)",
+                 (name, iso(order), state, iso(order), iso(order + timedelta(days=1))))
+
+
+def test_countdown_goes_out_30_15_5_minutes_before_the_batch_and_at_it_once_each(tmp_path):
+    from app import states
+    conn, store = _countdown_db(tmp_path)
+    checker = _Countdown()
+    order = datetime(2026, 10, 28, 0, 1, 5, tzinfo=timezone.utc)  # fin des 30 jours le 27/11 à 00:01, lot de 00:30
+    _watched(conn, "bavard.fr", order)
+    batch = datetime(2026, 11, 27, 0, 30, tzinfo=timezone.utc)
+    assert checker.release_estimate(conn.execute("SELECT * FROM domains").fetchone()) == batch
+    sent = {}
+    minute = batch - timedelta(minutes=40)
+    while minute <= batch + timedelta(minutes=20):
+        text, marks = notify.countdown_tick(conn, checker, store, minute, "https://nas", "https://reg/?q={domain}", True)
+        if text:
+            notify.mark_countdown(conn, marks, minute)
+            sent[int((batch - minute).total_seconds() // 60)] = text
+        minute += timedelta(minutes=1)
+    assert sorted(sent) == [0, 5, 15, 30]
+    assert sent[30].splitlines()[0] == "Libération dans 30 min : bavard.fr"
+    assert "Réserver : https://reg/?q=bavard.fr" in sent[30] and "/?fiche=bavard.fr" in sent[30]
+    assert sent[0].startswith("Libération maintenant : bavard.fr")
+    # Heure locale du lot (fuseau de l'appli), libre au registre deux minutes après.
+    from app import digest
+    local = lambda at: at.astimezone(digest.local_zone()).strftime("%H:%M")
+    assert local(batch) in sent[0] and local(batch + timedelta(minutes=2)) in sent[0]
+    assert states.has_drop_time("fr", checker.delays)
+
+
+def test_countdown_skips_a_missed_step_groups_names_and_follows_its_box(tmp_path):
+    conn, store = _countdown_db(tmp_path)
+    checker = _Countdown()
+    order = datetime(2026, 10, 28, 0, 1, 5, tzinfo=timezone.utc)
+    _watched(conn, "bavard.fr", order)
+    _watched(conn, "causant.fr", order + timedelta(minutes=5))   # même lot de 00:30
+    _watched(conn, "rapide.com", order)                          # .com : fenêtre quotidienne, pas de lot horaire
+    batch = datetime(2026, 11, 27, 0, 30, tzinfo=timezone.utc)
+    # Appli arrêtée pendant l'étape des 30 minutes : rien à 20 minutes, l'étape des 15 minutes part ensuite.
+    assert notify.countdown_tick(conn, checker, store, batch - timedelta(minutes=20), "", "", True) == (None, [])
+    text, marks = notify.countdown_tick(conn, checker, store, batch - timedelta(minutes=15), "", "", True)
+    assert text.splitlines()[0] == "Compte à rebours : 2 noms" and "rapide.com" not in text
+    notify.mark_countdown(conn, marks, batch)
+    assert notify.countdown_tick(conn, checker, store, batch - timedelta(minutes=14), "", "", True) == (None, [])
+    # Case décochée : marquées sans message, rien ne part en rafale si on la recoche.
+    notify.save(store, {"release_countdown": False})
+    assert notify.countdown_tick(conn, checker, store, batch - timedelta(minutes=5), "", "", True)[0] is None
+    notify.save(store, {"release_countdown": True})
+    assert notify.countdown_tick(conn, checker, store, batch - timedelta(minutes=4), "", "", True)[0] is None
+    assert "release_countdown" in notify.KEYS

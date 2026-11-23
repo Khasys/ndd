@@ -568,3 +568,20 @@ def test_whois_only_availability_is_labelled_in_the_alert(env):
     run(checker.check(domain_id))
     assert row(conn, domain_id)["state"] == states.AVAILABLE and row(conn, domain_id)["source"] == "whois"
     assert sent and "Actif → Disponible selon le WHOIS, à confirmer" in sent[-1]
+
+
+def test_watched_fr_redemption_is_checked_three_minutes_after_the_batch(env):
+    """Alerte « Disponible » à la minute : vérifié trois minutes après le lot horaire de l'Afnic, puis toutes les
+    cinq minutes pendant une demi-heure s'il est encore en rédemption, puis au rythme habituel (1 h)."""
+    _, _, checker, _ = env
+    batch = datetime(2026, 11, 27, 0, 30, tzinfo=timezone.utc)
+    before = batch - timedelta(minutes=20)
+    assert checker._next_check(states.REDEMPTION, before, batch, "fr") == batch + timedelta(minutes=3)
+    assert checker._next_check(states.REDEMPTION, batch - timedelta(hours=5), batch, "fr") == \
+        batch - timedelta(hours=4)  # loin du lot : le rythme habituel
+    after = batch + timedelta(minutes=4)
+    assert checker._next_check(states.REDEMPTION, after, batch, "fr") == after + timedelta(minutes=5)
+    late = batch + timedelta(minutes=40)
+    assert checker._next_check(states.REDEMPTION, late, batch, "fr") == late + timedelta(hours=1)
+    # .com (fenêtre quotidienne, pas de lot horaire) : inchangé.
+    assert checker._next_check(states.REDEMPTION, before, batch, "com") == before + timedelta(hours=1)

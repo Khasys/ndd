@@ -319,6 +319,11 @@ async def lifespan(app: FastAPI):
         et les marques en base empêchent tout envoi en double (redémarrage, rattrapage d'une exécution manquée)."""
         async with alert_lock:
             state, now = app.state, utcnow()
+            # Compte à rebours d'abord : c'est le seul envoi à la minute près.
+            text, marks = await _off(notify.countdown_tick, conn, checker, store, now, _public_url(state),
+                                     _order_url(store), telegram.configured)
+            if text and await telegram.send(text) is None:
+                await _off(notify.mark_countdown, conn, marks, now)
             # Nouveautés d'abord : un nom annoncé ici ne repart pas comme pépite (notify.pepite_tick).
             text, marks = await _off(notify.news_tick, conn, store, now, _public_url(state), telegram.configured)
             if text and await telegram.send(text) is None:

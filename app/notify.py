@@ -4,6 +4,8 @@ Immédiat :
 - pépite libre (pepites.py) : vue chaque minute, une fois par nom et par libération, les pépites d'un même passage
   dans un seul message ;
 - domaine suivi (écran Domaines) : changement d'état, de registrar ou de libération estimée (checker.py) ;
+- compte à rebours de libération (écran Domaines, .fr en rédemption) : 30, 15 et 5 minutes avant le lot horaire de
+  l'Afnic, puis à l'heure du lot ;
 - analyse IA demandée prête ;
 - nouveauté de l'actualité libre et notée « À prendre » (radar des nouveautés, news.py) ;
 - panne bloquante (morning.BLOCKING) : apparue ou réglée, vue au contrôle de santé (toutes les 10 minutes).
@@ -34,6 +36,9 @@ TYPES = (
     ("news_free", "Nouveauté libre", IMMEDIATE,
      "Mot, expression ou événement de l'actualité (radar des nouveautés, deux passages par jour) libre au registre et "
      "noté « À prendre » : la raison, l'avis IA et le lien ; les « À surveiller » cités dans le même message"),
+    ("release_countdown", "Compte à rebours de libération", IMMEDIATE,
+     "Nom de l'écran Domaines en rédemption dont la libération a une heure (lots horaires de l'Afnic, .fr) : "
+     "30, 15 et 5 minutes avant le lot, puis à l'heure du lot, avec le lien pour réserver"),
     ("sold_back", "Déjà vendu, de retour", IMMEDIATE,
      "Nom vendu d'après DNJournal (ce nom exact) qui entre en rédemption ou en suppression, ou redevient libre : "
      "la vente, l'état et la libération estimée"),
@@ -105,6 +110,81 @@ def save(store, enabled_types: dict[str, bool] | None = None, **values) -> None:
     for key in ("pepite_min", "daily_hour", "weekly_day", "morning_min"):
         if values.get(key) is not None:
             store.set(f"alert_{key}", str(int(values[key])))
+
+
+# --- Immédiat : compte à rebours de libération ----------------------------------------------
+
+COUNTDOWN_STEPS = (30, 15, 5, 0)      # minutes avant le lot de libération
+COUNTDOWN_GRACE = timedelta(minutes=5)  # au-delà, une étape manquée (appli arrêtée) ne part plus : la suivante suffit
+RDAP_LAG = timedelta(minutes=2)       # libre au RDAP deux minutes après le lot (relevé du 23/11/2026)
+
+
+def countdown_due(conn, checker, now: datetime) -> list[tuple[str, datetime, int]]:
+    """Noms de l'écran Domaines en rédemption dont la libération a l'heure d'un lot horaire (.fr), avec l'étape du
+    compte à rebours qui tombe maintenant et pas encore envoyée : (nom, lot, minutes avant le lot)."""
+    found = []
+    rows = conn.execute("SELECT * FROM domains WHERE state IN (?, ?)",
+                        (states.REDEMPTION, states.PENDING_DELETE)).fetchall()
+    for row in rows:
+        if states.drop_minute(row["name"].rsplit(".", 1)[-1], checker.delays) is None:
+            continue
+        release = checker.release_estimate(row, now)
+        if release is None:
+            continue
+        due = [step for step in COUNTDOWN_STEPS
+               if timedelta(0) <= now - (release - timedelta(minutes=step)) < COUNTDOWN_GRACE]
+        if not due:
+            continue
+        step = min(due)
+        if conn.execute("SELECT 1 FROM alert_sent WHERE name = ? AND kind = ?",
+                        (row["name"], countdown_kind(release, step))).fetchone():
+            continue
+        found.append((row["name"], release, step))
+    return sorted(found, key=lambda item: (item[1], item[0]))
+
+
+def countdown_kind(release: datetime, step: int) -> str:
+    """Marque d'une étape : le lot en fait partie, une date revue repart pour un nouveau compte à rebours."""
+    return f"countdown:{iso(release)}:{step}"
+
+
+def countdown_tick(conn, checker, store, now: datetime, base: str, order_url: str,
+                   can_send: bool) -> tuple[str | None, list[tuple[str, str]]]:
+    """Le message des étapes du compte à rebours qui tombent ce passage et leurs marques (nom, sorte), à poser une fois
+    parti ; une étape posée marque aussi les précédentes du même lot. Type désactivé ou Telegram pas configuré :
+    marquées sans message."""
+    found = countdown_due(conn, checker, now)
+    marks = [(name, countdown_kind(release, s)) for name, release, step in found for s in COUNTDOWN_STEPS if s >= step]
+    if not found or not (can_send and enabled(store, "release_countdown")):
+        mark_countdown(conn, marks, now)
+        return None, []
+    zone = digest.local_zone()
+    blocks = []
+    for name, release, step in found:
+        at = release.astimezone(zone).strftime("%H:%M")
+        free = (release + RDAP_LAG).astimezone(zone).strftime("%H:%M")
+        title = f"Libération maintenant : {name}" if step == 0 else f"Libération dans {step} min : {name}"
+        detail = (f"Lot de l'Afnic de {at} : libre au registre vers {free}, au premier qui l'enregistre."
+                  if step == 0 else
+                  f"Lot de l'Afnic à {at}, libre au registre vers {free}, sauf si le titulaire le récupère.")
+        block = [title, detail]
+        if order_url:
+            block.append("Réserver : " + order_url.replace("{domain}", name))
+        url = link(base, name)
+        if url:
+            block.append("Fiche : " + url)
+        blocks.append(block)
+    if len(blocks) == 1:
+        return "\n".join(blocks[0]), marks
+    lines = [f"Compte à rebours : {len(blocks)} noms"]
+    for block in blocks:
+        lines += ["", *block]
+    return "\n".join(lines), marks
+
+
+def mark_countdown(conn, marks: list[tuple[str, str]], now: datetime) -> None:
+    conn.executemany("INSERT OR IGNORE INTO alert_sent (name, kind, sent_at) VALUES (?, ?, ?)",
+                     [(name, kind, iso(now)) for name, kind in marks])
 
 
 # --- Immédiat : pannes bloquantes ------------------------------------------------------------

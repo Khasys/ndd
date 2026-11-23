@@ -86,8 +86,21 @@ class Checker:
         base = (self.link_base() if self.link_base else "") or self.settings.app_url
         return f"{base}/?fiche={name}" if base else ""
 
-    def _next_check(self, state: str | None, now: datetime) -> datetime:
-        return now + timedelta(seconds=states.check_interval(state, self.settings.intervals))
+    def _next_check(self, state: str | None, now: datetime, release: datetime | None = None,
+                    tld: str | None = None) -> datetime:
+        regular = now + timedelta(seconds=states.check_interval(state, self.settings.intervals))
+        if (release is None or tld is None or state not in (states.REDEMPTION, states.PENDING_DELETE)
+                or states.drop_minute(tld, self.delays) is None):
+            return regular
+        # Lot horaire (.fr) : vérifié trois minutes après le lot, pour que l'alerte « Disponible » parte à la minute ;
+        # encore en rédemption juste après, toutes les cinq minutes pendant une demi-heure (lot en retard, nom
+        # récupéré par son titulaire au dernier moment), puis au rythme habituel.
+        target = release + timedelta(minutes=3)
+        if target > now:
+            return min(regular, target)
+        if now < release + timedelta(minutes=30):
+            return min(regular, now + timedelta(minutes=5))
+        return regular
 
     def _record(self, domain_id: int, now: datetime, field: str, old, new) -> None:
         self.conn.execute(
@@ -175,6 +188,9 @@ class Checker:
             if start and start < parse_iso(state_since):
                 state_since = iso(start)
 
+        release = states.at_drop_time(tld, states.estimate_release(
+            new_state, tld, parse_iso(values["expires_at"]), parse_iso(state_since), now, self.delays), self.delays)
+
         self.conn.execute("BEGIN")
         try:
             if not first_check:
@@ -202,7 +218,7 @@ class Checker:
                     values["nameservers"],
                     iso(now),
                     iso(now),
-                    iso(self._next_check(new_state, now)),
+                    iso(self._next_check(new_state, now, release, tld)),
                     result.source,
                     domain_id,
                 ),
