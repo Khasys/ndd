@@ -208,6 +208,47 @@ def test_fr_redemptions_dated_by_an_older_version_are_redated_at_startup(fr):
     assert fr.drops.repair()["fr_redemption"] == 0
 
 
+def test_fr_redemption_whose_batch_has_passed_is_redated_and_rechecked_at_startup(fr):
+    """Cas réel (24/11/2026) : ordre de suppression 32 jours plus tôt, rédemption vue deux jours après.
+    La v0.17.5 écartait cet ordre (plus de 31 jours) : le nom, déjà libre, gardait une fin annoncée deux jours trop
+    tard, à une minute quelconque. Redaté à l'ordre, lot passé : revérifié tout de suite au registre."""
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    order, seen = now - timedelta(days=32, minutes=7), now - timedelta(days=30, hours=2, minutes=7)
+    fr.drops.record("fr", ["plan"], [], now)
+    fr.conn.execute("UPDATE drops SET state = ?, state_since = ?, release_at = ?, next_check_at = ? WHERE name = ?",
+                    (states.REDEMPTION, seen.isoformat(), (seen + timedelta(days=30)).isoformat(),
+                     (seen + timedelta(days=30, minutes=30)).isoformat(), "plan.fr"))
+    fr.conn.execute("""INSERT INTO name_rdap (name, at, source, available, statuses, updated_at, expires_at)
+                       VALUES (?, ?, 'rdap', 0, ?, ?, ?)""",
+                    ("plan.fr", seen.isoformat(), json.dumps(["pending delete", "redemption period"]),
+                     order.isoformat(), (order + timedelta(days=1)).isoformat()))
+    assert fr.drops.repair()["fr_redemption"] == 1
+    row = fr.drops.row("plan.fr")
+    assert datetime.fromisoformat(row["state_since"]) == order
+    release = datetime.fromisoformat(row["release_at"])
+    assert release == states.at_drop_time("fr", order + timedelta(days=30), states.load_delays()) < now
+    assert datetime.fromisoformat(row["next_check_at"]) <= now  # dans la file de l'Afnic tout de suite
+    assert fr.drops.repair()["fr_redemption"] == 0
+
+
+def test_fr_release_without_a_kept_answer_is_moved_to_the_half_hour_batch(fr):
+    """Rédemption datée par une ancienne version sans réponse RDAP gardée : début inchangé, libération ramenée au lot
+    de la demie qui suit (le compte à rebours n'annonce jamais une minute quelconque)."""
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    seen = (now - timedelta(days=29)).replace(minute=43, second=4)
+    fr.drops.record("fr", ["budget"], [], now)
+    fr.conn.execute("UPDATE drops SET state = ?, state_since = ?, release_at = ?, next_check_at = ? WHERE name = ?",
+                    (states.REDEMPTION, seen.isoformat(), (seen + timedelta(days=30)).isoformat(),
+                     (seen + timedelta(days=30, minutes=30)).isoformat(), "budget.fr"))
+    assert fr.drops.repair()["fr_redemption"] == 1
+    row = fr.drops.row("budget.fr")
+    release = datetime.fromisoformat(row["release_at"])
+    assert row["state_since"] == seen.isoformat() and release.minute == 30
+    assert release == states.at_drop_time("fr", seen + timedelta(days=30), states.load_delays())
+    assert datetime.fromisoformat(row["next_check_at"]) == release + timedelta(minutes=5)
+    assert fr.drops.repair()["fr_redemption"] == 0
+
+
 def test_a_passed_fr_expiry_without_redemption_is_a_late_renewal(fr):
     """oncle.fr : vérifié le lendemain de l'échéance, RDAP encore à l'ancienne date, statut actif.
     Pas de délai de grâce en .fr : ce n'est pas une libération, on regarde de nouveau le lendemain."""

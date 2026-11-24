@@ -910,27 +910,40 @@ class DropWatcher:
         return fixed
 
     def _repair_fr_redemptions(self, now: datetime) -> int:
-        """.fr en rédemption datés du moment où l'appli a vu l'état, pas de l'ordre de suppression du registrar,
-        quand celui-ci précédait l'échéance (le cas courant) : libération annoncée deux à quatre jours trop tard
-        (22/11/2026). Redatés depuis la dernière réponse RDAP gardée (name_rdap), sans nouvelle requête."""
+        """.fr en rédemption, au démarrage : début de la rédemption et libération remis à la règle de l'Afnic.
+        - Ordre de suppression connu (dernière réponse RDAP gardée, prise en rédemption) et antérieur à la date posée :
+          il fait foi, quel que soit son âge. La v0.17.5 écartait un ordre de plus de 31 jours ; ces noms, déjà
+          libres ou repris, gardaient leur ancienne date et un compte à rebours vers une heure quelconque (24/11/2026).
+        - Libération recalculée depuis ce début : premier lot horaire de la demie après les 30 jours.
+        - Lot déjà passé : revérifié tout de suite au registre (file de l'Afnic), le nom est sans doute libre ou repris.
+        Sans nouvelle requête ; idempotent. Renvoie le nombre de noms changés."""
         rows = self.conn.execute(
-            """SELECT d.*, r.updated_at AS rdap_changed, r.expires_at AS rdap_expires, r.statuses AS rdap_statuses
-               FROM drops d JOIN name_rdap r ON r.name = d.name
-               WHERE d.tld = 'fr' AND d.state IN (?, ?) AND r.available = 0 AND r.updated_at IS NOT NULL""",
+            """SELECT d.*, r.updated_at AS rdap_changed, r.statuses AS rdap_statuses
+               FROM drops d LEFT JOIN name_rdap r ON r.name = d.name AND r.available = 0
+               WHERE d.tld = 'fr' AND d.state IN (?, ?)""",
             (states.REDEMPTION, states.PENDING_DELETE)).fetchall()
         fixed = 0
         for row in rows:
-            if states.compute_state(json.loads(row["rdap_statuses"] or "[]"), None, now, 0, "fr") not in (
-                    states.REDEMPTION, states.PENDING_DELETE):
-                continue  # Réponse gardée d'avant la rédemption : sa date n'est pas l'ordre de suppression.
             before = parse_iso(row["state_since"])
-            start = states.redemption_since("fr", parse_iso(row["rdap_changed"]), parse_iso(row["rdap_expires"]), now)
-            if not start or (before and start >= before):
+            start = before
+            changed = parse_iso(row["rdap_changed"])
+            if changed and changed <= now and (before is None or changed < before) and states.compute_state(
+                    json.loads(row["rdap_statuses"] or "[]"), None, now, 0, "fr") in (
+                    states.REDEMPTION, states.PENDING_DELETE):
+                start = changed  # Réponse prise en rédemption : sa date est l'ordre de suppression.
+            if start is None:
+                continue
+            release = self.release(row["state"], "fr", None, start, now)
+            passed = release is not None and release <= now
+            if passed:
+                due = row["next_check_at"] if row["next_check_at"] and row["next_check_at"] <= iso(now) else iso(now)
+            else:
+                due = iso(self._next(row["state"], now, release, "fr"))
+            if (iso(start), iso(release), due) == (row["state_since"], row["release_at"], row["next_check_at"]):
                 continue
             fixed += 1
-            release = self.release(row["state"], "fr", None, start, now)
             self.conn.execute("UPDATE drops SET state_since = ?, release_at = ?, next_check_at = ? WHERE id = ?",
-                              (iso(start), iso(release), iso(self._next(row["state"], now, release, "fr")), row["id"]))
+                              (iso(start), iso(release), due, row["id"]))
         return fixed
 
     def ensure(self, name: str, now: datetime, origin: str = "manual"):
