@@ -129,6 +129,17 @@ def test_calendar_needs_secret_link_but_no_session(logged):
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/calendar")
     assert client.get("/calendar/mauvais.ics").status_code == 404
+    # Un seul nom, pour le lien « Ajouter au calendrier » des rappels : nom suivi avec une libération estimée.
+    token = path.split("/")[-1].removesuffix(".ics")
+    order = (datetime.now(timezone.utc) - timedelta(days=5)).replace(microsecond=0).isoformat()
+    client.app.state.conn.execute(
+        "INSERT INTO domains (name, added_at, state, state_since) VALUES ('suivi-test.fr', 'x', 'redemption', ?)", (order,))
+    one = client.get(f"/calendar/{token}/suivi-test.fr.ics")
+    assert one.status_code == 200 and one.headers["content-type"].startswith("text/calendar")
+    body = one.text.replace("\r\n ", "")
+    assert body.count("BEGIN:VEVENT") == 1 and "SUMMARY:Libération suivi-test.fr" in body and "TRIGGER:-PT3H" in body
+    assert client.get(f"/calendar/{token}/inconnu-test.fr.ics").status_code == 404
+    assert client.get("/calendar/mauvais/suivi-test.fr.ics").status_code == 404
     client.__exit__(None, None, None)
 
 

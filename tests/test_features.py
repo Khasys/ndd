@@ -253,8 +253,12 @@ def test_calendar_lines_are_folded_at_75_octets(env):
     assert all(len(line.encode()) <= 75 for line in lines)
     assert any(line.startswith(" ") for line in lines)
     unfolded = ics.replace("\r\n ", "")
-    assert f"SUMMARY:Libération estimée {name}" in unfolded
-    assert "DESCRIPTION:Estimation calculée depuis le statut et les délais du registre\\, pas une date garantie.\\nhttps://domaines.exemple.fr/une/adresse/assez/longue" in unfolded
+    # .com : heure du passage de Verisign connue, rappels 24 h, 3 h et 1 h, lien vers la fiche.
+    assert f"SUMMARY:Libération {name}" in unfolded
+    assert "DESCRIPTION:Début de la suppression quotidienne de Verisign" in unfolded
+    assert f"pas une date garantie.\\nhttps://domaines.exemple.fr/une/adresse/assez/longue/?fiche={name}" in unfolded
+    event = unfolded.split(f"UID:{name}-liberation")[1].split("END:VEVENT")[0]
+    assert [l for l in event.split("\r\n") if l.startswith("TRIGGER:")] == ["TRIGGER:-P1D", "TRIGGER:-PT3H", "TRIGGER:-PT1H"]
     # Un caractère accentué n'est jamais coupé en deux.
     parts = calendar_ics.fold("DESCRIPTION:" + "é" * 80)
     assert all(len(p.encode()) <= 75 for p in parts) and "".join(p.lstrip(" ") for p in parts) == "DESCRIPTION:" + "é" * 80

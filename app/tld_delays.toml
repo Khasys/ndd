@@ -24,10 +24,15 @@ auto_renew_grace = 45
 # Même source : « The current length of this Redemption Period is 30 calendar days »
 redemption = 30
 # Même source : « The current length of this Pending Delete Period is five calendar days »
-pending_delete = 5
+# Relevé par l'appli, pas annoncé par Verisign : 6 jours dans les faits. Les 191 .com et .net entrés en suppression
+# imminente les 18 et 19/11/2026 (lot quotidien vers 09:15-09:45 UTC, dernière modification RDAP) sont tous tombés
+# 6 jours après, au passage de suppression du lendemain des 5 jours ; reprises par les robots de 12:02 à 12:38 UTC,
+# dans l'ordre d'entrée en suppression. L'entrée suit de 30 à 31 jours le début de la rédemption (200 .com).
+pending_delete = 6
 # Début de la fenêtre quotidienne de suppression, heure UTC. Source de presse, pas d'annonce Verisign trouvée :
 # https://domainnamewire.com/2026/09/09/verisign-changes-drop-time-for-com-and-net-domains/
-# (consulté le 2026-10-12) : à partir du 1er octobre, début des suppressions vers 12:00 UTC.
+# (consulté le 2026-10-12) : à partir du 1er octobre, début des suppressions vers 12:00 UTC. Confirmé par l'appli les
+# 24 et 25/11/2026 : premières reprises par les robots à 12:02 et 12:03 UTC, dernières vers 12:38 UTC.
 drop_time_utc = "12:00"
 
 [net]
@@ -37,10 +42,15 @@ auto_renew_grace = 45
 # Même source : Redemption Period de 30 jours calendaires
 redemption = 30
 # Même source : Pending Delete Period de cinq jours calendaires
-pending_delete = 5
+# Relevé par l'appli, pas annoncé par Verisign : 6 jours dans les faits. Les 191 .com et .net entrés en suppression
+# imminente les 18 et 19/11/2026 (lot quotidien vers 09:15-09:45 UTC, dernière modification RDAP) sont tous tombés
+# 6 jours après, au passage de suppression du lendemain des 5 jours ; reprises par les robots de 12:02 à 12:38 UTC,
+# dans l'ordre d'entrée en suppression. L'entrée suit de 30 à 31 jours le début de la rédemption (200 .com).
+pending_delete = 6
 # Début de la fenêtre quotidienne de suppression, heure UTC. Source de presse, pas d'annonce Verisign trouvée :
 # https://domainnamewire.com/2026/09/09/verisign-changes-drop-time-for-com-and-net-domains/
-# (consulté le 2026-10-12) : à partir du 1er octobre, début des suppressions vers 12:00 UTC.
+# (consulté le 2026-10-12) : à partir du 1er octobre, début des suppressions vers 12:00 UTC. Confirmé par l'appli les
+# 24 et 25/11/2026 : premières reprises par les robots à 12:02 et 12:03 UTC, dernières vers 12:38 UTC.
 drop_time_utc = "12:00"
 
 [org]

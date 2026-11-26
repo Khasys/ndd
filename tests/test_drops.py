@@ -277,8 +277,9 @@ def test_rdap_check_classifies_and_estimates_release(watcher):
     redemption = rows["abcd.com"]
     assert redemption["state"] == states.REDEMPTION
     release = datetime.fromisoformat(redemption["release_at"])
-    # 30 jours de rédemption + 5 de suppression après la date de suppression, à l'heure de drop .com.
-    assert release.date() == (deleted + timedelta(days=35)).date() and (release.hour, release.minute) == (12, 0)
+    # 30 jours de rédemption + 6 de suppression (5 au contrat, chute au passage du lendemain, mesuré les 24 et
+    # 25/11/2026) après la date de suppression, à l'heure de drop .com.
+    assert release.date() == (deleted + timedelta(days=36)).date() and (release.hour, release.minute) == (12, 0)
 
     assert rows["wxyz.com"]["state"] == states.AVAILABLE and rows["wxyz.com"]["available_since"]
     assert rows["a1b2.com"]["state"] == drops.SUSPENDED

@@ -4,8 +4,10 @@ Immédiat :
 - pépite libre (pepites.py) : vue chaque minute, une fois par nom et par libération, les pépites d'un même passage
   dans un seul message ;
 - domaine suivi (écran Domaines) : changement d'état, de registrar ou de libération estimée (checker.py) ;
-- compte à rebours de libération (écran Domaines, .fr en rédemption) : 30, 15 et 5 minutes avant le lot horaire de
-  l'Afnic, puis à l'heure du lot ;
+- rappels de libération (écran Domaines, .fr, .com et .net en rédemption ou en suppression) : 24 h, 3 h et 1 h avant,
+  avec le jour et l'heure exacts et le lien vers le calendrier ;
+- compte à rebours à la minute (mêmes noms, .fr) : 30, 15 et 5 minutes avant le lot horaire de l'Afnic, puis à
+  l'heure du lot ; décoché par défaut ;
 - analyse IA demandée prête ;
 - nouveauté de l'actualité libre et notée « À prendre » (radar des nouveautés, news.py) ;
 - panne bloquante (morning.BLOCKING) : apparue ou réglée, vue au contrôle de santé (toutes les 10 minutes).
@@ -36,9 +38,12 @@ TYPES = (
     ("news_free", "Nouveauté libre", IMMEDIATE,
      "Mot, expression ou événement de l'actualité (radar des nouveautés, deux passages par jour) libre au registre et "
      "noté « À prendre » : la raison, l'avis IA et le lien ; les « À surveiller » cités dans le même message"),
-    ("release_countdown", "Compte à rebours de libération", IMMEDIATE,
-     "Nom de l'écran Domaines en rédemption dont la libération a une heure (lots horaires de l'Afnic, .fr) : "
-     "30, 15 et 5 minutes avant le lot, puis à l'heure du lot, avec le lien pour réserver"),
+    ("release_reminder", "Rappels de libération", IMMEDIATE,
+     "Nom de l'écran Domaines en rédemption ou en suppression dont la libération a une heure (.fr, .com, .net) : "
+     "24 h, 3 h et 1 h avant, avec le jour et l'heure exacts, le lien pour l'ajouter au calendrier et pour réserver"),
+    ("release_countdown", "Compte à rebours à la minute", IMMEDIATE,
+     "Même noms, .fr seulement : 30, 15 et 5 minutes avant le lot de l'Afnic, puis à l'heure du lot ; "
+     "décoché par défaut"),
     ("sold_back", "Déjà vendu, de retour", IMMEDIATE,
      "Nom vendu d'après DNJournal (ce nom exact) qui entre en rédemption ou en suppression, ou redevient libre : "
      "la vente, l'état et la libération estimée"),
@@ -63,8 +68,12 @@ MAX_TEXT = 4000
 MAX_LINES = 10
 
 
+# Types coupés tant que la case n'a pas été cochée (Paramètres, carte Alertes).
+DEFAULT_OFF = frozenset({"release_countdown"})
+
+
 def enabled(store, key: str) -> bool:
-    return store.get(f"alert_on_{key}", "1") == "1"
+    return store.get(f"alert_on_{key}", "0" if key in DEFAULT_OFF else "1") == "1"
 
 
 def _int(store, key: str, default: int, lo: int, hi: int) -> int:
@@ -177,6 +186,103 @@ def countdown_tick(conn, checker, store, now: datetime, base: str, order_url: st
     if len(blocks) == 1:
         return "\n".join(blocks[0]), marks
     lines = [f"Compte à rebours : {len(blocks)} noms"]
+    for block in blocks:
+        lines += ["", *block]
+    return "\n".join(lines), marks
+
+
+# --- Immédiat : rappels de libération --------------------------------------------------------
+
+REMINDER_STEPS = (1440, 180, 60)  # minutes avant la libération : 24 h, 3 h, 1 h
+# En rédemption, le titulaire peut encore racheter son nom ; en suppression imminente, plus rien ne l'arrête.
+RESTORE_NOTE = {states.REDEMPTION: ", sauf si le titulaire le récupère"}
+WEEKDAYS = ("lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche")
+
+
+def reminder_due(conn, checker, now: datetime) -> list[tuple[str, datetime, int, str]]:
+    """Noms de l'écran Domaines en rédemption ou en suppression dont la libération a une heure (lot horaire du .fr,
+    passage quotidien de Verisign pour le .com et le .net), avec l'étape de rappel atteinte et pas encore envoyée :
+    (nom, libération, minutes de l'étape, état). L'étape est la plus courte déjà franchie : un nom ajouté deux heures avant
+    reçoit le rappel des 3 h, pas celui des 24 h. Après la libération, plus rien : l'alerte « Disponible » prend le
+    relais."""
+    found = []
+    rows = conn.execute("SELECT * FROM domains WHERE state IN (?, ?)",
+                        (states.REDEMPTION, states.PENDING_DELETE)).fetchall()
+    for row in rows:
+        if not states.has_drop_time(row["name"].rsplit(".", 1)[-1], checker.delays):
+            continue
+        release = checker.release_estimate(row, now)
+        if release is None or release <= now:
+            continue
+        due = [step for step in REMINDER_STEPS if release - now <= timedelta(minutes=step)]
+        if not due:
+            continue
+        step = min(due)
+        if conn.execute("SELECT 1 FROM alert_sent WHERE name = ? AND kind = ?",
+                        (row["name"], reminder_kind(release, step))).fetchone():
+            continue
+        found.append((row["name"], release, step, row["state"]))
+    return sorted(found, key=lambda item: (item[1], item[0]))
+
+
+def reminder_kind(release: datetime, step: int) -> str:
+    """Marque d'un rappel : la libération en fait partie, une date revue repart pour une nouvelle série."""
+    return f"reminder:{iso(release)}:{step}"
+
+
+def _day_words(at: datetime, now: datetime) -> str:
+    """« aujourd'hui », « demain », sinon « vendredi 27/11 », en heure locale."""
+    days = (at.date() - now.date()).days
+    if days == 0:
+        return "aujourd'hui"
+    if days == 1:
+        return f"demain {WEEKDAYS[at.weekday()]} {at.strftime('%d/%m')}"
+    return f"{WEEKDAYS[at.weekday()]} {at.strftime('%d/%m')}"
+
+
+def _left_words(left: timedelta) -> str:
+    minutes = max(1, round(left.total_seconds() / 60))
+    return f"{round(minutes / 60)} h" if minutes >= 90 else f"{minutes} min"
+
+
+def release_lines(name: str, release: datetime, now: datetime, delays: dict) -> tuple[str, str]:
+    """Le jour et l'heure exacts de la libération, et ce qui se passe à cette heure-là selon le registre."""
+    zone = digest.local_zone()
+    local, today = release.astimezone(zone), now.astimezone(zone)
+    when = f"{_day_words(local, today)} à {local.strftime('%H:%M')}"
+    if states.drop_minute(name.rsplit(".", 1)[-1], delays) is not None:
+        free = (release + RDAP_LAG).astimezone(zone).strftime("%H:%M")
+        return when, f"lot de l'Afnic, libre au registre vers {free}"
+    return when, ("début de la suppression quotidienne de Verisign, qui dure 35 à 40 minutes, les noms dans l'ordre "
+                  "où ils sont entrés en suppression")
+
+
+def reminder_tick(conn, checker, store, now: datetime, base: str, order_url: str, calendar_base: str,
+                  can_send: bool) -> tuple[str | None, list[tuple[str, str]]]:
+    """Le message des rappels qui tombent ce passage et leurs marques (nom, sorte), à poser une fois parti ; un rappel
+    posé marque aussi les étapes plus longues de la même libération. Type désactivé ou Telegram pas configuré :
+    marqués sans message. calendar_base : adresse secrète du calendrier sans « .ics » (vide sans calendrier)."""
+    found = reminder_due(conn, checker, now)
+    marks = [(name, reminder_kind(release, s)) for name, release, step, _ in found for s in REMINDER_STEPS if s >= step]
+    if not found or not (can_send and enabled(store, "release_reminder")):
+        mark_countdown(conn, marks, now)
+        return None, []
+    blocks = []
+    for name, release, step, state in found:
+        when, what = release_lines(name, release, now, checker.delays)
+        block = [f"Libération dans {_left_words(release - now)} : {name}",
+                 f"{when[0].upper()}{when[1:]} : {what}{RESTORE_NOTE.get(state, '')}."]
+        if calendar_base:
+            block.append(f"Ajouter au calendrier : {calendar_base}/{name}.ics")
+        if order_url:
+            block.append("Réserver : " + order_url.replace("{domain}", name))
+        url = link(base, name)
+        if url:
+            block.append("Fiche : " + url)
+        blocks.append(block)
+    if len(blocks) == 1:
+        return "\n".join(blocks[0]), marks
+    lines = [f"Rappels de libération : {len(blocks)} noms"]
     for block in blocks:
         lines += ["", *block]
     return "\n".join(lines), marks

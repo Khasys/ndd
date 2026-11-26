@@ -77,7 +77,8 @@ Deux rythmes. **Immédiat** : ce qui demande d'agir tout de suite. **Chaque jour
 |---|---|---|---|
 | Pépite libre | immédiat, vu chaque minute | nom, état (libre vérifié au registre ou chez Gandi, libre selon le WHOIS « à confirmer chez un registrar », premium), prix d'achat Gandi s'il est connu, avis IA (revente, exploitation, prix final), raison, lien vers la fiche, lien Réserver ; les pépites d'un même passage dans un seul message, 10 détaillées puis « et N autres » | par nom et par libération (table `pepites`) |
 | Domaine suivi | immédiat | nom de l'écran Domaines : état avant → après, registrar, libération estimée, lien vers la fiche ; vérification toutes les 5 min en suppression ; .fr en rédemption : vérifié trois minutes après le lot horaire de l'Afnic, puis toutes les 5 min pendant une demi-heure s'il ne l'est pas encore | à chaque changement |
-| Compte à rebours de libération | immédiat, vu chaque minute | nom de l'écran Domaines en rédemption dont la libération a l'heure d'un lot horaire (.fr) : « Libération dans 30 min », 15, 5, puis « Libération maintenant », avec l'heure du lot, l'heure où il se lit libre au registre (deux minutes après), le lien Réserver et la fiche ; les noms d'un même lot dans un seul message ; une étape manquée de plus de 5 min (appli arrêtée) ne part plus | par nom, par lot et par étape |
+| Rappels de libération | immédiat, vu chaque minute | nom de l'écran Domaines en rédemption ou en suppression dont la libération a une heure (.fr : lot horaire de l'Afnic ; .com, .net : passage quotidien de Verisign) : « Libération dans 24 h », 3 h, 1 h, avec le jour et l'heure exacts (« demain vendredi 27/11 à 08:30 »), ce qui se passe à cette heure-là, le lien « Ajouter au calendrier » (s'il y a un calendrier, carte Calendrier), Réserver et la fiche ; un nom ajouté tard reçoit le rappel de l'étape déjà atteinte | par nom, par libération et par étape |
+| Compte à rebours à la minute | immédiat, vu chaque minute ; décoché par défaut | mêmes noms, .fr seulement : « Libération dans 30 min », 15, 5, puis « Libération maintenant », avec l'heure du lot, l'heure où il se lit libre au registre (deux minutes après), le lien Réserver et la fiche ; les noms d'un même lot dans un seul message ; une étape manquée de plus de 5 min (appli arrêtée) ne part plus | par nom, par lot et par étape |
 | Analyse IA prête | immédiat, dans l'heure qui suit la demande | avis IA, raison, lien vers la fiche | par demande |
 | Nouveauté libre | immédiat, vu chaque minute | radar des nouveautés : nom de l'actualité libre au registre et noté « À prendre », la raison vue dans l'actualité, l'avis IA (revente, exploitation, prix final), le lien vers la fiche ; les « À surveiller » du même passage cités en fin de message ; pas de second message comme pépite | par nom |
 | Pépites bientôt libres | chaque jour | même gabarit, avec la libération estimée et la raison du rappel : nouvelle, libération sous 48 h, date revue | jamais la même liste deux jours de suite |
@@ -154,8 +155,15 @@ chaque écran.
 ### Calendrier
 
 Paramètres, Calendrier, « Créer l'adresse » : une URL secrète au format ICS, à ajouter comme
-calendrier par URL dans l'agenda du téléphone. Elle contient les expirations et les libérations
-estimées, avec un rappel la veille. Elle s'ouvre sans mot de passe : la changer si elle a fuité.
+calendrier par URL dans l'agenda du téléphone. Elle contient les expirations (rappel la veille) et les
+libérations estimées : à l'heure du registre quand elle est connue (lot de l'Afnic pour le .fr, passage de
+Verisign pour le .com et le .net), avec rappels 24 h, 3 h et 1 h avant ; sinon le jour, avec rappel la veille.
+Sur iPhone, un calendrier par abonnement perd ses rappels si « Supprimer les alertes » est activé dans ses
+réglages. Elle s'ouvre sans mot de passe : la changer si elle a fuité.
+
+Pour un seul nom : `/calendar/{jeton}/{nom}.ics`, le lien « Ajouter au calendrier » des rappels de libération
+Telegram. Ouvert dans Safari, il propose d'ajouter l'événement et ses trois rappels ; même lien secret, 404 pour
+un nom qui n'est pas dans Domaines ou sans libération estimée.
 Les lignes du fichier sont pliées à 75 octets, comme le demande la RFC 5545 : les agendas stricts
 (Apple, Thunderbird) lisent les longs noms et descriptions sans rien tronquer.
 
@@ -1274,8 +1282,8 @@ Les durées acceptent `30s`, `5m`, `6h`, `7d`, ou un nombre de secondes.
 
 | TLD | Grâce après expiration | Rédemption | Suppression | Estimation |
 |---|---|---|---|---|
-| .com | 45 j | 30 j | 5 j | oui |
-| .net | 45 j | 30 j | 5 j | oui |
+| .com | 45 j | 30 j | 5 j au contrat, 6 j mesurés (passage du lendemain, 12:00 à 12:40 UTC) | oui, à l'heure |
+| .net | 45 j | 30 j | 5 j au contrat, 6 j mesurés (passage du lendemain, 12:00 à 12:40 UTC) | oui, à l'heure |
 | .org | 45 j | 30 j | 5 j | oui |
 | .info | 45 j | 30 j | 5 j | oui |
 | .biz | 45 j | 30 j | 5 j | oui |

@@ -319,7 +319,11 @@ async def lifespan(app: FastAPI):
         et les marques en base empêchent tout envoi en double (redémarrage, rattrapage d'une exécution manquée)."""
         async with alert_lock:
             state, now = app.state, utcnow()
-            # Compte à rebours d'abord : c'est le seul envoi à la minute près.
+            # Rappels et compte à rebours d'abord : ce sont les seuls envois à heure dite.
+            text, marks = await _off(notify.reminder_tick, conn, checker, store, now, _public_url(state),
+                                     _order_url(store), _calendar_base(state), telegram.configured)
+            if text and await telegram.send(text) is None:
+                await _off(notify.mark_countdown, conn, marks, now)
             text, marks = await _off(notify.countdown_tick, conn, checker, store, now, _public_url(state),
                                      _order_url(store), telegram.configured)
             if text and await telegram.send(text) is None:
@@ -1259,6 +1263,13 @@ async def refresh_domain_signals(request: Request, domain_id: int):
         if await signals.update_one(request.app.state.conn, row, http) is None:
             raise HTTPException(503, "Résolveur DNS du NAS injoignable, analyse impossible pour l'instant.")
     return _serialize(_get_row(request, domain_id), request.app.state.checker)
+
+
+def _calendar_base(state) -> str:
+    """Adresse secrète du calendrier sans « .ics », pour les liens « Ajouter au calendrier » des rappels Telegram :
+    vide sans calendrier créé (Paramètres) ou sans adresse publique (APP_URL)."""
+    token, base = state.store.get("calendar_token"), _public_url(state)
+    return f"{base}/calendar/{token}" if token and base else ""
 
 
 def _calendar_url(request: Request) -> str | None:
@@ -3226,6 +3237,22 @@ async def regenerate_calendar(request: Request):
     request.app.state.store.set("calendar_token", secrets.token_urlsafe(24))
     request.app.state.store.set("calendar_created_at", utcnow().isoformat(timespec="seconds"))
     return {"calendar_url": _calendar_url(request)}
+
+
+@app.get("/calendar/{token}/{name}.ics")
+async def calendar_event(request: Request, token: str, name: str):
+    """La libération d'un seul nom suivi (lien des rappels Telegram) : sur iPhone, Safari propose de l'ajouter au
+    calendrier avec ses rappels. Même lien secret que le calendrier ; nom pas suivi ou sans estimation : 404."""
+    expected = request.app.state.store.get("calendar_token")
+    if not expected or not hmac.compare_digest(token.encode(), expected.encode()):
+        raise HTTPException(404)
+    name = name.strip().lower()
+    body = calendar_ics.build_one(request.app.state.checker, name, utcnow(), request.app.state.settings.app_url)
+    if body is None:
+        raise HTTPException(404)
+    # Nom trouvé parmi les domaines suivis : lettres, chiffres, tirets et points seulement, sûr dans l'en-tête.
+    return Response(body, media_type="text/calendar; charset=utf-8",
+                    headers={"Content-Disposition": f'inline; filename="{name}.ics"'})
 
 
 @app.get("/calendar/{token}.ics")

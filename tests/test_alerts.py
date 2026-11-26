@@ -362,7 +362,9 @@ def _client(logged):
 def test_alert_settings_card_and_trial(logged):
     client, st, sent = _client(logged)
     cfg = client.get("/api/settings/alerts").json()
-    assert [t["key"] for t in cfg["types"]] == list(notify.KEYS) and all(t["enabled"] for t in cfg["types"])
+    assert [t["key"] for t in cfg["types"]] == list(notify.KEYS)
+    # Tout coché par défaut, sauf le compte à rebours à la minute.
+    assert {t["key"] for t in cfg["types"] if not t["enabled"]} == set(notify.DEFAULT_OFF)
     assert {t["key"]: t["rhythm"] for t in cfg["types"]}["pepite_free"] == "immediate"
     assert {t["key"]: t["rhythm"] for t in cfg["types"]}["views"] == "daily"
     assert (cfg["pepite_min"], cfg["daily_hour"]) == (70, 8) and client.get("/api/settings").json()["alerts"] == cfg
@@ -536,6 +538,8 @@ def _watched(conn, name, order, state="redemption"):
 def test_countdown_goes_out_30_15_5_minutes_before_the_batch_and_at_it_once_each(tmp_path):
     from app import states
     conn, store = _countdown_db(tmp_path)
+    assert not notify.enabled(store, "release_countdown")  # décoché par défaut depuis la v0.17.8
+    notify.save(store, {"release_countdown": True})
     checker = _Countdown()
     order = datetime(2026, 10, 28, 0, 1, 5, tzinfo=timezone.utc)  # fin des 30 jours le 27/11 à 00:01, lot de 00:30
     _watched(conn, "bavard.fr", order)
@@ -562,6 +566,7 @@ def test_countdown_goes_out_30_15_5_minutes_before_the_batch_and_at_it_once_each
 
 def test_countdown_skips_a_missed_step_groups_names_and_follows_its_box(tmp_path):
     conn, store = _countdown_db(tmp_path)
+    notify.save(store, {"release_countdown": True})
     checker = _Countdown()
     order = datetime(2026, 10, 28, 0, 1, 5, tzinfo=timezone.utc)
     _watched(conn, "bavard.fr", order)
@@ -580,3 +585,53 @@ def test_countdown_skips_a_missed_step_groups_names_and_follows_its_box(tmp_path
     notify.save(store, {"release_countdown": True})
     assert notify.countdown_tick(conn, checker, store, batch - timedelta(minutes=4), "", "", True)[0] is None
     assert "release_countdown" in notify.KEYS
+
+
+def test_reminders_go_out_24h_3h_1h_before_with_the_exact_time_and_a_calendar_link(tmp_path):
+    from app import digest, states
+    conn, store = _countdown_db(tmp_path)
+    checker = _Countdown()
+    order = datetime(2026, 10, 28, 0, 1, 5, tzinfo=timezone.utc)  # lot de l'Afnic le 27/11 à 00:30 UTC
+    _watched(conn, "bavard.fr", order)
+    batch = datetime(2026, 11, 27, 0, 30, tzinfo=timezone.utc)
+    sent = {}
+    minute = batch - timedelta(hours=26)
+    while minute < batch + timedelta(minutes=30):
+        text, marks = notify.reminder_tick(conn, checker, store, minute, "https://nas", "https://reg/?q={domain}",
+                                           "https://nas/calendar/SECRET", True)
+        if text:
+            notify.mark_countdown(conn, marks, minute)
+            sent[round((batch - minute).total_seconds() / 60)] = text
+        minute += timedelta(minutes=1)
+    assert sorted(sent) == [60, 180, 1440]
+    local = batch.astimezone(digest.local_zone())
+    first = sent[1440].splitlines()
+    assert first[0] == "Libération dans 24 h : bavard.fr"
+    assert local.strftime("%d/%m") in first[1] and f"à {local.strftime('%H:%M')}" in first[1]
+    assert "lot de l'Afnic" in first[1] and "sauf si le titulaire le récupère" in first[1]
+    assert "Ajouter au calendrier : https://nas/calendar/SECRET/bavard.fr.ics" in sent[1440]
+    assert "Réserver : https://reg/?q=bavard.fr" in sent[60] and sent[60].startswith("Libération dans 60 min")
+    assert sent[180].startswith("Libération dans 3 h : bavard.fr")
+    assert notify.enabled(store, "release_reminder") and states.has_drop_time("com", checker.delays)
+
+
+def test_a_name_added_late_gets_the_reminder_already_reached_and_com_tells_the_verisign_window(tmp_path):
+    conn, store = _countdown_db(tmp_path)
+    checker = _Countdown()
+    # .com entré en suppression imminente : chute 6 jours après, au passage de Verisign de 12:00 UTC.
+    entered = datetime(2026, 11, 19, 9, 30, tzinfo=timezone.utc)
+    conn.execute("INSERT INTO domains (name, added_at, state, state_since, expires_at) VALUES (?, ?, ?, ?, ?)",
+                 ("rapide.com", iso(entered), "pending_delete", iso(entered), iso(entered - timedelta(days=60))))
+    drop = datetime(2026, 11, 25, 12, 0, tzinfo=timezone.utc)
+    assert checker.release_estimate(conn.execute("SELECT * FROM domains").fetchone()) == drop
+    # Ajouté deux heures avant : le rappel des 3 h seulement, pas celui des 24 h ; sans calendrier, pas de lien.
+    text, marks = notify.reminder_tick(conn, checker, store, drop - timedelta(hours=2), "", "", "", True)
+    assert text.startswith("Libération dans 2 h : rapide.com") and "suppression quotidienne de Verisign" in text
+    assert "calendrier" not in text and "titulaire" not in text  # en suppression imminente, plus de rachat
+    notify.mark_countdown(conn, marks, drop)
+    assert notify.reminder_tick(conn, checker, store, drop - timedelta(minutes=110), "", "", "", True) == (None, [])
+    text, _ = notify.reminder_tick(conn, checker, store, drop - timedelta(minutes=59), "", "", "", True)
+    assert text.startswith("Libération dans 59 min : rapide.com")
+    # Case décochée : marqués sans message.
+    notify.save(store, {"release_reminder": False})
+    assert notify.reminder_tick(conn, checker, store, drop - timedelta(minutes=58), "", "", "", True)[0] is None
